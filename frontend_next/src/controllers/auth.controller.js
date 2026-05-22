@@ -1,0 +1,58 @@
+/**
+ * auth.controller.js – Authentication Controller
+ * ================================================
+ * Quản lý đăng nhập/đăng xuất:
+ *   - handleLogin:  Đăng nhập hoặc đăng ký, lưu session vào cookie
+ *   - handleLogout: Đăng xuất, xóa session, reload trang
+ */
+import { ApiService } from "@/models/api.service";
+
+export const useAuthController = (user, setUser, setIsLoggedIn) => {
+  const handleLogin = async (authData, isSignup) => {
+    try {
+      const data = isSignup 
+        ? await ApiService.signup(authData)
+        : await ApiService.login(authData);
+
+      if (data.status === "success") {
+        const userData = { 
+          username: data.username, 
+          role: data.role,
+          session_token: data.session_token
+        };
+        setIsLoggedIn(true);
+        setUser(userData);
+        localStorage.setItem("isLoggedIn", "true");
+        localStorage.setItem("user", JSON.stringify(userData));
+        return { success: true };
+      } else {
+        if (data.detail && data.detail.includes("quá số lần")) {
+          return { success: false, locked: true, message: data.detail };
+        }
+        alert(data.detail || "Authentication failed");
+        return { success: false, locked: false };
+      }
+    } catch (err) {
+      console.error("Auth error:", err);
+      return { success: false, locked: false };
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (user && user.username) {
+        await ApiService.logout(user.username);
+      }
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+    setIsLoggedIn(false);
+    setUser(null);
+    localStorage.removeItem("isLoggedIn");
+    localStorage.removeItem("user");
+    localStorage.removeItem("activeTab");
+    window.location.reload();
+  };
+
+  return { handleLogin, handleLogout };
+};

@@ -1,0 +1,48 @@
+# ========================
+# Root .gitignore
+# ========================
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Large files & AI models
+*.pt
+*.onnx
+*.db
+*.sqlite3
+
+# Project-specific large directories
+backend/runs/
+backend/dataset/
+backend/dataset_6class/
+backend/dataset_walls/
+backend/Tesst/
+backend/scratch/
+backend/exports/
+frontend/dist/
+frontend/.next/
+node_modules/
+backend/venv/
+backend/__pycache__/
+__pycache__/
+*.pyc
+.next/
+dist/
+build/
+runs/
+cache/
+temp/
+logs/
+*.pt.cache
+*.pth.cache
+backend.zip
+.archive_cleanup/

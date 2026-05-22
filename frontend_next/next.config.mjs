@@ -1,0 +1,54 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // CAD/BIM client-side application — all rendering is client-side
+
+  // API Rewrites — proxy all backend endpoints to Python backend on :8090
+  async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8090";
+    
+    return [
+      // Main API routes
+      { source: "/api/:path*", destination: `${backendUrl}/:path*` },
+      
+      // AI inference endpoints
+      { source: "/predict_seg", destination: `${backendUrl}/predict_seg` },
+      { source: "/predict_seg_roi", destination: `${backendUrl}/predict_seg_roi` },
+      { source: "/predict_seg_wall", destination: `${backendUrl}/predict_seg_wall` },
+      { source: "/predict_seg_wall_roi", destination: `${backendUrl}/predict_seg_wall_roi` },
+      { source: "/predict_door", destination: `${backendUrl}/predict_door` },
+      { source: "/predict_door_roi", destination: `${backendUrl}/predict_door_roi` },
+      { source: "/predict_text", destination: `${backendUrl}/predict_text` },
+      { source: "/predict-room", destination: `${backendUrl}/predict-room` },
+      { source: "/predict-room-6class", destination: `${backendUrl}/predict-room-6class` },
+      { source: "/predict_template", destination: `${backendUrl}/predict_template` },
+      
+      // OCR & classification endpoints
+      { source: "/ocr-corrections", destination: `${backendUrl}/ocr-corrections` },
+      { source: "/classify-room", destination: `${backendUrl}/classify-room` },
+      { source: "/roi-heatmap", destination: `${backendUrl}/roi-heatmap` },
+      
+      // Upload & training endpoints
+      { source: "/upload-image", destination: `${backendUrl}/upload-image` },
+      { source: "/save-label", destination: `${backendUrl}/save-label` },
+    ];
+  },
+
+  // Turbopack configuration (Next.js 16+ uses Turbopack by default)
+  turbopack: {
+    root: ".",
+    resolveAlias: {
+      // PDF.js canvas polyfill — not needed client-side
+      canvas: { browser: "./empty-module.js" },
+    },
+  },
+
+  // Dev server configuration
+  devIndicators: false,
+
+  // Prevent 500 Internal Server Error when AI inference takes longer than 30s
+  experimental: {
+    proxyTimeout: 120000,
+  },
+};
+
+export default nextConfig;

@@ -1,0 +1,155 @@
+[
+  {
+    "original": "NIL",
+    "normalized_key": "NIL",
+    "corrected": "WIL",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T00:34:22.409752"
+  },
+  {
+    "original": "850 BULKHEAD",
+    "normalized_key": "850 BULKHEAD",
+    "corrected": "WIR",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T00:34:33.431067"
+  },
+  {
+    "original": "OTU",
+    "normalized_key": "OTU",
+    "corrected": "ENS",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T00:34:55.155057"
+  },
+  {
+    "original": "MOOS",
+    "normalized_key": "MOOS",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:46:04.847652"
+  },
+  {
+    "original": "DN",
+    "normalized_key": "DN",
+    "corrected": "RUMPUS",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:46:30.728295"
+  },
+  {
+    "original": "MC",
+    "normalized_key": "MC",
+    "corrected": "WIR",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:51:48.580374"
+  },
+  {
+    "original": "X 1500W",
+    "normalized_key": "X 1500W",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:52:11.094472"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:56:36.034358"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "ENS",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:56:46.523147"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "ENS",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T02:58:17.325728"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T03:00:14.195984"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T03:03:03.735812"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "ENS",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T03:03:11.727213"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T03:12:51.185933"
+  },
+  {
+    "original": "JHJIN",
+    "normalized_key": "JHJIN",
+    "corrected": "WC",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T03:22:53.180861"
+  },
+  {
+    "original": "OOG",
+    "normalized_key": "OOG",
+    "corrected": "wir",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-20T03:23:04.440881"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "LINEN 4SH",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-22T09:22:07.493606"
+  }
+]
