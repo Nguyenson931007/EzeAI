@@ -2191,12 +2191,36 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                           f"swing={refined_geometry.get('swing_direction')}, "
                           f"angle={refined_geometry.get('opening_angle'):.1f}°, "
                           f"geom_conf={geometry_confidence:.2f}")
-                    # Override the base endpoints with refined centerline endpoints
+                    # Override the base endpoints with refined centerline endpoints, scaled to the correct width
                     if "door_centerline" in refined_geometry:
                         cl = refined_geometry["door_centerline"]
                         if cl and "p1" in cl and "p2" in cl:
-                            p1 = {"x": float(cl["p1"][0]), "y": float(cl["p1"][1])}
-                            p2 = {"x": float(cl["p2"][0]), "y": float(cl["p2"][1])}
+                            import math
+                            # Calculate exact target length in pixels (mm / real_scale)
+                            target_len = bbox_length
+                            if real_scale > 0:
+                                target_len = width_mm / real_scale
+                                
+                            # If target_len is abnormally small, fallback to bbox_length
+                            if target_len < 10:
+                                target_len = bbox_length
+
+                            # Compute direction vector of the refined centerline
+                            dx = float(cl["p2"][0] - cl["p1"][0])
+                            dy = float(cl["p2"][1] - cl["p1"][1])
+                            current_len = math.sqrt(dx*dx + dy*dy)
+                            
+                            if current_len > 0:
+                                # Scale centerline to the correct target length
+                                scale_factor = target_len / current_len
+                                p1 = {"x": float(cl["p1"][0]), "y": float(cl["p1"][1])}
+                                p2 = {
+                                    "x": float(cl["p1"][0] + dx * scale_factor),
+                                    "y": float(cl["p1"][1] + dy * scale_factor)
+                                }
+                            else:
+                                p1 = {"x": float(cl["p1"][0]), "y": float(cl["p1"][1])}
+                                p2 = {"x": float(cl["p2"][0]), "y": float(cl["p2"][1])}
             except Exception as refine_err:
                 print(f"[floor_ai_detect] Door #{i}: Geometry refinement skipped: {refine_err}")
 
