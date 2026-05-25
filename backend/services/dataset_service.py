@@ -203,6 +203,12 @@ def save_visual_check(rooms, width, height, image_name, project_name, username, 
         cid = room.class_id if room.class_id is not None else 0
         color = get_color(cid)
 
+        # Draw filled semi-transparent polygon (segment)
+        overlay = img.copy()
+        cv2.fillPoly(overlay, [pts], color)
+        cv2.addWeighted(overlay, 0.25, img, 0.75, 0, img)
+
+        # Draw sharp outline
         cv2.polylines(img, [pts], True, color, 2)
 
         if len(pts) > 0:
