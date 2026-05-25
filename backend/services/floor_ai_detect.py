@@ -2191,19 +2191,13 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                           f"swing={refined_geometry.get('swing_direction')}, "
                           f"angle={refined_geometry.get('opening_angle'):.1f}°, "
                           f"geom_conf={geometry_confidence:.2f}")
-                    # Override the base endpoints with refined centerline endpoints, scaled to the correct width
+                    # Override the base endpoints with refined centerline endpoints, scaled to the exact YOLO bounding box length
                     if "door_centerline" in refined_geometry:
                         cl = refined_geometry["door_centerline"]
                         if cl and "p1" in cl and "p2" in cl:
                             import math
-                            # Calculate exact target length in pixels (mm / real_scale)
+                            # The major axis of the bounding box represents the true opening width of the door in pixels.
                             target_len = bbox_length
-                            if real_scale > 0:
-                                target_len = width_mm / real_scale
-                                
-                            # If target_len is abnormally small, fallback to bbox_length
-                            if target_len < 10:
-                                target_len = bbox_length
 
                             # Compute direction vector of the refined centerline
                             dx = float(cl["p2"][0] - cl["p1"][0])
