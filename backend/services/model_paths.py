@@ -19,12 +19,12 @@ MODEL_CANDIDATES = {
         BASE_DIR / "models" / "wall_segmentation.pt",
     ],
     "door": [
-        BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
-        BASE_DIR / "backend" / "runs" / "segment" / "weights_export" / "best.pt",
-        BASE_DIR / "backend" / "runs" / "detect" / "Door_model" / "weights" / "best.pt",
-        BASE_DIR / "runs" / "segment" / "weights_export" / "best.pt",
-        BASE_DIR / "runs" / "detect" / "Door_model" / "weights" / "best.pt",
-        BASE_DIR / "models" / "door_detection.pt",
+        # BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+        BASE_DIR / "backend" / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
+        # BASE_DIR / "backend" / "runs" / "detect" / "Door_model" / "weights" / "best.pt",
+        BASE_DIR / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
+        # BASE_DIR / "runs" / "detect" / "Door_model" / "weights" / "best.pt",
+        # BASE_DIR / "models" / "door_detection.pt",
     ],
     "text": [
         BASE_DIR / "backend" / "models" / "Text" / "weights" / "best.pt",

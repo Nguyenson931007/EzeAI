@@ -13,6 +13,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
 import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid } from "@/utils/geometry";
+import { animateZoomToHinge, cancelActiveZoomAnimation } from "../engines/SmartDoorCropEngine";
+import { calculateDoorGeometry } from "../engines/DoorArcLabelEngine";
 
 export function useInteractionController(svgRef) {
   const {
@@ -99,6 +101,7 @@ export function useInteractionController(svgRef) {
       if (e.key === "Control") setIsCtrlDown(true);
 
       if (e.code === "Escape") {
+        cancelActiveZoomAnimation();
         // If ROI is active, clear it first
         if (roiRect) { clearROI(); return; }
         setDrawing(false);
@@ -168,6 +171,7 @@ export function useInteractionController(svgRef) {
 
     const handleWheel = (e) => {
       e.preventDefault();
+      cancelActiveZoomAnimation();
       const rect = el.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
@@ -404,6 +408,16 @@ export function useInteractionController(svgRef) {
 
       const nextDoor = [...currentDoor, snappedP];
       setCurrentDoor(nextDoor);
+      if (nextDoor.length === 1) {
+        animateZoomToHinge({
+          hingePoint: snappedP,
+          svgRef,
+          currentScale: scale,
+          currentOffset: offset,
+          setScale,
+          setOffset
+        });
+      }
       if (nextDoor.length === 2) {
         finishDoor(nextDoor);
       }
@@ -648,6 +662,16 @@ export function useInteractionController(svgRef) {
       return;
     }
 
+    // Compute BIM Payload metadata using DoorArcLabelEngine
+    const geom = calculateDoorGeometry({
+      p1: pts[0],
+      p2: pts[1],
+      type: "single",
+      hingeSide: "left",
+      swing: "inward",
+      angle: 90
+    });
+
     const newDoor = {
       id: Date.now(),
       wall_id: pts[0].wallId !== undefined ? pts[0].wallId : (pts[1]?.wallId !== undefined ? pts[1].wallId : null),
@@ -655,7 +679,16 @@ export function useInteractionController(svgRef) {
       width: Math.round(dist * (realScale || 20)),
       height: 2100,
       type: "single",
-      swing: "left"
+      swing: "inward",
+      hingeSide: "left",
+      angle: 90,
+      
+      // BIM Payload Metadata
+      arc_center: geom ? geom.arcCenter : pts[0],
+      arc_midpoint: geom ? geom.arcMidpoint : { x: (pts[0].x + pts[1].x)/2, y: (pts[0].y + pts[1].y)/2 },
+      label_rotation: geom ? geom.labelRotation : 0,
+      swing_direction: "inward",
+      opening_angle: 90
     };
     const doors = doorsByPage[currentPage] || [];
     pushHistory(null, null, [...doors, newDoor]);
@@ -897,6 +930,7 @@ export function useInteractionController(svgRef) {
 
   function onWheel(e) {
     e.preventDefault();
+    cancelActiveZoomAnimation();
     const zoomSpeed = 0.001;
     const delta = -e.deltaY;
     const newScale = Math.min(Math.max(scale + delta * zoomSpeed * scale, 0.05), 20);

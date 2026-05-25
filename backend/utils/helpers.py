@@ -143,3 +143,67 @@ def to_yolo_txt(rooms):
         line = f"{r['class_id']} " + " ".join(coords)
         lines.append(line)
     return "\n".join(lines)
+
+
+def convert_doors_to_yolo_5class(doors, img_w, img_h):
+    from shapely.geometry import LineString
+    lines = []
+    
+    if not doors:
+        return ""
+        
+    for door in doors:
+        # Support both object and dict representation
+        if isinstance(door, dict):
+            pts_raw = door.get("points", [])
+            d_type = door.get("type", "single") or door.get("door_type", "single") or "single"
+        else:
+            pts_raw = getattr(door, "points", [])
+            d_type = getattr(door, "type", "single") or getattr(door, "door_type", "single") or "single"
+            
+        pts = []
+        for p in pts_raw:
+            if isinstance(p, dict):
+                pts.append((p.get("x"), p.get("y")))
+            else:
+                pts.append((getattr(p, "x", 0), getattr(p, "y", 0)))
+                
+        if len(pts) < 2:
+            continue
+            
+        try:
+            line = LineString(pts)
+            # Create standard polygon buffer of 8px
+            poly = line.buffer(8.0, join_style=2, cap_style=2)
+            
+            coords = []
+            for x, y in poly.exterior.coords[:-1]:
+                nx = min(max(x / img_w, 0.0), 1.0)
+                ny = min(max(y / img_h, 0.0), 1.0)
+                coords.append(f"{nx:.6f} {ny:.6f}")
+                
+            # Class mapping:
+            # 0: single_door
+            # 1: double_door
+            # 2: sliding_door
+            # 3: cavity_slider
+            # 4: bi_fold
+            d_type = str(d_type).lower().strip()
+            if "double" in d_type:
+                class_id = 1
+            elif "sliding" in d_type:
+                class_id = 2
+            elif "cavity" in d_type or "slider" in d_type:
+                class_id = 3
+            elif "bi" in d_type or "fold" in d_type:
+                class_id = 4
+            else:
+                class_id = 0  # single_door
+                
+            line_str = f"{class_id} " + " ".join(coords)
+            lines.append(line_str)
+        except Exception as e:
+            print(f"Error converting door to YOLO: {e}")
+            pass
+            
+    return "\n".join(lines)

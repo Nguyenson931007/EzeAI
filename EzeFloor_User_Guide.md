@@ -20,6 +20,7 @@ Tài liệu này hướng dẫn chi tiết toàn bộ các tính năng, công c�
 8. [Bản đồ Thu nhỏ Tương tác Nổi (Floating Minimap)](#8-bản-đồ-thu-nhỏ-tương-tác-nổi-floating-minimap)
 9. [Bảng Bóc tách Khối lượng BOQ & Tính toán Chi phí](#9-bảng-bóc-tách-khối-lượng-boq--tính-toán-chi-phí)
 10. [Hệ thống Phím tắt Tiện ích](#10-hệ-thống-phím-tắt-tiện-ích)
+11. [Hệ thống Trích xuất & Huấn luyện YOLO cho Cửa (YOLO Label Export)](#11-hệ-thống-trích-xuất--huấn-luyện-yolo-cho-cửa-yolo-label-export)
 
 ---
 
@@ -83,6 +84,15 @@ EzeFloor được trang bị các mô hình mạng nơ-ron học sâu (Deep Lear
    - Các cửa nhận diện thô từ YOLO thường bị lệch ra giữa phòng (do bao gồm cả phần cánh cửa xoay và đường cung nét đứt).
    - EzeFloor tích hợp thuật toán phân tích điểm ảnh tối cực đại nhằm xác định chính xác đường trục của bức tường nằm ở cạnh nào của khung bao cửa (Top/Bottom đối với tường ngang, Left/Right đối với tường đứng).
    - Tọa độ cửa sẽ tự động được hút chuẩn (snap) sát vào khuôn tường thực tế của bản vẽ gốc, triệt tiêu hoàn toàn độ lệch.
+- **Hệ thống Zoom Điện ảnh & Vẽ Cửa Thông minh (Cinematic Zoom & Smart Annotation)**:
+  - Khi người dùng click chọn điểm bản lề đầu tiên (Hinge point), hệ thống sẽ kích hoạt **Smart Door Crop/Zoom Engine** tự động zoom mượt mà (sử dụng hàm nội suy `easeInOutCubic` qua `requestAnimationFrame`) vào khu vực tường cục bộ trong 300ms.
+  - Người dùng có thể dễ dàng hủy trạng thái zoom bằng cách nhấn phím `Escape` hoặc cuộn chuột xoay.
+  - Trong quá trình rê chuột vẽ điểm thứ hai, Canvas sẽ hiển thị hiệu ứng **Ghost Arc real-time** (đường cung nét đứt và khoảng cách mm thời gian thực) để xem trước kích thước và hướng mở của cửa trước khi xác nhận.
+- **Nhãn Vòng cung CAD-Grade (Door Arc Label Engine)**:
+  - Nhãn kích thước và mô tả của cửa được uốn cong mượt mà theo cung tròn mở cửa (Arc sweep).
+  - Tích hợp công nghệ chống chữ ngược kỹ thuật (**Upside-down protection**): tự động lật text 180 độ nếu góc quay rơi vào khoảng từ $90^\circ$ đến $270^\circ$, đảm bảo tiêu chuẩn bản vẽ CAD/BIM chuyên nghiệp có thể đọc được dễ dàng từ mọi hướng.
+  - Sử dụng SVG anti-aliasing glow filter giúp chữ nổi bật rõ nét trên các background PDF phức tạp.
+- **Payload Metadata chuẩn BIM**: Khi lưu cửa vẽ xong, hệ thống tự động sinh dữ liệu hình học chi tiết (`arc_center`, `arc_midpoint`, `label_rotation`, `swing_direction`, `opening_angle`) lưu vào cơ sở dữ liệu phục vụ xuất bản vẽ hoặc nạp vào pipeline AI tiếp theo.
 
 ---
 
@@ -158,3 +168,22 @@ Nhấp vào tab **BOQ Table** trên Ribbon để mở bảng Dự toán Vật li
 - **`Delete` / `Backspace`**: Xóa đối tượng đang được chọn (Phòng, Tường hoặc Cửa) khỏi canvas làm việc.
 - **`Ctrl + Z`**: Hoàn tác (Undo) hành động trước đó.
 - **`Ctrl + Y` / `Ctrl + Shift + Z`**: Làm lại (Redo) hành động vừa hoàn tác.
+
+---
+
+## 11. Hệ thống Trích xuất & Huấn luyện YOLO cho Cửa (YOLO Label Export)
+
+Hệ thống tích hợp sẵn pipeline trích xuất dữ liệu huấn luyện YOLO cho Cửa tự động từ giao diện sang tệp dữ liệu huấn luyện:
+- **Chuẩn hoá Hệ Class AI (5 Classes)**:
+  - Hỗ trợ đầy đủ 5 phân loại cửa kỹ thuật:
+    - `0: single_door`
+    - `1: double_door`
+    - `2: sliding_door`
+    - `3: cavity_slider`
+    - `4: bi_fold`
+- **Thuật toán Tạo Đa giác YOLO (Polygon Segmentation)**:
+  - Sử dụng thư viện hình học `shapely` ở backend để tự động đệm (buffer) đường thẳng cửa (line) thành một vùng đa giác segmentation có độ dày 8px chuẩn xác.
+  - Tọa độ đa giác được quy đổi tỉ lệ sang định dạng chuẩn YOLO `[class x1 y1 x2 y2 ...]` (giá trị tương đối từ 0 đến 1 dựa trên kích thước thực tế của ảnh gốc).
+- **Lưu trữ chuẩn thư mục huấn luyện**:
+  - Khắc phục hoàn toàn lỗi file YOLO rỗng (0-byte) khi xuất dữ liệu.
+  - Dữ liệu nhãn khi người dùng export (qua hàm `addTrainDoors` ở frontend) sẽ được ghi trực tiếp vào đúng tệp nhãn của hình ảnh tương ứng trong thư mục `backend/dataset/train/labels/` và sẵn sàng chạy training trực tiếp thông qua script `train_yolo.py`.

@@ -322,16 +322,22 @@ def save_label(data: LabelRequest):
     - Tạo ảnh kiểm trực quan trực tiếp (visual checks) để phục vụ kiểm tra nhãn thủ công.
     - Lưu trữ các hành vi tinh chỉnh hình học ROI vào bộ mẫu huấn luyện phản hồi nâng cao (active sampling).
     """
-    if not data.rooms and not data.walls and not data.doors:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Danh sách nhãn rỗng, không thể thực hiện lưu nhãn."
-        )
+    image_name = data.name
+    print(f"[train] Lưu nhãn tên={image_name} phòng={len(data.rooms)} kích thước={data.width}x{data.height}")
 
-    print(f"[train] Lưu nhãn tên={data.name} phòng={len(data.rooms)} kích thước={data.width}x{data.height}")
+    if image_name and image_name.startswith("door_"):
+        from utils.helpers import convert_doors_to_yolo_5class
+        door_yolo_txt = convert_doors_to_yolo_5class(data.doors or [], data.width, data.height)
+        print(f"[train] Ghi nhận số dòng nhãn cửa 5-class={len(door_yolo_txt.splitlines())} cho {image_name}")
+        dataset_service.save_label(door_yolo_txt, image_name)
+        dataset_service.save_visual_check(
+            [], data.width, data.height, image_name,
+            data.project_name, data.username,
+            walls=data.walls, doors=data.doors
+        )
+        return {"status": "ok"}
 
     rooms = [r.dict() for r in data.rooms]
-    image_name = data.name
 
     # Hàm tạo nội dung dòng văn bản YOLO format (class_id x_center y_center width height) hoặc đa giác phân đoạn
     def build_yolo_txt(objs):

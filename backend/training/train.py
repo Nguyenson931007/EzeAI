@@ -6,7 +6,7 @@ model = YOLO("yolov8n-seg.pt")   # segmentation model
 
 # Train
 model.train(
-    data="C:/Users/LND01/Downloads/Data_Door_19-5-2026/Data_Door_19-5-2026/classes.yaml",
+    data="D:/EzeFloor-main/EzeFloor-main/backend/dataset/data.yaml",
     epochs=200,
     imgsz=1024,
     degrees=0,       # ❌ không nên xoay nhiều

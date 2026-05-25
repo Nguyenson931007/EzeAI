@@ -24,6 +24,11 @@ DB_TYPE = os.getenv("DB_TYPE", "sqlite").lower()
 # SQLite
 SQLITE_PATH = os.getenv("SQLITE_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "ezefloor.db"))
 
+# Ensure SQLite directory exists
+if DB_TYPE == "sqlite" and SQLITE_PATH:
+    _sqlite_dir = os.path.dirname(os.path.abspath(SQLITE_PATH))
+    os.makedirs(_sqlite_dir, exist_ok=True)
+
 # MySQL
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))

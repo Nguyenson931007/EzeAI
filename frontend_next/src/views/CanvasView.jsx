@@ -19,6 +19,7 @@ import {
   polygonAreaM2 as polygonAreaM2Util, 
   calculateWallPolygon 
 } from "@/utils/geometry";
+import { calculateDoorGeometry } from "../engines/DoorArcLabelEngine";
 
 // Review/Confidence Color Mapping
 const REVIEW_COLORS = {
@@ -341,28 +342,51 @@ const DoorLayer = React.memo(({
         const type = d.type || "single";
 
         const renderSingleDoor = () => {
+          const geom = calculateDoorGeometry({
+            p1,
+            p2,
+            type: "single",
+            hingeSide: d.hingeSide || "left",
+            swing: d.swing || "inward",
+            angle: d.angle || 90
+          });
+
+          if (!geom) return null;
+
           const isRightHinge = d.hingeSide === "right";
           const isInward = (d.swing || "inward") === "inward";
-          const openAngleDeg = d.angle || 90;
-          const openAngleRad = (openAngleDeg * Math.PI) / 180;
-          const hinge = isRightHinge ? p2 : p1;
-          const other = isRightHinge ? p1 : p2;
-          const sideFactor = isInward ? 1 : -1;
-          const hingeFactor = isRightHinge ? -1 : 1;
           const sweepFlag = (isRightHinge ? (isInward ? 0 : 1) : (isInward ? 1 : 0));
-          const startAngle = Math.atan2(other.y - hinge.y, other.x - hinge.x);
-          const endAngle = startAngle + hingeFactor * sideFactor * openAngleRad;
-          const arcEndX = hinge.x + len * Math.cos(endAngle);
-          const arcEndY = hinge.y + len * Math.sin(endAngle);
 
           return (
             <g>
               <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
               <path 
-                d={`M ${other.x} ${other.y} A ${len} ${len} 0 0 ${sweepFlag} ${arcEndX} ${arcEndY}`}
+                d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
                 fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3,2"
               />
-              <line x1={hinge.x} y1={hinge.y} x2={arcEndX} y2={arcEndY} stroke={color} strokeWidth={isSelected ? 4 : 2.5} />
+              <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={color} strokeWidth={isSelected ? 4 : 2.5} />
+              
+              {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
+              <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
+                <rect
+                  x={-24} y={-8} width={48} height={16} rx={2}
+                  fill="rgba(255, 255, 255, 0.95)"
+                  filter="url(#glow)"
+                  stroke={color} strokeWidth={0.5}
+                />
+                <text
+                  x={0} y={1}
+                  fontSize="10"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill={color}
+                  fontFamily="Inter, sans-serif"
+                  fontWeight="bold"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {d.width || Math.round(geom.widthPx * (realScale || 20))}
+                </text>
+              </g>
             </g>
           );
         };
@@ -414,20 +438,39 @@ const DoorLayer = React.memo(({
              }}
              style={{ cursor: 'pointer' }}
           >
-            {type === "double" ? renderDoubleDoor() : (type === "sliding" ? renderSlidingDoor() : renderSingleDoor())}
-            
-            <text 
-              x={(p1.x + p2.x) / 2} 
-              y={(p1.y + p2.y) / 2 - 10} 
-              fontSize="12" 
-              textAnchor="middle" 
-              fill={color} 
-              fontFamily="Inter, sans-serif"
-              fontWeight="bold"
-              style={{ pointerEvents: 'none', userSelect: 'none' }}
-            >
-              {d.width || Math.round(len * (realScale || 20))}
-            </text>
+            {type === "double" ? (
+              <>
+                {renderDoubleDoor()}
+                <text 
+                  x={(p1.x + p2.x) / 2} 
+                  y={(p1.y + p2.y) / 2 - 10} 
+                  fontSize="10" 
+                  textAnchor="middle" 
+                  fill={color} 
+                  fontFamily="Inter, sans-serif"
+                  fontWeight="bold"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {d.width || Math.round(len * (realScale || 20))}
+                </text>
+              </>
+            ) : (type === "sliding" ? (
+              <>
+                {renderSlidingDoor()}
+                <text 
+                  x={(p1.x + p2.x) / 2} 
+                  y={(p1.y + p2.y) / 2 - 10} 
+                  fontSize="10" 
+                  textAnchor="middle" 
+                  fill={color} 
+                  fontFamily="Inter, sans-serif"
+                  fontWeight="bold"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {d.width || Math.round(len * (realScale || 20))}
+                </text>
+              </>
+            ) : renderSingleDoor())}
           </g>
         );
       })}
@@ -1120,6 +1163,18 @@ export default function CanvasView({
             if (onMouseDown) onMouseDown(e);
           }}
         >
+          <defs>
+            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2" result="blur" />
+              <feComponentTransfer in="blur" result="glow1">
+                <feFuncA type="linear" slope="0.9" />
+              </feComponentTransfer>
+              <feMerge>
+                <feMergeNode in="glow1" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
           {/* Main Transformation Matrix */}
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
             
@@ -1208,41 +1263,69 @@ export default function CanvasView({
               </g>
             )}
 
-            {isDrawingDoor && (currentDoor.length > 0 || currentMouse) && (
-              <g style={{ pointerEvents: 'none' }}>
-                <line
-                  x1={currentDoor[0]?.x || currentMouse.x}
-                  y1={currentDoor[0]?.y || currentMouse.y}
-                  x2={currentMouse.x}
-                  y2={currentMouse.y}
-                  stroke="#4CAF50"
-                  strokeWidth={5}
-                  strokeDasharray="4,2"
-                />
-                {currentDoor.length === 1 && currentMouse && (() => {
-                  const p1 = currentDoor[0];
-                  const p2 = currentMouse;
-                  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-                  const widthMm = Math.round(dist * (realScale || 20));
-                  return (
-                    <text 
-                      x={(p1.x + p2.x) / 2} 
-                      y={(p1.y + p2.y) / 2 - 15} 
-                      fontSize="14" 
-                      textAnchor="middle" 
-                      fill="#4CAF50" 
-                      fontFamily="Inter, sans-serif"
-                      fontWeight="bold"
-                    >
-                      {widthMm} mm
-                    </text>
-                  );
-                })()}
-                {currentDoor.map((p, i) => (
-                  <circle key={i} cx={p.x} cy={p.y} r={4} fill="#4CAF50" />
-                ))}
-              </g>
-            )}
+            {isDrawingDoor && (currentDoor.length > 0 || currentMouse) && (() => {
+              if (currentDoor.length === 1 && currentMouse) {
+                const p1 = currentDoor[0];
+                const p2 = currentMouse;
+                const geom = calculateDoorGeometry({
+                  p1,
+                  p2,
+                  type: "single",
+                  hingeSide: "left",
+                  swing: "inward",
+                  angle: 90
+                });
+
+                if (!geom) return null;
+
+                const sweepFlag = 1;
+                const widthMm = Math.round(geom.widthPx * (realScale || 20));
+
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <circle cx={p1.x} cy={p1.y} r={5} fill="#4CAF50" stroke="#fff" strokeWidth={1.5} />
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={1.5} opacity={0.3} />
+                    <path 
+                      d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
+                      fill="none" stroke="#4CAF50" strokeWidth={1.5} strokeDasharray="4,2"
+                    />
+                    <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke="#4CAF50" strokeWidth={3} />
+                    
+                    {/* Ghost Arc Label with Glow filter */}
+                    <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
+                      <rect
+                        x={-28} y={-8} width={56} height={16} rx={2}
+                        fill="rgba(255, 255, 255, 0.95)"
+                        filter="url(#glow)"
+                        stroke="#4CAF50" strokeWidth={0.5}
+                      />
+                      <text
+                        x={0} y={1}
+                        fontSize="9"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="#4CAF50"
+                        fontFamily="Inter, sans-serif"
+                        fontWeight="bold"
+                      >
+                        {widthMm} mm
+                      </text>
+                    </g>
+                    
+                    <circle cx={p2.x} cy={p2.y} r={3} fill="#4CAF50" />
+                  </g>
+                );
+              }
+
+              if (currentMouse) {
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <circle cx={currentMouse.x} cy={currentMouse.y} r={4} fill="#4CAF50" stroke="#fff" strokeWidth={1.5} />
+                  </g>
+                );
+              }
+              return null;
+            })()}
 
             {!drawing && currentPoly.length > 0 && (
               <polyline
