@@ -741,6 +741,13 @@ class DoorRefinementEngine:
         x1, y1, x2, y2 = [float(v) for v in bbox]
         cx = (x1 + x2) / 2.0
         cy = (y1 + y2) / 2.0
+        w = x2 - x1
+        h = y2 - y1
+
+        if w > h:
+            door_cl = {"p1": (x1, cy), "p2": (x2, cy)}
+        else:
+            door_cl = {"p1": (cx, y1), "p2": (cx, y2)}
 
         return {
             "hinge_point": None,
@@ -752,7 +759,7 @@ class DoorRefinementEngine:
             "swing_direction": "unknown",
             "hinge_side": "unknown",
             "opening_angle": 0.0,
-            "door_centerline": {"p1": (x1, cy), "p2": (x2, cy)},
+            "door_centerline": door_cl,
             "geometry_confidence": 0.0,
             "door_type": door_type,
             "wall_attachment": None,
