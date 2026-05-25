@@ -336,6 +336,7 @@ export const useAIController = (
       if (data && data.pages && data.pages[0]) {
         const detected = (data.pages[0].doors || []).map(d => ({
           ...d,
+          page_index: currentPage,
           review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
         }));
         console.log(`[Door AI${roiRect ? " ROI" : ""}] Detected doors:`, detected.length);

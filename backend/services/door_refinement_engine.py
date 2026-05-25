@@ -534,12 +534,18 @@ class DoorRefinementEngine:
                 hinge_global, bbox
             )
 
-            # Door centerline (trung điểm cánh cửa)
-            mid_x = (leaf_line_global["p1"][0] + leaf_line_global["p2"][0]) / 2.0
-            mid_y = (leaf_line_global["p1"][1] + leaf_line_global["p2"][1]) / 2.0
+            # Door centerline (cánh cửa kéo dài hoàn toàn từ hinge đến đầu mút)
+            p1_x, p1_y = leaf_line_global["p1"]
+            p2_x, p2_y = leaf_line_global["p2"]
+            dist1 = math.sqrt((p1_x - hinge_global[0]) ** 2 + (p1_y - hinge_global[1]) ** 2)
+            dist2 = math.sqrt((p2_x - hinge_global[0]) ** 2 + (p2_y - hinge_global[1]) ** 2)
+            if dist1 <= dist2:
+                far_end = (p2_x, p2_y)
+            else:
+                far_end = (p1_x, p1_y)
             result["door_centerline"] = {
                 "p1": hinge_global,
-                "p2": (mid_x, mid_y),
+                "p2": far_end,
             }
 
             # Tính confidence

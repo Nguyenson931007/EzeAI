@@ -325,154 +325,163 @@ const DoorLayer = React.memo(({
   return (
     <g id="DoorLayer">
       {(doors || []).map(d => {
-        const isSelected = selectedId === d.id && selectedType === "door";
-        const p1 = d.points[0];
-        const p2 = d.points[1];
-        if (!p1 || !p2) return null;
+        try {
+          const isSelected = selectedId === d.id && selectedType === "door";
+          const p1 = d.points?.[0];
+          const p2 = d.points?.[1];
+          if (!p1 || !p2) return null;
 
-        // Review state color mapping
-        const revState = d.review_state || (d.id && String(d.id).startsWith("door_ai") ? "ai_corrected" : "AI_GENERATED");
-        const revStyle = REVIEW_COLORS[revState];
-        const color = isSelected ? "#FF5722" : (revStyle ? revStyle.stroke : "#4CAF50");
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy);
 
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const len = Math.hypot(dx, dy);
-        const angle = Math.atan2(dy, dx);
-        const type = d.type || "single";
+          // Skip microscopic/degenerate door sweeps to prevent browser SVG crash
+          if (len < 5) return null;
 
-        const renderSingleDoor = () => {
-          const geom = calculateDoorGeometry({
-            p1,
-            p2,
-            type: "single",
-            hingeSide: d.hingeSide || "left",
-            swing: d.swing || "inward",
-            angle: d.angle || 90
-          });
+          // Review state color mapping
+          const revState = d.review_state || (d.id && String(d.id).startsWith("door_ai") ? "ai_corrected" : "AI_GENERATED");
+          const revStyle = REVIEW_COLORS[revState];
+          const color = isSelected ? "#FF5722" : (revStyle ? revStyle.stroke : "#4CAF50");
 
-          if (!geom) return null;
+          const angle = Math.atan2(dy, dx);
+          const type = d.type || "single";
 
-          const isRightHinge = d.hingeSide === "right";
-          const isInward = (d.swing || "inward") === "inward";
-          const sweepFlag = (isRightHinge ? (isInward ? 0 : 1) : (isInward ? 1 : 0));
+          const renderSingleDoor = () => {
+            const geom = calculateDoorGeometry({
+              p1,
+              p2,
+              type: "single",
+              hingeSide: d.hingeSide || d.hinge_side || "left",
+              swing: d.swing || d.swing_direction || "inward",
+              angle: d.angle || d.opening_angle || 90
+            });
 
-          return (
-            <g>
-              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
-              <path 
-                d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
-                fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3,2"
-              />
-              <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={color} strokeWidth={isSelected ? 4 : 2.5} />
-              
-              {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
-              <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
-                <rect
-                  x={-24} y={-8} width={48} height={16} rx={2}
-                  fill="rgba(255, 255, 255, 0.95)"
-                  filter="url(#glow)"
-                  stroke={color} strokeWidth={0.5}
+            if (!geom) return null;
+
+            const isRightHinge = (d.hingeSide || d.hinge_side) === "right";
+            const isInward = (d.swing || d.swing_direction || "inward") === "inward";
+            const sweepFlag = (isRightHinge ? (isInward ? 0 : 1) : (isInward ? 1 : 0));
+
+            return (
+              <g>
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
+                <path 
+                  d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
+                  fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3,2"
                 />
-                <text
-                  x={0} y={1}
-                  fontSize="10"
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill={color}
-                  fontFamily="Inter, sans-serif"
-                  fontWeight="bold"
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {d.width || Math.round(geom.widthPx * (realScale || 20))}
-                </text>
+                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={color} strokeWidth={isSelected ? 4 : 2.5} />
+                
+                {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
+                <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
+                  <rect
+                    x={-24} y={-8} width={48} height={16} rx={2}
+                    fill="rgba(255, 255, 255, 0.95)"
+                    filter="url(#glow)"
+                    stroke={color} strokeWidth={0.5}
+                  />
+                  <text
+                    x={0} y={1}
+                    fontSize="10"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill={color}
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {d.width || Math.round(geom.widthPx * (realScale || 20))}
+                  </text>
+                </g>
               </g>
-            </g>
-          );
-        };
+            );
+          };
 
-        const renderDoubleDoor = () => {
-          const halfLen = len / 2;
-          const isInward = (d.swing || "inward") === "inward";
-          const openAngleDeg = d.angle || 90;
-          const openAngleRad = (openAngleDeg * Math.PI) / 180;
-          const midX = (p1.x + p2.x) / 2;
-          const midY = (p1.y + p2.y) / 2;
-          const sideFactor = isInward ? 1 : -1;
-          const ang1 = Math.atan2(midY - p1.y, midX - p1.x) + sideFactor * openAngleRad;
-          const end1X = p1.x + halfLen * Math.cos(ang1);
-          const end1Y = p1.y + halfLen * Math.sin(ang1);
-          const ang2 = Math.atan2(midY - p2.y, midX - p2.x) - sideFactor * openAngleRad;
-          const end2X = p2.x + halfLen * Math.cos(ang2);
-          const end2Y = p2.y + halfLen * Math.sin(ang2);
+          const renderDoubleDoor = () => {
+            const halfLen = len / 2;
+            const isInward = (d.swing || d.swing_direction || "inward") === "inward";
+            const openAngleDeg = d.angle || d.opening_angle || 90;
+            const openAngleRad = (openAngleDeg * Math.PI) / 180;
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+            const sideFactor = isInward ? 1 : -1;
+            const ang1 = Math.atan2(midY - p1.y, midX - p1.x) + sideFactor * openAngleRad;
+            const end1X = p1.x + halfLen * Math.cos(ang1);
+            const end1Y = p1.y + halfLen * Math.sin(ang1);
+            const ang2 = Math.atan2(midY - p2.y, midX - p2.x) - sideFactor * openAngleRad;
+            const end2X = p2.x + halfLen * Math.cos(ang2);
+            const end2Y = p2.y + halfLen * Math.sin(ang2);
+
+            return (
+              <g>
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
+                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={color} strokeWidth={isSelected ? 3 : 2} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
+                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={color} strokeWidth={isSelected ? 3 : 2} />
+              </g>
+            );
+          };
+
+          const renderSlidingDoor = () => {
+            const offsetX = -Math.sin(angle) * 3;
+            const offsetY = Math.cos(angle) * 3;
+            return (
+              <g>
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 6 : 4} />
+                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={color} strokeWidth={1} opacity={0.5} />
+              </g>
+            );
+          };
 
           return (
-            <g>
-              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
-              <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
-              <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={color} strokeWidth={isSelected ? 3 : 2} />
-              <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
-              <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={color} strokeWidth={isSelected ? 3 : 2} />
+            <g key={d.id} 
+               onClick={(e) => {
+                 if (drawing || isDrawingWall || isDrawingDoor || isMeasuring || isDistancing) return;
+                 e.stopPropagation();
+                 setSelectedId(d.id);
+                 setSelectedType("door");
+               }}
+               style={{ cursor: 'pointer' }}
+            >
+              {type === "double" ? (
+                <>
+                  {renderDoubleDoor()}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={color} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {d.width || Math.round(len * (realScale || 20))}
+                  </text>
+                </>
+              ) : (type === "sliding" ? (
+                <>
+                  {renderSlidingDoor()}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={color} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {d.width || Math.round(len * (realScale || 20))}
+                  </text>
+                </>
+              ) : renderSingleDoor())}
             </g>
           );
-        };
-
-        const renderSlidingDoor = () => {
-          const offsetX = -Math.sin(angle) * 3;
-          const offsetY = Math.cos(angle) * 3;
-          return (
-            <g>
-              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 6 : 4} />
-              <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={color} strokeWidth={1} opacity={0.5} />
-            </g>
-          );
-        };
-
-        return (
-          <g key={d.id} 
-             onClick={(e) => {
-               if (drawing || isDrawingWall || isDrawingDoor || isMeasuring || isDistancing) return;
-               e.stopPropagation();
-               setSelectedId(d.id);
-               setSelectedType("door");
-             }}
-             style={{ cursor: 'pointer' }}
-          >
-            {type === "double" ? (
-              <>
-                {renderDoubleDoor()}
-                <text 
-                  x={(p1.x + p2.x) / 2} 
-                  y={(p1.y + p2.y) / 2 - 10} 
-                  fontSize="10" 
-                  textAnchor="middle" 
-                  fill={color} 
-                  fontFamily="Inter, sans-serif"
-                  fontWeight="bold"
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {d.width || Math.round(len * (realScale || 20))}
-                </text>
-              </>
-            ) : (type === "sliding" ? (
-              <>
-                {renderSlidingDoor()}
-                <text 
-                  x={(p1.x + p2.x) / 2} 
-                  y={(p1.y + p2.y) / 2 - 10} 
-                  fontSize="10" 
-                  textAnchor="middle" 
-                  fill={color} 
-                  fontFamily="Inter, sans-serif"
-                  fontWeight="bold"
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {d.width || Math.round(len * (realScale || 20))}
-                </text>
-              </>
-            ) : renderSingleDoor())}
-          </g>
-        );
+        } catch (err) {
+          console.error("Error rendering door:", d, err);
+          return null;
+        }
       })}
     </g>
   );

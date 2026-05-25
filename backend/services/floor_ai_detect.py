@@ -1998,6 +1998,14 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
         boxes = res.boxes
         print(f"[floor_ai_detect] Raw detections count: {len(boxes)}")
         
+        # Initialize OCR engine once to avoid repeated disk reads
+        ocr_engine = None
+        try:
+            from services.door_ocr import DoorOCREngine
+            ocr_engine = DoorOCREngine()
+        except Exception as ocr_init_err:
+            print(f"[floor_ai_detect] Failed to initialize DoorOCREngine: {ocr_init_err}")
+            
         for i, box in enumerate(boxes):
             coords = box.xyxy[0].tolist()
             x1, y1, x2, y2 = coords
@@ -2013,6 +2021,11 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
             
             w = x2 - x1
             h = y2 - y1
+            
+            # Skip microscopic false positive noise
+            if max(w, h) < 15:
+                continue
+                
             box_pts = [{"x": float(x1), "y": float(y1)}, {"x": float(x2), "y": float(y1)}, 
                         {"x": float(x2), "y": float(y2)}, {"x": float(x1), "y": float(y2)}]
             
@@ -2178,28 +2191,33 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                           f"swing={refined_geometry.get('swing_direction')}, "
                           f"angle={refined_geometry.get('opening_angle'):.1f}°, "
                           f"geom_conf={geometry_confidence:.2f}")
+                    # Override the base endpoints with refined centerline endpoints
+                    if "door_centerline" in refined_geometry:
+                        cl = refined_geometry["door_centerline"]
+                        if cl and "p1" in cl and "p2" in cl:
+                            p1 = {"x": float(cl["p1"][0]), "y": float(cl["p1"][1])}
+                            p2 = {"x": float(cl["p2"][0]), "y": float(cl["p2"][1])}
             except Exception as refine_err:
                 print(f"[floor_ai_detect] Door #{i}: Geometry refinement skipped: {refine_err}")
 
             # ── Enhanced OCR via DoorOCREngine (fallback if basic OCR missed) ──
             ocr_confidence = 0.0
-            try:
-                from services.door_ocr import DoorOCREngine
-                ocr_engine = DoorOCREngine()
-                ocr_result = ocr_engine.extract_door_width(img_np, [x1, y1, x2, y2], real_scale)
-                if ocr_result and ocr_result.get("width_mm"):
-                    # Override if the engine found a better match
-                    if ocr_result["width_mm"] > 0:
-                        width_mm = ocr_result["width_mm"]
-                        ocr_confidence = ocr_result.get("ocr_confidence", 0.0)
-                        prefix = ocr_result.get("prefix", "")
-                        if prefix:
-                            door_label = f"{door_label} ({prefix}{int(width_mm)})"
-                        else:
-                            door_label = f"{door_label} ({int(width_mm)})"
-                        print(f"[floor_ai_detect] Door #{i}: OCR engine override → {width_mm}mm (conf={ocr_confidence:.2f})")
-            except Exception as ocr_eng_err:
-                print(f"[floor_ai_detect] Door #{i}: OCR engine skipped: {ocr_eng_err}")
+            if ocr_engine is not None:
+                try:
+                    ocr_result = ocr_engine.extract_door_width(img_np, [x1, y1, x2, y2], real_scale)
+                    if ocr_result and ocr_result.get("width_mm"):
+                        # Override if the engine found a better match
+                        if ocr_result["width_mm"] > 0:
+                            width_mm = ocr_result["width_mm"]
+                            ocr_confidence = ocr_result.get("ocr_confidence", 0.0)
+                            prefix = ocr_result.get("prefix", "")
+                            if prefix:
+                                door_label = f"{door_label} ({prefix}{int(width_mm)})"
+                            else:
+                                door_label = f"{door_label} ({int(width_mm)})"
+                            print(f"[floor_ai_detect] Door #{i}: OCR engine override → {width_mm}mm (conf={ocr_confidence:.2f})")
+                except Exception as ocr_eng_err:
+                    print(f"[floor_ai_detect] Door #{i}: OCR engine skipped: {ocr_eng_err}")
 
             # ── Multi-tier Confidence Scoring ──
             detect_confidence = conf

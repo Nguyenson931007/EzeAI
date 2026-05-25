@@ -214,7 +214,7 @@ class DoorOCREngine:
 
             # ── Populate result ──
             if best_width is not None:
-                result["width_mm"] = int(best_width * real_scale)
+                result["width_mm"] = int(best_width)
                 result["raw_text"] = best_raw
                 result["corrected_text"] = best_corrected
                 result["prefix"] = best_prefix
