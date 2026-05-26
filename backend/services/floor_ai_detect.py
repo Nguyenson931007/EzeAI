@@ -217,9 +217,76 @@ def _score_room_name(text: str) -> int:
 # OCR  (ported from floor-ai-desktop detect_text.py)
 # ──────────────────────────────────────────────────────────
 
+def _collapse_spaces(text: str) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    if " " not in t:
+        return t
+        
+    parts = t.split()
+    if not parts:
+        return t
+        
+    avg_len = sum(len(p) for p in parts) / len(parts)
+    collapsed = "".join(parts)
+    collapsed_upper = collapsed.upper()
+    
+    # Check if collapsed string contains a valid room word
+    has_room_word = False
+    matched_word = None
+    for word in sorted(VALID_ROOM_WORDS, key=len, reverse=True):
+        if word in collapsed_upper:
+            has_room_word = True
+            matched_word = word
+            break
+            
+    # Also check known abbreviations
+    collapsed_mappings = {
+        "BIR": "ROBE", "WIP": "PANTRY", "PWD": "PWDR", "LDRY": "LAUNDRY", 
+        "BTH": "BATH", "BEDR": "BED", "BEDRM": "BED", "RUMP": "RUMPUS", 
+        "FAM": "FAMILY", "KIT": "KITCHEN", "DIN": "DINING", "LIV": "LIVING", 
+        "GAR": "GARAGE", "WIR": "WIR", "LAUNORY": "LAUNDRY", "BALC": "BALCONY"
+    }
+    if not has_room_word:
+        for k, v in collapsed_mappings.items():
+            if k in collapsed_upper:
+                has_room_word = True
+                matched_word = v
+                break
+                
+    # We only collapse if the letters are mostly spaced out (e.g. "L A U N D R Y" or "LA U ND RY")
+    if avg_len <= 2.5:
+        # Yes, it's a spaced-out word! Let's collapse it.
+        if matched_word:
+            digit_match = re.search(r"\d+", collapsed)
+            if digit_match:
+                return f"{matched_word} {digit_match.group(0)}"
+            return matched_word
+        
+        # Keep a space before trailing numbers if there is a number at the end
+        match = re.search(r"^(.*?)(B?E?D?\d+|ENS\d+|BATH\d+|\d+)$", collapsed, re.I)
+        if match:
+            prefix, suffix = match.groups()
+            if suffix.isdigit():
+                return f"{prefix} {suffix}".strip()
+            else:
+                sub_match = re.search(r"^([A-Z]+)(\d+)$", suffix, re.I)
+                if sub_match:
+                    sub_pref, sub_suff = sub_match.groups()
+                    return f"{prefix} {sub_pref} {sub_suff}".strip()
+        return collapsed
+        
+    return t
+
+
 def _clean_text(s: str) -> str:
     if not s:
         return ""
+    
+    # Collapse spaces if it's widely spaced
+    s = _collapse_spaces(s)
+    
     # Strip symbols but keep letters, numbers, slash, apostrophe
     s = re.sub(r"[^a-zA-Z0-9/'\s]", '', s).upper().strip()
     
@@ -258,7 +325,9 @@ def _clean_text(s: str) -> str:
         "BA1": "BATH 1", "BA2": "BATH 2","ENS1":"ENS 1", "ENSH":"ENS", "FENS":"ENS",
         "ENS2":"ENS 2", "LDY": "LAUNDRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
         "ENSULTE":"ENSUITE", "WCI":"WC", "ENSH3" : "ENS 3", "ENSH4":"ENS 4",
-        "NS":"ENS", "BALC0NY" : "BALCONY",
+        "NS":"ENS", "BALC0NY" : "BALCONY", "BALC 0 N Y":"BALCONY", "W |R":"WIR",
+        "BED1": "BED 1", "BED2": "BED 2", "BED3": "BED 3", "BED4": "BED 4",
+        "BATH1": "BATH 1", "BATH2": "BATH 2", "LAUNDRYTEXT": "LAUNDRY", "LDRYTEXT": "LAUNDRY"
     }
     if s in corrections:
         s = corrections[s]
@@ -473,6 +542,39 @@ def _compute_global_topology_boost(norm_text: str, global_polygon: list, existin
 
 def _extract_valid_room_token(text: str) -> str:
     import re
+    
+    # 1. First, check if the collapsed version matches any valid room word directly
+    # This handles spaced out text like "L A U N D R Y", "LA U ND RY", "W I R", "B E D"
+    collapsed = re.sub(r"[^A-Za-z]", "", text).upper()
+    if collapsed in VALID_ROOM_WORDS:
+        return collapsed
+        
+    # Also check common abbreviations in collapsed format
+    mappings_collapsed = {
+        "BIR": "ROBE",
+        "WIP": "PANTRY",
+        "PWD": "PWDR",
+        "LDRY": "LAUNDRY",
+        "BTH": "BATH",
+        "BEDR": "BED",
+        "BEDRM": "BED",
+        "RUMP": "RUMPUS",
+        "FAM": "FAMILY",
+        "KIT": "KITCHEN",
+        "DIN": "DINING",
+        "LIV": "LIVING",
+        "GAR": "GARAGE"
+    }
+    if collapsed in mappings_collapsed:
+        return mappings_collapsed[collapsed]
+
+    # If the collapsed text contains a valid room word as substring, return it (e.g. "MASTERBEDROOM" -> "BEDROOM")
+    # Order by length descending so we match longer words first (e.g. "BEDROOM" before "BED")
+    for word in sorted(VALID_ROOM_WORDS, key=len, reverse=True):
+        if word in collapsed:
+            return word
+            
+    # 2. Fall back to standard tokenized checks
     # Split by non-alphabetic characters
     tokens = [tok.upper().strip() for tok in re.split(r"[^A-Za-z]", text) if tok]
     
@@ -502,11 +604,16 @@ def _extract_valid_room_token(text: str) -> str:
         if tok in mappings:
             return mappings[tok]
             
-    # Try fuzzy matches next
+    # Try fuzzy matches next on tokens
     for tok in tokens:
         matched, score = _semantic_fuzzy_match(tok)
         if matched in VALID_ROOM_WORDS and score >= 85:
             return matched
+            
+    # Try fuzzy matches on collapsed text directly
+    matched, score = _semantic_fuzzy_match(collapsed)
+    if matched in VALID_ROOM_WORDS and score >= 80:
+        return matched
             
     return None
 
@@ -2497,6 +2604,7 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
                 pass
         
         if best_text and best_conf > 0.1:
+            best_text = _collapse_spaces(best_text)
             bbox_w = box["x2"] - box["x1"]
             bbox_h = box["y2"] - box["y1"]
             all_results.append({
