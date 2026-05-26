@@ -96,6 +96,7 @@ const RoomPolygonLayer = React.memo(({
   return (
     <g id="RoomPolygonLayer">
       {rooms.map(r => {
+        const isText = r.id && String(r.id).startsWith("text-");
         const isSelected = r.id === selectedId;
         const isHovered = r.id === hoverId;
         const style = getRoomStyle(r);
@@ -124,6 +125,14 @@ const RoomPolygonLayer = React.memo(({
           fill = "rgba(251, 191, 36, 0.22)"; // translucent pulsing gold
         }
 
+        // Specific override for detected text bounding boxes
+        if (isText) {
+          stroke = isSelected ? "#3b82f6" : (isHovered ? "#60a5fa" : "#a855f7"); // sleek blue/purple outline
+          strokeWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.5);
+          fill = isSelected ? "rgba(59,130,246,0.15)" : (isHovered ? "rgba(168,85,247,0.1)" : "rgba(168,85,247,0.05)");
+          opacity = 0.95;
+        }
+
         return (
           <g key={r.id}>
             <polygon
@@ -131,6 +140,7 @@ const RoomPolygonLayer = React.memo(({
               fill={fill}
               stroke={stroke}
               strokeWidth={strokeWidth}
+              strokeDasharray={isText ? "4,3" : undefined}
               opacity={opacity}
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
@@ -142,8 +152,8 @@ const RoomPolygonLayer = React.memo(({
                 setSelectedType("room");
               }}
             />
-            {/* Polygon vertex handles */}
-            {r.polygon.map((p, i) => (
+            {/* Polygon vertex handles - SKIP entirely for text rooms! */}
+            {!isText && r.polygon.map((p, i) => (
               <g key={`vertex-${r.id}-${i}`}>
                 <circle
                   cx={p.x}
@@ -534,6 +544,7 @@ const OCRLabelLayer = React.memo(({
   return (
     <g id="OCRLabelLayer">
       {rooms.map(r => {
+        const isText = r.id && String(r.id).startsWith("text-");
         const c = centroid(r.polygon);
         const area = scaleValue ? polygonAreaM2Util(r.polygon, scaleValue) : 0;
         const xs = r.polygon.map(p => p.x);
@@ -541,7 +552,11 @@ const OCRLabelLayer = React.memo(({
         const bboxW = Math.max(...xs) - Math.min(...xs);
         const bboxH = Math.max(...ys) - Math.min(...ys);
         const dim = Math.min(bboxW, bboxH);
-        const nameFontSize = Math.max(9, Math.min(28, dim * 0.13));
+        
+        // Sizing override for detected text boxes
+        const nameFontSize = isText
+          ? Math.max(9, Math.min(28, bboxH * 0.75))
+          : Math.max(9, Math.min(28, dim * 0.13));
         const areaFontSize = Math.max(7, nameFontSize * 0.75);
         const lineGap = nameFontSize * 1.25;
         const areaText = scaleValue ? `${area.toFixed(2)} m²` : "";
@@ -564,6 +579,100 @@ const OCRLabelLayer = React.memo(({
           strokeColor = "#EF4444"; // bold warning red outline
           strokeWidth = 2;
           pillFill = "rgba(254, 242, 242, 0.95)"; // soft warn fill
+        }
+
+        // Custom render block for detected text elements
+        if (isText) {
+          return (
+            <g key={`ocr-label-${r.id}`}>
+              {editingRoomId === r.id ? (
+                <foreignObject 
+                  x={c.x - 100} 
+                  y={c.y - nameFontSize * 1.5} 
+                  width={200} 
+                  height={nameFontSize * 3 + 150}
+                  style={{ overflow: 'visible' }}
+                >
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                    background: 'rgba(22, 28, 45, 0.95)', border: '1px solid #3b82f6',
+                    padding: '8px', borderRadius: '8px', color: '#fff',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
+                  }}
+                  onMouseDown={stopEvent}
+                  onMouseUp={stopEvent}
+                  onClick={stopEvent}
+                  >
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input 
+                        autoFocus
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleEditSubmit(r);
+                          if (e.key === 'Escape') setEditingRoomId(null);
+                        }}
+                        style={{
+                          fontSize: Math.max(12, nameFontSize),
+                          textAlign: 'center', fontWeight: 'bold', border: '1px solid #4b5563',
+                          background: '#121620', color: '#fff',
+                          borderRadius: '4px', width: '120px', padding: '4px'
+                        }}
+                      />
+                      {editValue !== r.room_name && (
+                        <button 
+                          onClick={() => handleEditSubmit(r)}
+                          disabled={isSubmitting}
+                          style={{
+                            background: '#3b82f6', color: 'white', border: 'none', 
+                            borderRadius: '4px', padding: '2px 8px', cursor: 'pointer',
+                            fontSize: '12px', fontWeight: 'bold'
+                          }}
+                        >
+                          {isSubmitting ? "..." : "✓"}
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setEditingRoomId(null)}
+                        style={{
+                          background: '#ef4444', color: 'white', border: 'none', 
+                          borderRadius: '4px', padding: '2px 8px', cursor: 'pointer',
+                          fontSize: '12px', fontWeight: 'bold'
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                </foreignObject>
+              ) : (
+                <g 
+                  style={{ cursor: 'text' }}
+                  onMouseDown={stopEvent}
+                  onMouseUp={stopEvent}
+                  onClick={stopEvent}
+                  onDoubleClick={(e) => {
+                    if (drawing || isMeasuring || isDistancing || isDrawingWall || isDrawingDoor) return;
+                    stopEvent(e);
+                    setEditingRoomId(r.id);
+                    setEditValue(r.room_name);
+                    setApplyGlobal(false);
+                  }}
+                >
+                  <text
+                    x={c.x} y={c.y + nameFontSize * 0.3}
+                    fontSize={nameFontSize} textAnchor="middle" fill="#a855f7"
+                    fontFamily="Outfit, Inter, sans-serif" fontWeight="700"
+                  >
+                    {r.room_name}
+                  </text>
+                  {successId === r.id && (
+                    <text x={c.x + bboxW/2 + 10} y={c.y} fill="#22c55e" fontSize={nameFontSize} fontWeight="bold">✓</text>
+                  )}
+                </g>
+              )}
+            </g>
+          );
         }
 
         return (

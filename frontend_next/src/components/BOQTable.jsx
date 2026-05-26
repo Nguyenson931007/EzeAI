@@ -300,6 +300,7 @@ export default function BOQTable({
     pages.forEach(p =>
       (p.objects || []).forEach((r) => {
         if (!r?.polygon || r.polygon.length < 3) return;
+        if (r.id && String(r.id).startsWith("text-")) return;
         const areaCalc = polygonAreaM2(r.polygon, scaleValue);
         if (!areaCalc || areaCalc <= 0) return;
         const roomName = r.room_name || "Uned"; // ✅ define trước

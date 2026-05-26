@@ -65,6 +65,20 @@ def _get_model(model_type="room") -> YOLO:
             print(f"[floor_ai_detect] Loading Template Model: {path}")
             _template_model = YOLO(str(path))
         return _template_model
+
+    elif model_type == "text":
+        if _text_model is None:
+            path = None
+            for p in MODEL_CANDIDATES.get("text", []):
+                if p.exists():
+                    path = p
+                    break
+            if not path:
+                raise FileNotFoundError("Text model not found in candidates.")
+            print(f"[floor_ai_detect] Loading Text Model: {path}")
+            _text_model = YOLO(str(path))
+        return _text_model
+
     else:
         if _room_model is None:
             path = None
@@ -152,7 +166,7 @@ _MATERIAL_RE = re.compile(
 
 # WET rooms: only bathroom-related rooms (NOT laundry — laundry is DRY)
 _WET_RE = re.compile(r"\b(WC|TOILET|BATH|BATHROOM|SHOWER|ENS|ENSUITE|PWD|PWDR|PDR|SQSET|POWDER)\b", re.I)
-_OUTDOOR_RE = re.compile(r"\b(DECK|BALCONY|TERRACE|ALFRESCO|PATIO|VERANDA|COURTYARD)\b", re.I)
+_OUTDOOR_RE = re.compile(r"\b(DECK|BALCONY|TERRACE|ALFRESCO|PATIO|VERANDA|COURTYARD|GARDEN)\b", re.I)
 
 
 def _score_room_name(text: str) -> int:
@@ -244,7 +258,7 @@ def _clean_text(s: str) -> str:
         "BA1": "BATH 1", "BA2": "BATH 2","ENS1":"ENS 1", "ENSH":"ENS", "FENS":"ENS",
         "ENS2":"ENS 2", "LDY": "LAUNDRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
         "ENSULTE":"ENSUITE", "WCI":"WC", "ENSH3" : "ENS 3", "ENSH4":"ENS 4",
-        "NS":"ENS",
+        "NS":"ENS", "BALC0NY" : "BALCONY",
     }
     if s in corrections:
         s = corrections[s]
@@ -266,7 +280,7 @@ VALID_ROOM_WORDS = [
     "PANTRY", "ENTRY", "ALFRESCO", "PORCH", "RUMPUS", "LOUNGE", 
     "THEATRE", "FAMILY", "MEALS", "STORE", "BALCONY", "PLAY", 
     "OFFICE", "GUEST", "LDRY", "SITTING", "RETREAT", "BAR", 
-    "GYM", "CELLAR", "WORKSHOP", "BATHROOM"
+    "GYM", "CELLAR", "WORKSHOP", "BATHROOM", "GARDEN"
 ]
 
 COMMON_CORRECTIONS = {
@@ -551,7 +565,9 @@ def _score_semantic_text(text, conf, bbox, room_polygon, rooms_context, current_
     
     print(f"[OCR Correction] original={text} | norm={norm_text} | fuzzy_match={matched_word}({fuzzy_score:.1f}) | geo_boost={geo_boost} | global_boost={global_boost} | final={matched_word} | score={total:.1f}")
     
-    if total < 50:
+    # If the text matches a valid room word, we have high confidence so we lower the threshold to 30
+    min_threshold = 30 if matched_word in VALID_ROOM_WORDS else 50
+    if total < min_threshold:
         return total, "UNKNOWN", text_type
         
     return total, matched_word, text_type
@@ -1399,10 +1415,57 @@ def _suppress_high_overlaps(rooms: list) -> list:
         else:
             r.pop("_poly", None)
             
-    print(f"[floor_ai_detect] High overlap suppression: {len(prepared)} -> {len(final)} rooms")
     return final
 
 
+def _match_text_to_rooms(rooms: list, texts: list) -> list:
+    from shapely.geometry import Polygon, Point
+    
+    for room in rooms:
+        pts = room.get("polygon", [])
+        if len(pts) < 3:
+            continue
+            
+        try:
+            poly = Polygon([(p["x"], p["y"]) for p in pts])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+                
+            best_text = None
+            best_score = -9999
+            
+            for t in texts:
+                bbox = t.get("bbox", {})
+                tx = bbox.get("x", 0) + bbox.get("w", 0) / 2
+                ty = bbox.get("y", 0) + bbox.get("h", 0) / 2
+                pt = Point(tx, ty)
+                
+                # Check if text falls inside the room polygon (or very close, within 10 pixels)
+                if poly.contains(pt) or poly.intersects(pt.buffer(10)):
+                    norm_text = _clean_text(t["text"])
+                    room_token = _extract_valid_room_token(norm_text)
+                    if not room_token:
+                        room_token = _extract_valid_room_token(t["text"])
+                        
+                    if room_token and room_token != "UNKNOWN":
+                        dist = poly.centroid.distance(pt)
+                        max_dist = max(1, poly.length / 2)
+                        center_score = max(0, 100 - (dist / max_dist) * 100)
+                        
+                        score = center_score + t["conf"] * 50
+                        
+                        if score > best_score:
+                            best_score = score
+                            best_text = room_token
+            
+            if best_text:
+                room["room_name"] = best_text.upper()
+                room["room_name_source"] = "yolo_ocr_matched"
+                print(f"[YOLO Text Match] Room assigned name: {best_text} (score={best_score:.1f})")
+        except Exception as e:
+            print(f"[YOLO Text Match Error] {e}")
+            
+    return rooms
 
 
 # ──────────────────────────────────────────────────────────
@@ -1502,6 +1565,15 @@ def predict_rooms_from_bytes(image_bytes: bytes,
     if not skip_ocr:
         try:
             rooms = _detect_rooms_text_roi(img_np, rooms)
+            
+            # High-precision YOLO Text Matching fallback
+            try:
+                print("[floor_ai_detect] Running YOLO Text Match fallback...")
+                all_texts = predict_text_from_bytes(image_bytes, confidence=0.001)
+                rooms = _match_text_to_rooms(rooms, all_texts)
+            except Exception as match_err:
+                print(f"[floor_ai_detect] YOLO Text Match error: {match_err}")
+                
         except Exception as e:
             print(f"[floor_ai_detect] ROI OCR warning: {e}")
             import traceback

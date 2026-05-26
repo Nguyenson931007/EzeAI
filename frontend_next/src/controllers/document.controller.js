@@ -188,7 +188,7 @@ export function useDocumentController({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        rooms: rooms.map(r => {
+        rooms: rooms.filter(r => !r.id || !String(r.id).startsWith("text-")).map(r => {
           const cleanedName = String(r.room_name || "room").replace(/[0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/g, "");
           return {
             id: Math.round(Number(r.id)) || Math.round(Math.random() * 1e9),
@@ -274,7 +274,7 @@ export function useDocumentController({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rooms: pageRooms.map(r => {
+          rooms: pageRooms.filter(r => !r.id || !String(r.id).startsWith("text-")).map(r => {
             const cleanedName = String(r.room_name || "room").replace(/[0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/g, "");
             return {
               id: Math.round(Number(r.id)) || Math.round(Math.random() * 1e9),
@@ -436,7 +436,7 @@ export function useDocumentController({
     await new Promise(r => { img.onload = r; img.src = image; });
     ctx.drawImage(img, 0, 0, imgSize.w, imgSize.h);
 
-    rooms.forEach(r => {
+    rooms.filter(r => !r.id || !String(r.id).startsWith("text-")).forEach(r => {
       ctx.beginPath();
       r.polygon.forEach((p, i) => {
         if (i === 0) ctx.moveTo(p.x, p.y);

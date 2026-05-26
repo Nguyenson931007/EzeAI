@@ -16,6 +16,7 @@ function DryWetSummary({
   let dry = 0, wet = 0, timber = 0, tile = 0;
   rooms.forEach(room => {
     if (!room?.polygon || room.polygon.length < 3) return;
+    if (room.id && String(room.id).startsWith("text-")) return;
     const area = scaleValue ? polygonAreaM2Util(room.polygon, scaleValue) : 0;
     if (!area || area <= 0) return;
     const t = room.type || room.wetness || "dry";
