@@ -43,13 +43,26 @@ function buildDoorCode(d) {
 }
 
 function detectDoorSwing(door, walls, page) {
-  const wall = walls.find(
-    w => normalizeId(w.id) === normalizeId(door.wall_id)
-  );
-  if (!wall || !wall.points || wall.points.length < 2) {
+  let p1 = null;
+  let p2 = null;
+
+  if (door.points && door.points.length >= 2) {
+    p1 = [door.points[0].x, door.points[0].y];
+    p2 = [door.points[1].x, door.points[1].y];
+  } else {
+    const wall = walls.find(
+      w => normalizeId(w.id) === normalizeId(door.wall_id)
+    );
+    if (wall && wall.points && wall.points.length >= 2) {
+      p1 = wall.points[0];
+      p2 = wall.points[1];
+    }
+  }
+
+  if (!p1 || !p2) {
     return { swing: "unknown", hinge: "unknown" };
   }
-  const [p1, p2] = wall.points;
+
   // vector wall
   const wx = p2[0] - p1[0];
   const wy = p2[1] - p1[1];
@@ -57,7 +70,10 @@ function detectDoorSwing(door, walls, page) {
   // normal (2 phía)
   const nx = -wy / len;
   const ny = wx / len;
-  const center = door.center || getDoorCenterFromWall(door, walls);
+  const center = door.center || [
+    (p1[0] + p2[0]) / 2,
+    (p1[1] + p2[1]) / 2
+  ];
   if (!center) {
     return { swing: "unknown", hinge: "unknown" };
   }
@@ -227,6 +243,12 @@ export default function BOQTable({
   const enrichedDoors = useMemo(() => {
     return doors.map(d => {
       let center = d.center;
+      if (!center && d.points && d.points.length >= 2) {
+        center = [
+          (d.points[0].x + d.points[1].x) / 2,
+          (d.points[0].y + d.points[1].y) / 2
+        ];
+      }
       if (!center) {
         center = getDoorCenterFromWall(d, walls);
       }
@@ -235,7 +257,7 @@ export default function BOQTable({
         return {
           ...d,
           center,
-          leftRoom: { room_name: d.room_name, wetness: "dry" },
+          leftRoom: { room_name: d.room_name || "Unnamed", wetness: "dry" },
           rightRoom: { room_name: "Unknown", wetness: "dry" },
           floor_name: page?.floor_name || `Floor_${d.page_index ?? 0}`,
         };
@@ -673,6 +695,12 @@ export default function BOQTable({
   };
 
   function getDoorWidth(door, walls, scaleValue) {
+    if (door.width && door.width > 200) {
+      return door.width / 1000; // in mm, convert to meters
+    }
+    if (door.width && door.width > 0) {
+      return door.width; // in meters
+    }
     const wall = walls.find(
       w => normalizeId(w.id) === normalizeId(door.wall_id)
     );
@@ -749,18 +777,28 @@ export default function BOQTable({
   }
 
   function findRoomsFromDoor(door, walls, page, center) {
-    const wall = walls.find(
-      w => normalizeId(w.id) === normalizeId(door.wall_id)
-    );
+    let p1 = null;
+    let p2 = null;
 
-    if (!wall || !center || !page) {
+    if (door.points && door.points.length >= 2) {
+      p1 = [door.points[0].x, door.points[0].y];
+      p2 = [door.points[1].x, door.points[1].y];
+    } else {
+      const wall = walls.find(
+        w => normalizeId(w.id) === normalizeId(door.wall_id)
+      );
+      if (wall && wall.points && wall.points.length >= 2) {
+        p1 = wall.points[0];
+        p2 = wall.points[1];
+      }
+    }
+
+    if (!p1 || !p2 || !center || !page) {
       return {
         left: fallback(page),
         right: fallback(page),
       };
     }
-
-    const [p1, p2] = wall.points;
 
     // vector wall
     const dx = p2[0] - p1[0];
