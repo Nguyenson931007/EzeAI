@@ -356,6 +356,19 @@ const DoorLayer = React.memo(({
           const angle = Math.atan2(dy, dx);
           const type = d.type || "single";
 
+          // Bounding box from YOLO polygon (4 corner points)
+          const bboxPoly = d.polygon;
+          const hasBBox = bboxPoly && bboxPoly.length >= 4;
+          let bboxX, bboxY, bboxW, bboxH;
+          if (hasBBox) {
+            const bxs = bboxPoly.map(p => p.x);
+            const bys = bboxPoly.map(p => p.y);
+            bboxX = Math.min(...bxs);
+            bboxY = Math.min(...bys);
+            bboxW = Math.max(...bxs) - bboxX;
+            bboxH = Math.max(...bys) - bboxY;
+          }
+
           const renderSingleDoor = () => {
             const geom = calculateDoorGeometry({
               p1,
@@ -453,6 +466,21 @@ const DoorLayer = React.memo(({
                }}
                style={{ cursor: 'pointer' }}
             >
+              {/* Bounding Box overlay */}
+              {hasBBox && (
+                <rect
+                  x={bboxX}
+                  y={bboxY}
+                  width={bboxW}
+                  height={bboxH}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.08)" : "rgba(0, 188, 212, 0.06)"}
+                  stroke={isSelected ? "#FF5722" : "#00BCD4"}
+                  strokeWidth={isSelected ? 2.5 : 1.5}
+                  strokeDasharray={isSelected ? "none" : "6,3"}
+                  rx={2}
+                  opacity={0.85}
+                />
+              )}
               {type === "double" ? (
                 <>
                   {renderDoubleDoor()}

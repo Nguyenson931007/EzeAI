@@ -16,6 +16,7 @@ Tệp trọng số mô hình:
 """
 
 import re
+import math
 import io
 import time
 import base64
@@ -2357,6 +2358,8 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
             # Run OpenCV-based geometry analysis for precise hinge/arc/wall extraction
             refined_geometry = None
             geometry_confidence = 0.0
+            hinge_side_mapped = "left"
+            swing_mapped = "inward"
             try:
                 from services.door_refinement_engine import DoorRefinementEngine
                 refiner = DoorRefinementEngine()
@@ -2370,30 +2373,27 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                           f"swing={refined_geometry.get('swing_direction')}, "
                           f"angle={refined_geometry.get('opening_angle'):.1f}°, "
                           f"geom_conf={geometry_confidence:.2f}")
-                    # Override the base endpoints with refined centerline endpoints, scaled to the exact YOLO bounding box length
-                    if "door_centerline" in refined_geometry:
-                        cl = refined_geometry["door_centerline"]
-                        if cl and "p1" in cl and "p2" in cl:
-                            import math
-                            # The major axis of the bounding box represents the true opening width of the door in pixels.
-                            target_len = bbox_length
-
-                            # Compute direction vector of the refined centerline
-                            dx = float(cl["p2"][0] - cl["p1"][0])
-                            dy = float(cl["p2"][1] - cl["p1"][1])
-                            current_len = math.sqrt(dx*dx + dy*dy)
-                            
-                            if current_len > 0:
-                                # Scale centerline to the correct target length
-                                scale_factor = target_len / current_len
-                                p1 = {"x": float(cl["p1"][0]), "y": float(cl["p1"][1])}
-                                p2 = {
-                                    "x": float(cl["p1"][0] + dx * scale_factor),
-                                    "y": float(cl["p1"][1] + dy * scale_factor)
-                                }
-                            else:
-                                p1 = {"x": float(cl["p1"][0]), "y": float(cl["p1"][1])}
-                                p2 = {"x": float(cl["p2"][0]), "y": float(cl["p2"][1])}
+                    
+                    # Map the backend hinge point and swing direction to frontend hingeSide and swing
+                    hinge_pt = refined_geometry.get("hinge_point")
+                    swing_dir = refined_geometry.get("swing_direction", "clockwise")
+                    
+                    if hinge_pt:
+                        # Determine which of p1 or p2 is closer to the hinge_point
+                        dist_p1 = math.sqrt((p1["x"] - hinge_pt[0])**2 + (p1["y"] - hinge_pt[1])**2)
+                        dist_p2 = math.sqrt((p2["x"] - hinge_pt[0])**2 + (p2["y"] - hinge_pt[1])**2)
+                        if dist_p1 <= dist_p2:
+                            hinge_side_mapped = "left"
+                        else:
+                            hinge_side_mapped = "right"
+                        
+                        # Map clockwise/counterclockwise to inward/outward swing
+                        if hinge_side_mapped == "left":
+                            swing_mapped = "inward" if swing_dir == "clockwise" else "outward"
+                        else:
+                            swing_mapped = "outward" if swing_dir == "clockwise" else "inward"
+                    
+                    print(f"[floor_ai_detect] Mapped Door #{i} properties: hingeSide={hinge_side_mapped}, swing={swing_mapped}")
             except Exception as refine_err:
                 print(f"[floor_ai_detect] Door #{i}: Geometry refinement skipped: {refine_err}")
 
@@ -2447,6 +2447,10 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                 "opening_angle": refined_geometry.get("opening_angle", 90) if refined_geometry else 90,
                 "door_centerline": refined_geometry.get("door_centerline") if refined_geometry else None,
                 "wall_attachment": refined_geometry.get("wall_attachment") if refined_geometry else None,
+                # ── Explicit frontend mapped fields ──
+                "hingeSide": hinge_side_mapped,
+                "swing": swing_mapped,
+                "angle": refined_geometry.get("opening_angle", 90) if refined_geometry else 90,
                 # ── Confidence scores ──
                 "detect_confidence": round(detect_confidence, 3),
                 "geometry_confidence": round(geometry_confidence, 3),
@@ -2455,6 +2459,78 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                 "final_confidence": round(final_confidence, 3),
             })
             
+        # ── Duplicate Door Suppression (NMS) ──
+        def compute_iou(boxA, boxB):
+            xA = max(boxA[0], boxB[0])
+            yA = max(boxA[1], boxB[1])
+            xB = min(boxA[2], boxB[2])
+            yB = min(boxA[3], boxB[3])
+            
+            interArea = max(0.0, xB - xA) * max(0.0, yB - yA)
+            if interArea <= 0:
+                return 0.0
+                
+            boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+            boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+            
+            unionArea = boxAArea + boxBArea - interArea
+            if unionArea <= 0:
+                return 0.0
+            return interArea / unionArea
+
+        def compute_overlap_coefficient(boxA, boxB):
+            xA = max(boxA[0], boxB[0])
+            yA = max(boxA[1], boxB[1])
+            xB = min(boxA[2], boxB[2])
+            yB = min(boxA[3], boxB[3])
+            
+            interArea = max(0.0, xB - xA) * max(0.0, yB - yA)
+            if interArea <= 0:
+                return 0.0
+                
+            boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+            boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+            
+            minArea = min(boxAArea, boxBArea)
+            if minArea <= 0:
+                return 0.0
+            return interArea / minArea
+
+        # Sort doors by confidence in descending order
+        detected_doors.sort(key=lambda d: d.get("conf", 0.0), reverse=True)
+        
+        keep_doors = []
+        for door in detected_doors:
+            poly = door["polygon"]
+            bxs = [p["x"] for p in poly]
+            bys = [p["y"] for p in poly]
+            x1_d, y1_d, x2_d, y2_d = min(bxs), min(bys), max(bxs), max(bys)
+            box = [x1_d, y1_d, x2_d, y2_d]
+            center = ((x1_d + x2_d) / 2.0, (y1_d + y2_d) / 2.0)
+            
+            is_duplicate = False
+            for kept in keep_doors:
+                k_poly = kept["polygon"]
+                k_bxs = [p["x"] for p in k_poly]
+                k_bys = [p["y"] for p in k_poly]
+                kx1, ky1, kx2, ky2 = min(k_bxs), min(k_bys), max(k_bxs), max(k_bys)
+                k_box = [kx1, ky1, kx2, ky2]
+                k_center = ((kx1 + kx2) / 2.0, (ky1 + ky2) / 2.0)
+                
+                center_dist = math.sqrt((center[0] - k_center[0])**2 + (center[1] - k_center[1])**2)
+                iou = compute_iou(box, k_box)
+                overlap = compute_overlap_coefficient(box, k_box)
+                
+                # Suppress if center is extremely close, IoU is high, or overlap is high
+                if center_dist < 35.0 or iou > 0.4 or overlap > 0.6:
+                    is_duplicate = True
+                    print(f"[floor_ai_detect] Suppressing duplicate door: dist={center_dist:.1f}px, iou={iou:.2f}, overlap={overlap:.2f}")
+                    break
+            
+            if not is_duplicate:
+                keep_doors.append(door)
+                
+        detected_doors = keep_doors
         print(f"[floor_ai_detect] Filtered door detections: {len(detected_doors)}")
 
     # ── BIM Semantic Validation (page-level) ──
