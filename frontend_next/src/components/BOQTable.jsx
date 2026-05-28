@@ -712,17 +712,33 @@ export default function BOQTable({
   }
 
   function pointInPolygon(point, vs) {
+    if (!vs || vs.length === 0) return false;
     const [x, y] = point;
     let inside = false;
     for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-      const xi = vs[i][0], yi = vs[i][1];
-      const xj = vs[j][0], yj = vs[j][1];
+      const pi = vs[i];
+      const pj = vs[j];
+      const xi = pi.x !== undefined ? pi.x : pi[0];
+      const yi = pi.y !== undefined ? pi.y : pi[1];
+      const xj = pj.x !== undefined ? pj.x : pj[0];
+      const yj = pj.y !== undefined ? pj.y : pj[1];
+
       const intersect =
-        yi > y !== yj > y &&
-        x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+        (yi > y) !== (yj > y) &&
+        x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
       if (intersect) inside = !inside;
     }
     return inside;
+  }
+
+  function findRoomFromCenter(point, page) {
+    if (!page || !page.objects) return null;
+    for (const o of page.objects) {
+      if (o.polygon && pointInPolygon(point, o.polygon)) {
+        return o;
+      }
+    }
+    return null;
   }
 
   function fallback(page) {
