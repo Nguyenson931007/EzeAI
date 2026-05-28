@@ -231,9 +231,11 @@ export default function RibbonView({
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => autoDetect()} disabled={isDetecting} title="AI tự động nhận diện phòng">
                   <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Auto AI</span>
                 </button>
+                {/*
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectWallFromFloorAI()} disabled={isDetecting} title="Dùng AI tự động vẽ tường">
                   <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
                 </button>
+                */}
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoor()} disabled={isDetecting} title="Dùng AI tự động vẽ cửa">
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
@@ -292,9 +294,11 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={addTrainDoors} title="Export doors on current page">
                   <span className="icon">🚪</span><span className="label">Export Door</span>
                 </button>
+                {/*
                 <TrainButton rooms={rooms} />
                 <TrainWallButton />
                 <TrainDoorButton />
+                */}
               </div>
               <span className="ribbon-group-title">ML MODEL</span>
             </div>
