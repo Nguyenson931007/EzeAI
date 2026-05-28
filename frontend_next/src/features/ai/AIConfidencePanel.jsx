@@ -14,10 +14,7 @@ const DEFAULT_DEFAULTS = {
 };
 
 export default function AIConfidencePanel() {
-  const { 
-    config, setRoomConfidence, setDoorConfidence, setWallConfidence, setOCRConfidence, setSymbolConfidence,
-    applyConfig, resetDefaults, exportConfig, importConfig, heatmapMode, toggleHeatmap
-  } = useAIConfigStore();
+  return null;
 
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef(null);

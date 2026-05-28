@@ -8,7 +8,16 @@
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid } from "@/utils/geometry";
-import { useAIConfigStore } from "@/store/useAIConfigStore";
+
+// ====================================================
+// AI Threshold Configurations
+// Edit these confidence threshold values directly in the code:
+// ====================================================
+const ROOMS_CONF = 0.05;      // Room detection confidence threshold
+const DOORS_CONF = 0.15;      // Door detection confidence threshold
+const WALLS_CONF = 0.80;      // Wall detection confidence threshold
+const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
+const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
 
 function centroidInROI(obj, roiRect) {
   const poly = obj.polygon || obj.points;
@@ -42,7 +51,7 @@ export const useAIController = (
   setDoorsByPage,
   roomsByPage
 ) => {
-  const config = useAIConfigStore(state => state.config);
+  // config is now set via hardcoded constants at the top of the file
   const [isDetecting, setIsDetecting] = useState(false);
   const [roiProgress, setRoiProgress] = useState(0);
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
@@ -143,11 +152,11 @@ export const useAIController = (
       if (roiRect) {
         const existingRooms = roomsByPage ? (roomsByPage[currentPage] || []) : [];
         data = await ApiService.floorAIDetectROI(
-          blob, String(config.rooms), roiRect, 128, roiUpscale || 1.0, existingRooms,
+          blob, String(ROOMS_CONF), roiRect, 128, roiUpscale || 1.0, existingRooms,
           { signal: job.controller.signal }
         );
       } else {
-        data = await ApiService.floorAIDetect(blob, String(config.rooms));
+        data = await ApiService.floorAIDetect(blob, String(ROOMS_CONF));
       }
 
       // Check if job was invalidated while fetching
@@ -212,11 +221,11 @@ export const useAIController = (
       let data;
       if (roiRect) {
         data = await ApiService.floorAIWallDetectROI(
-          blob, String(config.walls), roiRect, 96, realScale,
+          blob, String(WALLS_CONF), roiRect, 96, realScale,
           { signal: job.controller.signal }
         );
       } else {
-        data = await ApiService.floorAIWallDetect(blob, String(config.walls), realScale);
+        data = await ApiService.floorAIWallDetect(blob, String(WALLS_CONF), realScale);
       }
 
       if (job.token !== roiInferenceIdRef.current) return;
@@ -270,7 +279,7 @@ export const useAIController = (
     const startTime = performance.now();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const texts = await ApiService.autoDetectText(blob, String(config.ocr));
+      const texts = await ApiService.autoDetectText(blob, String(OCR_CONF));
       console.log("Detected Texts:", texts);
 
       if (!Array.isArray(texts)) {
@@ -322,11 +331,11 @@ export const useAIController = (
       let data;
       if (roiRect) {
         data = await ApiService.autoDetectDoorsROI(
-          blob, String(config.doors), roiRect, 48, realScale || 1.0,
+          blob, String(DOORS_CONF), roiRect, 48, realScale || 1.0,
           { signal: job.controller.signal }
         );
       } else {
-        data = await ApiService.autoDetectDoors(blob, String(config.doors), realScale || 1.0);
+        data = await ApiService.autoDetectDoors(blob, String(DOORS_CONF), realScale || 1.0);
       }
 
       if (job.token !== roiInferenceIdRef.current) return;
@@ -367,7 +376,7 @@ export const useAIController = (
     const startTime = performance.now();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const data = await ApiService.templateDetect(blob, String(config.symbols));
+      const data = await ApiService.templateDetect(blob, String(SYMBOLS_CONF));
 
       if (data && data.pages && data.pages[0]) {
         const detected = data.pages[0].objects || [];
