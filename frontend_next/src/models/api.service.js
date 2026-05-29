@@ -1,4 +1,4 @@
-export const BASE_URL = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) || "/api";
+export const BASE_URL = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) || "http://localhost:8090";
 
 const getHeaders = (contentType = "application/json") => {
   const userStr = localStorage.getItem("user");
@@ -275,6 +275,69 @@ export const ApiService = {
   // ═══════════════════════════════════════════════════
   // ROI-Based Detection
   // ═══════════════════════════════════════════════════
+
+  async floorAIDetectStream(imageBlob, confidence = "0.05", roi = null, padding = 128, upscale = 1.0, existingRooms = null, onEvent, signal) {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("confidence", confidence);
+    if (roi) {
+      fd.append("roi_x", roi.x);
+      fd.append("roi_y", roi.y);
+      fd.append("roi_w", roi.w);
+      fd.append("roi_h", roi.h);
+    }
+    fd.append("roi_padding", padding);
+    fd.append("upscale_factor", upscale);
+    if (existingRooms) {
+      fd.append("existing_rooms", JSON.stringify(existingRooms));
+    }
+
+    const res = await fetch(`${BASE_URL}/predict_seg_stream`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include",
+      signal: signal
+    });
+
+    if (!res.ok) {
+      throw new Error(`Server returned ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const parsed = JSON.parse(line);
+            onEvent(parsed);
+          } catch (e) {
+            console.error("Failed to parse NDJSON line:", line, e);
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      try {
+        const parsed = JSON.parse(buffer);
+        onEvent(parsed);
+      } catch (e) {
+        console.error("Failed to parse final NDJSON buffer:", buffer, e);
+      }
+    }
+  },
 
   async floorAIDetectROI(imageBlob, confidence = "0.01", roi, padding = 128, upscale = 1.0, existingRooms = null, options = {}) {
     const fd = new FormData();

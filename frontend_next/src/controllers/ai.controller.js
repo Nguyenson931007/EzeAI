@@ -13,7 +13,7 @@ import { centroid } from "@/utils/geometry";
 // AI Threshold Configurations
 // Edit these confidence threshold values directly in the code:
 // ====================================================
-const ROOMS_CONF = 0.05;      // Room detection confidence threshold
+const ROOMS_CONF = 0.03;      // Room detection confidence threshold
 const DOORS_CONF = 0.15;      // Door detection confidence threshold
 const WALLS_CONF = 0.80;      // Wall detection confidence threshold
 const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
@@ -56,6 +56,7 @@ export const useAIController = (
   const [roiProgress, setRoiProgress] = useState(0);
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
   const [inferenceTiming, setInferenceTiming] = useState("");
+  const [activeScanRoom, setActiveScanRoom] = useState(null);
 
   const activeControllerRef = useRef(null);
   const roiInferenceIdRef = useRef(0);
@@ -147,58 +148,134 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
+      const existingRooms = roomsByPage ? (roomsByPage[currentPage] || []) : [];
+      
+      let isCacheHit = false;
 
-      let data;
-      if (roiRect) {
-        const existingRooms = roomsByPage ? (roomsByPage[currentPage] || []) : [];
-        data = await ApiService.floorAIDetectROI(
-          blob, String(ROOMS_CONF), roiRect, 128, roiUpscale || 1.0, existingRooms,
-          { signal: job.controller.signal }
-        );
-      } else {
-        data = await ApiService.floorAIDetect(blob, String(ROOMS_CONF));
-      }
+      // Call the real-time NDJSON streaming API!
+      await ApiService.floorAIDetectStream(
+        blob,
+        String(ROOMS_CONF),
+        roiRect || null,
+        128,
+        roiUpscale || 1.0,
+        existingRooms,
+        (event) => {
+          if (job.token !== roiInferenceIdRef.current) return;
 
-      // Check if job was invalidated while fetching
-      if (job.token !== roiInferenceIdRef.current) return;
+          console.log("[Auto AI Stream Event]:", event);
 
-      const result = Array.isArray(data) ? data[0] : data;
-      const isCacheHit = !!(result && result.cache_hit);
-
-      if (result && result.pages && result.pages[0]) {
-        const detected = result.pages[0].objects || [];
-        console.log(`[Auto AI${roiRect ? " ROI" : ""}] Detected rooms:`, detected.length);
-
-        setRoomsByPage(prev => {
-          const existing = prev[currentPage] || [];
-          if (roiRect) {
-            return {
-              ...prev,
-              [currentPage]: applyROIResults(
-                existing,
-                detected.filter(r => r.polygon && r.polygon.length >= 3).map(r => ({
-                  ...r,
-                  correction_source: isCacheHit ? "ai_corrected" : "AI_GENERATED"
-                })),
-                roiRect,
-                roiMode || "replace"
-              )
-            };
+          // 1. Update scanning HUD message
+          if (event.message) {
+            setCacheStatus(event.message);
           }
-          return {
-            ...prev,
-            [currentPage]: detected.filter(r => r.polygon && r.polygon.length >= 3).map(r => ({
-              ...r,
-              correction_source: "AI_GENERATED"
-            }))
-          };
-        });
 
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
-      } else {
-        console.warn("[Auto AI] No pages in response:", data);
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
-      }
+          // 2. Update pipeline stage progress
+          if (event.status === "started") {
+            setRoiProgress(10);
+            setActiveScanRoom({ name: "Initializing pipeline...", index: 0, total: 100, candidates: [] });
+          } else if (event.status === "yolo_started") {
+            setRoiProgress(25);
+            setActiveScanRoom({ name: "Running YOLO Segmenter...", index: 15, total: 100, candidates: [] });
+          } else if (event.status === "yolo_completed") {
+            setRoiProgress(45);
+            setActiveScanRoom({ name: "YOLO Segmentation Complete!", index: 40, total: 100, candidates: [] });
+          } else if (event.status === "ocr_text_started") {
+            setRoiProgress(55);
+            setActiveScanRoom({ name: "Extracting labels (OCR)...", index: 55, total: 100, candidates: [] });
+          } else if (event.status === "ocr_text_completed") {
+            setRoiProgress(70);
+            setActiveScanRoom({ name: "OCR matching complete!", index: 70, total: 100, candidates: [] });
+          } else if (event.status === "cropped_ocr_started") {
+            setRoiProgress(80);
+            setActiveScanRoom({ name: "Cropped high-precision OCR...", index: 80, total: 100, candidates: [] });
+          } else if (event.status === "cropped_ocr_completed") {
+            setRoiProgress(90);
+            setActiveScanRoom({ name: "Cropped OCR complete!", index: 90, total: 100, candidates: [] });
+          } else if (event.status === "finalizing") {
+            setRoiProgress(95);
+            setActiveScanRoom({ name: "Resolving overlaps & snapped bounds...", index: 95, total: 100, candidates: [] });
+          }
+
+          // 3. Backend deploy/process to where, Frontend shows to there!
+          // Whenever rooms are yielded (after YOLO, OCR, etc.), render them immediately!
+          if (event.rooms) {
+            const currentRooms = event.rooms;
+            
+            // If it's a room object list, we can also extract OCR candidates of the active room being processed
+            const activeRoomObj = currentRooms.find(r => r.ocr_candidates && r.ocr_candidates.length > 0);
+            if (activeRoomObj) {
+              setActiveScanRoom(prev => ({
+                ...prev,
+                name: activeRoomObj.room_name,
+                candidates: activeRoomObj.ocr_candidates
+              }));
+            }
+
+            setRoomsByPage(prev => {
+              const existing = prev[currentPage] || [];
+              if (roiRect) {
+                return {
+                  ...prev,
+                  [currentPage]: applyROIResults(
+                    existing,
+                    currentRooms.map(r => ({
+                      ...r,
+                      correction_source: "AI_GENERATED"
+                    })),
+                    roiRect,
+                    roiMode || "replace"
+                  )
+                };
+              }
+              return {
+                ...prev,
+                [currentPage]: currentRooms.map(r => ({
+                  ...r,
+                  correction_source: "AI_GENERATED"
+                }))
+              };
+            });
+          }
+
+          // 4. Completed!
+          if (event.status === "completed") {
+            const finalRooms = event.rooms || [];
+            isCacheHit = !!event.cache_hit;
+
+            setRoomsByPage(prev => {
+              const existing = prev[currentPage] || [];
+              if (roiRect) {
+                return {
+                  ...prev,
+                  [currentPage]: applyROIResults(
+                    existing,
+                    finalRooms.map(r => ({
+                      ...r,
+                      correction_source: isCacheHit ? "ai_corrected" : "AI_GENERATED"
+                    })),
+                    roiRect,
+                    roiMode || "replace"
+                  )
+                };
+              }
+              return {
+                ...prev,
+                [currentPage]: finalRooms.map(r => ({
+                  ...r,
+                  correction_source: "AI_GENERATED"
+                }))
+              };
+            });
+
+            // Clear live OCR overlay
+            setActiveScanRoom(null);
+            finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
+          }
+        },
+        job.controller.signal
+      );
+
     } catch (err) {
       if (err.name === "AbortError") {
         console.log("[Auto AI] Request canceled by user.");
@@ -286,22 +363,24 @@ export const useAIController = (
         throw new Error(texts?.detail || "Invalid response from text detection");
       }
 
-      const textRooms = texts.map(t => {
-        const { x, y, w, h } = t.bbox;
-        return {
-          id: `text-${Math.random()}`,
-          room_name: t.text,
-          type: "dry",
-          polygon: [
-            { x, y },
-            { x: x + w, y },
-            { x: x + w, y: y + h },
-            { x, y: y + h }
-          ],
-          conf: t.conf,
-          correction_source: "AI_GENERATED"
-        };
-      });
+      const textRooms = texts
+        .filter(t => !t.text?.toUpperCase().includes("GARAGE"))
+        .map(t => {
+          const { x, y, w, h } = t.bbox;
+          return {
+            id: `text-${Math.random()}`,
+            room_name: t.text,
+            type: "dry",
+            polygon: [
+              { x, y },
+              { x: x + w, y },
+              { x: x + w, y: y + h },
+              { x, y: y + h }
+            ],
+            conf: t.conf,
+            correction_source: "AI_GENERATED"
+          };
+        });
 
       setRoomsByPage(prev => ({
         ...prev,
@@ -383,7 +462,7 @@ export const useAIController = (
         console.log("[Template AI] Detected objects:", detected.length);
         setRoomsByPage(prev => ({
           ...prev,
-          [currentPage]: [...(prev[currentPage] || []), ...detected.filter(r => r.polygon && r.polygon.length >= 3).map(r => ({
+          [currentPage]: [...(prev[currentPage] || []), ...detected.filter(r => r.polygon && r.polygon.length >= 3 && !r.room_name?.toUpperCase().includes("GARAGE")).map(r => ({
             ...r,
             correction_source: "AI_GENERATED"
           }))]
@@ -413,6 +492,7 @@ export const useAIController = (
     detectWallFromFloorAI,
     detectDoor,
     detectText,
-    detectTemplate
+    detectTemplate,
+    activeScanRoom
   };
 };

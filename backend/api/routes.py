@@ -458,6 +458,71 @@ async def predict_seg(
 
     return list(results)
 
+@router.post("/predict_seg_stream")
+async def predict_seg_stream(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.5),
+    roi_x: Optional[float] = Form(None),
+    roi_y: Optional[float] = Form(None),
+    roi_w: Optional[float] = Form(None),
+    roi_h: Optional[float] = Form(None),
+    roi_padding: float = Form(128),
+    upscale_factor: float = Form(1.0),
+    existing_rooms: Optional[str] = Form(None),
+    username: str = Depends(validate_session)
+):
+    """
+    Tuyến API thực tế truyền luồng sự kiện (NDJSON Streaming) trạng thái xử lý AI:
+    Backend thực hiện đến bước nào, Frontend sẽ nhận diện và cập nhật giao diện đến bước đó!
+    """
+    from services.floor_ai_detect import predict_rooms_stream
+    from fastapi.responses import StreamingResponse
+
+    content = await file.read()
+    
+    parsed_existing = None
+    if existing_rooms:
+        try:
+            parsed_existing = json.loads(existing_rooms)
+        except Exception:
+            pass
+
+    roi_bounds = None
+    if roi_x is not None and roi_y is not None and roi_w is not None and roi_h is not None:
+        roi_bounds = {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h}
+
+    async def event_generator():
+        try:
+            generator = predict_rooms_stream(
+                image_bytes=content,
+                filename=file.filename or "image.png",
+                confidence=confidence,
+                roi_bounds=roi_bounds,
+                roi_padding=roi_padding,
+                upscale_factor=upscale_factor,
+                existing_rooms=parsed_existing
+            )
+            
+            while True:
+                def get_next():
+                    try:
+                        return next(generator)
+                    except StopIteration:
+                        return None
+                
+                event = await run_in_threadpool(get_next)
+                if event is None:
+                    break
+                
+                yield json.dumps(event) + "\n"
+                await asyncio.sleep(0.05)
+                
+        except Exception as e:
+            yield json.dumps({"status": "failed", "message": f"Lỗi luồng AI: {str(e)}"}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+
 
 @router.post("/diagnose/predict_seg")
 async def diagnose_predict_seg(

@@ -151,5 +151,14 @@
     "apply_to_all": true,
     "source": "human_verified",
     "timestamp": "2026-05-22T09:22:07.493606"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "MASTER",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-05-28T10:05:15.163120"
   }
 ]

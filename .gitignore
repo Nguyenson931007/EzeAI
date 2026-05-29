@@ -46,3 +46,7 @@ logs/
 *.pth.cache
 backend.zip
 .archive_cleanup/
+
+# Temp files
+cookies.txt
+image-removebg-preview.png

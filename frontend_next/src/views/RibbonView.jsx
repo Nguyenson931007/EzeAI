@@ -60,7 +60,9 @@ export default function RibbonView({
   return (
     <div className="cad-header">
       <div className="cad-top-menu">
-        <span className="mb-logo">⬢ EzeFloor</span>
+        <span className="mb-logo" style={{ background: "none", WebkitTextFillColor: "initial", display: "flex", alignItems: "center", paddingRight: "16px", marginRight: "4px" }}>
+          <img src="/logo.png" alt="ezequote" style={{ height: "20px", width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 6px rgba(255, 255, 255, 0.95)) brightness(1.3)" }} />
+        </span>
         <div className="cad-tabs">
           {["Home", "Measure", "AI & Reports", "View", "Saved Jobs"].map(tab => (
             <button
@@ -239,12 +241,14 @@ export default function RibbonView({
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoor()} disabled={isDetecting} title="Dùng AI tự động vẽ cửa">
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
+                {/*
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectText()} disabled={isDetecting}>
                   <span className="icon">{isDetecting ? "⏳" : "📝"}</span><span className="label">Detect Text</span>
                 </button>
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectTemplate()} disabled={isDetecting} title="Dùng AI nhận diện template">
                   <span className="icon">{isDetecting ? "⏳" : "📐"}</span><span className="label">Template AI</span>
                 </button>
+                */}
               </div>
               <span className="ribbon-group-title">AI DETECT</span>
             </div>
@@ -362,6 +366,7 @@ export default function RibbonView({
             >
               🤖 Rooms
             </button>
+            {/*
             <button 
               className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
               onClick={() => detectWallFromFloorAI(roiRect, roiMode)} 
@@ -369,6 +374,7 @@ export default function RibbonView({
             >
               🧱 Walls
             </button>
+            */}
             <button 
               className={`roi-btn-detect doors ${isDetecting ? "pulsing" : ""}`}
               onClick={() => detectDoor(roiRect, roiMode)} 

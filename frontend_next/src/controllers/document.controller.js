@@ -57,7 +57,7 @@ export function useDocumentController({
 
       await page.render({ canvasContext: context, viewport: viewport }).promise;
       pagesData.push({
-        image: canvas.toDataURL("image/png"),
+        image: canvas.toDataURL("image/jpeg", 0.75),
         w: viewport.width,
         h: viewport.height
       });
@@ -89,7 +89,7 @@ export function useDocumentController({
     ctx.translate(newW, 0);
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(img, 0, 0, oldW, oldH);
-    const rotatedDataUrl = canvas.toDataURL("image/png");
+    const rotatedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
 
     const rotatedRooms = rooms.map(r => ({
       ...r,

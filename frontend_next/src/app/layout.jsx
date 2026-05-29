@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "EzeFloor – AI Floor Plan Segmentation",
+  title: "ezequote – AI Floor Plan Segmentation",
   description: "Enterprise CAD/BIM floor plan analysis with AI-powered room detection, wall segmentation, and door recognition.",
 };
 

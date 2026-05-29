@@ -183,7 +183,8 @@ export default function App() {
     detectWallFromFloorAI,
     detectDoor,
     detectText,
-    detectTemplate
+    detectTemplate,
+    activeScanRoom
   } = useAIController(image, currentPage, setRoomsByPage, setWallsByPage, realScale, setDoorsByPage, roomsByPage);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
@@ -433,6 +434,7 @@ export default function App() {
             cacheStatus={cacheStatus}
             inferenceTiming={inferenceTiming}
             isDetecting={isDetecting}
+            activeScanRoom={activeScanRoom}
             setOffset={setOffset}
             setScale={setScale}
             currentPage={currentPage}

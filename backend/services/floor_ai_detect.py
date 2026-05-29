@@ -27,7 +27,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from PIL import Image
 from ultralytics import YOLO
-from shapely.geometry import Polygon as ShapelyPolygon, Point as ShapelyPoint
+from shapely.geometry import Polygon as ShapelyPolygon, Point as ShapelyPoint, MultiPolygon as SMP, GeometryCollection, Polygon, Point, MultiPolygon
+from shapely.ops import unary_union
 
 from services.model_paths import MODEL_CANDIDATES, get_model_health
 from services.ocr import run_ocr
@@ -166,7 +167,7 @@ _MATERIAL_RE = re.compile(
 )
 
 # WET rooms: only bathroom-related rooms (NOT laundry — laundry is DRY)
-_WET_RE = re.compile(r"\b(WC|TOILET|BATH|BATHROOM|SHOWER|ENS|ENSUITE|PWD|PWDR|PDR|SQSET|POWDER)\b", re.I)
+_WET_RE = re.compile(r"\b(WC|TOILET|BATH|BATHROOM|SHOWER|LAUNDRY|LDRY|ENS|ENSUITE|PWD|PWDR|PDR|SQSET|POWDER)\b", re.I)
 _OUTDOOR_RE = re.compile(r"\b(DECK|BALCONY|TERRACE|ALFRESCO|PATIO|VERANDA|COURTYARD|GARDEN)\b", re.I)
 
 
@@ -247,7 +248,8 @@ def _collapse_spaces(text: str) -> str:
         "BIR": "ROBE", "WIP": "PANTRY", "PWD": "PWDR", "LDRY": "LAUNDRY", 
         "BTH": "BATH", "BEDR": "BED", "BEDRM": "BED", "RUMP": "RUMPUS", 
         "FAM": "FAMILY", "KIT": "KITCHEN", "DIN": "DINING", "LIV": "LIVING", 
-        "GAR": "GARAGE", "WIR": "WIR", "LAUNORY": "LAUNDRY", "BALC": "BALCONY"
+        "GAR": "GARAGE", "WIR": "WIR", "LAUNORY": "LAUNDRY", "BALC": "BALCONY",
+        "WLR": "WIR",
     }
     if not has_room_word:
         for k, v in collapsed_mappings.items():
@@ -326,7 +328,7 @@ def _clean_text(s: str) -> str:
         "BA1": "BATH 1", "BA2": "BATH 2","ENS1":"ENS 1", "ENSH":"ENS", "FENS":"ENS",
         "ENS2":"ENS 2", "LDY": "LAUNDRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
         "ENSULTE":"ENSUITE", "WCI":"WC", "ENSH3" : "ENS 3", "ENSH4":"ENS 4",
-        "NS":"ENS", "BALC0NY" : "BALCONY", "BALC 0 N Y":"BALCONY", "W |R":"WIR",
+        "NS":"ENS", "BALC0NY" : "BALCONY", "BALC 0 N Y":"BALCONY", "W |R":"WIR", "WLR":"WIR",
         "BED1": "BED 1", "BED2": "BED 2", "BED3": "BED 3", "BED4": "BED 4",
         "BATH1": "BATH 1", "BATH2": "BATH 2", "LAUNDRYTEXT": "LAUNDRY", "LDRYTEXT": "LAUNDRY"
     }
@@ -436,7 +438,6 @@ def _semantic_fuzzy_match(ocr_text: str) -> tuple:
     return ocr_text, best_score
 
 def _compute_topology_boost(norm_text: str, room_polygon, bbox, rooms_context, current_idx) -> int:
-    from shapely.geometry import Polygon
     boost = 0
     
     try:
@@ -494,7 +495,6 @@ def _compute_topology_boost(norm_text: str, room_polygon, bbox, rooms_context, c
 def _compute_global_topology_boost(norm_text: str, global_polygon: list, existing_rooms: list) -> int:
     if not existing_rooms:
         return 0
-    from shapely.geometry import Polygon
     boost = 0
     try:
         poly = Polygon([(p["x"], p["y"]) for p in global_polygon])
@@ -654,7 +654,6 @@ def _score_semantic_text(text, conf, bbox, room_polygon, rooms_context, current_
     bbox_h = bbox["h"]
     font_score = min(100, (bbox_h / 40.0) * 100)
     
-    from shapely.geometry import Polygon, Point
     poly = Polygon([(p["x"], p["y"]) for p in room_polygon])
     centroid = poly.centroid
     text_center = Point(bbox["x"] + bbox["w"]/2, bbox["y"] + bbox["h"]/2)
@@ -832,7 +831,9 @@ def _detect_rooms_text_roi(
         
         # Attempt 2: OCR Retry for low-confidence polygons (Requirement 2C)
         if score < 50 or conf < 0.4:
-            score2, text2, conf2, cands2 = attempt_ocr(pad=45, upscale=2.0)
+            # Only upscale if the crop size is small (max dimension < 80px) to keep CPU load low and fast
+            retry_upscale = 2.0 if (max(xs) - min(xs)) < 80 else 1.0
+            score2, text2, conf2, cands2 = attempt_ocr(pad=45, upscale=retry_upscale)
             if score2 > score:
                 score, text, conf, cands = score2, text2, conf2, cands2
             else:
@@ -1087,11 +1088,13 @@ def _classify_room(room_name: str, outside_ratio: float = 0.0,
 
     # ── 1. Check for Indoor DRY names FIRST (highest priority) ──
     # This prevents BED, KITCHEN etc from being misclassified
+    if "VOID" in name.upper():
+        return "dry", "void", "indoor", 0
+
     indoor_dry_keywords = ["BED", "LIVING", "KITCHEN", "DINING", "LOUNGE", "STUDY",
                            "ENTRY", "HALL", "HALLWAY", "MEDIA", "GARAGE", "ROBE", "WIR", "BIR",
-                           "PANTRY", "STORE", "LINEN", "LAUNDRY", "LDRY", "L'DRY", "LDY", "VOID"]
+                           "PANTRY", "STORE", "LINEN", "LAUNDRY", "LDRY", "L'DRY", "LDY"]
     if any(k in name.upper() for k in indoor_dry_keywords):
-        # VOID is usually colored as 'dry' (blue) or treated as a special empty zone
         return "dry", "dry", "indoor", 0  
 
     # ── 2. Check for WET names (bathroom/toilet only) ──
@@ -1144,29 +1147,47 @@ def _outside_contact_ratio(poly_pts: list, img_w: int, img_h: int,
 # OVERLAP RESOLUTION  (ported from floor-ai-desktop)
 # ──────────────────────────────────────────────────────────
 
-_TYPE_PRIORITY = {"wet": 4, "deck": 3, "dry": 2, "unknown": 0}
+_TYPE_PRIORITY = {"wet": 4, "deck": 3, "dry": 2, "unknown": 1, "void": 0}
 _MIN_AREA_PX   = 100   # polygons smaller than this are dropped
 
 
-def _clean_poly(poly, simplify_tol: float = 2.0):
+def _clean_poly(poly, simplify_tol: float = 0.3):
     """Validate, repair, simplify, and fill holes in a Shapely polygon."""
-    from shapely.geometry import MultiPolygon as SMP
+    # shapely imports promoted globally
     if poly is None or poly.is_empty:
         return None
     try:
         if not poly.is_valid:
             poly = poly.buffer(0)
+            
+        # Extract the largest polygon if it's a MultiPolygon or GeometryCollection
+        if isinstance(poly, (SMP, GeometryCollection)):
+            polys = []
+            if hasattr(poly, "geoms"):
+                for g in poly.geoms:
+                    if isinstance(g, ShapelyPolygon):
+                        polys.append(g)
+                    elif isinstance(g, SMP):
+                        polys.extend(g.geoms)
+            if polys:
+                poly = max(polys, key=lambda g: g.area)
+            else:
+                return None
+                
         # Fill interior holes (architectural rooms shouldn't have holes)
-        if poly.interiors:
+        if hasattr(poly, "interiors") and poly.interiors:
             poly = ShapelyPolygon(poly.exterior)
+            
         # Simplify with higher tolerance for cleaner edges
         poly = poly.simplify(simplify_tol, preserve_topology=True)
         if not poly.is_valid:
             poly = poly.buffer(0)
+            
+        if isinstance(poly, SMP):
+            poly = max(poly.geoms, key=lambda g: g.area, default=None)
     except Exception:
         return None
-    if isinstance(poly, SMP):
-        poly = max(poly.geoms, key=lambda g: g.area, default=None)
+        
     return poly
 
 
@@ -1190,7 +1211,7 @@ def _smooth_polygon(polygon_pts: list, img_w: int, img_h: int) -> list:
         if not poly.is_valid:
             poly = poly.buffer(0)
             
-        from shapely.geometry import MultiPolygon as SMP
+        # shapely imports promoted globally
         if isinstance(poly, SMP):
             poly = max(poly.geoms, key=lambda g: g.area, default=None)
             
@@ -1301,9 +1322,9 @@ def _resolve_overlaps(rooms: list) -> list:
         r["_poly"] = poly
         prepared.append(r)
 
-    # Sort: highest priority first, then by area desc (larger rooms processed first)
+    # Sort: highest priority first, then by area asc (smaller rooms processed first to keep them intact)
     prepared.sort(
-        key=lambda r: (_TYPE_PRIORITY.get(r.get("room_type", "unknown"), 0), r["_poly"].area),
+        key=lambda r: (_TYPE_PRIORITY.get(r.get("room_type", "unknown"), 0), -r["_poly"].area),
         reverse=True
     )
 
@@ -1342,8 +1363,7 @@ def _merge_same_name_adjacent_rooms(rooms: list) -> list:
     Finds rooms with the same name that overlap or are adjacent (distance < 15px),
     and unions them into a single room polygon.
     """
-    from shapely.ops import unary_union
-    from shapely.geometry import MultiPolygon
+    # shapely imports promoted globally
     
     # 1. Group rooms by normalized name
     groups = {}
@@ -1473,17 +1493,33 @@ def _suppress_high_overlaps(rooms: list) -> list:
                 try:
                     inter_area = poly1.intersection(poly2).area
                     min_area = min(poly1.area, poly2.area)
+                    max_area = max(poly1.area, poly2.area)
                     if min_area <= 0:
                         continue
                     
                     overlap_ratio = inter_area / min_area
-                    if overlap_ratio > 0.40:
-                        name1 = r1.get("room_name", "").upper()
-                        name2 = r2.get("room_name", "").upper()
+                    
+                    # If one polygon is significantly larger than the other, they are not duplicates.
+                    # Do not suppress either; let _resolve_overlaps handle the clipping instead.
+                    if max_area / min_area > 1.8:
+                        continue
+                    
+                    # Only suppress if extremely overlapping (duplicate detection)
+                    # or if same specific name and moderately overlap
+                    name1 = r1.get("room_name", "").upper()
+                    name2 = r2.get("room_name", "").upper()
+                    
+                    is_generic1 = name1 in ["ROOM", "UNKNOWN", "VOID", "SPACE", "AREA"]
+                    is_generic2 = name2 in ["ROOM", "UNKNOWN", "VOID", "SPACE", "AREA"]
+                    
+                    # If both are specific (non-generic) and they have different names, NEVER suppress either!
+                    if not is_generic1 and not is_generic2 and name1 != name2:
+                        continue
                         
-                        is_generic1 = name1 in ["ROOM", "UNKNOWN"]
-                        is_generic2 = name2 in ["ROOM", "UNKNOWN"]
-                        
+                    is_same_name = name1 == name2 and not is_generic1
+                    threshold = 0.50 if is_same_name else 0.80
+                    
+                    if overlap_ratio > threshold:
                         source1 = r1.get("room_name_source", "")
                         source2 = r2.get("room_name_source", "")
                         
@@ -1508,10 +1544,10 @@ def _suppress_high_overlaps(rooms: list) -> list:
                                     keep_r1 = False
                                     
                         if keep_r1:
-                            to_remove.add(j)
+                             to_remove.add(j)
                         else:
-                            to_remove.add(i)
-                            break
+                             to_remove.add(i)
+                             break
                 except Exception:
                     pass
                     
@@ -1527,8 +1563,6 @@ def _suppress_high_overlaps(rooms: list) -> list:
 
 
 def _match_text_to_rooms(rooms: list, texts: list) -> list:
-    from shapely.geometry import Polygon, Point
-    
     for room in rooms:
         pts = room.get("polygon", [])
         if len(pts) < 3:
@@ -1582,7 +1616,7 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
 
 def predict_rooms_from_bytes(image_bytes: bytes,
                              filename: str = "image.png",
-                             confidence: float = 0.3,
+                             confidence: float = 0.01,
                              model_path: str = None,
                              skip_ocr: bool = False,
                              username: str = "Unknown") -> dict:
@@ -1669,23 +1703,27 @@ def predict_rooms_from_bytes(image_bytes: bytes,
 
     print(f"[floor_ai_detect] YOLO detected {len(rooms)} room polygons in {time.time()-t_yolo:.1f}s (confidence={confidence})")
 
-    # ── 2. Polygon ROI OCR ────────────────────────────
+    # ── 2. High-precision YOLO Text Matching FIRST ────────────────────────────
     if not skip_ocr:
         try:
-            rooms = _detect_rooms_text_roi(img_np, rooms)
-            
-            # High-precision YOLO Text Matching fallback
+            print("[floor_ai_detect] Running YOLO Text Match FIRST...")
+            all_texts = predict_text_from_bytes(image_bytes, confidence=0.001)
+            rooms = _match_text_to_rooms(rooms, all_texts)
+        except Exception as match_err:
+            print(f"[floor_ai_detect] YOLO Text Match error: {match_err}")
+
+        # ── 3. Cropped OCR only for remaining unnamed/generic rooms ─────────────────
+        unnamed_rooms = [r for r in rooms if (r.get("room_name") or "ROOM").upper() in ["ROOM", "UNKNOWN"]]
+        if unnamed_rooms:
+            print(f"[floor_ai_detect] Running cropped OCR only for {len(unnamed_rooms)} unnamed rooms...")
             try:
-                print("[floor_ai_detect] Running YOLO Text Match fallback...")
-                all_texts = predict_text_from_bytes(image_bytes, confidence=0.001)
-                rooms = _match_text_to_rooms(rooms, all_texts)
-            except Exception as match_err:
-                print(f"[floor_ai_detect] YOLO Text Match error: {match_err}")
-                
-        except Exception as e:
-            print(f"[floor_ai_detect] ROI OCR warning: {e}")
-            import traceback
-            traceback.print_exc()
+                _detect_rooms_text_roi(img_np, unnamed_rooms)
+            except Exception as e:
+                print(f"[floor_ai_detect] ROI OCR warning: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("[floor_ai_detect] All rooms already named via YOLO Text Match. Skipping cropped OCR!")
     else:
         print("[floor_ai_detect] OCR skipped by request.")
     
@@ -1701,6 +1739,8 @@ def predict_rooms_from_bytes(image_bytes: bytes,
     print(f"[floor_ai_detect] Name refinement: {time.time()-t_retry:.1f}s")
 
     # ── 4. Classify wet/dry + finalise fields ───────────
+    # Exclude any rooms whose names contain "GARAGE"
+    rooms = [r for r in rooms if "GARAGE" not in (r.get("room_name") or "").upper() and "GARAGE" not in (r.get("class_name") or "").upper()]
     for room in rooms:
         outside_ratio = _outside_contact_ratio(room["polygon"], img_w, img_h)
         wetness, room_type, zone, yaml_id = _classify_room(
@@ -1767,7 +1807,7 @@ def _touches_roi_boundary(polygon, x1, y1, x2, y2, margin=5):
 def predict_rooms_from_bytes_roi(
     image_bytes: bytes,
     filename: str = "image.png",
-    confidence: float = 0.1,
+    confidence: float = 0.01,
     roi_x: float = 0, roi_y: float = 0,
     roi_w: float = 0, roi_h: float = 0,
     roi_padding: float = 128,
@@ -1907,6 +1947,8 @@ def predict_rooms_from_bytes_roi(
             room["conf"] = room.get("conf", 0.5) * 0.6
 
     # ── Classify rooms ──
+    # Exclude any rooms whose names contain "GARAGE"
+    rooms = [r for r in rooms if "GARAGE" not in (r.get("room_name") or "").upper() and "GARAGE" not in (r.get("class_name") or "").upper()]
     for room in rooms:
         outside_ratio = _outside_contact_ratio(room["polygon"], img_w, img_h)
         wetness, room_type, zone, yaml_id = _classify_room(
@@ -2800,3 +2842,210 @@ def predict_template_from_bytes(image_bytes: bytes,
             "objects": detected,
         }]
     }
+
+def predict_rooms_stream(image_bytes: bytes,
+                         filename: str = "image.png",
+                         confidence: float = 0.01,
+                         roi_bounds: dict = None,
+                         roi_padding: float = 128,
+                         upscale_factor: float = 1.0,
+                         existing_rooms: list = None):
+    # Yield starting event
+    yield {"status": "started", "message": "Khởi chạy quy trình phân tích AI..."}
+    
+    # ── Load full image ──
+    pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img_w, img_h = pil_image.width, pil_image.height
+    img_np = np.array(pil_image)
+    
+    # Decide standard vs ROI crop
+    is_roi = roi_bounds is not None and all(k in roi_bounds for k in ["x", "y", "w", "h"])
+    
+    cx1, cy1, cx2, cy2 = 0, 0, img_w, img_h
+    actual_upscale = 1.0
+    crop = img_np
+    
+    if is_roi:
+        from services.roi_config import get_roi_padding, get_roi_upscale
+        actual_padding = get_roi_padding("room", roi_padding)
+        if actual_padding == 128:
+            actual_padding = 256
+        actual_upscale = get_roi_upscale("room", upscale_factor)
+        
+        pad = int(actual_padding)
+        cx1 = max(0, int(roi_bounds["x"]) - pad)
+        cy1 = max(0, int(roi_bounds["y"]) - pad)
+        cx2 = min(img_w, int(roi_bounds["x"] + roi_bounds["w"]) + pad)
+        cy2 = min(img_h, int(roi_bounds["y"] + roi_bounds["h"]) + pad)
+        
+        crop_w = cx2 - cx1
+        crop_h = cy2 - cy1
+        if crop_w >= 50 and crop_h >= 50:
+            crop = img_np[cy1:cy2, cx1:cx2]
+            if actual_upscale > 1.0:
+                actual_upscale = min(actual_upscale, 3.0)
+                new_w = int(crop.shape[1] * actual_upscale)
+                new_h = int(crop.shape[0] * actual_upscale)
+                crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+    
+    yield {"status": "yolo_started", "message": "🤖 Đang phân đoạn các vùng phòng bằng YOLO..."}
+    
+    # ── 1. YOLO room segmentation ──
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = _get_model("room")
+    yolo_conf = confidence
+    if is_roi:
+        yolo_conf = max(0.15, confidence - 0.20) if confidence > 0.3 else confidence
+        
+    yolo_results = model(crop, conf=yolo_conf, device=device, imgsz=1280, half=(device == "cuda"))
+    
+    rooms = []
+    for res in yolo_results:
+        if res.boxes is None:
+            continue
+        cls_arr = res.boxes.cls.cpu().numpy()
+        conf_arr = res.boxes.conf.cpu().numpy()
+        masks = getattr(res, "masks", None)
+        xyxy_arr = getattr(res.boxes, "xyxy", None)
+        if xyxy_arr is not None:
+            xyxy_arr = xyxy_arr.cpu().numpy()
+
+        for i in range(len(cls_arr)):
+            polygon = None
+            if masks is not None and i < len(masks.xy):
+                mask = masks.xy[i]
+                if len(mask) >= 3:
+                    polygon = [{"x": float(x), "y": float(y)} for x, y in mask]
+            
+            if polygon is None and xyxy_arr is not None:
+                rx1, ry1, rx2, ry2 = xyxy_arr[i]
+                polygon = [
+                    {"x": float(rx1), "y": float(ry1)},
+                    {"x": float(rx2), "y": float(ry1)},
+                    {"x": float(rx2), "y": float(ry2)},
+                    {"x": float(rx1), "y": float(ry2)}
+                ]
+
+            if polygon:
+                polygon = _smooth_polygon(polygon, crop.shape[1], crop.shape[0])
+                cls_id = int(cls_arr[i])
+                class_name = (model.names or {}).get(cls_id, "Room")
+                rooms.append({
+                    "id": f"stream_{int(time.time()*1000)}_{i}",
+                    "polygon": polygon,
+                    "room_name": class_name.upper(),
+                    "class_id": cls_id,
+                    "class_name": class_name,
+                    "conf": float(conf_arr[i]),
+                    "source_model": "unified_stream"
+                })
+                
+    # Coordinate remap if ROI
+    if is_roi:
+        for r in rooms:
+            for pt in r["polygon"]:
+                pt["x"] = pt["x"] / actual_upscale + cx1
+                pt["y"] = pt["y"] / actual_upscale + cy1
+                
+    # Apply garage filtering immediately on raw rooms
+    rooms = [r for r in rooms if "GARAGE" not in (r.get("room_name") or "").upper() and "GARAGE" not in (r.get("class_name") or "").upper()]
+    
+    yield {
+        "status": "yolo_completed", 
+        "message": f"✓ Phân đoạn YOLO xong! Tìm thấy {len(rooms)} vùng phòng.", 
+        "rooms": rooms
+    }
+    
+    # ── 2. YOLO Text Matching ──
+    yield {"status": "ocr_text_started", "message": "📝 Đang nhận diện nhãn chữ OCR..."}
+    
+    try:
+        all_texts = predict_text_from_bytes(image_bytes, confidence=0.001)
+        rooms = _match_text_to_rooms(rooms, all_texts)
+    except Exception as e:
+        print(f"[Stream OCR Match error] {e}")
+        
+    yield {
+        "status": "ocr_text_completed", 
+        "message": "✓ Nhận diện chữ OCR xong!", 
+        "rooms": rooms
+    }
+    
+    # ── 3. Cropped OCR for remaining unnamed/generic rooms ──
+    unnamed_rooms = [r for r in rooms if (r.get("room_name") or "ROOM").upper() in ["ROOM", "UNKNOWN"]]
+    if unnamed_rooms:
+        yield {"status": "cropped_ocr_started", "message": f"🔍 Đang trích xuất OCR độ chính xác cao cho {len(unnamed_rooms)} vùng..."}
+        try:
+            # Map back to cropped coordinates if is_roi
+            if is_roi:
+                for r in unnamed_rooms:
+                    for pt in r["polygon"]:
+                        pt["x"] = (pt["x"] - cx1) * actual_upscale
+                        pt["y"] = (pt["y"] - cy1) * actual_upscale
+                        
+            _detect_rooms_text_roi(crop, unnamed_rooms, cx1=cx1, cy1=cy1, actual_upscale=actual_upscale, existing_rooms=existing_rooms)
+            
+            # Map coordinate back to global
+            if is_roi:
+                for r in unnamed_rooms:
+                    for pt in r["polygon"]:
+                        pt["x"] = pt["x"] / actual_upscale + cx1
+                        pt["y"] = pt["y"] / actual_upscale + cy1
+        except Exception as e:
+            print(f"[Stream Cropped OCR error] {e}")
+            
+        yield {
+            "status": "cropped_ocr_completed", 
+            "message": "✓ Trích xuất OCR vùng xong!", 
+            "rooms": rooms
+        }
+        
+    # Clipping Protection if ROI
+    if is_roi:
+        for r in rooms:
+            if _touches_roi_boundary(r["polygon"], cx1, cy1, cx2, cy2, margin=8):
+                r["partial_object"] = True
+                r["conf"] = r.get("conf", 0.5) * 0.6
+                
+    # ── 4. Classify wet/dry ──
+    yield {"status": "finalizing", "message": "📐 Đang phân loại chất liệu và hoàn thiện hình học..."}
+    
+    # Re-apply garage filter just in case OCR added "garage"
+    rooms = [r for r in rooms if "GARAGE" not in (r.get("room_name") or "").upper() and "GARAGE" not in (r.get("class_name") or "").upper()]
+    
+    for room in rooms:
+        outside_ratio = _outside_contact_ratio(room["polygon"], img_w, img_h)
+        wetness, room_type, zone, yaml_id = _classify_room(
+            room["room_name"], outside_ratio,
+            class_name=room.get("class_name", ""),
+            yolo_class_id=room.get("class_id", -1)
+        )
+        room["class_id"]  = yaml_id
+        room["type"]      = room_type
+        room["wetness"]   = wetness
+        room["room_type"] = room_type
+        room["zone"]      = zone
+        room["location"]  = "external" if zone == "outdoor" else "internal"
+        room["source"]     = "floor-ai-stream"
+        
+    rooms = _merge_same_name_adjacent_rooms(rooms)
+    rooms = _suppress_high_overlaps(rooms)
+    
+    raw_rooms = rooms
+    rooms = _resolve_overlaps(rooms)
+    if not rooms and raw_rooms:
+        rooms = raw_rooms
+        
+    # Generate image_base64
+    buf = io.BytesIO()
+    pil_image.save(buf, format="PNG")
+    image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    
+    yield {
+        "status": "completed", 
+        "message": "🎉 Phân tích bản vẽ hoàn tất!", 
+        "rooms": rooms,
+        "image_base64": image_b64
+    }
+

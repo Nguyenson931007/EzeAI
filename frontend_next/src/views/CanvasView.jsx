@@ -1076,6 +1076,7 @@ export default function CanvasView({
   cacheStatus,
   inferenceTiming,
   isDetecting,
+  activeScanRoom,
   setOffset,
   setScale,
   currentPage,
@@ -1122,7 +1123,7 @@ export default function CanvasView({
       const headers = { "Content-Type": "application/json" };
       if (userObj.username) headers["X-Username"] = userObj.username;
 
-      const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "/api";
+      const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "http://localhost:8090";
       const res = await fetch(`${BASE_URL}/api/ocr-corrections`, {
         method: "POST",
         credentials: "include",
@@ -1236,6 +1237,142 @@ export default function CanvasView({
     });
   };
 
+  const scanStyles = `
+    @keyframes sweep {
+      0% { top: 0%; }
+      50% { top: 100%; }
+      100% { top: 0%; }
+    }
+    @keyframes pulseGlow {
+      0% { opacity: 0.8; box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+      50% { opacity: 1; box-shadow: 0 0 25px rgba(59, 130, 246, 0.7); }
+      100% { opacity: 0.8; box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+    }
+    .sweep-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: linear-gradient(90deg, rgba(59, 130, 246, 0) 0%, rgba(59, 130, 246, 0.8) 50%, rgba(59, 130, 246, 0) 100%);
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.8);
+      animation: sweep 4s infinite linear;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .scanner-panel {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 16px;
+      padding: 18px 24px;
+      width: 380px;
+      color: white;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      z-index: 999;
+      animation: pulseGlow 2s infinite ease-in-out;
+      font-family: 'Outfit', 'Inter', sans-serif;
+    }
+    .scanner-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .scanner-live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #60a5fa;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+      animation: blink 1s infinite alternate;
+    }
+    @keyframes blink {
+      0% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+    .scanner-progress-text {
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    .scanner-target-title {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .scanner-target-name {
+      font-size: 24px;
+      font-weight: 800;
+      color: #fff;
+      background: linear-gradient(135deg, #60a5fa 0%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 14px;
+      letter-spacing: 0.5px;
+    }
+    .scanner-candidates-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+    }
+    .scanner-candidates-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .scanner-cand-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .scanner-cand-name {
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+    .scanner-cand-score {
+      font-weight: 700;
+      color: #10b981;
+    }
+    .scanner-bar-container {
+      margin-top: 14px;
+      height: 6px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .scanner-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6 0%, #a855f7 100%);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+  `;
+
   return (
     <div className="cad-canvas-wrap" ref={containerRef}>
       <div
@@ -1243,6 +1380,9 @@ export default function CanvasView({
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
       >
+        <style>{scanStyles}</style>
+        {activeScanRoom && <div className="sweep-line" />}
+        
         {/* Floating Dynamic Diagnostic ROI Panel (Requirement 10) */}
         {roiRect && (
           <div className="roi-debug-panel glassmorphic">
@@ -1277,6 +1417,48 @@ export default function CanvasView({
                  : "Idle"}
               </span>
               {inferenceTiming && <span className="metrics-badge">{inferenceTiming}</span>}
+            </div>
+          </div>
+        )}
+
+        {activeScanRoom && (
+          <div className="scanner-panel">
+            <div className="scanner-header">
+              <div className="scanner-live-badge">
+                <span className="live-dot" />
+                Live AI OCR Stream
+              </div>
+              <span className="scanner-progress-text">
+                Room {activeScanRoom.index + 1} of {activeScanRoom.total}
+              </span>
+            </div>
+            
+            <div className="scanner-target-title">CURRENT OCR DETECTION</div>
+            <div className="scanner-target-name">{activeScanRoom.name}</div>
+            
+            <div className="scanner-candidates-label">OCR Candidates Match</div>
+            <div className="scanner-candidates-list">
+              {activeScanRoom.candidates && activeScanRoom.candidates.length > 0 ? (
+                activeScanRoom.candidates.slice(0, 3).map((cand, idx) => (
+                  <div key={idx} className="scanner-cand-item">
+                    <span className="scanner-cand-name">{cand.text}</span>
+                    <span className="scanner-cand-score">
+                      {(cand.score || cand.conf * 100 || 80).toFixed(0)}%
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="scanner-cand-item" style={{ fontStyle: 'italic', color: '#64748b', fontSize: '11px' }}>
+                  No generic candidates, settling on AI category model
+                </div>
+              )}
+            </div>
+
+            <div className="scanner-bar-container">
+              <div 
+                className="scanner-bar-fill" 
+                style={{ width: `${((activeScanRoom.index + 1) / activeScanRoom.total) * 100}%` }} 
+              />
             </div>
           </div>
         )}
