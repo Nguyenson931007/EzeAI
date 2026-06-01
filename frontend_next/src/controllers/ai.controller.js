@@ -34,7 +34,7 @@ function _bboxIoU(polyA, polyB) {
 // Edit these confidence threshold values directly in the code:
 // ====================================================
 const ROOMS_CONF = 0.03;      // Room detection confidence threshold
-const DOORS_CONF = 0.05;      // Door detection confidence threshold
+const DOORS_CONF = 0.07;      // Door detection confidence threshold
 const WALLS_CONF = 0.80;      // Wall detection confidence threshold
 const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
 const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
@@ -569,7 +569,7 @@ export const useAIController = (
       let data;
       if (roiRect) {
         data = await ApiService.autoDetectDoorsROI(
-          blob, String(DOORS_CONF), roiRect, 48, realScale || 1.0,
+          blob, String(DOORS_CONF), roiRect, 160, realScale || 1.0,
           { signal: job.controller.signal }
         );
       } else {
