@@ -72,7 +72,7 @@ export function useInteractionController(svgRef) {
 
   // ROI State
   const [roiRect, setRoiRect] = useState(null);       // {x,y,w,h} in image coords
-  const [roiMode, setRoiMode] = useState("replace");   // replace|merge|refine
+  const [roiMode, setRoiMode] = useState("additive");   // additive|replace|merge|refine
   const [roiUpscale, setRoiUpscale] = useState(1.0);   // upscale factor
   const [interactionMode, setInteractionMode] = useState("select");
   // select | draw | pan | roi_select | edit_text | refine_ai

@@ -42,6 +42,103 @@ function buildDoorCode(d) {
   return `${label}-${w}x${h}-${hinge}`;
 }
 
+const FINELINE_MAP = {
+  // Height 2040
+  "2040_410": "1972222",
+  "2040_420": "1972248",
+  "2040_460": "1972272",
+  "2040_520": "2012201",
+  "2040_620": "2012196",
+  "2040_720": "2012188",
+  "2040_770": "1975212",
+  "2040_820": "2012170",
+  "2040_870": "1973121",
+  "2040_920": "2010170",
+  "2040_1020": "1970271",
+  
+  // Height 2340
+  "2340_410": "2040257",
+  "2340_420": "2040019",
+  "2340_520": "1975571",
+  "2340_620": "1973171",
+  "2340_720": "1973189",
+  "2340_770": "1973197",
+  "2340_820": "1973202",
+  "2340_870": "1973210",
+  "2340_920": "2010331",
+  "2340_1020": "2036274",
+  "2340_1200": "2010332"
+};
+
+const DOOR_TYPE_MAP = {
+  // Height 2040
+  "2040_410": "H1 PCM 2040x410x35",
+  "2040_420": "H1 PCM 2040x420x35",
+  "2040_460": "H1 PCM 2040x460x35",
+  "2040_520": "H1 PCM 2040x520x35",
+  "2040_620": "H1 PCM 2040x620x35",
+  "2040_720": "H1 PCM 2040x720x35",
+  "2040_770": "H1 PCM 2040x770x35",
+  "2040_820": "H1 PCM 2040x820x35",
+  "2040_870": "H1 PCM 2040x870x35",
+  "2040_920": "H1 PCM 2040x920x35",
+  "2040_1020": "H1 PCM 2040x1020x35",
+  
+  // Height 2340
+  "2340_410": "H1 PCM 2340x410x35",
+  "2340_420": "H1 PCM 2340x420x35",
+  "2340_520": "H1 PCM 2340x520x35",
+  "2340_620": "H1 PCM 2340x620x35",
+  "2340_720": "H1 PCM 2340x720x35",
+  "2340_770": "H1 PCM 2340x770x35",
+  "2340_820": "H1 PCM 2340x820x35",
+  "2340_870": "H1 PCM 2340x870x35",
+  "2340_920": "H1 PCM Spec CI up to 2340x920x35",
+  "2340_1020": "H1 PCM 2340x1020x35",
+  "2340_1200": "H1 PCM Spec DK up to 2400x1200x35"
+};
+
+function normalizeToMm(val) {
+  if (!val) return 0;
+  const num = Number(val);
+  if (isNaN(num)) return 0;
+  if (num < 10) return Math.round(num * 1000); // e.g. 0.82 -> 820, 2.04 -> 2040
+  if (num < 200) return Math.round(num * 10);  // e.g. 82.0 -> 820, 66.82 -> 668
+  return Math.round(num);                      // e.g. 820 -> 820
+}
+
+const STANDARD_WIDTHS = [410, 420, 460, 520, 620, 720, 770, 820, 870, 920, 1020, 1200];
+function snapToStandardWidth(w) {
+  return STANDARD_WIDTHS.reduce((prev, curr) => 
+    Math.abs(curr - w) < Math.abs(prev - w) ? curr : prev
+  );
+}
+
+const STANDARD_HEIGHTS = [2040, 2340];
+function snapToStandardHeight(h) {
+  return STANDARD_HEIGHTS.reduce((prev, curr) => 
+    Math.abs(curr - h) < Math.abs(prev - h) ? curr : prev
+  );
+}
+
+function getFinelineCode(r) {
+  const h = normalizeToMm(r.height);
+  const w = normalizeToMm(r.width);
+  const snappedH = snapToStandardHeight(h);
+  const snappedW = snapToStandardWidth(w);
+  const key = `${snappedH}_${snappedW}`;
+  return FINELINE_MAP[key] || "0";
+}
+
+function getDoorType(r) {
+  const h = normalizeToMm(r.height);
+  const w = normalizeToMm(r.width);
+  const snappedH = snapToStandardHeight(h);
+  const snappedW = snapToStandardWidth(w);
+  const key = `${snappedH}_${snappedW}`;
+  return DOOR_TYPE_MAP[key] || "H1 PCM";
+}
+
 function pointInPolygon(point, vs) {
   if (!vs || vs.length === 0) return false;
   const [x, y] = point;
@@ -1007,10 +1104,10 @@ export default function BOQTable({
                 </select>
               </td>
               <td style={{ ...styles.td, ...styles.tdCenter }}>
-                0
+                {getDoorType(r)}
               </td>
               <td style={{ ...styles.td, ...styles.tdCenter }}>
-                0
+                {getFinelineCode(r)}
               </td>
               <td style={{ ...styles.td, ...styles.tdCenter }}>
                 Lockwood Satin Chrome Symmetry Entry Lever Set - 4020475

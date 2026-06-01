@@ -9,12 +9,32 @@ import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid } from "@/utils/geometry";
 
+/**
+ * Compute bounding-box IoU (Intersection over Union) between two polygons.
+ * Used for deduplication when merging crop-detected rooms with existing ones.
+ */
+function _bboxIoU(polyA, polyB) {
+  if (!polyA || !polyB || polyA.length < 3 || polyB.length < 3) return 0;
+  const axs = polyA.map(p => p.x), ays = polyA.map(p => p.y);
+  const bxs = polyB.map(p => p.x), bys = polyB.map(p => p.y);
+  const a = { x1: Math.min(...axs), y1: Math.min(...ays), x2: Math.max(...axs), y2: Math.max(...ays) };
+  const b = { x1: Math.min(...bxs), y1: Math.min(...bys), x2: Math.max(...bxs), y2: Math.max(...bys) };
+  const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1);
+  const ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
+  const iw = Math.max(0, ix2 - ix1), ih = Math.max(0, iy2 - iy1);
+  const inter = iw * ih;
+  const areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
+  const areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
+  const union = areaA + areaB - inter;
+  return union > 0 ? inter / union : 0;
+}
+
 // ====================================================
 // AI Threshold Configurations
 // Edit these confidence threshold values directly in the code:
 // ====================================================
 const ROOMS_CONF = 0.03;      // Room detection confidence threshold
-const DOORS_CONF = 0.15;      // Door detection confidence threshold
+const DOORS_CONF = 0.05;      // Door detection confidence threshold
 const WALLS_CONF = 0.80;      // Wall detection confidence threshold
 const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
 const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
@@ -39,6 +59,132 @@ function applyROIResults(existing, detected, roiRect, mode) {
   if (mode === "refine") {
     return [...existing, ...detected.filter(d => !d.partial_object)];
   }
+  // "additive" mode: keep all existing rooms, but when a crop-detected room
+  // overlaps significantly with an existing room (IoU >= 0.40), merge them
+  // by replacing the existing one with the crop-detected version (higher-res).
+  // Truly new rooms (no overlap) are added as well.
+  if (mode === "additive") {
+    const IOU_THRESHOLD = 0.40;
+    const nonPartial = detected.filter(d => !d.partial_object);
+
+    // Track which existing rooms got replaced by a crop-detected room
+    const replacedIdx = new Set();
+    const mergedNew = [];
+
+    for (const d of nonPartial) {
+      const dPoly = d.polygon || d.points;
+      if (!dPoly || dPoly.length < 3) continue;
+
+      let bestOverlapIdx = -1;
+      let bestIoU = 0;
+      for (let i = 0; i < existing.length; i++) {
+        const ePoly = existing[i].polygon || existing[i].points;
+        const iou = _bboxIoU(dPoly, ePoly);
+        if (iou >= IOU_THRESHOLD && iou > bestIoU) {
+          bestIoU = iou;
+          bestOverlapIdx = i;
+        }
+      }
+
+      if (bestOverlapIdx >= 0) {
+        // Overlapping → merge: replace existing with crop-detected version
+        replacedIdx.add(bestOverlapIdx);
+        mergedNew.push(d);
+      } else {
+        // No overlap → truly new room
+        mergedNew.push(d);
+      }
+    }
+
+    // Keep existing rooms that were NOT replaced + all merged/new rooms
+    const kept = existing.filter((_, i) => !replacedIdx.has(i));
+    return [...kept, ...mergedNew];
+  }
+  return [...existing, ...detected];
+}
+
+/**
+ * Compute bounding-box IoU (Intersection over Union) for doors.
+ * Doors typically have 2 points representing a line segment.
+ * We add padding to create a positive-area bounding box for IoU.
+ */
+function _doorOverlap(doorA, doorB) {
+  const ptsA = doorA.polygon || doorA.points;
+  const ptsB = doorB.polygon || doorB.points;
+  if (!ptsA || ptsA.length < 2 || !ptsB || ptsB.length < 2) return 0;
+
+  const padding = 20; // 20 pixels padding to handle line segments
+  const axs = ptsA.map(p => p.x), ays = ptsA.map(p => p.y);
+  const bxs = ptsB.map(p => p.x), bys = ptsB.map(p => p.y);
+
+  const a = {
+    x1: Math.min(...axs) - padding,
+    y1: Math.min(...ays) - padding,
+    x2: Math.max(...axs) + padding,
+    y2: Math.max(...ays) + padding
+  };
+  const b = {
+    x1: Math.min(...bxs) - padding,
+    y1: Math.min(...bys) - padding,
+    x2: Math.max(...bxs) + padding,
+    y2: Math.max(...bys) + padding
+  };
+
+  const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1);
+  const ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
+  const iw = Math.max(0, ix2 - ix1), ih = Math.max(0, iy2 - iy1);
+  const inter = iw * ih;
+
+  const areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
+  const areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
+  const union = areaA + areaB - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+function applyROIDoorsResults(existing, detected, roiRect, mode) {
+  if (mode === "replace") {
+    const outside = existing.filter(d => !centroidInROI(d, roiRect));
+    return [...outside, ...detected];
+  }
+  if (mode === "merge" || mode === "refine") {
+    return [...existing, ...detected];
+  }
+  // "additive" mode: keep all existing doors, but when a crop-detected door
+  // overlaps significantly with an existing door (IoU >= 0.40), merge them
+  // by replacing the existing one with the crop-detected version (higher-res).
+  // Truly new doors (no overlap) are added as well.
+  if (mode === "additive") {
+    const IOU_THRESHOLD = 0.40;
+
+    // Track which existing doors got replaced by a crop-detected door
+    const replacedIdx = new Set();
+    const mergedNew = [];
+
+    for (const d of detected) {
+      let bestOverlapIdx = -1;
+      let bestIoU = 0;
+      for (let i = 0; i < existing.length; i++) {
+        const iou = _doorOverlap(d, existing[i]);
+        if (iou >= IOU_THRESHOLD && iou > bestIoU) {
+          bestIoU = iou;
+          bestOverlapIdx = i;
+        }
+      }
+
+      if (bestOverlapIdx >= 0) {
+        // Overlapping → merge: replace existing with crop-detected version
+        replacedIdx.add(bestOverlapIdx);
+        mergedNew.push(d);
+      } else {
+        // No overlap → truly new door
+        mergedNew.push(d);
+      }
+    }
+
+    // Keep existing doors that were NOT replaced + all merged/new doors
+    const kept = existing.filter((_, i) => !replacedIdx.has(i));
+    return [...kept, ...mergedNew];
+  }
   return [...existing, ...detected];
 }
 
@@ -49,9 +195,9 @@ export const useAIController = (
   setWallsByPage,
   realScale,
   setDoorsByPage,
-  roomsByPage
+  roomsByPage,
+  doorsByPage
 ) => {
-  // config is now set via hardcoded constants at the top of the file
   const [isDetecting, setIsDetecting] = useState(false);
   const [roiProgress, setRoiProgress] = useState(0);
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
@@ -149,7 +295,12 @@ export const useAIController = (
     try {
       const blob = await fetch(image).then(r => r.blob());
       const existingRooms = roomsByPage ? (roomsByPage[currentPage] || []) : [];
-      
+
+      // ★ CRITICAL: Snapshot existing rooms BEFORE streaming starts.
+      // All streaming events will merge against this frozen snapshot,
+      // preventing intermediate events from corrupting each other.
+      const snapshotRooms = roiRect ? [...existingRooms] : [];
+
       let isCacheHit = false;
 
       // Call the real-time NDJSON streaming API!
@@ -201,7 +352,7 @@ export const useAIController = (
           // Whenever rooms are yielded (after YOLO, OCR, etc.), render them immediately!
           if (event.rooms) {
             const currentRooms = event.rooms;
-            
+
             // If it's a room object list, we can also extract OCR candidates of the active room being processed
             const activeRoomObj = currentRooms.find(r => r.ocr_candidates && r.ocr_candidates.length > 0);
             if (activeRoomObj) {
@@ -213,21 +364,24 @@ export const useAIController = (
             }
 
             setRoomsByPage(prev => {
-              const existing = prev[currentPage] || [];
               if (roiRect) {
+                // ★ Always merge against the SNAPSHOT, not the evolving state.
+                // This ensures each streaming event replaces only the crop-detected rooms
+                // while preserving all rooms that existed before this crop detect started.
                 return {
                   ...prev,
                   [currentPage]: applyROIResults(
-                    existing,
+                    snapshotRooms,
                     currentRooms.map(r => ({
                       ...r,
                       correction_source: "AI_GENERATED"
                     })),
                     roiRect,
-                    roiMode || "replace"
+                    roiMode || "additive"
                   )
                 };
               }
+              // Full detect (no ROI): replace all rooms with new detections
               return {
                 ...prev,
                 [currentPage]: currentRooms.map(r => ({
@@ -244,18 +398,18 @@ export const useAIController = (
             isCacheHit = !!event.cache_hit;
 
             setRoomsByPage(prev => {
-              const existing = prev[currentPage] || [];
               if (roiRect) {
+                // ★ Final merge also against snapshot to get clean result
                 return {
                   ...prev,
                   [currentPage]: applyROIResults(
-                    existing,
+                    snapshotRooms,
                     finalRooms.map(r => ({
                       ...r,
                       correction_source: isCacheHit ? "ai_corrected" : "AI_GENERATED"
                     })),
                     roiRect,
-                    roiMode || "replace"
+                    roiMode || "additive"
                   )
                 };
               }
@@ -406,6 +560,11 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
+      const existingDoors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
+
+      // ★ CRITICAL: Snapshot existing doors BEFORE calling the API
+      // All subsequent merging will be done against this frozen snapshot.
+      const snapshotDoors = roiRect ? [...existingDoors] : [];
 
       let data;
       if (roiRect) {
@@ -428,10 +587,26 @@ export const useAIController = (
           review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
         }));
         console.log(`[Door AI${roiRect ? " ROI" : ""}] Detected doors:`, detected.length);
-        setDoorsByPage(prev => ({
-          ...prev,
-          [currentPage]: [...(prev[currentPage] || []), ...detected]
-        }));
+
+        setDoorsByPage(prev => {
+          if (roiRect) {
+            // ★ Merge crop-detected doors with the snapshot doors!
+            return {
+              ...prev,
+              [currentPage]: applyROIDoorsResults(
+                snapshotDoors,
+                detected,
+                roiRect,
+                roiMode || "additive"
+              )
+            };
+          }
+          // Full detect (no ROI): replace all doors with new detections
+          return {
+            ...prev,
+            [currentPage]: detected
+          };
+        });
 
         finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
       } else {

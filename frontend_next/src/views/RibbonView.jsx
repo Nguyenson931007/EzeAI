@@ -385,6 +385,7 @@ export default function RibbonView({
             
             <div className="roi-select-wrapper">
               <select value={roiMode} onChange={e => setRoiMode(e.target.value)}>
+                <option value="additive">Additive Mode</option>
                 <option value="replace">Replace Mode</option>
                 <option value="merge">Merge Mode</option>
                 <option value="refine">Refine Mode</option>

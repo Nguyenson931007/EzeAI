@@ -185,7 +185,7 @@ export default function App() {
     detectText,
     detectTemplate,
     activeScanRoom
-  } = useAIController(image, currentPage, setRoomsByPage, setWallsByPage, realScale, setDoorsByPage, roomsByPage);
+  } = useAIController(image, currentPage, setRoomsByPage, setWallsByPage, realScale, setDoorsByPage, roomsByPage, doorsByPage);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
     user, pages, roomsByPage, wallsByPage, doorsByPage, realScale, wasteByPage, setCurrentProjectName,

@@ -1,9 +1,8 @@
 # roi_config.py
 # Model-specific padding and upscale configurations for ROI inference.
-
 ROI_PADDING = {
     "ocr": 64,          # OCR requires 64px surrounding context
-    "door": 48,         # Door detection requires 48px context
+    "door": 160,        # Door detection requires 160px context for surrounding walls
     "wall": 96,         # Wall segmentation requires 96px context
     "room": 128         # Room segmentation requires 128px wide context
 }
