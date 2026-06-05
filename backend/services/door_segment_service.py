@@ -64,9 +64,13 @@ class DoorSegmentService:
         img_w, img_h = img.size
         
         # Run segmentation inference
+        base_conf = float(confidence if confidence is not None else 0.25)
+        # Sliding doors often have very low confidence due to visual subtlety.
+        internal_conf = min(base_conf, 0.02)
+
         results = model.predict(
             source=img,
-            conf=confidence if confidence is not None else 0.25,
+            conf=internal_conf,
             imgsz=imgsz,
             retina_masks=True,
             device=device,
@@ -93,6 +97,15 @@ class DoorSegmentService:
                     
                     # Resolve class name from model names
                     class_name = model.names.get(cls_id, f"door_{cls_id}")
+
+                    # Manually filter low confidence
+                    is_sliding = "sliding" in class_name.lower()
+                    if is_sliding:
+                        if conf < 0.02:
+                            continue
+                    else:
+                        if conf < base_conf:
+                            continue
 
                     # Get polygon coordinates as [[x, y], [x, y], ...]
                     poly_xy = masks.xy[idx]

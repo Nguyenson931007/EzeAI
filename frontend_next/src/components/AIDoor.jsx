@@ -23,6 +23,13 @@ export default function AIDoor({
   const cxAvg = cxSum / polyPoints.length;
   const cyAvg = cySum / polyPoints.length;
 
+  const minX = Math.min(...polyPoints.map(p => p.x));
+  const minY = Math.min(...polyPoints.map(p => p.y));
+  const maxX = Math.max(...polyPoints.map(p => p.x));
+  const maxY = Math.max(...polyPoints.map(p => p.y));
+  const boxWidth = maxX - minX;
+  const boxHeight = maxY - minY;
+
   const widthLabel = d.width_mm ? `${d.width_mm}mm` : null;
   const widthSource = d.width_source || "geometry";
 
@@ -34,10 +41,12 @@ export default function AIDoor({
   edges.sort((a, b) => b.len - a.len);
   const topEdges = edges.slice(0, 2);
 
+  const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
+
   // --- Arc Calculation ---
   let arcPath = null;
   let sectorPath = null;
-  if (topEdges.length === 2) {
+  if (topEdges.length === 2 && !isSliding) {
     const e1 = topEdges[0];
     const e2 = topEdges[1];
     
@@ -88,27 +97,16 @@ export default function AIDoor({
       }}
       style={{ cursor: 'pointer' }}
     >
-      {/* Segmentation mask polygon (invisible but clickable, fallback for fill if no sector) */}
-      <polygon
-        points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-        fill={(!sectorPath) ? (isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)") : "transparent"}
-        stroke="transparent"
-        strokeWidth={0}
-        onMouseDown={(e) => {
-          if (isSelected && startDrag) {
-            e.stopPropagation();
-            startDrag(d.id, null, 'door-move');
-          }
-        }}
-      />
-
-      {/* Perfect Geometric Sector Fill */}
-      {sectorPath && (
-        <path
-          d={sectorPath}
+      {/* Sliding Door Bounding Box */}
+      {isSliding && (
+        <rect
+          x={minX}
+          y={minY}
+          width={boxWidth}
+          height={boxHeight}
           fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
-          stroke="transparent"
-          strokeWidth={0}
+          stroke={isSelected ? "#FF5722" : "#a855f7"}
+          strokeWidth={isSelected ? 3.5 : 2}
           onMouseDown={(e) => {
             if (isSelected && startDrag) {
               e.stopPropagation();
@@ -118,32 +116,66 @@ export default function AIDoor({
         />
       )}
 
-      {/* The Arc (Cung Cửa) */}
-      {arcPath && (
-        <path 
-          d={arcPath} 
-          fill="none" 
-          stroke={isSelected ? "#FF5722" : "#a855f7"} 
-          strokeWidth={1.5} 
-          strokeDasharray="3,2" 
-          style={{ pointerEvents: 'none' }}
-        />
-      )}
+      {!isSliding && (
+        <>
+          {/* Segmentation mask polygon (invisible but clickable, fallback for fill if no sector) */}
+          <polygon
+            points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
+            fill={(!sectorPath) ? (isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)") : "transparent"}
+            stroke="transparent"
+            strokeWidth={0}
+            onMouseDown={(e) => {
+              if (isSelected && startDrag) {
+                e.stopPropagation();
+                startDrag(d.id, null, 'door-move');
+              }
+            }}
+          />
 
-      {/* Highlight 2 longest edges (Thanh Cửa) */}
-      {topEdges.map((edge, i) => (
-        <line
-          key={i}
-          x1={edge.p1.x}
-          y1={edge.p1.y}
-          x2={edge.p2.x}
-          y2={edge.p2.y}
-          stroke={isSelected ? "#FF5722" : "#a855f7"}
-          strokeWidth={isSelected ? 3.5 : 2}
-          strokeLinecap="round"
-          style={{ pointerEvents: 'none' }}
-        />
-      ))}
+          {/* Perfect Geometric Sector Fill */}
+          {sectorPath && (
+            <path
+              d={sectorPath}
+              fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+              stroke="transparent"
+              strokeWidth={0}
+              onMouseDown={(e) => {
+                if (isSelected && startDrag) {
+                  e.stopPropagation();
+                  startDrag(d.id, null, 'door-move');
+                }
+              }}
+            />
+          )}
+
+          {/* The Arc (Cung Cửa) */}
+          {arcPath && (
+            <path 
+              d={arcPath} 
+              fill="none" 
+              stroke={isSelected ? "#FF5722" : "#a855f7"} 
+              strokeWidth={1.5} 
+              strokeDasharray="3,2" 
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
+
+          {/* Highlight 2 longest edges (Thanh Cửa) */}
+          {topEdges.map((edge, i) => (
+            <line
+              key={i}
+              x1={edge.p1.x}
+              y1={edge.p1.y}
+              x2={edge.p2.x}
+              y2={edge.p2.y}
+              stroke={isSelected ? "#FF5722" : "#a855f7"}
+              strokeWidth={isSelected ? 3.5 : 2}
+              strokeLinecap="round"
+              style={{ pointerEvents: 'none' }}
+            />
+          ))}
+        </>
+      )}
 
       {/* OCR Width Dimension Label (Editable) */}
       {widthLabel && (
@@ -178,6 +210,35 @@ export default function AIDoor({
             fontFamily="Inter, monospace"
           >
             {widthLabel}
+          </text>
+        </g>
+      )}
+
+      {/* Door Class Name Label (Only when selected) */}
+      {isSelected && (
+        <g 
+          transform={`translate(${cxAvg}, ${cyAvg - 20})`} 
+          style={{ pointerEvents: 'none' }}
+        >
+          <rect
+            x={-35}
+            y={-10}
+            width={70}
+            height={20}
+            rx={4}
+            fill="#FF5722"
+            opacity={0.9}
+          />
+          <text
+            x={0}
+            y={4}
+            fill="#ffffff"
+            fontSize={11}
+            fontWeight="bold"
+            textAnchor="middle"
+            alignmentBaseline="middle"
+          >
+            {d.class.replace('_door', '')}
           </text>
         </g>
       )}
