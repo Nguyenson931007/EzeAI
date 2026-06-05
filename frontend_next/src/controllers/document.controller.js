@@ -96,9 +96,24 @@ export function useDocumentController({
       polygon: r.polygon.map(rot90cw)
     }));
 
+    const rotatedDoors = (doorsByPage[currentPage] || []).map(d => {
+      const [x1, y1, x2, y2] = d.bbox;
+      return {
+        ...d,
+        bbox: [oldH - y2, x1, oldH - y1, x2],
+        polygon: d.polygon.map(([x, y]) => [oldH - y, x]),
+        centroid: [oldH - d.centroid[1], d.centroid[0]]
+      };
+    });
+
     pushHistory(rotatedRooms);
     setImage(rotatedDataUrl);
     setImgSize({ w: newW, h: newH });
+    
+    setDoorsByPage(prev => ({
+      ...prev,
+      [currentPage]: rotatedDoors
+    }));
 
     setPages(prev => prev.map((pg, i) =>
       i === currentPage ? { ...pg, image: rotatedDataUrl, w: newW, h: newH } : pg
@@ -205,16 +220,7 @@ export function useDocumentController({
           isClosed: Boolean(w.isClosed),
           points: w.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
         })),
-        doors: (doorsByPage[currentPage] || []).map(d => ({
-          id: Math.round(Number(d.id)) || Math.round(Math.random() * 1e9),
-          type: d.type || d.door_type || "single",
-          door_type: d.type || d.door_type || "single",
-          points: d.points.map(p => ({ x: Number(p.x), y: Number(p.y) })),
-          hingeSide: d.hingeSide,
-          swing: d.swing,
-          width: d.width,
-          angle: d.angle
-        })),
+        doors: [],
         width: Math.round(imgSize.w),
         height: Math.round(imgSize.h),
         name: String(realName),
@@ -291,12 +297,7 @@ export function useDocumentController({
             isClosed: Boolean(w.isClosed),
             points: w.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
           })),
-          doors: (doorsByPage[pageIdx] || []).map(d => ({
-            id: Math.round(Number(d.id)) || Math.round(Math.random() * 1e9),
-            type: d.type || d.door_type || "single",
-            door_type: d.type || d.door_type || "single",
-            points: d.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
-          })),
+          doors: [],
           width: Math.round(pageData.w),
           height: Math.round(pageData.h),
           name: String(realName),
@@ -359,12 +360,7 @@ export function useDocumentController({
           isClosed: Boolean(w.isClosed),
           points: w.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
         })),
-        doors: (doorsByPage[currentPage] || []).map(d => ({
-          id: Math.round(Number(d.id)) || Math.round(Math.random() * 1e9),
-          type: d.type || d.door_type || "single",
-          door_type: d.type || d.door_type || "single",
-          points: d.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
-        })),
+        doors: [],
         width: Math.round(imgSize.w),
         height: Math.round(imgSize.h),
         name: String(realName),
@@ -374,55 +370,6 @@ export function useDocumentController({
     });
 
     alert("Train data walls saved!");
-  }
-
-  async function addTrainDoors() {
-    const doors = doorsByPage[currentPage] || [];
-    if (!doors || doors.length === 0) {
-      alert("Error: No doors to export.");
-      return;
-    }
-    
-    const name = `door_page_${currentPage}_${Math.floor(Math.random() * 10000)}`;
-    const blob = await fetch(image).then(r => r.blob());
-    const formData = new FormData();
-    formData.append("file", blob, name + ".png");
-    formData.append("name", name);
-
-    const uploadRes = await fetch(`${BASE_URL}/upload-image`, {
-      method: "POST",
-      body: formData
-    });
-
-    const uploadData = await uploadRes.json();
-    const realName = uploadData.filename.replace(".png", "");
-
-    await fetch(`${BASE_URL}/save-label`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        rooms: [],
-        walls: [],
-        doors: doors.map(d => ({
-          id: Math.round(Number(d.id)) || Math.round(Math.random() * 1e9),
-          type: d.type || d.door_type || "single",
-          door_type: d.type || d.door_type || "single",
-          points: d.points.map(p => ({ x: Number(p.x), y: Number(p.y) })),
-          // Include semantics if available from the new tool
-          hingeSide: d.hingeSide,
-          swing: d.swing,
-          width: d.width,
-          angle: d.angle
-        })),
-        width: Math.round(imgSize.w),
-        height: Math.round(imgSize.h),
-        name: String(realName),
-        project_name: currentProjectName,
-        username: user?.username
-      })
-    });
-
-    alert("Train data doors saved!");
   }
 
   async function exportPDF() {
@@ -477,5 +424,5 @@ export function useDocumentController({
     doc.save(`EzeFloor_Plan_Pg${currentPage + 1}.pdf`);
   }
 
-  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, addTrainWalls, addTrainDoors, exportPDF };
+  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, addTrainWalls, exportPDF };
 }

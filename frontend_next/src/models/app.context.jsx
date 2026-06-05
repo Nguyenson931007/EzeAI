@@ -12,6 +12,7 @@ export const AppProvider = ({ children }) => {
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [roomsByPage, setRoomsByPage] = useState({});
+  const [doorsByPage, setDoorsByPage] = useState({});
   const [user, setUser] = useState(() => {
     const saved = safeGetItem("user");
     return saved ? JSON.parse(saved) : null;
@@ -21,7 +22,6 @@ export const AppProvider = ({ children }) => {
   const [realScale, setRealScale] = useState(null);
   const [wasteByPage, setWasteByPage] = useState({});
   const [wallsByPage, setWallsByPage] = useState({});
-  const [doorsByPage, setDoorsByPage] = useState({});
   const [activeTab, setActiveTab] = useState(() => safeGetItem("activeTab") || "Home");
   const [currentJobId, setCurrentJobId] = useState(null);
 
@@ -33,13 +33,13 @@ export const AppProvider = ({ children }) => {
     pages, setPages,
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
+    doorsByPage, setDoorsByPage,
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
     wallsByPage, setWallsByPage,
-    doorsByPage, setDoorsByPage,
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId
   };

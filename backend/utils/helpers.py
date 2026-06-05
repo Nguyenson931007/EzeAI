@@ -25,22 +25,93 @@ def convert_to_yolo(rooms, img_w, img_h, get_class_id_fn=None):
     return "\n".join(lines)
 
 def convert_walls_to_yolo(walls, doors, img_w, img_h):
-    from shapely.geometry import LineString
+    """
+    Convert wall and door objects to YOLO segmentation format.
+    
+    Bug fix: The previous version blindly buffered all coordinates via
+    LineString.buffer(5.0). For AI-detected walls that are already closed
+    outline polygons, this causes shapely self-intersection errors and
+    produces empty label files. Now we detect closed polygons vs centerlines
+    and handle them appropriately.
+    """
+    import logging
+    from shapely.geometry import LineString, Polygon as ShapelyPolygon, LinearRing
+    
+    wall_fix_log = logging.getLogger("ezefloor.wall_fix")
     lines = []
     
     # Process Walls
-    for wall in walls:
+    for wall_idx, wall in enumerate(walls):
         pts = [(p.x, p.y) for p in wall.points]
         if len(pts) < 2:
+            wall_fix_log.warning(f"Wall {wall_idx}: skipped — only {len(pts)} point(s).")
             continue
             
         try:
-            line = LineString(pts)
-            # Tạo độ dày cho tường (vd: 5px mỗi bên -> tổng 10px)
-            poly = line.buffer(5.0, join_style=2, cap_style=2)
+            # Determine if this is a closed polygon outline or a centerline
+            is_closed = getattr(wall, "isClosed", False)
+            thickness = getattr(wall, "thickness", 90)
             
+            poly = None
+            
+            if len(pts) >= 4 and is_closed:
+                # To distinguish between a centerline loop (User drawing) and a
+                # closed outline polygon (AI YOLO mask), we analyze the area-to-perimeter ratio.
+                # A thin wall segment (YOLO mask) has a small ratio (area / perimeter <= thickness / 2).
+                # A building or room centerline loop has a huge ratio (enclosing a large room footprint).
+                candidate = ShapelyPolygon(pts)
+                if not candidate.is_valid:
+                    candidate = candidate.buffer(0)  # Fix self-intersections
+                
+                if candidate.is_valid and not candidate.is_empty and candidate.area > 0:
+                    perimeter = candidate.length
+                    area = candidate.area
+                    ratio = area / perimeter if perimeter > 0 else 0
+                    
+                    # Safe threshold: ratio in pixels is typically <= 20.0 for wall segment outlines,
+                    # whereas it's > 25.0 (often 100-250) for room centerline loops.
+                    is_outline_polygon = (ratio <= 20.0)
+                    
+                    if is_outline_polygon:
+                        poly = candidate
+                        wall_fix_log.info(f"Wall {wall_idx}: treated as closed outline polygon (YOLO mask). Ratio={ratio:.2f}")
+                    else:
+                        wall_fix_log.info(f"Wall {wall_idx}: treated as centerline loop (User draw). Ratio={ratio:.2f}")
+
+            if poly is None:
+                # Centerline representation — buffer to create a polygon
+                # Use actual thickness for buffer (half-thickness per side)
+                # Scale buffer to pixel space; minimum 3px
+                buf = max(3.0, thickness / 2.0) if thickness else 5.0
+                
+                if is_closed and len(pts) >= 3:
+                    try:
+                        # Closed centerline loop: buffer as a LinearRing to produce a hollow wall loop
+                        ring = LinearRing(pts)
+                        poly = ring.buffer(buf, join_style=2)
+                        wall_fix_log.info(f"Wall {wall_idx}: successfully buffered closed centerline loop as LinearRing with buf={buf}")
+                    except Exception as e:
+                        wall_fix_log.warning(f"Wall {wall_idx}: LinearRing buffering failed ({e}), falling back to LineString.")
+                
+                if poly is None:
+                    # Open centerline or fallback: buffer as a LineString
+                    line = LineString(pts)
+                    poly = line.buffer(buf, join_style=2, cap_style=2)
+                
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+            
+            if poly is None or poly.is_empty or poly.area <= 0:
+                wall_fix_log.warning(f"Wall {wall_idx}: empty polygon after processing. Skipped.")
+                continue
+                
             coords = []
-            for x, y in poly.exterior.coords[:-1]:
+            exterior = list(poly.exterior.coords[:-1])  # Remove closing duplicate
+            if len(exterior) < 3:
+                wall_fix_log.warning(f"Wall {wall_idx}: polygon has < 3 exterior points. Skipped.")
+                continue
+                
+            for x, y in exterior:
                 nx = min(max(x / img_w, 0.0), 1.0)
                 ny = min(max(y / img_h, 0.0), 1.0)
                 coords.append(f"{nx:.6f} {ny:.6f}")
@@ -52,22 +123,34 @@ def convert_walls_to_yolo(walls, doors, img_w, img_h):
             
             line_str = f"{class_id} " + " ".join(coords)
             lines.append(line_str)
-        except Exception:
-            pass
+        except Exception as e:
+            wall_fix_log.error(f"Wall {wall_idx}: exception during conversion — {e}")
             
     # Process Doors
     if doors:
-        for door in doors:
+        for door_idx, door in enumerate(doors):
             pts = [(p.x, p.y) for p in door.points]
             if len(pts) < 2:
+                wall_fix_log.warning(f"Door {door_idx}: skipped — only {len(pts)} point(s).")
                 continue
             try:
                 line = LineString(pts)
-                # Tạo độ dày cho cửa (vd: 8px)
+                # Create standard polygon buffer of 8px
                 poly = line.buffer(8.0, join_style=2, cap_style=2)
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                
+                if poly.is_empty or poly.area <= 0:
+                    wall_fix_log.warning(f"Door {door_idx}: empty polygon. Skipped.")
+                    continue
                 
                 coords = []
-                for x, y in poly.exterior.coords[:-1]:
+                exterior = list(poly.exterior.coords[:-1])
+                if len(exterior) < 3:
+                    wall_fix_log.warning(f"Door {door_idx}: polygon has < 3 exterior points. Skipped.")
+                    continue
+                    
+                for x, y in exterior:
                     nx = min(max(x / img_w, 0.0), 1.0)
                     ny = min(max(y / img_h, 0.0), 1.0)
                     coords.append(f"{nx:.6f} {ny:.6f}")
@@ -85,8 +168,8 @@ def convert_walls_to_yolo(walls, doors, img_w, img_h):
                     
                 line_str = f"{class_id} " + " ".join(coords)
                 lines.append(line_str)
-            except Exception:
-                pass
+            except Exception as e:
+                wall_fix_log.error(f"Door {door_idx}: exception during conversion — {e}")
 
     return "\n".join(lines)
 

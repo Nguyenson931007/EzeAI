@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BASE_URL } from "@/models/api.service";
+import { BASE_URL, getHeaders } from "@/models/api.service";
 
 export default function TrainButton({ rooms = [] }) {
   const [loading, setLoading] = useState(false);
@@ -14,6 +14,7 @@ export default function TrainButton({ rooms = [] }) {
     try {
       const res = await fetch(`${BASE_URL}/train-floor`, {
         method: "POST",
+        headers: getHeaders(),
       });
 
       const data = await res.json();

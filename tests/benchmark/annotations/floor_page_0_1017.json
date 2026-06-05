@@ -1,0 +1,173 @@
+{
+  "plan_id": "floor_page_0_1017",
+  "filename": "floor_page_0_1017.png",
+  "width": 1024,
+  "height": 1024,
+  "doors": [
+    {
+      "door_id": "D001",
+      "class": "single_door",
+      "bbox": [
+        355.7,
+        495.4,
+        369.5,
+        500.0
+      ],
+      "polygon": [
+        [
+          369.5,
+          500.0
+        ],
+        [
+          369.5,
+          495.4
+        ],
+        [
+          355.7,
+          495.4
+        ],
+        [
+          355.7,
+          500.0
+        ]
+      ],
+      "hinge": "left",
+      "swing": "inward",
+      "room_from": "Bedroom 1",
+      "room_to": "Hallway",
+      "host_wall_id": "W_1017_1"
+    },
+    {
+      "door_id": "D002",
+      "class": "single_door",
+      "bbox": [
+        330.8,
+        453.3,
+        352.5,
+        458.0
+      ],
+      "polygon": [
+        [
+          352.5,
+          458.0
+        ],
+        [
+          352.5,
+          453.3
+        ],
+        [
+          330.8,
+          453.3
+        ],
+        [
+          330.8,
+          458.0
+        ]
+      ],
+      "hinge": "right",
+      "swing": "inward",
+      "room_from": "Bedroom 2",
+      "room_to": "Hallway",
+      "host_wall_id": "W_1017_2"
+    },
+    {
+      "door_id": "D003",
+      "class": "single_door",
+      "bbox": [
+        376.3,
+        520.7,
+        379.6,
+        546.7
+      ],
+      "polygon": [
+        [
+          376.3,
+          546.7
+        ],
+        [
+          379.6,
+          546.7
+        ],
+        [
+          379.6,
+          520.7
+        ],
+        [
+          376.3,
+          520.7
+        ]
+      ],
+      "hinge": "left",
+      "swing": "inward",
+      "room_from": "Ensuite",
+      "room_to": "Bedroom 1",
+      "host_wall_id": "W_1017_3"
+    },
+    {
+      "door_id": "D004",
+      "class": "single_door",
+      "bbox": [
+        543.1,
+        392.3,
+        546.4,
+        425.6
+      ],
+      "polygon": [
+        [
+          543.1,
+          425.6
+        ],
+        [
+          546.4,
+          425.6
+        ],
+        [
+          546.4,
+          392.3
+        ],
+        [
+          543.1,
+          392.3
+        ]
+      ],
+      "hinge": "left",
+      "swing": "inward",
+      "room_from": "Bathroom",
+      "room_to": "Hallway",
+      "host_wall_id": "W_1017_4"
+    },
+    {
+      "door_id": "D005",
+      "class": "single_door",
+      "bbox": [
+        421.3,
+        453.3,
+        442.3,
+        458.0
+      ],
+      "polygon": [
+        [
+          442.3,
+          458.0
+        ],
+        [
+          442.3,
+          453.3
+        ],
+        [
+          421.3,
+          453.3
+        ],
+        [
+          421.3,
+          458.0
+        ]
+      ],
+      "hinge": "right",
+      "swing": "inward",
+      "room_from": "Laundry",
+      "room_to": "Kitchen",
+      "host_wall_id": "W_1017_5"
+    }
+  ]
+}

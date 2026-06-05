@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EzeFloor Door Segmentation Benchmark Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background: #eef2f5;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3498db;
+        }
+        .metric-label {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EzeFloor Door Segmentation Benchmark</h1>
+        
+        <h2>Global Metrics</h2>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-value">0.0213</div>
+                <div class="metric-label">mAP (COCO-style)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">8</div>
+                <div class="metric-label">True Positives</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">69</div>
+                <div class="metric-label">False Positives</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">67</div>
+                <div class="metric-label">False Negatives</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">75</div>
+                <div class="metric-label">Total Ground Truth</div>
+            </div>
+        </div>
+
+        <h2>95% Confidence Intervals (Bootstrap)</h2>
+        <table>
+            <tr>
+                <th>Metric</th>
+                <th>Lower Bound</th>
+                <th>Upper Bound</th>
+            </tr>
+            <tr>
+                <td>precision</td>
+                <td>0.0385</td>
+                <td>0.1750</td>
+            </tr>
+            <tr>
+                <td>recall</td>
+                <td>0.0395</td>
+                <td>0.1781</td>
+            </tr>
+            <tr>
+                <td>f1</td>
+                <td>0.0408</td>
+                <td>0.1772</td>
+            </tr>
+            <tr>
+                <td>hinge_acc</td>
+                <td>0.0000</td>
+                <td>0.7500</td>
+            </tr>
+            <tr>
+                <td>swing_acc</td>
+                <td>1.0000</td>
+                <td>1.0000</td>
+            </tr>
+            <tr>
+                <td>room_acc</td>
+                <td>1.0000</td>
+                <td>1.0000</td>
+            </tr>
+        </table>
+
+        <h2>Failure Analysis (Categorization)</h2>
+        <table>
+            <tr>
+                <th>Failure Category</th>
+                <th>Count</th>
+            </tr>
+            <tr>
+                <td>wall_not_found</td>
+                <td>77</td>
+            </tr>
+            <tr>
+                <td>room_not_found</td>
+                <td>77</td>
+            </tr>
+            <tr>
+                <td>low_confidence</td>
+                <td>77</td>
+            </tr>
+            <tr>
+                <td>weak_segmentation</td>
+                <td>22</td>
+            </tr>
+            <tr>
+                <td>missing_arc</td>
+                <td>9</td>
+            </tr>
+            <tr>
+                <td>ambiguous_hinge</td>
+                <td>9</td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

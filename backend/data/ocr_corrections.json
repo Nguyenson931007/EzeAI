@@ -112,15 +112,15 @@
     ]
   },
   "ROOM": {
-    "corrected_text": "MASTER",
+    "corrected_text": "ROBE",
     "type": "ROOM_NAME",
-    "frequency": 9,
+    "frequency": 14,
     "confidence_score": 1.0,
     "apply_to_all": true,
     "correction_source": "human_verified",
-    "revision": 9,
+    "revision": 14,
     "created_at": "2026-05-20T02:56:36.032849",
-    "updated_at": "2026-05-28T10:05:15.161788",
+    "updated_at": "2026-06-01T06:36:35.119453",
     "contexts": [
       {
         "polygon_area": 0
@@ -136,6 +136,9 @@
       },
       {
         "polygon_area": 0
+      },
+      {
+        "polygon_area": 11.610830025417659
       },
       {
         "polygon_area": 0

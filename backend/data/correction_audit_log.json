@@ -160,5 +160,50 @@
     "apply_to_all": true,
     "source": "human_verified",
     "timestamp": "2026-05-28T10:05:15.163120"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "WIR",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-29T08:42:27.234283"
+  },
+  {
+    "original": "Room",
+    "normalized_key": "ROOM",
+    "corrected": "BED",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-29T09:01:02.219459"
+  },
+  {
+    "original": "Room",
+    "normalized_key": "ROOM",
+    "corrected": "BED",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-29T09:01:09.884731"
+  },
+  {
+    "original": "Room",
+    "normalized_key": "ROOM",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-05-29T09:01:14.627052"
+  },
+  {
+    "original": "ROOM",
+    "normalized_key": "ROOM",
+    "corrected": "ROBE",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-06-01T06:36:35.122452"
   }
 ]

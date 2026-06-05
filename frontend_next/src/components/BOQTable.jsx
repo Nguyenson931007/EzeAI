@@ -13,246 +13,13 @@ const formatArea = (v) => {
   return parseFloat(num.toFixed(2));
 };
 
-function normalizeLabel(str) {
-  return (str || "")
-    .toLowerCase()
-    .replace(/[^a-z]/g, ""); // ✅ remove all special chars
-}
 
-const normalize = (str) =>
-  (str || "").toLowerCase().trim();
-
-function normalizeId(id) {
-  return String(id)
-    .toLowerCase()
-    .replace("wall_", "")
-    .replace("door_", "")
-    .trim();
-}
-
-function buildRoomKey(name, wetness, floor) {
-  return `${normalize(name)}__${normalize(wetness)}__${normalize(floor)}`;
-}
-
-function buildDoorCode(d) {
-  const label = d.label || "Door";
-  const w = Math.round((d.width || 0.82) * 1000);
-  const h = Math.round((d.height || 2.34) * 1000);
-  const hinge = d.hinge || "LH";
-  return `${label}-${w}x${h}-${hinge}`;
-}
-
-const FINELINE_MAP = {
-  // Height 2040
-  "2040_410": "1972222",
-  "2040_420": "1972248",
-  "2040_460": "1972272",
-  "2040_520": "2012201",
-  "2040_620": "2012196",
-  "2040_720": "2012188",
-  "2040_770": "1975212",
-  "2040_820": "2012170",
-  "2040_870": "1973121",
-  "2040_920": "2010170",
-  "2040_1020": "1970271",
-  
-  // Height 2340
-  "2340_410": "2040257",
-  "2340_420": "2040019",
-  "2340_520": "1975571",
-  "2340_620": "1973171",
-  "2340_720": "1973189",
-  "2340_770": "1973197",
-  "2340_820": "1973202",
-  "2340_870": "1973210",
-  "2340_920": "2010331",
-  "2340_1020": "2036274",
-  "2340_1200": "2010332"
-};
-
-const DOOR_TYPE_MAP = {
-  // Height 2040
-  "2040_410": "H1 PCM 2040x410x35",
-  "2040_420": "H1 PCM 2040x420x35",
-  "2040_460": "H1 PCM 2040x460x35",
-  "2040_520": "H1 PCM 2040x520x35",
-  "2040_620": "H1 PCM 2040x620x35",
-  "2040_720": "H1 PCM 2040x720x35",
-  "2040_770": "H1 PCM 2040x770x35",
-  "2040_820": "H1 PCM 2040x820x35",
-  "2040_870": "H1 PCM 2040x870x35",
-  "2040_920": "H1 PCM 2040x920x35",
-  "2040_1020": "H1 PCM 2040x1020x35",
-  
-  // Height 2340
-  "2340_410": "H1 PCM 2340x410x35",
-  "2340_420": "H1 PCM 2340x420x35",
-  "2340_520": "H1 PCM 2340x520x35",
-  "2340_620": "H1 PCM 2340x620x35",
-  "2340_720": "H1 PCM 2340x720x35",
-  "2340_770": "H1 PCM 2340x770x35",
-  "2340_820": "H1 PCM 2340x820x35",
-  "2340_870": "H1 PCM 2340x870x35",
-  "2340_920": "H1 PCM Spec CI up to 2340x920x35",
-  "2340_1020": "H1 PCM 2340x1020x35",
-  "2340_1200": "H1 PCM Spec DK up to 2400x1200x35"
-};
-
-function normalizeToMm(val) {
-  if (!val) return 0;
-  const num = Number(val);
-  if (isNaN(num)) return 0;
-  if (num < 10) return Math.round(num * 1000); // e.g. 0.82 -> 820, 2.04 -> 2040
-  if (num < 200) return Math.round(num * 10);  // e.g. 82.0 -> 820, 66.82 -> 668
-  return Math.round(num);                      // e.g. 820 -> 820
-}
-
-const STANDARD_WIDTHS = [410, 420, 460, 520, 620, 720, 770, 820, 870, 920, 1020, 1200];
-function snapToStandardWidth(w) {
-  return STANDARD_WIDTHS.reduce((prev, curr) => 
-    Math.abs(curr - w) < Math.abs(prev - w) ? curr : prev
-  );
-}
-
-const STANDARD_HEIGHTS = [2040, 2340];
-function snapToStandardHeight(h) {
-  return STANDARD_HEIGHTS.reduce((prev, curr) => 
-    Math.abs(curr - h) < Math.abs(prev - h) ? curr : prev
-  );
-}
-
-function getFinelineCode(r) {
-  const h = normalizeToMm(r.height);
-  const w = normalizeToMm(r.width);
-  const snappedH = snapToStandardHeight(h);
-  const snappedW = snapToStandardWidth(w);
-  const key = `${snappedH}_${snappedW}`;
-  return FINELINE_MAP[key] || "0";
-}
-
-function getDoorType(r) {
-  const h = normalizeToMm(r.height);
-  const w = normalizeToMm(r.width);
-  const snappedH = snapToStandardHeight(h);
-  const snappedW = snapToStandardWidth(w);
-  const key = `${snappedH}_${snappedW}`;
-  return DOOR_TYPE_MAP[key] || "H1 PCM";
-}
-
-function pointInPolygon(point, vs) {
-  if (!vs || vs.length === 0) return false;
-  const [x, y] = point;
-  let inside = false;
-  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-    const pi = vs[i];
-    const pj = vs[j];
-    const xi = pi.x !== undefined ? pi.x : pi[0];
-    const yi = pi.y !== undefined ? pi.y : pi[1];
-    const xj = pj.x !== undefined ? pj.x : pj[0];
-    const yj = pj.y !== undefined ? pj.y : pj[1];
-
-    const intersect =
-      (yi > y) !== (yj > y) &&
-      x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-function findRoomFromCenter(point, page) {
-  if (!page || !page.objects) return null;
-  for (const o of page.objects) {
-    if (o.polygon && pointInPolygon(point, o.polygon)) {
-      return o;
-    }
-  }
-  return null;
-}
-
-function detectDoorSwing(door, walls, page) {
-  let p1 = null;
-  let p2 = null;
-
-  if (door.points && door.points.length >= 2) {
-    p1 = [door.points[0].x, door.points[0].y];
-    p2 = [door.points[1].x, door.points[1].y];
-  } else {
-    const wall = walls.find(
-      w => normalizeId(w.id) === normalizeId(door.wall_id)
-    );
-    if (wall && wall.points && wall.points.length >= 2) {
-      p1 = wall.points[0];
-      p2 = wall.points[1];
-    }
-  }
-
-  if (!p1 || !p2) {
-    return { swing: "unknown", hinge: "unknown" };
-  }
-
-  // vector wall
-  const wx = p2[0] - p1[0];
-  const wy = p2[1] - p1[1];
-  const len = Math.hypot(wx, wy) || 1;
-  // normal (2 phía)
-  const nx = -wy / len;
-  const ny = wx / len;
-  const center = door.center || [
-    (p1[0] + p2[0]) / 2,
-    (p1[1] + p2[1]) / 2
-  ];
-  if (!center) {
-    return { swing: "unknown", hinge: "unknown" };
-  }
-  // test 2 phía
-  const testOffset = 40;
-  const leftPoint = [
-    center[0] + nx * testOffset,
-    center[1] + ny * testOffset,
-  ];
-  const rightPoint = [
-    center[0] - nx * testOffset,
-    center[1] - ny * testOffset,
-  ];
-  const leftRoom = findRoomFromCenter(leftPoint, page);
-  const rightRoom = findRoomFromCenter(rightPoint, page);
-  // 👉 xác định phía "open vào room"
-  let openSide = null;
-  if (leftRoom && leftRoom.room_name !== "Unnamed") {
-    openSide = "left";
-  } else if (rightRoom && rightRoom.room_name !== "Unnamed") {
-    openSide = "right";
-  }
-  if (!openSide) {
-    return { swing: "unknown", hinge: "unknown" };
-  }
-  // 👉 xác định hinge (dựa vào hướng wall)
-  const wallDir = wx > 0 ? "→" : "←";
-  let hinge;
-  if (openSide === "left") {
-    hinge = wallDir === "→" ? "LH" : "RH";
-  } else {
-    hinge = wallDir === "→" ? "RH" : "LH";
-  }
-  return {
-    swing: openSide,
-    hinge,
-  };
-}
-
-const doorTypeMap = {
-  bedroom: "Bedroom",
-  bathroom: "Bathroom",
-  kitchen: "Kitchen",
-  livingroom: "Living",
-};
 
 const EMPTY_ARRAY = [];
 
 export default function BOQTable({
   pages = EMPTY_ARRAY,
   walls = EMPTY_ARRAY,
-  doors = EMPTY_ARRAY,
   scaleValue,
   wasteInternal = 10,
   wasteExternal = 15,
@@ -367,81 +134,7 @@ export default function BOQTable({
     },
   ];
 
-  const enrichedDoors = useMemo(() => {
-    return doors.map(d => {
-      let center = d.center;
-      if (!center && d.points && d.points.length >= 2) {
-        center = [
-          (d.points[0].x + d.points[1].x) / 2,
-          (d.points[0].y + d.points[1].y) / 2
-        ];
-      }
-      if (!center) {
-        center = getDoorCenterFromWall(d, walls);
-      }
-      const page = pages[d.page_index];
-      if (!center || !page) {
-        return {
-          ...d,
-          center,
-          leftRoom: { room_name: d.room_name || "Unnamed", wetness: "dry" },
-          rightRoom: { room_name: "Unknown", wetness: "dry" },
-          floor_name: page?.floor_name || `Floor_${d.page_index ?? 0}`,
-        };
-      }
 
-      const rooms = findRoomsFromDoor(d, walls, page, center);
-      const width = getDoorWidth(d, walls, scaleValue);
-      const height = getDoorHeight(d);
-      const primaryRoom =
-        rooms.left.room_name !== "Unnamed"
-          ? rooms.left
-          : rooms.right;
-      const room = primaryRoom.room_name;
-      const wet = primaryRoom.wetness;
-      const labelKey = normalizeLabel(primaryRoom.room_name);
-      console.log("DOOR DEBUG", {
-        id: d.id,
-        center,
-        left: rooms.left,
-        right: rooms.right,
-        width: Number(width.toFixed(2)),
-        height: Number(height.toFixed(2)),
-        floor_name: page?.floor_name,
-      });
-      const label = primaryRoom.room_name !== "Unnamed" ? primaryRoom.room_name : "Door";
-      const { swing, hinge } = detectDoorSwing(d, walls, page);
-      return {
-        ...d,
-        center,
-        leftRoom: rooms.left,
-        rightRoom: rooms.right,
-        primaryRoom: {
-          room_name: primaryRoom.room_name,
-          wetness: primaryRoom.wetness
-        },
-        label,
-        swing,
-        hinge, // ✅ NEW
-        floor_name: page.floor_name,
-        width: Number(width.toFixed(2)),
-        height: Number(height.toFixed(2)),
-      };
-    });
-  }, [pages, doors, walls, scaleValue]);
-
-  const doorCountByRoom = useMemo(() => {
-    const map = {};
-    enrichedDoors.forEach(d => {
-      const rooms = [d.leftRoom, d.rightRoom];
-      rooms.forEach(r => {
-        const key = buildRoomKey(r.room_name, r.wetness, d.floor_name);
-        if (!map[key]) map[key] = 0;
-        map[key] = (map[key] || 0) + 1;;
-      });
-    });
-    return map;
-  }, [enrichedDoors]);
 
   const baseList = useMemo(() => {
     if (!scaleValue || scaleValue <= 0) return [];
@@ -454,8 +147,6 @@ export default function BOQTable({
         if (!areaCalc || areaCalc <= 0) return;
         const roomName = r.room_name || "Uned"; // ✅ define trước
         const roomWetness = r.wetness || "dry";
-        const roomKey = buildRoomKey(r.room_name, r.wetness, p.floor_name);
-        const doorCount = doorCountByRoom[roomKey] || 0;
         const roomNameLower = (r.room_name || "").toLowerCase();
         const roomTypeLower = (r.type || "").toLowerCase();
         const derivedZone = (roomNameLower.includes("deck") || roomTypeLower.includes("deck"))
@@ -470,7 +161,6 @@ export default function BOQTable({
           deckType: r.type === "tile_deck" ? "tile_deck" : "timber_deck",
           areaCalc,
           areaOverride: null,
-          doorCount,
         });
       })
     );
@@ -487,7 +177,7 @@ export default function BOQTable({
     });
 
     return Object.values(grouped);
-  }, [pages, scaleValue, doorCountByRoom]);
+  }, [pages, scaleValue]);
   const [viewMode, setViewMode] = useState("detail");
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
@@ -524,37 +214,7 @@ export default function BOQTable({
     r.areaOverride != null ? r.areaOverride : r.areaCalc;
 
   /* ================= Filtering ================= */
-  const lockupData = useMemo(() => {
-    const map = {};
-    enrichedDoors.forEach(d => {
-      const room = (
-        d.leftRoom?.room_name !== "Unnamed"
-          ? d.leftRoom?.room_name
-          : d.rightRoom?.room_name
-      ) || "Unnamed";
-      const wet = d.wetness || "dry";
-      const w = Number((d.width ?? 0.82).toFixed(2));
-      const h = Number((d.height ?? 2.34).toFixed(2));
-      const key =
-        buildRoomKey(room, wet, d.floor_name) +
-        `_${w}_${h}_${d.hinge}`;
-      if (!map[key]) {
-        map[key] = {
-          room_name: room,
-          wetness: wet,
-          floor_name: d.floor_name || "No Floor",
-          doorCount: 0,
-          width: w,
-          height: h,
-          label: d.label || "Door",
-          swing: d.swing || "unknown",
-          hinge: d.hinge || "LH",
-        };
-      }
-      map[key].doorCount++;
-    });
-    return Object.values(map);
-  }, [enrichedDoors]);
+
 
   const filtered = useMemo(() => {
     return list
@@ -686,13 +346,7 @@ export default function BOQTable({
         const heightM = (w.height || 2400) / 1000;
         let wallArea = lengthM * heightM;
 
-        // Subtract doors on this wall
-        const wallDoors = (doors || []).filter(d => String(d.wall_id) === String(w.id));
-        wallDoors.forEach(d => {
-          const dWidth = (d.width || 900) / 1000;
-          const dHeight = (d.height || 2100) / 1000;
-          wallArea -= (dWidth * dHeight);
-        });
+
 
         totalArea += Math.max(0, wallArea);
       });
@@ -821,140 +475,7 @@ export default function BOQTable({
     );
   };
 
-  function getDoorWidth(door, walls, scaleValue) {
-    if (door.width && door.width > 200) {
-      return door.width / 1000; // in mm, convert to meters
-    }
-    if (door.width && door.width > 0) {
-      return door.width; // in meters
-    }
-    const wall = walls.find(
-      w => normalizeId(w.id) === normalizeId(door.wall_id)
-    );
 
-    if (!wall || !wall.points || wall.points.length < 2) return 0;
-
-    const [p1, p2] = wall.points;
-
-    const wallLengthPx = Math.hypot(
-      p2[0] - p1[0],
-      p2[1] - p1[1]
-    );
-
-    // 👉 convert sang mét
-    const wallLengthM = wallLengthPx * scaleValue;
-
-    return (door.widthRatio || 0.1) * wallLengthM;
-  }
-
-  function getDoorHeight(door) {
-    return door.height || 2.1; // default 2.1m
-  }
-
-  function getDoorCenterFromWall(door, walls) {
-    const wall = walls.find(
-      w => normalizeId(w.id) === normalizeId(door.wall_id)
-    );
-    if (!wall) {
-      console.warn("⚠️ Wall not found for door:", door.id, door.wall_id);
-      return null;
-    }
-    if (!wall.points || wall.points.length < 2) return null;
-    const [p1, p2] = wall.points;
-    const x = p1[0] + (p2[0] - p1[0]) * door.t;
-    const y = p1[1] + (p2[1] - p1[1]) * door.t;
-    return [x, y];
-  }
-
-
-
-  function fallback(page) {
-    return {
-      room_name: page.floor_name || `Floor_${page.page_index ?? 0}`,
-      wetness: "dry",
-    };
-  }
-
-  function findRoomsFromDoor(door, walls, page, center) {
-    let p1 = null;
-    let p2 = null;
-
-    if (door.points && door.points.length >= 2) {
-      p1 = [door.points[0].x, door.points[0].y];
-      p2 = [door.points[1].x, door.points[1].y];
-    } else {
-      const wall = walls.find(
-        w => normalizeId(w.id) === normalizeId(door.wall_id)
-      );
-      if (wall && wall.points && wall.points.length >= 2) {
-        p1 = wall.points[0];
-        p2 = wall.points[1];
-      }
-    }
-
-    if (!p1 || !p2 || !center || !page) {
-      return {
-        left: fallback(page),
-        right: fallback(page),
-      };
-    }
-
-    // vector wall
-    const dx = p2[0] - p1[0];
-    const dy = p2[1] - p1[1];
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-
-    // normal vector (vuông góc)
-    const nx = -dy / len;
-    const ny = dx / len;
-
-    // test nhiều khoảng offset
-    const offsets = [20, 40, 60, 80];
-
-    let leftRoom = null;
-    let rightRoom = null;
-
-    for (const off of offsets) {
-      const leftPoint = [
-        center[0] + nx * off,
-        center[1] + ny * off,
-      ];
-
-      const rightPoint = [
-        center[0] - nx * off,
-        center[1] - ny * off,
-      ];
-
-      for (const o of page.objects || []) {
-        if (!o.polygon) continue;
-
-        if (!leftRoom && pointInPolygon(leftPoint, o.polygon)) {
-          leftRoom = o;
-        }
-
-        if (!rightRoom && pointInPolygon(rightPoint, o.polygon)) {
-          rightRoom = o;
-        }
-      }
-
-      if (leftRoom && rightRoom) break;
-    }
-
-    // fallback nếu không tìm được
-    const safeLeft = leftRoom || fallback(page);
-    const safeRight = rightRoom || fallback(page);
-
-    return {
-      left: {
-        room_name: safeLeft.room_name || "Unnamed",
-        wetness: safeLeft.wetness || "dry",
-      },
-      right: {
-        room_name: safeRight.room_name || "Unnamed",
-        wetness: safeRight.wetness || "dry",
-      },
-    };
-  }
   function DetailTable({ title, data, startIndex = 0 }) {
     if (data.length === 0) return null;
     return (
@@ -1030,94 +551,7 @@ export default function BOQTable({
     );
   }
 
-  function LockUpTable({ data }) {
-    return (
-      <table style={styles.summaryTable}>
-        <thead style={styles.summaryHead}>
-          <tr>
-            <th style={{ ...styles.th, textAlign: "left" }}>#</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Label</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Height</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Width</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>QTY</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Ex jamb size</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Frame</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Swing</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Jamp type</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Door type</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Code</th>
-            <th style={{ ...styles.th, textAlign: "center" }}>Hardware type</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((r, i) => (
-            <tr key={`${r.room_name}_${r.room_wetness}_${r.floor_name}_${i}`} style={styles.rowHover}>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>{i + 1}</td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                {r.room_name}
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                <select name="" id="" style={styles.inlineInput2}>'
-                  <option value="">{r.height}</option>
-                  <option value="">2040</option>
-                  <option value="">2340</option>
-                  <option value="">spec</option>
-                </select>
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                <select name="" id="" style={{ ...styles.inlineInput2 }}>'
-                  <option value="">{r.width}</option>
-                  <option value="">720</option>
-                  <option value="">770</option>
-                  <option value="">820</option>
-                  <option value="">870</option>
-                  <option value="">920</option>
-                  <option value="">1200</option>
-                  <option value="">spec</option>
-                </select>
 
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-
-                {r.doorCount ?? 0}
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                <select name="" id="" style={{ ...styles.inlineInput }}>'
-                  <option value="">Door Frame Pre-Made With Sill</option>
-                  <option value="">Door Frame Pre-Made With Sill - Pivot Frame</option>
-                  <option value="">110x19 MDF Jamb Sets RH</option>
-                  <option value="">110x19 MDF Jamb Sets LH</option>
-                </select>
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                <select name="" id="" style={styles.inlineInput2}>'
-                  <option value="">37mm Frame</option>
-                  <option value="">42mm Frame</option>
-                  <option value="">sets</option>
-                </select>
-              </td>
-              <td>{buildDoorCode(r)}</td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                <select name="" id="" style={styles.inlineInput2}>'
-                  <option value="">Single</option>
-                  <option value="">Double</option>
-                </select>
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                {getDoorType(r)}
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                {getFinelineCode(r)}
-              </td>
-              <td style={{ ...styles.td, ...styles.tdCenter }}>
-                Lockwood Satin Chrome Symmetry Entry Lever Set - 4020475
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
 
   function SummaryTable({ title, data }) {
     if (data.length === 0) return null;
@@ -1414,18 +848,7 @@ export default function BOQTable({
         >
           Area Summary
         </button>
-        <button
-          onClick={() => setViewMode("Lock_up")}
-          style={{
-            ...styles.tabBtn,
-            background:
-              viewMode === "Lock_up" ? "#111827" : "white",
-            color:
-              viewMode === "Lock_up" ? "white" : "#111827",
-          }}
-        >
-          Lock_up
-        </button>
+
       </div>
       <br />
       {viewMode === "detail" && (
@@ -1456,9 +879,7 @@ export default function BOQTable({
         </>
       )}
 
-      {viewMode === "Lock_up" && (
-        <LockUpTable data={lockupData} />
-      )}
+
 
       <div style={styles.paginationWrapper}>
         <div>

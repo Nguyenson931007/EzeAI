@@ -9,7 +9,7 @@ import { useState } from "react";
 import { ApiService } from "@/models/api.service";
 import { polygonAreaM2 } from "@/utils/geometry";
 
-export const useProjectController = (user, pages, roomsByPage, wallsByPage, doorsByPage, realScale, wasteByPage, setCurrentProjectName, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId) => {
+export const useProjectController = (user, pages, roomsByPage, wallsByPage, realScale, wasteByPage, setCurrentProjectName, setPages, setRoomsByPage, setWallsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage) => {
   
   const handleSaveJob = async (projectName, forceNewName = false) => {
     if (!user) return alert("Please login to save jobs");
@@ -49,6 +49,7 @@ export const useProjectController = (user, pages, roomsByPage, wallsByPage, door
     if (jobData.roomsByPage) setRoomsByPage(jobData.roomsByPage);
     if (jobData.wallsByPage) setWallsByPage(jobData.wallsByPage);
     if (jobData.doorsByPage) setDoorsByPage(jobData.doorsByPage);
+    else setDoorsByPage({});
     if (jobData.realScale) setRealScale(jobData.realScale);
     if (jobData.wasteByPage) setWasteByPage(jobData.wasteByPage);
     if (jobData.pages?.length > 0) {

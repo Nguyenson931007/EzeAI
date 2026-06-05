@@ -1,6 +1,6 @@
 export const BASE_URL = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) || "http://localhost:8090";
 
-const getHeaders = (contentType = "application/json") => {
+export const getHeaders = (contentType = "application/json") => {
   const userStr = localStorage.getItem("user");
   const headers = {};
   if (contentType) headers["Content-Type"] = contentType;
@@ -238,6 +238,19 @@ export const ApiService = {
     fd.append("confidence", confidence);
     fd.append("real_scale", realScale || 1.0);
     const res = await fetch(`${BASE_URL}/predict_door`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async detectDoorSeg(imageBlob, confidence = "0.25") {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("confidence", confidence);
+    const res = await fetch(`${BASE_URL}/api/door-segment`, {
       method: "POST",
       headers: getHeaders(null),
       body: fd,

@@ -60,14 +60,15 @@ export default function App() {
     pages, setPages,
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
+    doorsByPage, setDoorsByPage,
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
     wallsByPage, setWallsByPage,
-    doorsByPage, setDoorsByPage,
-    activeTab, setActiveTab
+    activeTab, setActiveTab,
+    currentJobId, setCurrentJobId
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -88,6 +89,7 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSignup, setIsSignup] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const prevTabRef = useRef(activeTab);
 
   // === INTERACTION CONTROLLER ===
   const {
@@ -96,14 +98,14 @@ export default function App() {
     isPanning,
     drawing, setDrawing,
     isDrawingWall, setIsDrawingWall,
+    isDrawingDoor, setIsDrawingDoor,
     currentPoly, setCurrentPoly,
     currentWall, setCurrentWall,
-    isDrawingDoor, setIsDrawingDoor,
     currentDoor, setCurrentDoor,
     currentMouse,
     history, future,
     pushHistory, undo, redo,
-    deleteItem, deleteAllRooms, deleteAllWalls, deleteAllDoors,
+    deleteItem, deleteAllRooms, deleteAllWalls,
     isMeasuring, setIsMeasuring,
     measurePoints, setMeasurePoints,
     isDistancing, setIsDistancing,
@@ -181,15 +183,16 @@ export default function App() {
     cancelROI,
     autoDetect,
     detectWallFromFloorAI,
-    detectDoor,
     detectText,
     detectTemplate,
+    detectDoorSeg,
     activeScanRoom
-  } = useAIController(image, currentPage, setRoomsByPage, setWallsByPage, realScale, setDoorsByPage, roomsByPage, doorsByPage);
+  } = useAIController(image, currentPage, setRoomsByPage, setWallsByPage, realScale, roomsByPage, setDoorsByPage);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
-    user, pages, roomsByPage, wallsByPage, doorsByPage, realScale, wasteByPage, setCurrentProjectName,
-    setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab
+    user, pages, roomsByPage, wallsByPage, realScale, wasteByPage, setCurrentProjectName,
+    setPages, setRoomsByPage, setWallsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
+    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage
   );
 
   const handleSaveJob = async (isSaveAs = false) => {
@@ -213,8 +216,13 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === "Home" && image) {
-      setTimeout(fitToScreen, 100);
+      const prevTab = prevTabRef.current;
+      const isEditorTab = ["Home", "Measure", "AI & Reports", "View"].includes(prevTab);
+      if (!isEditorTab) {
+        setTimeout(zoomTo100, 100);
+      }
     }
+    prevTabRef.current = activeTab;
   }, [activeTab, image]);
 
   function fitToScreen() {
@@ -225,6 +233,19 @@ export default function App() {
     const scaleX = cw / imgSize.w;
     const scaleY = ch / imgSize.h;
     const newScale = Math.min(scaleX, scaleY);
+    setScale(newScale);
+    setOffset({
+      x: (cw - imgSize.w * newScale) / 2,
+      y: (ch - imgSize.h * newScale) / 2
+    });
+  }
+
+  function zoomTo100() {
+    const container = svgRef.current?.parentElement;
+    if (!container) return;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const newScale = 1.0;
     setScale(newScale);
     setOffset({
       x: (cw - imgSize.w * newScale) / 2,
@@ -284,7 +305,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, addTrainWalls, addTrainDoors, exportPDF } = useDocumentController({
+  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, addTrainWalls, exportPDF } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -331,7 +352,6 @@ export default function App() {
       <RibbonView
         drawing={drawing} setDrawing={setDrawing}
         isDrawingWall={isDrawingWall} setIsDrawingWall={setIsDrawingWall}
-        isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -349,16 +369,14 @@ export default function App() {
         handleLogout={handleLogout}
         handleSaveJob={handleSaveJob}
         undo={undo} redo={redo}
-        deleteItem={deleteItem} deleteAllRooms={deleteAllRooms} deleteAllWalls={deleteAllWalls} deleteAllDoors={deleteAllDoors}
+        deleteItem={deleteItem} deleteAllRooms={deleteAllRooms} deleteAllWalls={deleteAllWalls}
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
         finishWall={finishWall} setCurrentWall={setCurrentWall}
-        finishDoor={finishDoor} setCurrentDoor={setCurrentDoor}
-        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectDoor={detectDoor} detectText={detectText} detectTemplate={detectTemplate}
+        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
         exportPDF={exportPDF}
         addTrain={addTrain}
         addTrainWalls={addTrainWalls}
-        addTrainDoors={addTrainDoors}
         addTrainPages={addTrainPages}
         showExportPageSelector={showExportPageSelector}
         setShowExportPageSelector={setShowExportPageSelector}
@@ -399,8 +417,10 @@ export default function App() {
             scale={scale}
             drawing={drawing}
             isDrawingWall={isDrawingWall}
+            isDrawingDoor={isDrawingDoor}
             currentPoly={currentPoly}
             currentWall={currentWall}
+            currentDoor={currentDoor}
             currentMouse={currentMouse}
             rooms={rooms}
             walls={wallsByPage[currentPage] || []}
@@ -449,17 +469,16 @@ export default function App() {
             onWheel={onWheel}
             startDrag={startDrag}
             pushHistory={pushHistory}
+            updateDoor={updateDoor}
           />
 
           <RightPropertyPaneView
             selectedRoom={rooms.find(r => r.id === selectedId)}
             selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
-            selectedDoor={(doorsByPage[currentPage] || []).find(d => d.id === selectedId)}
             selectedType={selectedType}
             selectedPointIndex={selectedPointIndex}
             updateRoom={updateRoom}
             updateWall={updateWall}
-            updateDoor={updateDoor}
             makeCurve={makeCurve}
             scaleValue={scaleValue}
             realScale={realScale}
@@ -475,7 +494,6 @@ export default function App() {
         <Wall3DView
           walls={wallsByPage[currentPage] || []}
           rooms={rooms}
-          doors={doorsByPage[currentPage] || []}
           image={image}
           imgSize={imgSize}
           onClose={() => setShow3D(false)}
@@ -495,7 +513,6 @@ export default function App() {
               <BOQTable
                 pages={boqPages}
                 walls={wallsByPage[currentPage] || []}
-                doors={doorsByPage[currentPage] || []}
                 scaleValue={scaleValue}
                 wasteInternal={wasteByPage[currentPage]?.internal ?? 10}
                 wasteExternal={wasteByPage[currentPage]?.external ?? 15}

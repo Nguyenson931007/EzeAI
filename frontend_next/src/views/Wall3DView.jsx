@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
-export default function Wall3DView({ walls = [], rooms = [], doors = [], image, imgSize, onClose, realScale }) {
+export default function Wall3DView({ walls = [], rooms = [], image, imgSize, onClose, realScale }) {
   const mountRef = useRef(null);
 
   useEffect(() => {
@@ -168,56 +168,27 @@ export default function Wall3DView({ walls = [], rooms = [], doors = [], image, 
     walls.forEach(wall => {
       const wallHeightPx = (wall.height || 2400) * mmToPx;
       const wallThickness = wall.thickness || 90;
-      const wallDoors = doors.filter(d => String(d.wall_id) === String(wall.id));
 
-      if (wallDoors.length === 0 || wall.isClosed) {
-        const { left, right } = getMiterPoints(wall.points, wallThickness, wall.isClosed);
-        const shape = new THREE.Shape();
-        shape.moveTo(left[0].x, left[0].y);
-        for (let i = 1; i < left.length; i++) shape.lineTo(left[i].x, left[i].y);
-        if (wall.isClosed) {
-          const innerPath = new THREE.Path();
-          innerPath.moveTo(right[0].x, right[0].y);
-          for (let i = 1; i < right.length; i++) innerPath.lineTo(right[i].x, right[i].y);
-          innerPath.closePath();
-          shape.holes.push(innerPath);
-        } else {
-          for (let i = right.length - 1; i >= 0; i--) shape.lineTo(right[i].x, right[i].y);
-          shape.closePath();
-        }
-        const geometry = new THREE.ExtrudeGeometry(shape, { depth: wallHeightPx, bevelEnabled: false });
-        const mesh = new THREE.Mesh(geometry, wallMaterial);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.receiveShadow = true;
-        mesh.castShadow = true;
-        scene.add(mesh);
+      const { left, right } = getMiterPoints(wall.points, wallThickness, wall.isClosed);
+      const shape = new THREE.Shape();
+      shape.moveTo(left[0].x, left[0].y);
+      for (let i = 1; i < left.length; i++) shape.lineTo(left[i].x, left[i].y);
+      if (wall.isClosed) {
+        const innerPath = new THREE.Path();
+        innerPath.moveTo(right[0].x, right[0].y);
+        for (let i = 1; i < right.length; i++) innerPath.lineTo(right[i].x, right[i].y);
+        innerPath.closePath();
+        shape.holes.push(innerPath);
       } else {
-        // Walls with doors
-        for (let i = 0; i < wall.points.length - 1; i++) {
-          const p1 = wall.points[i], p2 = wall.points[i + 1];
-          const segmentDoors = wallDoors.filter(d => {
-            const midX = (d.points[0].x + d.points[1].x) / 2;
-            const midY = (d.points[0].y + d.points[1].y) / 2;
-            const dist = Math.hypot(midX - (p1.x + p2.x) / 2, midY - (p1.y + p2.y) / 2);
-            return dist < 100;
-          });
-
-          if (segmentDoors.length === 0) {
-            renderWallPiece([p1, p2], wallThickness, wallHeightPx);
-          } else {
-            let currentPoint = p1;
-            segmentDoors.forEach(door => {
-              const doorHeightPx = (door.height || 2100) * mmToPx;
-              renderWallPiece([currentPoint, door.points[0]], wallThickness, wallHeightPx);
-              if (wallHeightPx > doorHeightPx) {
-                renderWallPiece([door.points[0], door.points[1]], wallThickness, wallHeightPx - doorHeightPx, doorHeightPx);
-              }
-              currentPoint = door.points[1];
-            });
-            renderWallPiece([currentPoint, p2], wallThickness, wallHeightPx);
-          }
-        }
+        for (let i = right.length - 1; i >= 0; i--) shape.lineTo(right[i].x, right[i].y);
+        shape.closePath();
       }
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: wallHeightPx, bevelEnabled: false });
+      const mesh = new THREE.Mesh(geometry, wallMaterial);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      scene.add(mesh);
     });
 
     // === RENDER ROOMS WITH TEXTURES ===
@@ -264,7 +235,7 @@ export default function Wall3DView({ walls = [], rooms = [], doors = [], image, 
       renderer.dispose();
       scene.clear();
     };
-  }, [walls, rooms, doors, image, imgSize, realScale]);
+  }, [walls, rooms, image, imgSize, realScale]);
 
   return (
     <div className="boq-overlay">

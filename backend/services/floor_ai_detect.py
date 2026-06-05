@@ -23,6 +23,7 @@ import base64
 import cv2
 import numpy as np
 import hashlib
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from PIL import Image
@@ -38,61 +39,71 @@ _door_model = None
 _text_model = None
 _template_model = None
 
+_model_lock = threading.Lock()
 
 
 def _get_model(model_type="room") -> YOLO:
     global _room_model, _door_model, _text_model, _template_model
     if model_type == "door":
         if _door_model is None:
-            path = None
-            for p in MODEL_CANDIDATES.get("door", []):
-                if p.exists():
-                    path = p
-                    break
-            if not path:
-                raise FileNotFoundError("Door model not found in candidates.")
-            print(f"[floor_ai_detect] Loading Door Model: {path}")
-            _door_model = YOLO(str(path))
+            with _model_lock:
+                if _door_model is None:
+                    path = None
+                    for p in MODEL_CANDIDATES.get("door", []):
+                        if p.exists():
+                            path = p
+                            break
+                    if not path:
+                        raise FileNotFoundError("Door model not found in candidates.")
+                    print(f"[floor_ai_detect] Loading Door Model: {path}")
+                    _door_model = YOLO(str(path))
         return _door_model
 
     elif model_type == "template":
         if _template_model is None:
-            path = None
-            for p in MODEL_CANDIDATES.get("template", []):
-                if p.exists():
-                    path = p
-                    break
-            if not path:
-                raise FileNotFoundError("Template model not found in candidates.")
-            print(f"[floor_ai_detect] Loading Template Model: {path}")
-            _template_model = YOLO(str(path))
+            with _model_lock:
+                if _template_model is None:
+                    path = None
+                    for p in MODEL_CANDIDATES.get("template", []):
+                        if p.exists():
+                            path = p
+                            break
+                    if not path:
+                        raise FileNotFoundError("Template model not found in candidates.")
+                    print(f"[floor_ai_detect] Loading Template Model: {path}")
+                    _template_model = YOLO(str(path))
         return _template_model
 
     elif model_type == "text":
         if _text_model is None:
-            path = None
-            for p in MODEL_CANDIDATES.get("text", []):
-                if p.exists():
-                    path = p
-                    break
-            if not path:
-                raise FileNotFoundError("Text model not found in candidates.")
-            print(f"[floor_ai_detect] Loading Text Model: {path}")
-            _text_model = YOLO(str(path))
+            with _model_lock:
+                if _text_model is None:
+                    path = None
+                    for p in MODEL_CANDIDATES.get("text", []):
+                        if p.exists():
+                            path = p
+                            break
+                    if not path:
+                        raise FileNotFoundError("Text model not found in candidates.")
+                    print(f"[floor_ai_detect] Loading Text Model: {path}")
+                    _text_model = YOLO(str(path))
         return _text_model
 
     else:
         if _room_model is None:
-            path = None
-            for p in MODEL_CANDIDATES.get("room", []):
-                if p.exists():
-                    path = p
-                    break
-            if not path:
-                raise FileNotFoundError("Room model not found in candidates.")
-            print(f"[floor_ai_detect] Loading Room Model: {path}")
-            _room_model = YOLO(str(path))
+            with _model_lock:
+                if _room_model is None:
+                    path = None
+                    for p in MODEL_CANDIDATES.get("room", []):
+                        if p.exists():
+                            path = p
+                            break
+                    if not path:
+                        raise FileNotFoundError("Room model not found in candidates.")
+                    print(f"[floor_ai_detect] Loading Room Model: {path}")
+                    _room_model = YOLO(str(path))
         return _room_model
+
 
 
 
@@ -1375,7 +1386,12 @@ def _merge_same_name_adjacent_rooms(rooms: list) -> list:
         
     merged_rooms = []
     
+    GENERIC_NAMES = {"ROOM", "UNKNOWN", "VOID", "SPACE", "AREA"}
     for name, r_list in groups.items():
+        if name in GENERIC_NAMES:
+            # Do NOT merge generic rooms across thin walls/hallways; just keep them as separate individual rooms
+            merged_rooms.extend(r_list)
+            continue
         # Build Shapely geometry for each room in the group
         geoms = []
         for r in r_list:
@@ -2032,7 +2048,9 @@ def predict_doors_from_bytes_roi(
     cy2 = min(img_h, int(roi_y + roi_h) + pad)
 
     crop = img_np[cy1:cy2, cx1:cx2]
-    print(f"[ROI-Door] Crop: ({cx1},{cy1})-({cx2},{cy2})")
+    crop_w = cx2 - cx1
+    crop_h = cy2 - cy1
+    print(f"[ROI-Door] Crop: ({cx1},{cy1})-({cx2},{cy2}) = {crop_w}x{crop_h}px")
 
     # Re-encode crop as bytes for the existing door pipeline
     crop_pil = Image.fromarray(crop)
@@ -2040,8 +2058,16 @@ def predict_doors_from_bytes_roi(
     crop_pil.save(buf, format="PNG")
     crop_bytes = buf.getvalue()
 
+    # Calculate target imgsz to maintain scale
+    # Full image is run at imgsz=2048
+    full_scale = 2048.0 / max(img_w, img_h) if max(img_w, img_h) > 0 else 2.0
+    target_imgsz = int(max(crop_w, crop_h) * full_scale)
+    # Round to nearest multiple of 32, minimum 128, maximum 2048
+    target_imgsz = max(128, min(2048, ((target_imgsz + 15) // 32) * 32))
+    print(f"[ROI-Door] Calculated target imgsz: {target_imgsz} (full scale: {full_scale:.3f})")
+
     # Run existing door pipeline on the crop
-    result = predict_doors_from_bytes(crop_bytes, filename, confidence, real_scale)
+    result = predict_doors_from_bytes(crop_bytes, filename, confidence, real_scale, imgsz=target_imgsz)
 
     # Remap door coordinates
     if result and result.get("pages"):
@@ -2052,6 +2078,10 @@ def predict_doors_from_bytes_roi(
                     pt["y"] = pt["y"] + cy1
                 if "polygon" in door:
                     for pt in door["polygon"]:
+                        pt["x"] = pt["x"] + cx1
+                        pt["y"] = pt["y"] + cy1
+                if "mask_polygon" in door and door["mask_polygon"]:
+                    for pt in door["mask_polygon"]:
                         pt["x"] = pt["x"] + cx1
                         pt["y"] = pt["y"] + cy1
             page["roi"] = roi_bounds
@@ -2177,8 +2207,122 @@ def _detect_door_line(image_np: np.ndarray, polygon_pts: list):
             
     return best_line
 
+def _get_tight_door_polygon(p1, p2, thickness=12.0):
+    """
+    Generate a tight rotated rectangle wrapping around the door line p1-p2.
+    """
+    import math
+    dx = p2["x"] - p1["x"]
+    dy = p2["y"] - p1["y"]
+    length = math.hypot(dx, dy)
+    if length < 1e-3:
+        return [p1, p2, p2, p1]
+    
+    ux = dx / length
+    uy = dy / length
+    nx = -uy
+    ny = ux
+    
+    half_t = thickness / 2.0
+    return [
+        {"x": float(p1["x"] + nx * half_t), "y": float(p1["y"] + ny * half_t)},
+        {"x": float(p2["x"] + nx * half_t), "y": float(p2["y"] + ny * half_t)},
+        {"x": float(p2["x"] - nx * half_t), "y": float(p2["y"] - ny * half_t)},
+        {"x": float(p1["x"] - nx * half_t), "y": float(p1["y"] - ny * half_t)}
+    ]
 
-def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: float = 0.3, real_scale: float = 1.0):
+
+def _expand_door_polygon_for_arc(box_pts, p1, p2, door_type, hinge_side, swing, opening_angle, has_mask=False):
+    """
+    Expand door bounding box polygon to encompass the full arc sweep area.
+    Replicates the arc geometry math from frontend DoorArcLabelEngine.js.
+    """
+    if door_type == "sliding":
+        # Sliding doors have no arc sweep — just return the bounding box of box_pts.
+        xs = [p["x"] for p in box_pts]
+        ys = [p["y"] for p in box_pts]
+        pad = 5
+        min_x = min(xs) - pad
+        min_y = min(ys) - pad
+        max_x = max(xs) + pad
+        max_y = max(ys) + pad
+        return [
+            {"x": float(min_x), "y": float(min_y)},
+            {"x": float(max_x), "y": float(min_y)},
+            {"x": float(max_x), "y": float(max_y)},
+            {"x": float(min_x), "y": float(max_y)},
+        ]
+
+    dx = p2["x"] - p1["x"]
+    dy = p2["y"] - p1["y"]
+    door_len = math.hypot(dx, dy)
+
+    if door_len < 5:
+        return box_pts
+
+    open_angle_rad = math.radians(opening_angle or 90)
+
+    # Collect all critical arc points to determine the expanded bbox
+    arc_points_x = [p["x"] for p in box_pts]
+    arc_points_y = [p["y"] for p in box_pts]
+
+    if door_type == "double":
+        # Double door: two arcs from each end toward the center
+        mid_x = (p1["x"] + p2["x"]) / 2
+        mid_y = (p1["y"] + p2["y"]) / 2
+        half_len = door_len / 2
+        is_inward = (swing or "inward") == "inward"
+        side_factor = 1 if is_inward else -1
+
+        # Arc from p1 toward mid
+        ang1_start = math.atan2(mid_y - p1["y"], mid_x - p1["x"])
+        # Arc from p2 toward mid
+        ang2_start = math.atan2(mid_y - p2["y"], mid_x - p2["x"])
+
+        # Sample points along both arcs for accurate bbox
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            a1 = ang1_start + t * side_factor * open_angle_rad
+            arc_points_x.append(p1["x"] + half_len * math.cos(a1))
+            arc_points_y.append(p1["y"] + half_len * math.sin(a1))
+
+            a2 = ang2_start - t * side_factor * open_angle_rad
+            arc_points_x.append(p2["x"] + half_len * math.cos(a2))
+            arc_points_y.append(p2["y"] + half_len * math.sin(a2))
+    else:
+        # Single door: one arc from hinge spanning the full door length
+        is_right_hinge = (hinge_side or "left") == "right"
+        hinge = p2 if is_right_hinge else p1
+        other = p1 if is_right_hinge else p2
+
+        is_inward = (swing or "inward") == "inward"
+        side_factor = 1 if is_inward else -1
+        hinge_factor = -1 if is_right_hinge else 1
+
+        start_angle = math.atan2(other["y"] - hinge["y"], other["x"] - hinge["x"])
+        sweep_angle = hinge_factor * side_factor * open_angle_rad
+
+        # Sample 5 points along the arc for accurate bbox coverage
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            angle = start_angle + sweep_angle * t
+            arc_points_x.append(hinge["x"] + door_len * math.cos(angle))
+            arc_points_y.append(hinge["y"] + door_len * math.sin(angle))
+
+    # Compute expanded bbox with small padding
+    pad = 5
+    min_x = min(arc_points_x) - pad
+    min_y = min(arc_points_y) - pad
+    max_x = max(arc_points_x) + pad
+    max_y = max(arc_points_y) + pad
+
+    return [
+        {"x": float(min_x), "y": float(min_y)},
+        {"x": float(max_x), "y": float(min_y)},
+        {"x": float(max_x), "y": float(max_y)},
+        {"x": float(min_x), "y": float(max_y)},
+    ]
+
+
+def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: float = 0.3, real_scale: float = 1.0, imgsz: int = 2048):
     """
     Detects doors using the detection model.
     Returns list of door line segments for the frontend.
@@ -2196,7 +2340,7 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
     
     # Log model info for verification
     print(f"[floor_ai_detect] Door Model Names: {model.names}")
-    results = model.predict(source=img, conf=confidence, imgsz=2048, device=device)
+    results = model.predict(source=img, conf=confidence, imgsz=imgsz, device=device)
     
     # Door classes matching the actual segmentation model:
     # {0: 'double_door', 1: 'single_door', 2: 'sliding_door'}
@@ -2206,7 +2350,7 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
         cname_lower = cname.lower()
         if "double" in cname_lower:
             DOOR_CLASS_MAP[cid] = {"type": "double", "label": cname}
-        elif "sliding" in cname_lower:
+        elif "sliding" in cname_lower or "cavity" in cname_lower:
             DOOR_CLASS_MAP[cid] = {"type": "sliding", "label": cname}
         else:
             # single_door, door, smalldoor, etc.
@@ -2240,6 +2384,8 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                 continue
                 
             door_info = DOOR_CLASS_MAP[cls_id]
+            door_type = door_info["type"]
+            door_label = door_info["label"]
             
             w = x2 - x1
             h = y2 - y1
@@ -2251,115 +2397,13 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
             box_pts = [{"x": float(x1), "y": float(y1)}, {"x": float(x2), "y": float(y1)}, 
                         {"x": float(x2), "y": float(y2)}, {"x": float(x1), "y": float(y2)}]
             
-            # ── Compute p1/p2 directly from bounding box centerline (pixel space) ──
-            # The bounding box major axis IS the door opening axis.
-            xc = (x1 + x2) / 2
-            yc = (y1 + y2) / 2
-            bbox_length = float(max(w, h))  # The door opening spans the longer bbox axis
-            
-            import cv2
-            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            
-            if w > h:
-                # Horizontal door opening (wall is horizontal)
-                # Candidates are near y1 and y2
-                # We search a vertical window of +/- 10 pixels around y1 and y2
-                y1_int, y2_int = int(y1), int(y2)
-                x1_int, x2_int = max(0, int(x1)), min(img_w - 1, int(x2))
-                
-                best_y = None
-                max_dark_pixels = -1
-                
-                # Check top candidate (near y1)
-                for cy in range(max(0, y1_int - 10), min(img_h - 1, y1_int + 10)):
-                    row = gray[cy, x1_int:x2_int]
-                    if len(row) > 0:
-                        dark_count = np.sum(row < 120)
-                        if dark_count > max_dark_pixels:
-                            max_dark_pixels = dark_count
-                            best_y = cy
-                        
-                # Check bottom candidate (near y2)
-                for cy in range(max(0, y2_int - 10), min(img_h - 1, y2_int + 10)):
-                    row = gray[cy, x1_int:x2_int]
-                    if len(row) > 0:
-                        dark_count = np.sum(row < 120)
-                        if dark_count > max_dark_pixels:
-                            max_dark_pixels = dark_count
-                            best_y = cy
-                
-                # Fallback: if max_dark_pixels is very low, just use the closer edge
-                if max_dark_pixels < 2:
-                    # Fallback to simple stripe average comparison
-                    top_stripe = gray[max(0, y1_int - 5):min(img_h - 1, y1_int + 5), x1_int:x2_int]
-                    bot_stripe = gray[max(0, y2_int - 5):min(img_h - 1, y2_int + 5), x1_int:x2_int]
-                    
-                    mean_top = np.mean(top_stripe) if top_stripe.size > 0 else 255.0
-                    mean_bot = np.mean(bot_stripe) if bot_stripe.size > 0 else 255.0
-                    
-                    if mean_top < mean_bot:
-                        refined_y = float(y1)
-                    else:
-                        refined_y = float(y2)
-                else:
-                    refined_y = float(best_y)
-                
-                p1 = {"x": float(x1), "y": refined_y}
-                p2 = {"x": float(x2), "y": refined_y}
-                
-            else:
-                # Vertical door opening (wall is vertical)
-                # Candidates are near x1 and x2
-                x1_int, x2_int = int(x1), int(x2)
-                y1_int, y2_int = max(0, int(y1)), min(img_h - 1, int(y2))
-                
-                best_x = None
-                max_dark_pixels = -1
-                
-                # Check left candidate (near x1)
-                for cx in range(max(0, x1_int - 10), min(img_w - 1, x1_int + 10)):
-                    col = gray[y1_int:y2_int, cx]
-                    if len(col) > 0:
-                        dark_count = np.sum(col < 120)
-                        if dark_count > max_dark_pixels:
-                            max_dark_pixels = dark_count
-                            best_x = cx
-                        
-                # Check right candidate (near x2)
-                for cx in range(max(0, x2_int - 10), min(img_w - 1, x2_int + 10)):
-                    col = gray[y1_int:y2_int, cx]
-                    if len(col) > 0:
-                        dark_count = np.sum(col < 120)
-                        if dark_count > max_dark_pixels:
-                            max_dark_pixels = dark_count
-                            best_x = cx
-                
-                # Fallback: if max_dark_pixels is very low, just use the closer edge
-                if max_dark_pixels < 2:
-                    # Fallback to simple stripe average comparison
-                    left_stripe = gray[y1_int:y2_int, max(0, x1_int - 5):min(img_w - 1, x1_int + 5)]
-                    right_stripe = gray[y1_int:y2_int, max(0, x2_int - 5):min(img_w - 1, x2_int + 5)]
-                    
-                    mean_left = np.mean(left_stripe) if left_stripe.size > 0 else 255.0
-                    mean_right = np.mean(right_stripe) if right_stripe.size > 0 else 255.0
-                    
-                    if mean_left < mean_right:
-                        refined_x = float(x1)
-                    else:
-                        refined_x = float(x2)
-                else:
-                    refined_x = float(best_x)
-                
-                p1 = {"x": refined_x, "y": float(y1)}
-                p2 = {"x": refined_x, "y": float(y2)}
-            
-            # ── Compute display width in mm ──
+            # ── Initialize width/thickness with fallback scale values ──
+            bbox_length = float(max(w, h))
             width_mm = bbox_length * real_scale
             thickness_px = min(w, h)
             thickness_mm = thickness_px * real_scale
             
-            # ── OCR Width Detection (optional label enrichment) ──
-            door_label = door_info["label"]
+            # ── OCR Width & Type Detection (optional override) ──
             try:
                 # Reduce padding to 45 to avoid reading garbage from other rooms, making OCR much faster
                 pad = 45
@@ -2372,17 +2416,31 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                     crop_pil = PILImage.fromarray(crop_np)
                     
                     if crop_pil.width > 0 and crop_pil.height > 0:
-                        # Removed the expensive 2x upscale resize. EasyOCR handles native resolution efficiently.
                         orientations = [
                             (0, crop_pil),
                             (90, crop_pil.transpose(PILImage.ROTATE_270)),
                             (270, crop_pil.transpose(PILImage.ROTATE_90))
                         ]
                     
-                    for angle, img_oriented in orientations:
+                    for angle_rot, img_oriented in orientations:
                         ocr_results = run_ocr(img_oriented)
                         for ocr_res in ocr_results:
                             txt = ocr_res.get("text", "")
+                            txt_upper = txt.upper()
+                            
+                            # Check if the OCR text indicates a sliding door
+                            if any(k in txt_upper for k in ["CSD", "MSD", "VSD", "SLIDING", "SLD"]):
+                                door_type = "sliding"
+                                door_label = "Sliding_door"
+                                print(f"[floor_ai_detect] Basic OCR door type override to sliding: {txt}")
+                            
+                            # Check prefix matches
+                            prefix_match = re.search(r"\b(CSD|CS|SD|MSD|VSD)\s*(\d{3,4})\b", txt_upper)
+                            if prefix_match:
+                                door_type = "sliding"
+                                door_label = "Sliding_door"
+                                print(f"[floor_ai_detect] Basic OCR prefix override to sliding: {txt}")
+
                             match = re.search(r"\b([456789]\d[05]|1[01234]\d[05])\b", txt)
                             if match:
                                 found_width = match.group(0)
@@ -2396,17 +2454,238 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
             except Exception as ocr_err:
                 print(f"[floor_ai_detect] Door OCR error: {ocr_err}")
 
+            # ── Enhanced OCR via DoorOCREngine (fallback if basic OCR missed) ──
+            ocr_confidence = 0.0
+            if ocr_engine is not None:
+                try:
+                    ocr_result = ocr_engine.extract_door_width(img_np, [x1, y1, x2, y2], real_scale)
+                    if ocr_result and ocr_result.get("width_mm"):
+                        if ocr_result["width_mm"] > 0:
+                            width_mm = ocr_result["width_mm"]
+                            ocr_confidence = ocr_result.get("ocr_confidence", 0.0)
+                            prefix = ocr_result.get("prefix", "")
+                            
+                            # Override type to sliding if prefix matches
+                            if prefix in ["CSD", "CS", "SD", "MSD", "VSD"]:
+                                door_type = "sliding"
+                                door_label = "Sliding_door"
+                                print(f"[floor_ai_detect] DoorOCREngine type override to sliding: prefix={prefix}")
+                                
+                            if prefix:
+                                door_label = f"{door_label} ({prefix}{int(width_mm)})"
+                            else:
+                                door_label = f"{door_label} ({int(width_mm)})"
+                            print(f"[floor_ai_detect] Door #{i}: OCR engine override → {width_mm}mm (conf={ocr_confidence:.2f})")
+                except Exception as ocr_eng_err:
+                    print(f"[floor_ai_detect] Door #{i}: OCR engine skipped: {ocr_eng_err}")
+            
+            # ── Compute p1/p2 from segmentation mask (model segments) ──
+            # Use the actual segmentation polygon to find the door leaf line,
+            # instead of scanning dark pixels near bounding box edges.
+            import cv2
+            
+            xc = (x1 + x2) / 2
+            yc = (y1 + y2) / 2
+            bbox_length = float(max(w, h))
+            
+            mask_polygon = None
+            if res.masks is not None and i < len(res.masks.xy):
+                raw_poly = res.masks.xy[i]  # numpy array of shape (N, 2)
+                if len(raw_poly) >= 3:
+                    mask_polygon = raw_poly
+                    print(f"[floor_ai_detect] Door #{i}: Using segmentation mask ({len(raw_poly)} vertices)")
+            
+            # Initialize hinge tracking variables (used later to decide if mask geometry sets hinge/swing)
+            best_hinge_idx = -1
+            best_hinge_angle = 999.0
+            
+            if mask_polygon is not None:
+                # ── Strategy: find hinge vertex + two straight edges of convex hull ──
+                # A single-door mask is a quarter-pie shape with:
+                #   - Two straight edges (leaf line + wall line) meeting at the hinge (~90°)
+                #   - One curved arc on the opposite side
+                # We find the hinge (smallest interior angle), then determine which
+                # edge to use for p1/p2 so the arc renders on the correct side.
+                hull = cv2.convexHull(mask_polygon.astype(np.float32))
+                hull_pts = hull.reshape(-1, 2)
+                n_hull = len(hull_pts)
+                
+                # ── Step A: Find the hinge vertex (smallest interior angle) ──
+                best_hinge_idx = -1
+                best_hinge_angle = 999.0
+                
+                is_swing_door = door_type in ("single", "double")
+                if is_swing_door:
+                    for vi in range(n_hull):
+                        vp = hull_pts[(vi - 1) % n_hull]
+                        vc = hull_pts[vi]
+                        vn = hull_pts[(vi + 1) % n_hull]
+                        vec1 = vp - vc
+                        vec2 = vn - vc
+                        len1 = np.sqrt(vec1[0]**2 + vec1[1]**2)
+                        len2 = np.sqrt(vec2[0]**2 + vec2[1]**2)
+                        if len1 < 1e-3 or len2 < 1e-3:
+                            continue
+                        cos_angle = np.clip(np.dot(vec1, vec2) / (len1 * len2), -1.0, 1.0)
+                        angle_deg = np.degrees(np.arccos(cos_angle))
+                        if angle_deg < best_hinge_angle:
+                            best_hinge_angle = angle_deg
+                            best_hinge_idx = vi
+                
+                if best_hinge_idx >= 0 and best_hinge_angle < 130:
+                    hinge_vertex = hull_pts[best_hinge_idx]
+                    # The two edges emanating from the hinge
+                    edge_A_far = hull_pts[(best_hinge_idx - 1) % n_hull]
+                    edge_B_far = hull_pts[(best_hinge_idx + 1) % n_hull]
+                    
+                    edge_A_len = np.sqrt((edge_A_far[0] - hinge_vertex[0])**2 + (edge_A_far[1] - hinge_vertex[1])**2)
+                    edge_B_len = np.sqrt((edge_B_far[0] - hinge_vertex[0])**2 + (edge_B_far[1] - hinge_vertex[1])**2)
+                    
+                    # Mask centroid for arc-side determination
+                    mask_cx = float(np.mean(mask_polygon[:, 0]))
+                    mask_cy = float(np.mean(mask_polygon[:, 1]))
+                    hx, hy = float(hinge_vertex[0]), float(hinge_vertex[1])
+                    
+                    # ── Step B: For each candidate edge, check if the arc lands inside the mask ──
+                    # The arc from the hinge sweeps from the far end of the chosen edge
+                    # toward the mask interior. We use cross-product with the centroid
+                    # to determine the correct sweep direction, then verify arcEnd is
+                    # close to the far end of the OTHER edge (which it should be for a ~90° door).
+                    
+                    def arc_end_inside_mask(edge_far, other_far):
+                        """Check if sweeping from edge_far around hinge toward centroid
+                        produces an arcEnd that lands near other_far (inside the mask)."""
+                        dx_e = float(edge_far[0]) - hx
+                        dy_e = float(edge_far[1]) - hy
+                        # Rotate edge_far 90° around hinge toward the centroid side
+                        cx_rel = mask_cx - hx
+                        cy_rel = mask_cy - hy
+                        cross = dx_e * cy_rel - dy_e * cx_rel
+                        if cross >= 0:
+                            # Rotate counterclockwise (screen coords)
+                            arc_x = hx - dy_e
+                            arc_y = hy + dx_e
+                        else:
+                            # Rotate clockwise (screen coords)
+                            arc_x = hx + dy_e
+                            arc_y = hy - dx_e
+                        # Check if arcEnd is near the other edge's far point
+                        dist_to_other = math.sqrt((arc_x - float(other_far[0]))**2 + (arc_y - float(other_far[1]))**2)
+                        edge_len_avg = (edge_A_len + edge_B_len) / 2
+                        return dist_to_other < edge_len_avg * 0.5  # Within 50% of edge length
+                    
+                    # Try edge A as p1/p2
+                    a_ok = arc_end_inside_mask(edge_A_far, edge_B_far)
+                    b_ok = arc_end_inside_mask(edge_B_far, edge_A_far)
+                    
+                    if a_ok and not b_ok:
+                        chosen_far = edge_A_far
+                        chosen_len = edge_A_len
+                    elif b_ok and not a_ok:
+                        chosen_far = edge_B_far
+                        chosen_len = edge_B_len
+                    else:
+                        # Both OK or both fail — pick the longer edge
+                        if edge_A_len >= edge_B_len:
+                            chosen_far = edge_A_far
+                            chosen_len = edge_A_len
+                        else:
+                            chosen_far = edge_B_far
+                            chosen_len = edge_B_len
+                    
+                    if chosen_len > 10:
+                        p1 = {"x": float(hinge_vertex[0]), "y": float(hinge_vertex[1])}
+                        p2 = {"x": float(chosen_far[0]), "y": float(chosen_far[1])}
+                        bbox_length = float(chosen_len)
+                        
+                        # ── Step C: Determine hingeSide and swing from geometry ──
+                        # p1 = hinge vertex, so hingeSide = "left"
+                        # Swing direction: use cross product of p1→p2 with centroid
+                        dx_line = p2["x"] - p1["x"]
+                        dy_line = p2["y"] - p1["y"]
+                        cx_line = mask_cx - p1["x"]
+                        cy_line = mask_cy - p1["y"]
+                        cross_swing = dx_line * cy_line - dy_line * cx_line
+                        # In SVG screen coords: positive cross = centroid is to the right of p1→p2
+                        hinge_side_mapped = "left"  # p1 is always the hinge
+                        swing_mapped = "inward" if cross_swing >= 0 else "outward"
+                        
+                        print(f"[floor_ai_detect] Door #{i}: Hinge-based extraction — "
+                              f"hinge=({p1['x']:.0f},{p1['y']:.0f}), "
+                              f"far=({p2['x']:.0f},{p2['y']:.0f}), "
+                              f"length={chosen_len:.1f}px, hinge_angle={best_hinge_angle:.0f}°, "
+                              f"hingeSide={hinge_side_mapped}, swing={swing_mapped}")
+                    else:
+                        # Edges too short — fallback to bbox centerline
+                        print(f"[floor_ai_detect] Door #{i}: Hinge edges too short, falling back to bbox centerline")
+                        if w > h:
+                            p1 = {"x": float(x1), "y": float(yc)}
+                            p2 = {"x": float(x2), "y": float(yc)}
+                        else:
+                            p1 = {"x": float(xc), "y": float(y1)}
+                            p2 = {"x": float(xc), "y": float(y2)}
+                else:
+                    # No clear hinge found — fallback: best axis-aligned edge
+                    best_score = -1.0
+                    best_edge_len = 0.0
+                    best_p1 = None
+                    best_p2 = None
+                    
+                    for ei in range(n_hull):
+                        ej = (ei + 1) % n_hull
+                        ep1 = hull_pts[ei]
+                        ep2 = hull_pts[ej]
+                        dx = ep2[0] - ep1[0]
+                        dy = ep2[1] - ep1[1]
+                        edge_len = np.sqrt(dx**2 + dy**2)
+                        if edge_len < 1e-3:
+                            continue
+                        alignment = max(abs(dx), abs(dy)) / edge_len
+                        score = edge_len * (alignment ** 2)
+                        if score > best_score:
+                            best_score = score
+                            best_edge_len = edge_len
+                            best_p1 = ep1
+                            best_p2 = ep2
+                    
+                    if best_p1 is not None and best_edge_len > 10:
+                        p1 = {"x": float(best_p1[0]), "y": float(best_p1[1])}
+                        p2 = {"x": float(best_p2[0]), "y": float(best_p2[1])}
+                        bbox_length = float(best_edge_len)
+                        print(f"[floor_ai_detect] Door #{i}: Fallback axis-aligned edge, "
+                              f"length={best_edge_len:.1f}px")
+                    else:
+                        print(f"[floor_ai_detect] Door #{i}: All hull methods failed, using bbox centerline")
+                        if w > h:
+                            p1 = {"x": float(x1), "y": float(yc)}
+                            p2 = {"x": float(x2), "y": float(yc)}
+                        else:
+                            p1 = {"x": float(xc), "y": float(y1)}
+                            p2 = {"x": float(xc), "y": float(y2)}
+            else:
+                # ── Fallback: no mask available, use bbox centerline ──
+                print(f"[floor_ai_detect] Door #{i}: No segmentation mask, falling back to bbox centerline")
+                if w > h:
+                    p1 = {"x": float(x1), "y": float(yc)}
+                    p2 = {"x": float(x2), "y": float(yc)}
+                else:
+                    p1 = {"x": float(xc), "y": float(y1)}
+                    p2 = {"x": float(xc), "y": float(y2)}
+            
             # ── Geometry Refinement Engine Integration ──
             # Run OpenCV-based geometry analysis for precise hinge/arc/wall extraction
             refined_geometry = None
             geometry_confidence = 0.0
-            hinge_side_mapped = "left"
-            swing_mapped = "inward"
+            # Only initialize defaults if mask-based geometry didn't already set them
+            mask_already_set_hinge = (mask_polygon is not None and best_hinge_idx >= 0 and best_hinge_angle < 130)
+            if not mask_already_set_hinge:
+                hinge_side_mapped = "left"
+                swing_mapped = "inward"
             try:
                 from services.door_refinement_engine import DoorRefinementEngine
                 refiner = DoorRefinementEngine()
                 refined_geometry = refiner.refine_door_geometry(
-                    img_np, [x1, y1, x2, y2], door_info["type"]
+                    img_np, [x1, y1, x2, y2], door_type
                 )
                 if refined_geometry:
                     geometry_confidence = refined_geometry.get("geometry_confidence", 0.0)
@@ -2416,47 +2695,28 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                           f"angle={refined_geometry.get('opening_angle'):.1f}°, "
                           f"geom_conf={geometry_confidence:.2f}")
                     
-                    # Map the backend hinge point and swing direction to frontend hingeSide and swing
-                    hinge_pt = refined_geometry.get("hinge_point")
-                    swing_dir = refined_geometry.get("swing_direction", "clockwise")
-                    
-                    if hinge_pt:
-                        # Determine which of p1 or p2 is closer to the hinge_point
-                        dist_p1 = math.sqrt((p1["x"] - hinge_pt[0])**2 + (p1["y"] - hinge_pt[1])**2)
-                        dist_p2 = math.sqrt((p2["x"] - hinge_pt[0])**2 + (p2["y"] - hinge_pt[1])**2)
-                        if dist_p1 <= dist_p2:
-                            hinge_side_mapped = "left"
-                        else:
-                            hinge_side_mapped = "right"
+                    # Only use refinement engine's hinge/swing mapping when mask geometry
+                    # didn't already determine these values (mask centroid method is more reliable)
+                    if not mask_already_set_hinge:
+                        hinge_pt = refined_geometry.get("hinge_point")
+                        swing_dir = refined_geometry.get("swing_direction", "clockwise")
                         
-                        # Map clockwise/counterclockwise to inward/outward swing
-                        if hinge_side_mapped == "left":
-                            swing_mapped = "inward" if swing_dir == "clockwise" else "outward"
-                        else:
-                            swing_mapped = "outward" if swing_dir == "clockwise" else "inward"
+                        if hinge_pt:
+                            dist_p1 = math.sqrt((p1["x"] - hinge_pt[0])**2 + (p1["y"] - hinge_pt[1])**2)
+                            dist_p2 = math.sqrt((p2["x"] - hinge_pt[0])**2 + (p2["y"] - hinge_pt[1])**2)
+                            if dist_p1 <= dist_p2:
+                                hinge_side_mapped = "left"
+                            else:
+                                hinge_side_mapped = "right"
+                            
+                            if hinge_side_mapped == "left":
+                                swing_mapped = "inward" if swing_dir == "clockwise" else "outward"
+                            else:
+                                swing_mapped = "outward" if swing_dir == "clockwise" else "inward"
                     
                     print(f"[floor_ai_detect] Mapped Door #{i} properties: hingeSide={hinge_side_mapped}, swing={swing_mapped}")
             except Exception as refine_err:
                 print(f"[floor_ai_detect] Door #{i}: Geometry refinement skipped: {refine_err}")
-
-            # ── Enhanced OCR via DoorOCREngine (fallback if basic OCR missed) ──
-            ocr_confidence = 0.0
-            if ocr_engine is not None:
-                try:
-                    ocr_result = ocr_engine.extract_door_width(img_np, [x1, y1, x2, y2], real_scale)
-                    if ocr_result and ocr_result.get("width_mm"):
-                        # Override if the engine found a better match
-                        if ocr_result["width_mm"] > 0:
-                            width_mm = ocr_result["width_mm"]
-                            ocr_confidence = ocr_result.get("ocr_confidence", 0.0)
-                            prefix = ocr_result.get("prefix", "")
-                            if prefix:
-                                door_label = f"{door_label} ({prefix}{int(width_mm)})"
-                            else:
-                                door_label = f"{door_label} ({int(width_mm)})"
-                            print(f"[floor_ai_detect] Door #{i}: OCR engine override → {width_mm}mm (conf={ocr_confidence:.2f})")
-                except Exception as ocr_eng_err:
-                    print(f"[floor_ai_detect] Door #{i}: OCR engine skipped: {ocr_eng_err}")
 
             # ── Multi-tier Confidence Scoring ──
             detect_confidence = conf
@@ -2470,14 +2730,32 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
 
             print(f"[floor_ai_detect] Door #{i}: bbox={w:.0f}x{h:.0f}px, width_mm={width_mm:.0f}, p1=({p1['x']:.0f},{p1['y']:.0f}), p2=({p2['x']:.0f},{p2['y']:.0f})")
 
+            # ── Build polygon from mask or bounding box ──
+            if mask_polygon is not None:
+                # Use actual segmentation mask vertices as the base polygon
+                seg_poly_pts = [{"x": float(pt[0]), "y": float(pt[1])} for pt in mask_polygon]
+            else:
+                seg_poly_pts = box_pts
+            
+            # ── Build expanded polygon encompassing the full arc sweep ──
+            expanded_polygon = _expand_door_polygon_for_arc(
+                box_pts, p1, p2,
+                door_type,
+                hinge_side_mapped,
+                swing_mapped,
+                refined_geometry.get("opening_angle", 90) if refined_geometry else 90,
+                has_mask=(mask_polygon is not None)
+            )
+
             detected_doors.append({
                 "id": f"door_ai_new_{int(time.time() * 1000)}_{i}",
                 "points": [p1, p2],
-                "polygon": box_pts,
-                "width": width_mm,
-                "thickness": thickness_mm,
+                "polygon": expanded_polygon,
+                "mask_polygon": seg_poly_pts if mask_polygon is not None else None,
+                "width": float(width_mm),
+                "thickness": float(thickness_mm),
                 "height": 2100,
-                "type": door_info["type"],
+                "type": door_type,
                 "class_id": cls_id,
                 "class_name": door_label,
                 "label": door_label,

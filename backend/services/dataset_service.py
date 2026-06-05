@@ -1,57 +1,45 @@
+"""
+dataset_service.py
+==================
+Legacy dataset service — now delegates to the centralized DatasetManager.
+All public function signatures are preserved for backwards compatibility with routes.py.
+"""
+
 import os
 import cv2
 import numpy as np
 import yaml
+import datetime
+import logging
+from pathlib import Path
+from typing import Optional
 
+from dataset_manager import DatasetManager, DATASETS_ROOT, DATASET_CONFIGS
+
+# ── Backwards-compatible legacy paths (read-only references) ──
 DATASET_ROOT = "dataset"
 YAML_PATH = os.path.join(DATASET_ROOT, "data.yaml")
 
+# ── Singleton DatasetManager ──
+_manager = DatasetManager()
+_manager.ensure_all()
+
+logger = logging.getLogger("ezefloor.dataset")
+
+# ── Fixed room classes (unchanged from legacy) ──
+FIXED_ROOM_CLASSES = ['living', 'bed', 'bath', 'hall', 'linen', 'deck', 'other']
+
 
 def ensure_dirs():
+    """Bootstrap all dataset directories."""
+    _manager.ensure_all()
+    # Also maintain legacy dirs for any code that still references them directly
     os.makedirs(os.path.join(DATASET_ROOT, "train/images"), exist_ok=True)
     os.makedirs(os.path.join(DATASET_ROOT, "train/labels"), exist_ok=True)
     os.makedirs(os.path.join(DATASET_ROOT, "visual_checks"), exist_ok=True)
-    # Wall dataset dirs
     os.makedirs("dataset_walls/train/images", exist_ok=True)
     os.makedirs("dataset_walls/train/labels", exist_ok=True)
 
-
-def _load_yaml():
-    """Load and return data.yaml content, creating default if missing."""
-    ensure_dirs()
-    if not os.path.exists(YAML_PATH):
-        content = {
-            'train': 'train/images',
-            'val': 'valid/images',
-            'test': 'test/images',
-            'nc': 0,
-            'names': {}
-        }
-        with open(YAML_PATH, 'w') as f:
-            yaml.dump(content, f, sort_keys=False)
-        return content
-
-    with open(YAML_PATH, 'r') as f:
-        data = yaml.safe_load(f)
-    return data or {}
-
-
-def _save_yaml(data):
-    """Save data.yaml content."""
-    with open(YAML_PATH, 'w') as f:
-        yaml.dump(data, f, sort_keys=False)
-
-
-def _get_name_to_id(data):
-    """Build name_to_id mapping from YAML names (handles list or dict)."""
-    names = data.get('names', {})
-    if isinstance(names, list):
-        return {name.lower().strip(): i for i, name in enumerate(names)}
-    else:
-        return {str(name).lower().strip(): int(id_) for id_, name in names.items()}
-
-
-FIXED_ROOM_CLASSES = ['living', 'bed', 'bath', 'hall', 'linen', 'deck', 'other']
 
 def get_class_id(room_name: str, room_type: str = "") -> int:
     """
@@ -103,47 +91,104 @@ def preprocess(img):
 
 
 def save_image(contents: bytes, name: str) -> str:
-    """Save image to main dataset only. Returns filename."""
+    """Save image to BOTH legacy dataset and new datasets/floor (or door). Returns filename."""
     ensure_dirs()
-    save_path = os.path.join(DATASET_ROOT, f"train/images/{name}.png")
 
+    # Save to new datasets/floor or door
+    dataset_type = "door" if name.startswith("door_") else "floor"
+    _manager.save_image(contents, name, dataset_type, "train")
+
+    # Also save to legacy location for backwards compat
+    save_path = os.path.join(DATASET_ROOT, f"train/images/{name}.png")
     npimg = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
-    img = cv2.resize(img, (1024, 1024))
+    if img is not None:
+        img = cv2.resize(img, (1024, 1024))
+        cv2.imwrite(save_path, img)
 
-    cv2.imwrite(save_path, img)
     return f"{name}.png"
 
 
 def save_label(yolo_txt: str, name: str):
-    """Save label to main dataset only."""
+    """Save label to BOTH legacy dataset and new datasets/floor (or door)."""
     ensure_dirs()
+
+    # Save to new datasets/floor or door
+    dataset_type = "door" if name.startswith("door_") else "floor"
+    _manager.save_label(yolo_txt, name, dataset_type, "train")
+
+    # Also save to legacy location
     label_path = os.path.join(DATASET_ROOT, f"train/labels/{name}.txt")
     with open(label_path, "w") as f:
         f.write(yolo_txt)
 
 
 def save_wall_label(yolo_txt: str, name: str, contents: bytes):
+    """Save wall+door label to new datasets/wall (and datasets/door if door lines present)."""
     ensure_dirs()
-    # Save label
-    label_path = f"dataset_walls/train/labels/{name}.txt"
-    with open(label_path, "w") as f:
-        f.write(yolo_txt)
-    # Save image copy
-    img_path = f"dataset_walls/train/images/{name}.png"
+
+    # Parse and split wall vs door labels for independent datasets
+    wall_lines = []
+    door_lines = []
+
+    for line in (yolo_txt or "").strip().splitlines():
+        parts = line.strip().split()
+        if len(parts) < 5:
+            continue
+        try:
+            cls_id = int(parts[0])
+        except ValueError:
+            continue
+        if cls_id in (0, 1):
+            wall_lines.append(line.strip())
+        elif cls_id in (2, 3, 4):
+            # Remap: wall dataset uses 0=ext, 1=int; door dataset uses 0=single, 1=double, 2=sliding
+            new_cls = cls_id - 2
+            door_lines.append(f"{new_cls} " + " ".join(parts[1:]))
+
+    # Save wall labels to datasets/wall
+    if wall_lines:
+        _manager.save_label("\n".join(wall_lines), name, "wall", "train")
+
+    # Save door labels to datasets/door
+    if door_lines:
+        _manager.save_label("\n".join(door_lines), name, "door", "train")
+
+    # Copy image to wall dataset (and door if needed)
+    if contents:
+        _manager.save_image(contents, name, "wall", "train")
+        if door_lines:
+            _manager.save_image(contents, name, "door", "train")
+    else:
+        # Copy from floor dataset if no raw contents provided
+        src_img = os.path.join(DATASET_ROOT, f"train/images/{name}.png")
+        if os.path.exists(src_img):
+            with open(src_img, "rb") as f:
+                img_bytes = f.read()
+            _manager.save_image(img_bytes, name, "wall", "train")
+            if door_lines:
+                _manager.save_image(img_bytes, name, "door", "train")
+
+    # Also save to legacy location
+    legacy_label = f"dataset_walls/train/labels/{name}.txt"
+    os.makedirs(os.path.dirname(legacy_label), exist_ok=True)
+    with open(legacy_label, "w") as f:
+        f.write(yolo_txt or "")
+
+    legacy_img = f"dataset_walls/train/images/{name}.png"
     if contents:
         npimg = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
-        img = cv2.resize(img, (1024, 1024))
-        cv2.imwrite(img_path, img)
+        if img is not None:
+            img = cv2.resize(img, (1024, 1024))
+            cv2.imwrite(legacy_img, img)
     else:
-        # Copy from room dataset
-        src_img = os.path.join(DATASET_ROOT, f"train/images/{name}.png")
-        if os.path.exists(src_img):
+        src = os.path.join(DATASET_ROOT, f"train/images/{name}.png")
+        if os.path.exists(src):
             import shutil
-            shutil.copy(src_img, img_path)
+            shutil.copy(src, legacy_img)
 
-    # Generate data.yaml for walls if not exists
+    # Generate data.yaml for walls if not exists (legacy)
     wall_yaml = "dataset_walls/data.yaml"
     if not os.path.exists(wall_yaml):
         content = {
@@ -156,19 +201,20 @@ def save_wall_label(yolo_txt: str, name: str, contents: bytes):
         with open(wall_yaml, 'w') as f:
             yaml.dump(content, f, sort_keys=False)
 
+    logger.info(f"Wall labels saved: {len(wall_lines)} wall, {len(door_lines)} door objects for '{name}'.")
+
 
 def save_visual_check(rooms, width, height, image_name, project_name, username, walls=None, doors=None):
     """
-    Tao anh check visual voi polygon va nhan room, co them tuong va cua de kiem tra dong bo
+    Create visual check image with polygon and room label overlays.
     """
-    import datetime
     from shapely.geometry import LineString
 
-    # Tao thu muc check
+    # Legacy visual checks
     check_dir = "dataset/visual_checks"
     os.makedirs(check_dir, exist_ok=True)
 
-    # Doc anh goc tu dataset (vua upload len)
+    # Read source image from dataset (just uploaded)
     img_path = f"dataset/train/images/{image_name}.png"
     if not os.path.exists(img_path):
         return
@@ -268,13 +314,18 @@ def save_visual_check(rooms, width, height, image_name, project_name, username, 
     export_path = os.path.join(check_dir, export_filename)
 
     cv2.imwrite(export_path, img)
+
+    # Also generate visual check via DatasetManager for the new datasets
+    dataset_type = "door" if image_name.startswith("door_") else "floor"
+    _manager.save_visual_check(dataset_type, image_name, "train", f"{safe_project}_{safe_user}")
+
     return export_filename
+
 
 def save_wall_visual_check(walls, doors, width, height, image_name):
     """
-    Tao anh check visual voi wall va door
+    Create visual check image for wall & door overlays.
     """
-    import datetime
     from shapely.geometry import LineString
 
     check_dir = "dataset_walls/visual_checks"
@@ -282,7 +333,12 @@ def save_wall_visual_check(walls, doors, width, height, image_name):
 
     img_path = f"dataset_walls/train/images/{image_name}.png"
     if not os.path.exists(img_path):
-        return
+        # Try from the new datasets instead
+        new_path = str(DATASETS_ROOT / "wall" / "images" / "train" / f"{image_name}.png")
+        if os.path.exists(new_path):
+            img_path = new_path
+        else:
+            return
 
     img = cv2.imread(img_path)
     if img is None:
@@ -340,4 +396,8 @@ def save_wall_visual_check(walls, doors, width, height, image_name):
     export_filename = f"check_{image_name}_{now_str}.png"
     export_path = os.path.join(check_dir, export_filename)
     cv2.imwrite(export_path, img)
+
+    # Also create via new DatasetManager
+    _manager.save_visual_check("wall", image_name, "train")
+
     return export_path

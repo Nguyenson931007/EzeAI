@@ -11,7 +11,7 @@ Module này là giao lộ kết nối giữa giao diện Front-end và các dị
 - Khởi chạy tiến trình huấn luyện các mô hình AI trên nền Console phụ.
 """
 
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional, List as TypingList
@@ -23,12 +23,16 @@ import asyncio
 import numpy as np
 from PIL import Image as PILImage
 from pathlib import Path
+import logging
 
 from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest
 from services import dataset_service
 from services.model_paths import get_model_health
 from utils.helpers import convert_to_yolo, convert_walls_to_yolo
 from api.auth import validate_session
+from app.limiter import limiter
+
+logger = logging.getLogger("ezefloor.routes")
 
 # Khởi tạo APIRouter dành cho các tác vụ nghiệp vụ & AI
 router = APIRouter()
@@ -97,7 +101,9 @@ def save_ocr_correction(req: OCRCorrectionRequest, username: str = Depends(valid
 # ═══════════════════════════════════════════════════════════
 
 @router.post("/predict_seg_roi")
+@limiter.limit("10/minute")
 async def predict_seg_roi(
+    request: Request,
     files: TypingList[UploadFile] = File(...),
     confidence: float = Form(0.5),
     roi_x: Optional[float] = Form(None),
@@ -253,6 +259,8 @@ async def predict_wall_roi(
         pad = int(actual_padding)
         cx1, cy1 = max(0, int(roi_x) - pad), max(0, int(roi_y) - pad)
         cx2, cy2 = min(img_w, int(roi_x + roi_w) + pad), min(img_h, int(roi_y + roi_h) + pad)
+        crop_w = cx2 - cx1
+        crop_h = cy2 - cy1
         crop = img_np[cy1:cy2, cx1:cx2]
 
         # Đóng gói và lưu lại ảnh cắt nhị phân để truyền đi suy luận
@@ -261,12 +269,19 @@ async def predict_wall_roi(
         crop_pil.save(buf, format="PNG")
         crop_bytes = buf.getvalue()
 
+        # Calculate target imgsz to maintain scale
+        # Full image is run at imgsz=1024
+        full_scale = 1024.0 / max(img_w, img_h) if max(img_w, img_h) > 0 else 1.0
+        target_imgsz = int(max(crop_w, crop_h) * full_scale)
+        target_imgsz = max(128, min(1024, ((target_imgsz + 15) // 32) * 32))
+
         result = await run_in_threadpool(
             predict_walls_from_bytes,
             image_bytes=crop_bytes,
             filename=files[0].filename or "image.png",
             confidence=confidence,
-            real_scale=real_scale
+            real_scale=real_scale,
+            imgsz=target_imgsz
         )
 
         # Ánh xạ lại hệ tọa độ cục bộ của ROI về hệ tọa độ gốc toàn ảnh
@@ -783,13 +798,15 @@ async def diagnose_predict_seg_wall(
 # ── Training Triggers (Khởi chạy tiến trình tự huấn luyện lại mô hình AI) ──
 
 @router.post("/train-floor")
-async def train_floor():
+@limiter.limit("10/minute")
+async def train_floor(request: Request, username: str = Depends(validate_session)):
     """
     Kích hoạt tiến trình huấn luyện lại mô hình Nhận diện Sàn/Phòng.
     Khởi chạy tệp tin 'train_floor_single.py' dưới dạng Console Process độc lập.
     Đường dẫn được định vị linh hoạt dựa theo cấu trúc thư mục hiện tại để chạy an toàn trên mọi thiết bị.
     """
     import subprocess
+    logger.info(f"Người dùng '{username}' kích hoạt tiến trình huấn luyện lại mô hình Sàn/Phòng.")
     try:
         backend_dir = str(Path(__file__).resolve().parent.parent)
         training_dir = str(Path(backend_dir) / "training")
@@ -801,22 +818,26 @@ async def train_floor():
         )
         return {"status": "ok", "message": "Tiến trình huấn luyện lại mô hình Sàn/Phòng đã được bắt đầu thành công."}
     except Exception as e:
+        logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Sàn/Phòng: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/add_train_bim")
-async def add_train_bim():
+@limiter.limit("10/minute")
+async def add_train_bim(request: Request, username: str = Depends(validate_session)):
     """Endpoint giữ chỗ tương thích ngược."""
     return {"status": "ok", "message": "Chế độ tương thích ngược BIM."}
 
 
 @router.post("/add_train_wall_bim")
-async def add_train_wall_bim():
+@limiter.limit("10/minute")
+async def add_train_wall_bim(request: Request, username: str = Depends(validate_session)):
     """
     Kích hoạt tiến trình huấn luyện lại mô hình Nhận diện Tường.
     Khởi chạy tệp tin 'train_wall.py' độc lập.
     """
     import subprocess
+    logger.info(f"Người dùng '{username}' kích hoạt tiến trình huấn luyện lại mô hình Tường.")
     try:
         backend_dir = str(Path(__file__).resolve().parent.parent)
         training_dir = str(Path(backend_dir) / "training")
@@ -828,16 +849,19 @@ async def add_train_wall_bim():
         )
         return {"status": "ok", "message": "Tiến trình huấn luyện lại mô hình Tường đã được bắt đầu thành công."}
     except Exception as e:
+        logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Tường: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/add_train_door_bim")
-async def add_train_door_bim():
+@limiter.limit("10/minute")
+async def add_train_door_bim(request: Request, username: str = Depends(validate_session)):
     """
     Kích hoạt tiến trình huấn luyện lại mô hình Nhận diện Cửa.
     Khởi chạy tệp tin 'train_door.py' độc lập.
     """
     import subprocess
+    logger.info(f"Người dùng '{username}' kích hoạt tiến trình huấn luyện lại mô hình Cửa.")
     try:
         backend_dir = str(Path(__file__).resolve().parent.parent)
         training_dir = str(Path(backend_dir) / "training")
@@ -849,4 +873,106 @@ async def add_train_door_bim():
         )
         return {"status": "ok", "message": "Tiến trình huấn luyện lại mô hình Cửa đã được bắt đầu thành công."}
     except Exception as e:
+        logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Cửa: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/door-segment")
+async def door_segment(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.3),
+    real_scale: Optional[float] = Form(1.0),
+    room_polygons: Optional[str] = Form(None),
+    walls_json: Optional[str] = Form(None),
+    debug: bool = Form(False),
+    username: str = Depends(validate_session)
+):
+    """
+    Định tuyến nhận diện phân đoạn cửa (Door Segmentation).
+    Trả về thông tin phân đoạn đa giác và phân tích hình học (BIM) cho từng cửa phát hiện được.
+
+    Accepts optional ``walls_json`` (JSON string of wall objects) and ``debug``
+    flag to enable debug overlay generation.  When walls are not provided,
+    they are automatically detected using the wall segmentation model.
+    """
+    from services.door_segment_service import DoorSegmentService
+    service = DoorSegmentService(debug=debug)
+    
+    content = await file.read()
+    filename = file.filename or "plan.png"
+
+    # ── Parse room_polygons (only if explicitly provided) ──
+    rooms_data = None
+    if room_polygons:
+        try:
+            rooms_data = json.loads(room_polygons)
+            if not isinstance(rooms_data, list):
+                rooms_data = None
+        except Exception:
+            logger.warning("Failed to parse room_polygons JSON.")
+            rooms_data = None
+
+    # ── Parse walls (only if explicitly provided) ──────────
+    walls_data = None
+    if walls_json:
+        try:
+            walls_data = json.loads(walls_json)
+            if not isinstance(walls_data, list):
+                walls_data = None
+        except Exception:
+            logger.warning("Failed to parse walls_json.")
+            walls_data = None
+
+    try:
+        if filename.lower().endswith(".pdf"):
+            return await run_in_threadpool(
+                service.predict_from_pdf,
+                pdf_bytes=content,
+                filename=filename,
+                confidence=confidence,
+                real_scale=real_scale or 1.0,
+                room_polygons=rooms_data,
+                walls=walls_data,
+            )
+        else:
+            return await run_in_threadpool(
+                service.predict,
+                image_bytes=content,
+                filename=filename,
+                confidence=confidence,
+                real_scale=real_scale or 1.0,
+                room_polygons=rooms_data,
+                walls=walls_data,
+            )
+    except FileNotFoundError as e:
+        logger.error(f"Model not found for door segmentation: {e}")
+        raise HTTPException(status_code=500, detail=f"Không tìm thấy mô hình YOLO Door Seg: {e}")
+    except Exception as e:
+        logger.error(f"Error in door segmentation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/train-door-seg")
+@limiter.limit("10/minute")
+async def train_door_seg(request: Request, username: str = Depends(validate_session)):
+    """
+    Kích hoạt tiến trình huấn luyện lại mô hình phân đoạn cửa (Door Segmentation).
+    Khởi chạy tệp tin 'train_door.py' độc lập.
+    """
+    import subprocess
+    logger.info(f"Người dùng '{username}' kích hoạt tiến trình huấn luyện lại mô hình Phân đoạn Cửa.")
+    try:
+        backend_dir = str(Path(__file__).resolve().parent.parent)
+        training_dir = str(Path(backend_dir) / "training")
+        flags = subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+        subprocess.Popen(
+            [sys.executable, "train_door.py"],
+            cwd=training_dir,
+            creationflags=flags
+        )
+        return {"status": "ok", "message": "Tiến trình huấn luyện lại mô hình Phân đoạn Cửa đã được bắt đầu thành công."}
+    except Exception as e:
+        logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Phân đoạn Cửa: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

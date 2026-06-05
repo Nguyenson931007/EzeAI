@@ -1,0 +1,8 @@
+{
+  "wall_not_found": 77,
+  "room_not_found": 77,
+  "low_confidence": 77,
+  "weak_segmentation": 22,
+  "missing_arc": 9,
+  "ambiguous_hinge": 9
+}

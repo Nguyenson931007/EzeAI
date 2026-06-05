@@ -42,7 +42,10 @@ CORS_ORIGINS = [
     "http://127.0.0.1:3010",
     "http://localhost:8090",
 ]
-CORS_ORIGIN_REGEX = r"https?://.*"
+
+# ── Limit Configuration ──
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
 
 # ── SMTP Configuration ──
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")

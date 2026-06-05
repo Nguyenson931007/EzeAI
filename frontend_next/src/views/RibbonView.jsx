@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import TrainButton from "@/components/TrainButton";
 import TrainWallButton from "@/components/TrainWallButton";
-import TrainDoorButton from "@/components/TrainDoorButton";
 import { useAppModel } from "@/models/app.context";
 
 export default function RibbonView({
@@ -10,7 +9,6 @@ export default function RibbonView({
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
   isDrawingWall, setIsDrawingWall,
-  isDrawingDoor, setIsDrawingDoor,
   isSnapMode, setIsSnapMode,
   isAddingPoint, setIsAddingPoint,
   scaleValue,
@@ -27,13 +25,12 @@ export default function RibbonView({
   handleLogout,
   handleSaveJob,
   undo, redo,
-  deleteItem, deleteAllRooms, deleteAllWalls, deleteAllDoors,
+  deleteItem, deleteAllRooms, deleteAllWalls,
   finishPolygon, setCurrentPoly,
   finishWall, setCurrentWall,
-  finishDoor, setCurrentDoor,
-  autoDetect, detectWallFromFloorAI, detectDoor, detectText, detectTemplate,
+  autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg,
   roiRect, roiMode, setRoiMode, roiUpscale, clearROI,
-  exportPDF, addTrain, addTrainWalls, addTrainDoors,
+  exportPDF, addTrain, addTrainWalls,
   addTrainPages,
   showExportPageSelector, setShowExportPageSelector,
   exportSelectedPages, setExportSelectedPages,
@@ -51,8 +48,7 @@ export default function RibbonView({
     currentPage, setCurrentPage,
     setCurrentProjectName,
     roomsByPage, setRoomsByPage,
-    wallsByPage, setWallsByPage,
-    doorsByPage, setDoorsByPage
+    wallsByPage, setWallsByPage
   } = useAppModel();
   
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
@@ -144,15 +140,13 @@ export default function RibbonView({
                   onClick={() => {
                     const hasRooms = (roomsByPage[currentPage] || []).length > 0;
                     const hasWalls = (wallsByPage[currentPage] || []).length > 0;
-                    const hasDoors = (doorsByPage[currentPage] || []).length > 0;
-                    if (!hasRooms && !hasWalls && !hasDoors) return;
-                    if (!window.confirm("Delete ALL rooms, walls & doors on this page?")) return;
+                    if (!hasRooms && !hasWalls) return;
+                    if (!window.confirm("Delete ALL rooms & walls on this page?")) return;
                     deleteAllRooms(true);
                     deleteAllWalls(true);
-                    deleteAllDoors(true);
                   }}
-                  disabled={!((roomsByPage[currentPage] || []).length > 0 || (wallsByPage[currentPage] || []).length > 0 || (doorsByPage[currentPage] || []).length > 0)}
-                  title="Delete ALL rooms, walls & doors on this page"
+                  disabled={!((roomsByPage[currentPage] || []).length > 0 || (wallsByPage[currentPage] || []).length > 0)}
+                  title="Delete ALL rooms & walls on this page"
                 >
                   <span className="icon">❌</span><span className="label">Delete All</span>
                 </button>
@@ -163,14 +157,6 @@ export default function RibbonView({
                   title="Clear all walls on this page"
                 >
                   <span className="icon">🧱❌</span><span className="label">Clear Walls</span>
-                </button>
-                <button
-                  className="ribbon-btn danger"
-                  onClick={deleteAllDoors}
-                  disabled={!(doorsByPage[currentPage]?.length > 0)}
-                  title="Clear all doors on this page"
-                >
-                  <span className="icon">🚪❌</span><span className="label">Clear Doors</span>
                 </button>
               </div>
               <span className="ribbon-group-title">EDIT</span>
@@ -183,13 +169,10 @@ export default function RibbonView({
                 <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); setIsDrawingWall(false); if (drawing) setCurrentPoly([]); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button>
-                <button className={`ribbon-btn ${isDrawingWall ? "active" : ""}`} onClick={() => { setIsDrawingWall(d => !d); setDrawing(false); setIsDrawingDoor(false); if (isDrawingWall) setCurrentWall([]); }}>
+                <button className={`ribbon-btn ${isDrawingWall ? "active" : ""}`} onClick={() => { setIsDrawingWall(d => !d); setDrawing(false); if (isDrawingWall) setCurrentWall([]); }}>
                   <span className="icon">🧱</span><span className="label">Wall</span>
                 </button>
-                <button className={`ribbon-btn ${isDrawingDoor ? "active" : ""}`} onClick={() => { setIsDrawingDoor(d => !d); setDrawing(false); setIsDrawingWall(false); if (isDrawingDoor) setCurrentDoor([]); }}>
-                  <span className="icon">🚪</span><span className="label">Door</span>
-                </button>
-                <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); if (isDrawingWall) finishWall(); if (isDrawingDoor) finishDoor(); }}>
+                <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); if (isDrawingWall) finishWall(); }}>
                   <span className="icon">✓</span><span className="label">Finish</span>
                 </button>
                 <button className={`ribbon-btn ${isAddingPoint ? "active" : ""}`} onClick={() => setIsAddingPoint(v => !v)}>
@@ -233,14 +216,13 @@ export default function RibbonView({
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => autoDetect()} disabled={isDetecting} title="AI tự động nhận diện phòng">
                   <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Auto AI</span>
                 </button>
-                {/*
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectWallFromFloorAI()} disabled={isDetecting} title="Dùng AI tự động vẽ tường">
                   <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
                 </button>
-                */}
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoor()} disabled={isDetecting} title="Dùng AI tự động vẽ cửa">
+                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
+
                 {/*
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectText()} disabled={isDetecting}>
                   <span className="icon">{isDetecting ? "⏳" : "📝"}</span><span className="label">Detect Text</span>
@@ -295,13 +277,9 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={addTrainWalls} title="Export walls on current page">
                   <span className="icon">🧱</span><span className="label">Export Wall</span>
                 </button>
-                <button className="ribbon-btn" onClick={addTrainDoors} title="Export doors on current page">
-                  <span className="icon">🚪</span><span className="label">Export Door</span>
-                </button>
                 {/*
                 <TrainButton rooms={rooms} />
                 <TrainWallButton />
-                <TrainDoorButton />
                 */}
               </div>
               <span className="ribbon-group-title">ML MODEL</span>
@@ -321,9 +299,9 @@ export default function RibbonView({
                   <span className="icon">🔄</span><span className="label">Rotate</span>
                 </button>
                 <button className={`ribbon-btn ${showLayer !== 'all' ? "active" : ""}`} 
-                        onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'wall' : l === 'wall' ? 'door' : 'all')}>
-                  <span className="icon">{showLayer === 'all' ? '👁' : showLayer === 'floor' ? '🟦' : showLayer === 'wall' ? '🧱' : '🚪'}</span>
-                  <span className="label">Layer: {showLayer === 'all' ? 'All' : showLayer === 'floor' ? 'Floor' : showLayer === 'wall' ? 'Wall' : 'Door'}</span>
+                        onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'wall' : 'all')}>
+                  <span className="icon">{showLayer === 'all' ? '👁' : showLayer === 'floor' ? '🟦' : '🧱'}</span>
+                  <span className="label">Layer: {showLayer === 'all' ? 'All' : showLayer === 'floor' ? 'Floor' : 'Wall'}</span>
                 </button>
                 <button className={`ribbon-btn ${show3D ? "active" : ""}`} onClick={() => setShow3D(v => !v)}>
                   <span className="icon">🧱🏠</span><span className="label">3D View</span>
@@ -366,22 +344,14 @@ export default function RibbonView({
             >
               🤖 Rooms
             </button>
-            {/*
-            <button 
+             <button 
               className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
               onClick={() => detectWallFromFloorAI(roiRect, roiMode)} 
               disabled={isDetecting}
             >
               🧱 Walls
             </button>
-            */}
-            <button 
-              className={`roi-btn-detect doors ${isDetecting ? "pulsing" : ""}`}
-              onClick={() => detectDoor(roiRect, roiMode)} 
-              disabled={isDetecting}
-            >
-              🚪 Doors
-            </button>
+
             
             <div className="roi-select-wrapper">
               <select value={roiMode} onChange={e => setRoiMode(e.target.value)}>

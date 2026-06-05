@@ -13,8 +13,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
 import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid } from "@/utils/geometry";
-import { animateZoomToHinge, cancelActiveZoomAnimation } from "../engines/SmartDoorCropEngine";
-import { calculateDoorGeometry } from "../engines/DoorArcLabelEngine";
 
 export function useInteractionController(svgRef) {
   const {
@@ -26,6 +24,8 @@ export function useInteractionController(svgRef) {
   } = useAppModel();
 
   const rooms = roomsByPage[currentPage] || [];
+
+  const cancelActiveZoomAnimation = () => {};
 
   const [scale, setScale] = useState(0.2);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -214,7 +214,7 @@ export function useInteractionController(svgRef) {
   function undo() {
     if (!history.length) return;
     const prev = JSON.parse(history[history.length - 1]);
-    setFuture(f => [JSON.stringify({ roomsByPage, wallsByPage }), ...f]);
+    setFuture(f => [JSON.stringify({ roomsByPage, wallsByPage, doorsByPage }), ...f]);
     setRoomsByPage(prev.roomsByPage || {});
     setWallsByPage(prev.wallsByPage || {});
     setDoorsByPage(prev.doorsByPage || {});
@@ -224,7 +224,7 @@ export function useInteractionController(svgRef) {
   function redo() {
     if (!future.length) return;
     const next = JSON.parse(future[0]);
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, wallsByPage })]);
+    setHistory(h => [...h, JSON.stringify({ roomsByPage, wallsByPage, doorsByPage })]);
     setRoomsByPage(next.roomsByPage || {});
     setWallsByPage(next.wallsByPage || {});
     setDoorsByPage(next.doorsByPage || {});
@@ -261,15 +261,6 @@ export function useInteractionController(svgRef) {
     if (!walls.length) return;
     if (!skipConfirm && !window.confirm("Delete all walls on this page?")) return;
     pushHistory(null, []);
-    setSelectedId(null);
-    setSelectedType(null);
-  }
-
-  function deleteAllDoors(skipConfirm = false) {
-    const doors = doorsByPage[currentPage] || [];
-    if (!doors.length) return;
-    if (!skipConfirm && !window.confirm("Delete all doors on this page?")) return;
-    pushHistory(null, null, []);
     setSelectedId(null);
     setSelectedType(null);
   }
@@ -408,16 +399,7 @@ export function useInteractionController(svgRef) {
 
       const nextDoor = [...currentDoor, snappedP];
       setCurrentDoor(nextDoor);
-      if (nextDoor.length === 1) {
-        animateZoomToHinge({
-          hingePoint: snappedP,
-          svgRef,
-          currentScale: scale,
-          currentOffset: offset,
-          setScale,
-          setOffset
-        });
-      }
+
       if (nextDoor.length === 2) {
         finishDoor(nextDoor);
       }
@@ -525,19 +507,7 @@ export function useInteractionController(svgRef) {
       }
     }
 
-    // Door Selection
-    const doors = doorsByPage[currentPage] || [];
-    const foundDoor = doors.find(d => {
-      if (d.points.length < 2) return false;
-      const dist = distancePointToSegment(p, d.points[0], d.points[1]).dist;
-      return dist < 15;
-    });
 
-    if (foundDoor) {
-      setSelectedId(foundDoor.id);
-      setSelectedType('door');
-      return;
-    }
 
     // Wall Selection
     const walls = wallsByPage[currentPage] || [];
@@ -652,46 +622,27 @@ export function useInteractionController(svgRef) {
     setIsDrawingWall(false);
   }
 
-  function finishDoor(doorPoints) {
-    const pts = doorPoints || currentDoor;
-    if (pts.length < 2) return;
-    
-    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-    if (dist < 10 / scale) {
+  function finishDoor(points = currentDoor) {
+    if (points.length < 2) {
+      setIsDrawingDoor(false);
       setCurrentDoor([]);
       return;
     }
-
-    // Compute BIM Payload metadata using DoorArcLabelEngine
-    const geom = calculateDoorGeometry({
-      p1: pts[0],
-      p2: pts[1],
+    const [p1, p2] = points;
+    const newDoor = {
+      id: "door_" + Date.now(),
+      points: [
+        { x: p1.x, y: p1.y },
+        { x: p2.x, y: p2.y }
+      ],
       type: "single",
+      review_state: "human_verified",
       hingeSide: "left",
       swing: "inward",
       angle: 90
-    });
-
-    const newDoor = {
-      id: Date.now(),
-      wall_id: pts[0].wallId !== undefined ? pts[0].wallId : (pts[1]?.wallId !== undefined ? pts[1].wallId : null),
-      points: pts.map(p => ({ x: p.x, y: p.y })),
-      width: Math.round(dist * (realScale || 20)),
-      height: 2100,
-      type: "single",
-      swing: "inward",
-      hingeSide: "left",
-      angle: 90,
-      
-      // BIM Payload Metadata
-      arc_center: geom ? geom.arcCenter : pts[0],
-      arc_midpoint: geom ? geom.arcMidpoint : { x: (pts[0].x + pts[1].x)/2, y: (pts[0].y + pts[1].y)/2 },
-      label_rotation: geom ? geom.labelRotation : 0,
-      swing_direction: "inward",
-      opening_angle: 90
     };
-    const doors = doorsByPage[currentPage] || [];
-    pushHistory(null, null, [...doors, newDoor]);
+    const currentPageDoors = doorsByPage[currentPage] || [];
+    pushHistory(null, null, [...currentPageDoors, newDoor]);
     setCurrentDoor([]);
     setIsDrawingDoor(false);
   }
@@ -706,7 +657,7 @@ export function useInteractionController(svgRef) {
       const pRaw = getMouse(e);
       let pSnapped = pRaw; // Always use raw mouse for free drag
       
-      if (isShiftDown) {
+      if (isShiftDown && (dragging.type === 'wall' || dragging.type === 'room')) {
         const poly = dragging.type === 'wall' 
           ? (wallsByPage[currentPage] || []).find(w => w.id === dragging.id)?.points
           : (roomsByPage[currentPage] || []).find(r => r.id === dragging.id)?.polygon;
@@ -733,7 +684,30 @@ export function useInteractionController(svgRef) {
               : w
           )};
         });
-      } else {
+      } else if (dragging.type === 'door-polygon') {
+        if (!dragging.startBbox || !dragging.startPoints) return;
+        
+        let newMinX = dragging.startBbox.minX;
+        let newMinY = dragging.startBbox.minY;
+        let newMaxX = dragging.startBbox.maxX;
+        let newMaxY = dragging.startBbox.maxY;
+
+        const MIN_SZ = 10;
+        if (dragging.index === 0) {
+          newMinX = Math.min(pSnapped.x, dragging.startBbox.maxX - MIN_SZ);
+          newMinY = Math.min(pSnapped.y, dragging.startBbox.maxY - MIN_SZ);
+        } else if (dragging.index === 1) {
+          newMaxX = Math.max(pSnapped.x, dragging.startBbox.minX + MIN_SZ);
+          newMinY = Math.min(pSnapped.y, dragging.startBbox.maxY - MIN_SZ);
+        } else if (dragging.index === 2) {
+          newMaxX = Math.max(pSnapped.x, dragging.startBbox.minX + MIN_SZ);
+          newMaxY = Math.max(pSnapped.y, dragging.startBbox.minY + MIN_SZ);
+        } else if (dragging.index === 3) {
+          newMinX = Math.min(pSnapped.x, dragging.startBbox.maxX - MIN_SZ);
+          newMaxY = Math.max(pSnapped.y, dragging.startBbox.minY + MIN_SZ);
+        }
+
+              } else {
         setRoomsByPage(prev => {
           const pageRooms = prev[currentPage] || [];
           return { ...prev, [currentPage]: pageRooms.map(room =>
@@ -821,36 +795,7 @@ export function useInteractionController(svgRef) {
       }
     }
 
-    if (isDrawingDoor) {
-      const last = currentDoor[currentDoor.length - 1];
-      let doorSnappedP = p;
-      const walls = wallsByPage[currentPage] || [];
-      let bestDist = 20 / scale;
-      let wallSnapTarget = null;
 
-      if (last && last.wallId !== undefined && last.segmentIdx !== undefined) {
-        const wall = walls.find(w => String(w.id) === String(last.wallId));
-        if (wall && wall.points[last.segmentIdx] && wall.points[last.segmentIdx + 1]) {
-          const i = last.segmentIdx;
-          const proj = distancePointToSegment(p, wall.points[i], wall.points[i + 1]);
-          doorSnappedP = { x: proj.x, y: proj.y };
-        }
-      } else {
-        const snapThreshold = 40 / scale;
-        for (let w of walls) {
-          for (let i = 0; i < w.points.length - 1; i++) {
-            const proj = distancePointToSegment(p, w.points[i], w.points[i + 1]);
-            if (proj.dist < snapThreshold && proj.dist < bestDist) {
-              bestDist = proj.dist;
-              wallSnapTarget = { x: proj.x, y: proj.y };
-            }
-          }
-        }
-        if (wallSnapTarget) doorSnappedP = wallSnapTarget;
-      }
-      setCurrentMouse(doorSnappedP);
-      return;
-    }
 
     setCurrentMouse(snappedP);
 
@@ -881,7 +826,7 @@ export function useInteractionController(svgRef) {
     }
 
     // If clicking on empty area (no wall vertex, no room), start panning
-    if (!drawing && !isDrawingWall && !isDrawingDoor && !isMeasuring && !isDistancing) {
+    if (!drawing && !isDrawingWall && !isMeasuring && !isDistancing) {
       const walls = wallsByPage[currentPage] || [];
       const nearVertex = walls.some(w =>
         w.points.some(pt => Math.hypot(p.x - pt.x, p.y - pt.y) < 25 / scale)
@@ -930,7 +875,6 @@ export function useInteractionController(svgRef) {
 
   function onWheel(e) {
     e.preventDefault();
-    cancelActiveZoomAnimation();
     const zoomSpeed = 0.001;
     const delta = -e.deltaY;
     const newScale = Math.min(Math.max(scale + delta * zoomSpeed * scale, 0.05), 20);
@@ -959,14 +903,14 @@ export function useInteractionController(svgRef) {
     isPanning,
     drawing, setDrawing,
     isDrawingWall, setIsDrawingWall,
+    isDrawingDoor, setIsDrawingDoor,
     currentPoly, setCurrentPoly,
     currentWall, setCurrentWall,
-    isDrawingDoor, setIsDrawingDoor,
     currentDoor, setCurrentDoor,
     currentMouse,
     history, future,
     pushHistory, undo, redo,
-    deleteItem, deleteAllRooms, deleteAllWalls, deleteAllDoors,
+    deleteItem, deleteAllRooms, deleteAllWalls,
     isMeasuring, setIsMeasuring,
     measurePoints, setMeasurePoints,
     isDistancing, setIsDistancing,

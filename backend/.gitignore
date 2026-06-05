@@ -53,3 +53,9 @@ runs/
 
 # Cache (generated at runtime)
 cache/
+datasets/
+dataset_walls/
+data/roi_training/
+*.pt
+ezefloor_backend.log  
+ 

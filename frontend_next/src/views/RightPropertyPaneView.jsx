@@ -134,7 +134,7 @@ function DryWetSummary({
 }
 
 export default function RightPropertyPaneView({
-  selectedRoom, selectedWall, selectedDoor, selectedType, selectedPointIndex, updateRoom, updateWall, updateDoor, makeCurve, scaleValue, realScale, rooms,
+  selectedRoom, selectedWall, selectedType, selectedPointIndex, updateRoom, updateWall, makeCurve, scaleValue, realScale, rooms,
   highlightType, setHighlightType
 }) {
   const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
@@ -308,91 +308,8 @@ export default function RightPropertyPaneView({
               </div>
             )}
           </>
-        ) : selectedType === "door" && selectedDoor ? (
-          <>
-            <div className="panel-field">
-              <span className="panel-label">Door Type</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.type || "single"}
-                onChange={e => updateDoor({ ...selectedDoor, type: e.target.value })}
-              >
-                <option value="single">Single Door</option>
-                <option value="double">Double Door</option>
-                <option value="sliding">Sliding Door</option>
-                <option value="service">Service Door</option>
-              </select>
-            </div>
-
-            <div className="panel-field">
-              <span className="panel-label">Handle Side</span>
-              <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-                  <input 
-                    type="radio" 
-                    name={`hingeSide-${selectedDoor.id}`}
-                    checked={(selectedDoor.hingeSide || "left") === "left"}
-                    onChange={() => updateDoor({ ...selectedDoor, hingeSide: "left" })}
-                  /> Left
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-                  <input 
-                    type="radio" 
-                    name={`hingeSide-${selectedDoor.id}`}
-                    checked={selectedDoor.hingeSide === "right"}
-                    onChange={() => updateDoor({ ...selectedDoor, hingeSide: "right" })}
-                  /> Right
-                </label>
-              </div>
-            </div>
-
-            <div className="panel-field">
-              <span className="panel-label">Swing</span>
-              <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-                  <input 
-                    type="radio" 
-                    name={`swing-${selectedDoor.id}`}
-                    checked={(selectedDoor.swing || "inward") === "inward"}
-                    onChange={() => updateDoor({ ...selectedDoor, swing: "inward" })}
-                  /> Inward
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-                  <input 
-                    type="radio" 
-                    name={`swing-${selectedDoor.id}`}
-                    checked={selectedDoor.swing === "outward"}
-                    onChange={() => updateDoor({ ...selectedDoor, swing: "outward" })}
-                  /> Outward
-                </label>
-              </div>
-            </div>
-
-            <div className="panel-field">
-              <span className="panel-label">Angle</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.angle || 90}
-                onChange={e => updateDoor({ ...selectedDoor, angle: Number(e.target.value) })}
-              >
-                <option value={45}>45°</option>
-                <option value={90}>90°</option>
-                <option value={180}>180°</option>
-              </select>
-            </div>
-
-            <div className="panel-field">
-              <span className="panel-label">Width (mm)</span>
-              <input
-                type="number"
-                className="panel-input"
-                value={selectedDoor.width || 900}
-                onChange={e => updateDoor({ ...selectedDoor, width: Number(e.target.value) })}
-              />
-            </div>
-          </>
         ) : (
-          <div className="panel-hint">Select a room, wall, or door to edit properties</div>
+          <div className="panel-hint">Select a room or wall to edit properties</div>
         )}
       </div>
 

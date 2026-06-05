@@ -10,6 +10,7 @@
  *   - Visual Confidence and review-state outlines
  */
 import React, { useEffect, useRef, useState, useMemo } from "react";
+import AIDoor from "../components/AIDoor";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { 
   distancePointToSegment, 
@@ -19,7 +20,7 @@ import {
   polygonAreaM2 as polygonAreaM2Util, 
   calculateWallPolygon 
 } from "@/utils/geometry";
-import { calculateDoorGeometry } from "../engines/DoorArcLabelEngine";
+
 
 // Review/Confidence Color Mapping
 const REVIEW_COLORS = {
@@ -49,6 +50,22 @@ const snap = (p1, p2, threshold = 10) => {
   if (dx < threshold) return { x: p1.x, y: p2.y };
   if (dy < threshold) return { x: p2.x, y: p1.y };
   return dx > dy ? { x: p2.x, y: p1.y } : { x: p1.x, y: p2.y };
+};
+
+const getDoorBoundingBox = (d) => {
+  if (d.bbox) {
+    const [x1, y1, x2, y2] = d.bbox;
+    return [
+      { x: x1, y: y1 },
+      { x: x2, y: y1 },
+      { x: x2, y: y2 },
+      { x: x1, y: y2 }
+    ];
+  }
+  if (d.polygon) {
+    return d.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+  }
+  return null;
 };
 
 // ==========================================
@@ -328,7 +345,9 @@ const DoorLayer = React.memo(({
   isMeasuring,
   isDistancing,
   setSelectedId,
-  setSelectedType
+  setSelectedType,
+  startDrag,
+  updateDoor
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
 
@@ -337,27 +356,31 @@ const DoorLayer = React.memo(({
       {(doors || []).map(d => {
         try {
           const isSelected = selectedId === d.id && selectedType === "door";
+          const isAIDoor = !!((d.polygon && d.polygon.length >= 3) || (d.mask_polygon && d.mask_polygon.length >= 3));
           const p1 = d.points?.[0];
           const p2 = d.points?.[1];
-          if (!p1 || !p2) return null;
+          if (!isAIDoor && (!p1 || !p2)) return null;
 
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const len = Math.hypot(dx, dy);
+          const dx = p1 ? p2.x - p1.x : 0;
+          const dy = p1 ? p2.y - p1.y : 0;
+          const len = p1 ? Math.hypot(dx, dy) : 0;
 
           // Skip microscopic/degenerate door sweeps to prevent browser SVG crash
-          if (len < 5) return null;
+          if (!isAIDoor && len < 5) return null;
+
+          // ── AI vs Manual door detection ──
+          // AI doors have mask_polygon from segmentation model — render directly
+          // Manual doors (user-drawn) use p1/p2 arc rendering
 
           // Review state color mapping
           const revState = d.review_state || (d.id && String(d.id).startsWith("door_ai") ? "ai_corrected" : "AI_GENERATED");
           const revStyle = REVIEW_COLORS[revState];
           const color = isSelected ? "#FF5722" : (revStyle ? revStyle.stroke : "#4CAF50");
 
-          const angle = Math.atan2(dy, dx);
           const type = d.type || "single";
 
-          // Bounding box from YOLO polygon (4 corner points)
-          const bboxPoly = d.polygon;
+          // Calculate bounding box dynamically
+          const bboxPoly = getDoorBoundingBox(d) || d.polygon;
           const hasBBox = bboxPoly && bboxPoly.length >= 4;
           let bboxX, bboxY, bboxW, bboxH;
           if (hasBBox) {
@@ -369,7 +392,40 @@ const DoorLayer = React.memo(({
             bboxH = Math.max(...bys) - bboxY;
           }
 
+          // ════════════════════════════════════════
+          // AI DOOR: Render directly from segmentation mask
+          // ════════════════════════════════════════
+          if (isAIDoor) {
+            return (
+              <AIDoor
+                key={d.id}
+                door={d}
+                isSelected={isSelected}
+                color={color}
+                startDrag={startDrag}
+                updateDoor={updateDoor}
+                drawing={drawing}
+                isDrawingWall={isDrawingWall}
+                isDrawingDoor={isDrawingDoor}
+                isMeasuring={isMeasuring}
+                isDistancing={isDistancing}
+                setSelectedId={setSelectedId}
+                setSelectedType={setSelectedType}
+              />
+            );
+          }
+
+          // ════════════════════════════════════════
+          // MANUAL DOOR: Existing p1/p2 arc rendering
+          // ════════════════════════════════════════
+          const angle = Math.atan2(dy, dx);
+
+          // Use the exact segmentation mask if available, otherwise fallback to bounding box
+          const displayPoly = d.mask_polygon || bboxPoly;
+          const hasDisplayPoly = displayPoly && displayPoly.length >= 3;
+
           const renderSingleDoor = () => {
+            if (!isSelected) return null;
             const geom = calculateDoorGeometry({
               p1,
               p2,
@@ -420,6 +476,7 @@ const DoorLayer = React.memo(({
           };
 
           const renderDoubleDoor = () => {
+            if (!isSelected) return null;
             const halfLen = len / 2;
             const isInward = (d.swing || d.swing_direction || "inward") === "inward";
             const openAngleDeg = d.angle || d.opening_angle || 90;
@@ -446,6 +503,7 @@ const DoorLayer = React.memo(({
           };
 
           const renderSlidingDoor = () => {
+            if (!isSelected) return null;
             const offsetX = -Math.sin(angle) * 3;
             const offsetY = Math.cos(angle) * 3;
             return (
@@ -466,54 +524,184 @@ const DoorLayer = React.memo(({
                }}
                style={{ cursor: 'pointer' }}
             >
-              {/* Bounding Box overlay */}
-              {hasBBox && (
-                <rect
-                  x={bboxX}
-                  y={bboxY}
-                  width={bboxW}
-                  height={bboxH}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.08)" : "rgba(0, 188, 212, 0.06)"}
+              {/* Bounding Box overlay (Rotated Polygon) */}
+              {hasDisplayPoly && (
+                <polygon
+                  points={displayPoly.map(p => `${p.x},${p.y}`).join(" ")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.08)" : "rgba(0, 188, 212, 0.04)"}
                   stroke={isSelected ? "#FF5722" : "#00BCD4"}
                   strokeWidth={isSelected ? 2.5 : 1.5}
                   strokeDasharray={isSelected ? "none" : "6,3"}
-                  rx={2}
                   opacity={0.85}
+                  onMouseDown={(e) => {
+                    if (isSelected && startDrag) {
+                      e.stopPropagation();
+                      startDrag(d.id, null, 'door-move');
+                    }
+                  }}
                 />
               )}
               {type === "double" ? (
                 <>
                   {renderDoubleDoor()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={color} 
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none' }}
-                  >
-                    {d.width || Math.round(len * (realScale || 20))}
-                  </text>
+                  {isSelected && (
+                    <text 
+                      x={(p1.x + p2.x) / 2} 
+                      y={(p1.y + p2.y) / 2 - 10} 
+                      fontSize="10" 
+                      textAnchor="middle" 
+                      fill={color} 
+                      fontFamily="Inter, sans-serif"
+                      fontWeight="bold"
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                      {d.width || Math.round(len * (realScale || 20))}
+                    </text>
+                  )}
                 </>
               ) : (type === "sliding" ? (
                 <>
                   {renderSlidingDoor()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={color} 
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none' }}
-                  >
-                    {d.width || Math.round(len * (realScale || 20))}
-                  </text>
+                  {isSelected && (
+                    <text 
+                      x={(p1.x + p2.x) / 2} 
+                      y={(p1.y + p2.y) / 2 - 10} 
+                      fontSize="10" 
+                      textAnchor="middle" 
+                      fill={color} 
+                      fontFamily="Inter, sans-serif"
+                      fontWeight="bold"
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                      {d.width || Math.round(len * (realScale || 20))}
+                    </text>
+                  )}
                 </>
               ) : renderSingleDoor())}
+
+              {/* Bounding Box Corner Handles */}
+              {isSelected && hasBBox && bboxPoly.map((p, i) => (
+                <g key={`door-handle-${d.id}-${i}`}>
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={5.5}
+                    fill="#ffffff"
+                    stroke="#FF5722"
+                    strokeWidth={2}
+                    style={{ cursor: 'move' }}
+                    onMouseDown={(e) => {
+                      if (startDrag) {
+                        e.stopPropagation();
+                        startDrag(d.id, i, 'door-polygon');
+                      }
+                    }}
+                  />
+                  <circle cx={p.x} cy={p.y} r={2.0} fill="#FF5722" pointerEvents="none" />
+                </g>
+              ))}
+
+              {/* Floating interactive flip control panel (manual doors only) */}
+              {isSelected && hasBBox && (
+                <foreignObject
+                  x={bboxX + bboxW / 2 - 60}
+                  y={bboxY - 32}
+                  width={120}
+                  height={30}
+                  style={{ overflow: 'visible' }}
+                >
+                  <div 
+                    style={{
+                      display: 'inline-flex',
+                      gap: '4px',
+                      background: 'rgba(15, 23, 42, 0.9)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid rgba(255, 87, 34, 0.5)',
+                      borderRadius: '20px',
+                      padding: '3px 8px',
+                      boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      pointerEvents: 'auto'
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    {/* Hinge flip (only for single doors) */}
+                    {type === "single" && (
+                      <button
+                        title="Flip Hinge Direction"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (updateDoor) {
+                            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+                            updateDoor({
+                              ...d,
+                              hingeSide: newHinge,
+                              hinge_side: newHinge
+                            });
+                          }
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          fontWeight: 'bold',
+                          borderRadius: '12px',
+                          transition: 'background 0.2s'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                      >
+                        ⇄ Hinge
+                      </button>
+                    )}
+                    {type === "single" && (
+                      <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
+                    )}
+                    {/* Swing flip (for single and double doors) */}
+                    {type !== "sliding" && (
+                      <button
+                        title="Flip Swing Direction"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (updateDoor) {
+                            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+                            updateDoor({
+                              ...d,
+                              swing: newSwing,
+                              swing_direction: newSwing
+                            });
+                          }
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          fontWeight: 'bold',
+                          borderRadius: '12px',
+                          transition: 'background 0.2s'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                      >
+                        ⇅ Swing
+                      </button>
+                    )}
+                  </div>
+                </foreignObject>
+              )}
             </g>
           );
         } catch (err) {
@@ -534,7 +722,11 @@ const DoorLayer = React.memo(({
     prev.isDrawingWall === next.isDrawingWall &&
     prev.isDrawingDoor === next.isDrawingDoor &&
     prev.isMeasuring === next.isMeasuring &&
-    prev.isDistancing === next.isDistancing
+    prev.isDistancing === next.isDistancing &&
+    prev.setSelectedId === next.setSelectedId &&
+    prev.setSelectedType === next.setSelectedType &&
+    prev.startDrag === next.startDrag &&
+    prev.updateDoor === next.updateDoor
   );
 });
 
@@ -559,7 +751,6 @@ const OCRLabelLayer = React.memo(({
   isMeasuring,
   isDistancing,
   isDrawingWall,
-  isDrawingDoor,
   config,
   heatmapMode,
   selectedId,
@@ -979,7 +1170,6 @@ const OCRLabelLayer = React.memo(({
     prev.isMeasuring === next.isMeasuring &&
     prev.isDistancing === next.isDistancing &&
     prev.isDrawingWall === next.isDrawingWall &&
-    prev.isDrawingDoor === next.isDrawingDoor &&
     prev.heatmapMode === next.heatmapMode &&
     prev.config === next.config &&
     prev.selectedId === next.selectedId
@@ -1091,7 +1281,8 @@ export default function CanvasView({
   onWheel,
   startDrag,
   pushHistory,
-  showLayer
+  showLayer,
+  updateDoor
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -1591,69 +1782,34 @@ export default function CanvasView({
               </g>
             )}
 
-            {isDrawingDoor && (currentDoor.length > 0 || currentMouse) && (() => {
-              if (currentDoor.length === 1 && currentMouse) {
-                const p1 = currentDoor[0];
-                const p2 = currentMouse;
-                const geom = calculateDoorGeometry({
-                  p1,
-                  p2,
-                  type: "single",
-                  hingeSide: "left",
-                  swing: "inward",
-                  angle: 90
-                });
+            {/* Door Drawing Preview */}
+            {isDrawingDoor && currentDoor.length > 0 && currentMouse && (
+              <g style={{ pointerEvents: 'none' }}>
+                <line
+                  x1={currentDoor[0].x}
+                  y1={currentDoor[0].y}
+                  x2={currentMouse.x}
+                  y2={currentMouse.y}
+                  fill="none"
+                  stroke="#4CAF50"
+                  strokeWidth={3}
+                  strokeDasharray="4,4"
+                  opacity={0.8}
+                />
+                {currentDoor.map((p, i) => (
+                  <circle
+                    key={`preview-door-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={5}
+                    fill="#4CAF50"
+                    stroke="#ffffff"
+                  />
+                ))}
+              </g>
+            )}
 
-                if (!geom) return null;
 
-                const sweepFlag = 1;
-                const widthMm = Math.round(geom.widthPx * (realScale || 20));
-
-                return (
-                  <g style={{ pointerEvents: 'none' }}>
-                    <circle cx={p1.x} cy={p1.y} r={5} fill="#4CAF50" stroke="#fff" strokeWidth={1.5} />
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={1.5} opacity={0.3} />
-                    <path 
-                      d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
-                      fill="none" stroke="#4CAF50" strokeWidth={1.5} strokeDasharray="4,2"
-                    />
-                    <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke="#4CAF50" strokeWidth={3} />
-                    
-                    {/* Ghost Arc Label with Glow filter */}
-                    <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
-                      <rect
-                        x={-28} y={-8} width={56} height={16} rx={2}
-                        fill="rgba(255, 255, 255, 0.95)"
-                        filter="url(#glow)"
-                        stroke="#4CAF50" strokeWidth={0.5}
-                      />
-                      <text
-                        x={0} y={1}
-                        fontSize="9"
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fill="#4CAF50"
-                        fontFamily="Inter, sans-serif"
-                        fontWeight="bold"
-                      >
-                        {widthMm} mm
-                      </text>
-                    </g>
-                    
-                    <circle cx={p2.x} cy={p2.y} r={3} fill="#4CAF50" />
-                  </g>
-                );
-              }
-
-              if (currentMouse) {
-                return (
-                  <g style={{ pointerEvents: 'none' }}>
-                    <circle cx={currentMouse.x} cy={currentMouse.y} r={4} fill="#4CAF50" stroke="#fff" strokeWidth={1.5} />
-                  </g>
-                );
-              }
-              return null;
-            })()}
 
             {!drawing && currentPoly.length > 0 && (
               <polyline
@@ -1704,7 +1860,7 @@ export default function CanvasView({
               startDrag={startDrag}
             />
 
-            {/* Memoized Layer 4: Door Geometry */}
+            {/* Memoized Layer 4: Doors */}
             <DoorLayer
               doors={doors}
               showLayer={showLayer}
@@ -1718,6 +1874,8 @@ export default function CanvasView({
               isDistancing={isDistancing}
               setSelectedId={setSelectedId}
               setSelectedType={setSelectedType}
+              startDrag={startDrag}
+              updateDoor={updateDoor}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}
@@ -1739,7 +1897,6 @@ export default function CanvasView({
               isMeasuring={isMeasuring}
               isDistancing={isDistancing}
               isDrawingWall={isDrawingWall}
-              isDrawingDoor={isDrawingDoor}
               config={config}
               heatmapMode={heatmapMode}
               selectedId={selectedId}
@@ -2107,10 +2264,9 @@ export default function CanvasView({
           <div className="status-item">
             {drawing && <span style={{ color: "#3b82f6" }}>● Drawing Room</span>}
             {isDrawingWall && <span style={{ color: "#8B5E3C" }}>● Drawing Wall</span>}
-            {isDrawingDoor && <span style={{ color: "#4CAF50" }}>● Drawing Door</span>}
             {isMeasuring && <span style={{ color: "#facc15" }}>● Setting Scale</span>}
             {isDistancing && <span style={{ color: "#00e5ff" }}>📐 Distance Mode{distancePoints.length === 1 ? " — click điểm thứ 2" : " — click điểm thứ 1"}{isShiftDown ? " [Snap 90°]" : ""}</span>}
-            {!drawing && !isDrawingWall && !isDrawingDoor && !isMeasuring && !isDistancing && <span>Ready</span>}
+            {!drawing && !isDrawingWall && !isMeasuring && !isDistancing && <span>Ready</span>}
           </div>
         </div>
       </div>
