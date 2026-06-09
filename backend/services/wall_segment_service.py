@@ -103,7 +103,16 @@ class WallSegmentService:
                     if len(poly_xy) < 3:
                         continue
                     
-                    polygon = [[float(p[0]), float(p[1])] for p in poly_xy]
+                    # Apply Ramer-Douglas-Peucker simplification to flatten squiggly boundaries into straight segments
+                    pts_np = np.array(poly_xy, dtype=np.float32).reshape((-1, 1, 2))
+                    perimeter = cv2.arcLength(pts_np, True)
+                    epsilon = max(3.0, min(0.008 * perimeter, 8.0))
+                    approx_pts = cv2.approxPolyDP(pts_np, epsilon, True)
+                    
+                    if len(approx_pts) >= 3:
+                        polygon = [[float(p[0][0]), float(p[0][1])] for p in approx_pts]
+                    else:
+                        polygon = [[float(p[0]), float(p[1])] for p in poly_xy]
                     
                     # Calculate geometry using Shapely
                     try:
@@ -113,22 +122,6 @@ class WallSegmentService:
                         
                         if poly.is_empty:
                             continue
-                            
-                        # Apply simplification if polygon has excessive points (> 100 points)
-                        if len(polygon) > 100:
-                            poly = poly.simplify(tolerance=1.0, preserve_topology=True)
-                            if poly.is_empty:
-                                continue
-                            
-                            # Extract simplified coordinates (exterior only, no holes)
-                            if hasattr(poly, "exterior") and poly.exterior:
-                                coords = list(poly.exterior.coords)
-                                if len(coords) >= 3:
-                                    if coords[0] == coords[-1]:
-                                        coords = coords[:-1]
-                                    polygon = [[float(p[0]), float(p[1])] for p in coords]
-                            else:
-                                continue
                         
                         # Re-calculate shape properties on the simplified polygon
                         area_px = float(poly.area)
