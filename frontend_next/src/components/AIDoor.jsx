@@ -7,7 +7,6 @@ export default function AIDoor({
   startDrag,
   updateDoor,
   drawing,
-  isDrawingWall,
   isDrawingDoor,
   isMeasuring,
   isDistancing,
@@ -90,7 +89,7 @@ export default function AIDoor({
   return (
     <g
       onClick={(e) => {
-        if (drawing || isDrawingWall || isDrawingDoor || isMeasuring || isDistancing) return;
+        if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
         e.stopPropagation();
         setSelectedId(d.id);
         setSelectedType("door");

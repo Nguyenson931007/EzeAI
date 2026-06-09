@@ -552,8 +552,6 @@ export function useInteractionController(svgRef) {
     if (isShiftDown || isSnapMode) {
       if (drawing && currentPoly.length > 0) {
         snappedP = snap(currentPoly[currentPoly.length - 1], p);
-      } else if (isDrawingWall && currentWall.length > 0) {
-        snappedP = snap(currentWall[currentWall.length - 1], p);
       } else if (isMeasuring && measurePoints.length === 1) {
         snappedP = snap(measurePoints[0], p);
       } else if (isDistancing && distancePoints.length === 1) {

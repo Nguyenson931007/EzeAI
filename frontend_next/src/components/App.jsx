@@ -278,7 +278,6 @@ export default function App() {
     
     // Clear ALL previous data when opening new file
     setRoomsByPage({});
-    setWallsByPage({});
     setDoorsByPage({});
 
     setPages(selectedData);

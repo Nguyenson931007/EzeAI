@@ -648,7 +648,6 @@ const OCRLabelLayer = React.memo(({
   drawing,
   isMeasuring,
   isDistancing,
-  isDrawingWall,
   config,
   heatmapMode,
   selectedId,
@@ -769,7 +768,7 @@ const OCRLabelLayer = React.memo(({
                   onMouseUp={stopEvent}
                   onClick={stopEvent}
                   onDoubleClick={(e) => {
-                    if (drawing || isMeasuring || isDistancing || isDrawingWall || isDrawingDoor) return;
+                    if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
                     stopEvent(e);
                     setEditingRoomId(r.id);
                     setEditValue(r.room_name);
@@ -1002,7 +1001,7 @@ const OCRLabelLayer = React.memo(({
                 onMouseUp={stopEvent}
                 onClick={stopEvent}
                 onDoubleClick={(e) => {
-                  if (drawing || isMeasuring || isDistancing || isDrawingWall || isDrawingDoor) return;
+                  if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
                   stopEvent(e);
                   setEditingRoomId(r.id);
                   setEditValue(r.room_name);
@@ -1067,7 +1066,6 @@ const OCRLabelLayer = React.memo(({
     prev.drawing === next.drawing &&
     prev.isMeasuring === next.isMeasuring &&
     prev.isDistancing === next.isDistancing &&
-    prev.isDrawingWall === next.isDrawingWall &&
     prev.heatmapMode === next.heatmapMode &&
     prev.config === next.config &&
     prev.selectedId === next.selectedId
@@ -1558,8 +1556,7 @@ export default function CanvasView({
                 : isDistancing ? "crosshair"
                   : isMeasuring ? "crosshair"
                     : isAddingPoint ? "crosshair"
-                      : isDrawingWall ? "crosshair"
-                        : "default"
+                      : "default"
           }}
           onClick={(e) => {
             if (editingRoomId) return;
@@ -1568,7 +1565,6 @@ export default function CanvasView({
           onDoubleClick={() => { 
             if (editingRoomId) return;
             if (drawing) finishPolygon(); 
-            if (isDrawingWall) finishWall(); 
             if (isDrawingDoor) finishDoor(); 
           }}
           onMouseDown={(e) => {
