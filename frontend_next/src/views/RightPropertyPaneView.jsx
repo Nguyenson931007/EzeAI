@@ -134,7 +134,7 @@ function DryWetSummary({
 }
 
 export default function RightPropertyPaneView({
-  selectedRoom, selectedType, selectedPointIndex, updateRoom, scaleValue, realScale, rooms,
+  selectedRoom, selectedWall, selectedType, selectedPointIndex, updateRoom, scaleValue, realScale, rooms,
   highlightType, setHighlightType
 }) {
   const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
@@ -238,8 +238,30 @@ export default function RightPropertyPaneView({
               </div>
             )}
           </>
+        ) : selectedType === "wall" && selectedWall ? (
+          <>
+            <div className="panel-field">
+              <span className="panel-label">Wall ID</span>
+              <div className="panel-value"><b>{selectedWall.id}</b></div>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Confidence</span>
+              <div className="panel-value">{(selectedWall.confidence * 100).toFixed(1)}%</div>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Area (px²)</span>
+              <div className="panel-value">{selectedWall.area_px?.toFixed(1) || 0} px²</div>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Perimeter (px)</span>
+              <div className="panel-value">{selectedWall.perimeter_px?.toFixed(1) || 0} px</div>
+            </div>
+          </>
         ) : (
-          <div className="panel-hint">Select a room to edit properties</div>
+          <div className="panel-hint">Select a room or wall to edit properties</div>
         )}
       </div>
 

@@ -25,7 +25,7 @@ export default function RibbonView({
   undo, redo,
   deleteItem, deleteAllRooms,
   finishPolygon, setCurrentPoly,
-  autoDetect, detectText, detectTemplate, detectDoorSeg,
+  autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg,
   roiRect, roiMode, setRoiMode, roiUpscale, clearROI,
   exportPDF, addTrain,
   addTrainPages,
@@ -199,6 +199,10 @@ export default function RibbonView({
                   <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Auto AI</span>
                 </button>
 
+                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectWallFromFloorAI()} disabled={isDetecting} title="Dùng AI tự động vẽ tường">
+                  <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
+                </button>
+
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
@@ -276,9 +280,9 @@ export default function RibbonView({
                   <span className="icon">🔄</span><span className="label">Rotate</span>
                 </button>
                 <button className={`ribbon-btn ${showLayer !== 'all' ? "active" : ""}`} 
-                        onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'door' : 'all')}>
-                  <span className="icon">{showLayer === 'all' ? '👁' : showLayer === 'floor' ? '🟦' : '🚪'}</span>
-                  <span className="label">Layer: {showLayer === 'all' ? 'All' : showLayer === 'floor' ? 'Floor' : 'Door'}</span>
+                        onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'wall' : l === 'wall' ? 'door' : 'all')}>
+                  <span className="icon">{showLayer === 'all' ? '👁' : showLayer === 'floor' ? '🟦' : showLayer === 'wall' ? '🧱' : '🚪'}</span>
+                  <span className="label">Layer: {showLayer === 'all' ? 'All' : showLayer === 'floor' ? 'Floor' : showLayer === 'wall' ? 'Wall' : 'Door'}</span>
                 </button>
                 <button className={`ribbon-btn ${show3D ? "active" : ""}`} onClick={() => setShow3D(v => !v)}>
                   <span className="icon">🧱🏠</span><span className="label">3D View</span>
@@ -320,6 +324,15 @@ export default function RibbonView({
               disabled={isDetecting}
             >
               🤖 Rooms
+            </button>
+
+             <button 
+              className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
+              onClick={() => detectWallFromFloorAI(roiRect, roiMode)} 
+              disabled={isDetecting}
+              title="Nhận diện tường trong vùng cắt (ROI)"
+            >
+              🧱 Walls
             </button>
 
              <button 

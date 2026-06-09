@@ -222,6 +222,54 @@ const RoomPolygonLayer = React.memo(({
 });
 
 // ==========================================
+// 3. WallLayer (Memoized)
+// ==========================================
+const WallLayer = React.memo(({
+  walls,
+  showLayer,
+  selectedId,
+  selectedType,
+  setSelectedId,
+  setSelectedType
+}) => {
+  if (showLayer !== 'all' && showLayer !== 'wall') return null;
+
+  return (
+    <g id="WallLayer">
+      {(walls || []).map(w => {
+        const isSelected = selectedId === w.id && selectedType === "wall";
+        const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
+        const strokeColor = isSelected ? "#38bdf8" : "#a855f7";
+        
+        return (
+          <g
+            key={w.id}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedId(w.id);
+              setSelectedType("wall");
+            }}
+            style={{ cursor: 'pointer' }}
+          >
+            <polygon
+              points={pointsStr}
+              fill={isSelected ? "rgba(56,189,248,0.25)" : "rgba(168, 85, 247, 0.15)"}
+              stroke={strokeColor}
+              strokeWidth={isSelected ? 3 : 1.5}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+}, (prev, next) => (
+  prev.walls === next.walls &&
+  prev.showLayer === next.showLayer &&
+  prev.selectedId === next.selectedId &&
+  prev.selectedType === next.selectedType
+));
+
+// ==========================================
 // 4. DoorLayer (Memoized)
 // ==========================================
 const DoorLayer = React.memo(({
@@ -1130,6 +1178,7 @@ export default function CanvasView({
   currentDoor,
   currentMouse,
   rooms,
+  walls,
   doors,
   scaleValue,
   realScale,
@@ -1704,6 +1753,16 @@ export default function CanvasView({
               getRoomStyle={getRoomStyle}
               config={config}
               heatmapMode={heatmapMode}
+            />
+
+            {/* Memoized Layer 3: Wall Polygons */}
+            <WallLayer
+              walls={walls}
+              showLayer={showLayer}
+              selectedId={selectedId}
+              selectedType={selectedType}
+              setSelectedId={setSelectedId}
+              setSelectedType={setSelectedType}
             />
 
             {/* Memoized Layer 4: Doors */}

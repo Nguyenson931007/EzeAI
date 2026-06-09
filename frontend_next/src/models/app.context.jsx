@@ -13,6 +13,7 @@ export const AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [roomsByPage, setRoomsByPage] = useState({});
   const [doorsByPage, setDoorsByPage] = useState({});
+  const [wallsByPage, setWallsByPage] = useState({});
   const [user, setUser] = useState(() => {
     const saved = safeGetItem("user");
     return saved ? JSON.parse(saved) : null;
@@ -34,6 +35,7 @@ export const AppProvider = ({ children }) => {
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
+    wallsByPage, setWallsByPage,
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,

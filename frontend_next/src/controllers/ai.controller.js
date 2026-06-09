@@ -111,7 +111,8 @@ export const useAIController = (
   setRoomsByPage,
   realScale = 1.0,
   roomsByPage,
-  setDoorsByPage
+  setDoorsByPage,
+  setWallsByPage
 ) => {
   const [isDetecting, setIsDetecting] = useState(false);
   const [roiProgress, setRoiProgress] = useState(0);
@@ -358,6 +359,48 @@ export const useAIController = (
 
 
 
+  const detectWallFromFloorAI = async () => {
+    if (!image) return alert("No image to detect");
+    if (!setWallsByPage) return;
+
+    const job = startROIJob();
+    try {
+      const blob = await fetch(image).then(r => r.blob());
+      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.25");
+      const data = await ApiService.detectWallSeg(blob, conf);
+      console.log("[Wall Seg AI] Data:", data);
+
+      if (job.token !== roiInferenceIdRef.current) return;
+
+      const result = data;
+      const isCacheHit = !!(result && result.cache_hit);
+
+      if (result && result.walls) {
+        const detectedWalls = result.walls.map(w => ({
+          ...w,
+          review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
+        }));
+
+        setWallsByPage(prev => ({
+          ...prev,
+          [currentPage]: [...(prev[currentPage] || []), ...detectedWalls]
+        }));
+
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
+      } else {
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+      }
+    } catch (err) {
+      if (err.name === "AbortError") {
+        console.log("[Wall AI] Request canceled.");
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true, true);
+      } else {
+        console.error("Floor AI Wall Error:", err);
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+      }
+    }
+  };
+
   const detectText = async () => {
     if (!image) return alert("No image to detect");
 
@@ -510,6 +553,7 @@ export const useAIController = (
     inferenceTiming,
     cancelROI,
     autoDetect,
+    detectWallFromFloorAI,
     detectText,
     detectTemplate,
     detectDoorSeg,

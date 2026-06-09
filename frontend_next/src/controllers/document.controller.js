@@ -20,7 +20,7 @@ export function useDocumentController({
   pages, setPages,
   currentPage, setCurrentPage,
   roomsByPage, setRoomsByPage,
-
+  wallsByPage,
   doorsByPage, setDoorsByPage,
   user,
   currentProjectName,
@@ -212,7 +212,13 @@ export function useDocumentController({
             polygon: r.polygon.map(p => ({ x: Number(p.x), y: Number(p.y) }))
           };
         }),
-        walls: [],
+        walls: (wallsByPage[currentPage] || []).map(w => ({
+          id: Math.round(Number(w.id)) || Math.round(Math.random() * 1e9),
+          wall_type: w.wall_type || "int",
+          thickness: Number(w.thickness) || 90,
+          isClosed: Boolean(w.isClosed),
+          polygon: w.polygon.map(p => ({ x: Number(p[0]), y: Number(p[1]) }))
+        })),
         doors: [],
         width: Math.round(imgSize.w),
         height: Math.round(imgSize.h),
@@ -283,7 +289,13 @@ export function useDocumentController({
               polygon: r.polygon.map(p => ({ x: Number(p.x), y: Number(p.y) }))
             };
           }),
-          walls: [],
+          walls: (wallsByPage[pageIdx] || []).map(w => ({
+            id: Math.round(Number(w.id)) || Math.round(Math.random() * 1e9),
+            wall_type: w.wall_type || "int",
+            thickness: Number(w.thickness) || 90,
+            isClosed: Boolean(w.isClosed),
+            polygon: w.polygon.map(p => ({ x: Number(p[0]), y: Number(p[1]) }))
+          })),
           doors: [],
           width: Math.round(pageData.w),
           height: Math.round(pageData.h),

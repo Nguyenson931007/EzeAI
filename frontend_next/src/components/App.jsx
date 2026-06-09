@@ -60,6 +60,7 @@ export default function App() {
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
+    wallsByPage, setWallsByPage,
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,
@@ -186,16 +187,17 @@ export default function App() {
     inferenceTiming,
     cancelROI,
     autoDetect,
+    detectWallFromFloorAI,
     detectText,
     detectTemplate,
     detectDoorSeg,
     activeScanRoom
-  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage);
+  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage, setWallsByPage);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
     user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
     setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
-    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage
+    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage
   );
 
   // Pass down context for global access
@@ -320,7 +322,7 @@ export default function App() {
     pages, setPages,
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
-
+    wallsByPage,
     doorsByPage, setDoorsByPage,
     user,
     currentProjectName,
@@ -379,7 +381,7 @@ export default function App() {
         undo={undo} redo={redo}
         deleteItem={deleteItem} deleteAllRooms={deleteAllRooms}
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
-        autoDetect={autoDetect} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
+        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
         exportPDF={exportPDF}
         addTrain={addTrain}
@@ -428,6 +430,7 @@ export default function App() {
             currentDoor={currentDoor}
             currentMouse={currentMouse}
             rooms={rooms}
+            walls={wallsByPage[currentPage] || []}
             doors={processedDoorsByPage[currentPage] || []}
             scaleValue={scaleValue}
             realScale={realScale}
@@ -477,6 +480,7 @@ export default function App() {
 
           <RightPropertyPaneView
             selectedRoom={rooms.find(r => r.id === selectedId)}
+            selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
             selectedType={selectedType}
             selectedPointIndex={selectedPointIndex}
             updateRoom={updateRoom}
