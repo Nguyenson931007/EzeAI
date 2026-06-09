@@ -739,6 +739,60 @@ async def door_segment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/wall-segment")
+async def wall_segment(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.25),
+    imgsz: int = Form(1280),
+    username: str = Depends(validate_session)
+):
+    """
+    POST /api/wall-segment
+    Định tuyến nhận diện phân đoạn tường (Wall Segmentation).
+    Nhận diện đa giác tường từ mô hình YOLO Segmentation.
+    """
+    from services.wall_segment_service import WallSegmentService
+    
+    content = await file.read()
+    filename = file.filename or "plan.png"
+
+    try:
+        if filename.lower().endswith(".pdf"):
+            return await run_in_threadpool(
+                WallSegmentService.predict_from_pdf,
+                pdf_bytes=content,
+                filename=filename,
+                confidence=confidence,
+                imgsz=imgsz
+            )
+        else:
+            img = PILImage.open(io.BytesIO(content)).convert("RGB")
+            img_w, img_h = img.size
+            
+            result = await run_in_threadpool(
+                WallSegmentService.predict,
+                image_bytes=content,
+                confidence=confidence,
+                imgsz=imgsz
+            )
+            
+            return {
+                "filename": filename,
+                "page_index": 0,
+                "width": img_w,
+                "height": img_h,
+                "walls": result["walls"]
+            }
+            
+    except FileNotFoundError as e:
+        logger.error(f"Model not found for wall segmentation: {e}")
+        raise HTTPException(status_code=500, detail=f"Không tìm thấy mô hình YOLO Wall Seg: {e}")
+    except Exception as e:
+        logger.error(f"Error in wall segmentation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.post("/train-door-seg")
 @limiter.limit("10/minute")
 async def train_door_seg(request: Request, username: str = Depends(validate_session)):
