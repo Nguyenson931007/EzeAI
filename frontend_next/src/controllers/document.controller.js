@@ -7,7 +7,6 @@
  *   - updateRoom:    Cập nhật thuộc tính phòng
  *   - addTrain:      Export 1 page ra training dataset
  *   - addTrainPages: Export nhiều page ra training dataset
- *   - addTrainWalls: Export tường ra training dataset
  *   - exportPDF:     Xuất plan + rooms ra PDF
  */
 import { jsPDF } from "jspdf";
@@ -369,5 +368,5 @@ export function useDocumentController({
     doc.save(`EzeFloor_Plan_Pg${currentPage + 1}.pdf`);
   }
 
-  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, addTrainWalls, exportPDF };
+  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF };
 }
