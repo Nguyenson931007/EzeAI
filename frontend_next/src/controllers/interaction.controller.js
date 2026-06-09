@@ -239,14 +239,6 @@ export function useInteractionController(svgRef) {
     setSelectedId(null);
   }
 
-  function deleteAllWalls(skipConfirm = false) {
-    const walls = wallsByPage[currentPage] || [];
-    if (!walls.length) return;
-    if (!skipConfirm && !window.confirm("Delete all walls on this page?")) return;
-    pushHistory(null, []);
-    setSelectedId(null);
-    setSelectedType(null);
-  }
 
   function getMouse(e) {
     if (!svgRef?.current) return { x: 0, y: 0 };
@@ -412,39 +404,13 @@ export function useInteractionController(svgRef) {
       }
     }
 
-
-
-    // Wall Selection
-    const walls = wallsByPage[currentPage] || [];
-    const foundWall = walls.find(w => {
-      for (let i = 0; i < w.points.length - 1; i++) {
-        const dist = distancePointToSegment(p, w.points[i], w.points[i + 1]).dist;
-        if (dist < 15) return true;
-      }
-      return false;
-    });
-
-    if (foundWall) {
-      setSelectedId(foundWall.id);
-      setSelectedType('wall');
-      return;
-    }
-
     const found = rooms.find(r => pointInPolygon(p, r.polygon));
     setSelectedId(found?.id || null);
     setSelectedType(found ? 'room' : null);
     setSelectedPointIndex(null); // Default to no point selected
 
     // Vertex Selection (Check if user clicked exactly on a point)
-    if (foundWall) {
-      for (let i = 0; i < foundWall.points.length; i++) {
-        const pt = foundWall.points[i];
-        if (Math.hypot(p.x - pt.x, p.y - pt.y) < 25) {
-          setSelectedPointIndex(i);
-          break;
-        }
-      }
-    } else if (found) {
+    if (found) {
       for (let i = 0; i < found.polygon.length; i++) {
         const pt = found.polygon[i];
         if (Math.hypot(p.x - pt.x, p.y - pt.y) < 25) {
@@ -595,48 +561,6 @@ export function useInteractionController(svgRef) {
       }
     }
 
-    if (isDrawingWall) {
-      const walls = wallsByPage[currentPage] || [];
-      let bestDist = 20 / scale;
-      let wallSnapTarget = null;
-      for (let w of walls) {
-        for (let pt of w.points) {
-          const d = Math.hypot(snappedP.x - pt.x, snappedP.y - pt.y);
-          if (d < bestDist) {
-            bestDist = d;
-            wallSnapTarget = { ...pt };
-          }
-        }
-        if (!wallSnapTarget) {
-          for (let i = 0; i < w.points.length - 1; i++) {
-            const proj = distancePointToSegment(snappedP, w.points[i], w.points[i+1]);
-            if (proj.dist < bestDist) {
-              bestDist = proj.dist;
-              wallSnapTarget = { x: proj.x, y: proj.y };
-            }
-          }
-        }
-      }
-
-      if (wallSnapTarget) {
-        if ((isShiftDown || isSnapMode) && currentWall.length > 0) {
-          const last = currentWall[currentWall.length - 1];
-          const dx = Math.abs(wallSnapTarget.x - last.x);
-          const dy = Math.abs(wallSnapTarget.y - last.y);
-          if (dx < 1 || dy < 1) {
-            snappedP = wallSnapTarget;
-          }
-        } else {
-          snappedP = wallSnapTarget;
-        }
-      }
-
-      if (currentWall.length > 2) {
-        const first = currentWall[0];
-        const distToFirst = Math.hypot(snappedP.x - first.x, snappedP.y - first.y);
-        if (distToFirst < 20 / scale) snappedP = first;
-      }
-    }
 
 
 

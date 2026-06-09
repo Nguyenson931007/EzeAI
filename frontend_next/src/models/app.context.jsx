@@ -21,7 +21,7 @@ export const AppProvider = ({ children }) => {
   const [currentProjectName, setCurrentProjectName] = useState(null);
   const [realScale, setRealScale] = useState(null);
   const [wasteByPage, setWasteByPage] = useState({});
-  const [wallsByPage, setWallsByPage] = useState({});
+
   const [activeTab, setActiveTab] = useState(() => safeGetItem("activeTab") || "Home");
   const [currentJobId, setCurrentJobId] = useState(null);
 
@@ -39,7 +39,7 @@ export const AppProvider = ({ children }) => {
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
-    wallsByPage, setWallsByPage,
+
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId
   };

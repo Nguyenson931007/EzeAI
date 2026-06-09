@@ -321,7 +321,7 @@ export default function App() {
     pages, setPages,
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
-    wallsByPage, setWallsByPage,
+
     doorsByPage, setDoorsByPage,
     user,
     currentProjectName,

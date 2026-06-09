@@ -21,7 +21,7 @@ export function useDocumentController({
   pages, setPages,
   currentPage, setCurrentPage,
   roomsByPage, setRoomsByPage,
-  wallsByPage, setWallsByPage,
+
   doorsByPage, setDoorsByPage,
   user,
   currentProjectName,
@@ -213,13 +213,7 @@ export function useDocumentController({
             polygon: r.polygon.map(p => ({ x: Number(p.x), y: Number(p.y) }))
           };
         }),
-        walls: (wallsByPage[currentPage] || []).map(w => ({
-          id: Math.round(Number(w.id)) || Math.round(Math.random() * 1e9),
-          wall_type: w.wall_type || "int",
-          thickness: Number(w.thickness) || 90,
-          isClosed: Boolean(w.isClosed),
-          points: w.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
-        })),
+        walls: [],
         doors: [],
         width: Math.round(imgSize.w),
         height: Math.round(imgSize.h),
@@ -290,13 +284,7 @@ export function useDocumentController({
               polygon: r.polygon.map(p => ({ x: Number(p.x), y: Number(p.y) }))
             };
           }),
-          walls: (wallsByPage[pageIdx] || []).map(w => ({
-            id: Math.round(Number(w.id)) || Math.round(Math.random() * 1e9),
-            wall_type: w.wall_type || "int",
-            thickness: Number(w.thickness) || 90,
-            isClosed: Boolean(w.isClosed),
-            points: w.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
-          })),
+          walls: [],
           doors: [],
           width: Math.round(pageData.w),
           height: Math.round(pageData.h),
@@ -327,50 +315,7 @@ export function useDocumentController({
     alert(`Exported ${exported} page(s) to training dataset!`);
   }
 
-  async function addTrainWalls() {
-    const walls = wallsByPage[currentPage] || [];
-    if (!walls || walls.length === 0) {
-      alert("Error: No walls to export.");
-      return;
-    }
-    
-    const name = `wall_page_${currentPage}_${Math.floor(Math.random() * 10000)}`;
-    const blob = await fetch(image).then(r => r.blob());
-    const formData = new FormData();
-    formData.append("file", blob, name + ".png");
-    formData.append("name", name);
 
-    const uploadRes = await fetch(`${BASE_URL}/upload-image`, {
-      method: "POST",
-      body: formData
-    });
-
-    const uploadData = await uploadRes.json();
-    const realName = uploadData.filename.replace(".png", "");
-
-    await fetch(`${BASE_URL}/save-label`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        rooms: [],
-        walls: walls.map(w => ({
-          id: Math.round(Number(w.id)) || Math.round(Math.random() * 1e9),
-          wall_type: w.wall_type || "int",
-          thickness: Number(w.thickness) || 90,
-          isClosed: Boolean(w.isClosed),
-          points: w.points.map(p => ({ x: Number(p.x), y: Number(p.y) }))
-        })),
-        doors: [],
-        width: Math.round(imgSize.w),
-        height: Math.round(imgSize.h),
-        name: String(realName),
-        project_name: currentProjectName,
-        username: user?.username
-      })
-    });
-
-    alert("Train data walls saved!");
-  }
 
   async function exportPDF() {
     if (!image) { alert("No plan to export!"); return; }
