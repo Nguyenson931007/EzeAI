@@ -28,7 +28,7 @@ import logging
 from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest
 from services import dataset_service
 from services.model_paths import get_model_health
-from utils.helpers import convert_to_yolo, convert_walls_to_yolo
+from utils.helpers import convert_to_yolo
 from api.auth import validate_session
 from app.limiter import limiter
 
@@ -212,104 +212,7 @@ async def predict_door_roi(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post("/predict_seg_wall_roi")
-async def predict_wall_roi(
-    files: TypingList[UploadFile] = File(...),
-    confidence: float = Form(0.3),
-    real_scale: Optional[float] = Form(None),
-    roi_x: Optional[float] = Form(None),
-    roi_y: Optional[float] = Form(None),
-    roi_w: Optional[float] = Form(None),
-    roi_h: Optional[float] = Form(None),
-    roi_padding: float = Form(96),
-    username: str = Depends(validate_session)
-):
-    """
-    Suy luận Nhận diện Tường cục bộ dựa trên vùng chọn ROI của người dùng.
-    - Cắt nhỏ ảnh gốc theo kích thước ROI kèm đệm padding.
-    - Thực hiện suy luận phân đoạn tường bằng YOLOv8-seg/YOLO11-seg.
-    - Ánh xạ ngược lại (coordinate remap) tọa độ các đa giác tường trở lại hệ tọa độ ảnh gốc ban đầu.
-    - Ghi vết chẩn đoán và mức độ tin cậy thấp phục vụ vẽ bản đồ nhiệt ROI (Heatmap logs).
-    """
-    from services.wall_ai_detect import predict_walls_from_bytes
-    from services.roi_config import get_roi_padding
-    from services.ocr_memory import log_roi_event
 
-    content = await files[0].read()
-
-    # Fallback tự động nếu thiếu tham số ROI
-    if roi_x is None or roi_y is None or roi_w is None or roi_h is None:
-        try:
-            result = await run_in_threadpool(
-                predict_walls_from_bytes,
-                image_bytes=content, filename=files[0].filename or "image.png",
-                confidence=confidence, real_scale=real_scale
-            )
-            return [result]
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    try:
-        # Cắt nhỏ vùng ảnh ROI trực tiếp từ luồng nhị phân bằng thư viện PIL
-        pil_img = PILImage.open(io.BytesIO(content)).convert("RGB")
-        img_w, img_h = pil_img.width, pil_img.height
-        img_np = np.array(pil_img)
-
-        # Lấy giá trị đệm padding cấu hình cho từng mô hình
-        actual_padding = get_roi_padding("wall", roi_padding)
-        pad = int(actual_padding)
-        cx1, cy1 = max(0, int(roi_x) - pad), max(0, int(roi_y) - pad)
-        cx2, cy2 = min(img_w, int(roi_x + roi_w) + pad), min(img_h, int(roi_y + roi_h) + pad)
-        crop_w = cx2 - cx1
-        crop_h = cy2 - cy1
-        crop = img_np[cy1:cy2, cx1:cx2]
-
-        # Đóng gói và lưu lại ảnh cắt nhị phân để truyền đi suy luận
-        crop_pil = PILImage.fromarray(crop)
-        buf = io.BytesIO()
-        crop_pil.save(buf, format="PNG")
-        crop_bytes = buf.getvalue()
-
-        # Calculate target imgsz to maintain scale
-        # Full image is run at imgsz=1024
-        full_scale = 1024.0 / max(img_w, img_h) if max(img_w, img_h) > 0 else 1.0
-        target_imgsz = int(max(crop_w, crop_h) * full_scale)
-        target_imgsz = max(128, min(1024, ((target_imgsz + 15) // 32) * 32))
-
-        result = await run_in_threadpool(
-            predict_walls_from_bytes,
-            image_bytes=crop_bytes,
-            filename=files[0].filename or "image.png",
-            confidence=confidence,
-            real_scale=real_scale,
-            imgsz=target_imgsz
-        )
-
-        # Ánh xạ lại hệ tọa độ cục bộ của ROI về hệ tọa độ gốc toàn ảnh
-        if result and result.get("pages"):
-            for page in result["pages"]:
-                for wall in page.get("walls", []):
-                    for pt in wall.get("points", []):
-                        pt["x"] = pt["x"] + cx1
-                        pt["y"] = pt["y"] + cy1
-                for door in page.get("doors", []):
-                    for pt in door.get("points", []):
-                        pt["x"] = pt["x"] + cx1
-                        pt["y"] = pt["y"] + cy1
-                page["roi"] = {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h}
-
-        # Ghi log sự kiện lỗi hoặc độ tin cậy thấp phục vụ phân tích chất lượng mô hình
-        walls = result.get("pages", [{}])[0].get("walls", []) if result else []
-        roi_bounds = {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h}
-        if not walls:
-            log_roi_event(roi_bounds, "failed", {"model": "wall"})
-        else:
-            has_low_conf = any(w.get("conf", 1.0) < 0.40 for w in walls)
-            if has_low_conf:
-                log_roi_event(roi_bounds, "low_conf", {"model": "wall"})
-
-        return [result]
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("/roi-heatmap")
@@ -348,7 +251,7 @@ def save_label(data: LabelRequest):
         dataset_service.save_visual_check(
             [], data.width, data.height, image_name,
             data.project_name, data.username,
-            walls=data.walls, doors=data.doors
+            walls=[], doors=data.doors
         )
         return {"status": "ok"}
 
@@ -377,28 +280,18 @@ def save_label(data: LabelRequest):
     yolo_txt_all = build_yolo_txt(rooms)
     dataset_service.save_label(yolo_txt_all, image_name)
 
-    # Lưu tệp nhãn phân đoạn tường & cửa nếu có dữ liệu
-    if data.walls or data.doors:
-        wall_yolo_txt = convert_walls_to_yolo(data.walls or [], data.doors or [], data.width, data.height)
-        print(f"[train] Ghi nhận số dòng nhãn tường={len(wall_yolo_txt.splitlines())} vào bộ nhãn huấn luyện tường.")
-        dataset_service.save_wall_label(wall_yolo_txt, data.name, None)
+
 
     # Tự động cập nhật class_id cho phòng phục vụ đồng bộ Frontend
     for room in data.rooms:
         room.class_id = dataset_service.get_class_id(room.room_name)
 
-    # Ghi đè ảnh kiểm trực quan trực tiếp phục vụ bộ nhãn của phòng (bao gom ca tuong va cua de hien thi check)
+    # Ghi đè ảnh kiểm trực quan trực tiếp phục vụ bộ nhãn của phòng (bao gom ca cua de hien thi check)
     dataset_service.save_visual_check(
         data.rooms, data.width, data.height, data.name,
         data.project_name, data.username,
-        walls=data.walls, doors=data.doors
+        walls=[], doors=data.doors
     )
-
-    # Ghi đè ảnh kiểm trực quan trực tiếp phục vụ nhãn của tường & cửa
-    if data.walls or data.doors:
-        dataset_service.save_wall_visual_check(
-            data.walls, data.doors, data.width, data.height, data.name
-        )
 
     # Gửi sự kiện phản hồi chất lượng hình học ROI làm dữ liệu huấn luyện chủ động
     if data.roi:
@@ -407,7 +300,7 @@ def save_label(data: LabelRequest):
             image_name=data.name,
             roi_bounds=data.roi,
             rooms=rooms,
-            walls=[w.dict() for w in data.walls] if data.walls else [],
+            walls=[],
             doors=[d.dict() for d in data.doors] if data.doors else [],
             width=data.width,
             height=data.height,
@@ -725,74 +618,7 @@ async def refine_door(req: RefineDoorRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/predict_seg_wall")
-async def predict_seg_wall(
-    files: TypingList[UploadFile] = File(...),
-    confidence: float = Form(0.3),
-    real_scale: Optional[float] = Form(None),
-    username: str = Depends(validate_session)
-):
-    """
-    Suy luận Phân đoạn Tường (Wall Segmentation) cho bản vẽ.
-    Tự động xử lý đa luồng song song trên danh sách ảnh gửi lên.
-    """
-    from services.wall_ai_detect import predict_walls_from_bytes
 
-    file_contents = []
-    for f in files:
-        file_contents.append((await f.read(), f.filename or "image.png"))
-
-    async def process_single_wall_file(content, filename):
-        try:
-            return await run_in_threadpool(
-                predict_walls_from_bytes,
-                image_bytes=content,
-                filename=filename,
-                confidence=confidence,
-                real_scale=real_scale,
-            )
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=500, detail=f"Không tìm thấy mô hình YOLO Wall: {e}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    tasks = [process_single_wall_file(content, name) for content, name in file_contents]
-    results = await asyncio.gather(*tasks)
-
-    return list(results)
-
-
-@router.post("/diagnose/predict_seg_wall")
-async def diagnose_predict_seg_wall(
-    files: TypingList[UploadFile] = File(...),
-    confidence: float = Form(0.3),
-    real_scale: Optional[float] = Form(None),
-    username: str = Depends(validate_session)
-):
-    """Định tuyến chẩn đoán Nhận diện Tường."""
-    from services.wall_ai_detect import predict_walls_from_bytes
-
-    file_contents = []
-    for f in files:
-        file_contents.append((await f.read(), f.filename or "image.png"))
-
-    async def process_single_wall_file(content, filename):
-        try:
-            return await run_in_threadpool(
-                predict_walls_from_bytes,
-                image_bytes=content,
-                filename=filename,
-                confidence=confidence,
-                real_scale=real_scale,
-                return_diagnostics=True,
-            )
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=500, detail=f"Không tìm thấy mô hình YOLO Wall: {e}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    tasks = [process_single_wall_file(content, name) for content, name in file_contents]
-    return list(await asyncio.gather(*tasks))
 
 
 # ── Training Triggers (Khởi chạy tiến trình tự huấn luyện lại mô hình AI) ──
@@ -829,28 +655,7 @@ async def add_train_bim(request: Request, username: str = Depends(validate_sessi
     return {"status": "ok", "message": "Chế độ tương thích ngược BIM."}
 
 
-@router.post("/add_train_wall_bim")
-@limiter.limit("10/minute")
-async def add_train_wall_bim(request: Request, username: str = Depends(validate_session)):
-    """
-    Kích hoạt tiến trình huấn luyện lại mô hình Nhận diện Tường.
-    Khởi chạy tệp tin 'train_wall.py' độc lập.
-    """
-    import subprocess
-    logger.info(f"Người dùng '{username}' kích hoạt tiến trình huấn luyện lại mô hình Tường.")
-    try:
-        backend_dir = str(Path(__file__).resolve().parent.parent)
-        training_dir = str(Path(backend_dir) / "training")
-        flags = subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
-        subprocess.Popen(
-            [sys.executable, "train_wall.py"],
-            cwd=training_dir,
-            creationflags=flags
-        )
-        return {"status": "ok", "message": "Tiến trình huấn luyện lại mô hình Tường đã được bắt đầu thành công."}
-    except Exception as e:
-        logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Tường: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/add_train_door_bim")
@@ -883,17 +688,12 @@ async def door_segment(
     confidence: float = Form(0.3),
     real_scale: Optional[float] = Form(1.0),
     room_polygons: Optional[str] = Form(None),
-    walls_json: Optional[str] = Form(None),
     debug: bool = Form(False),
     username: str = Depends(validate_session)
 ):
     """
     Định tuyến nhận diện phân đoạn cửa (Door Segmentation).
     Trả về thông tin phân đoạn đa giác và phân tích hình học (BIM) cho từng cửa phát hiện được.
-
-    Accepts optional ``walls_json`` (JSON string of wall objects) and ``debug``
-    flag to enable debug overlay generation.  When walls are not provided,
-    they are automatically detected using the wall segmentation model.
     """
     from services.door_segment_service import DoorSegmentService
     service = DoorSegmentService(debug=debug)
@@ -912,17 +712,6 @@ async def door_segment(
             logger.warning("Failed to parse room_polygons JSON.")
             rooms_data = None
 
-    # ── Parse walls (only if explicitly provided) ──────────
-    walls_data = None
-    if walls_json:
-        try:
-            walls_data = json.loads(walls_json)
-            if not isinstance(walls_data, list):
-                walls_data = None
-        except Exception:
-            logger.warning("Failed to parse walls_json.")
-            walls_data = None
-
     try:
         if filename.lower().endswith(".pdf"):
             return await run_in_threadpool(
@@ -932,7 +721,6 @@ async def door_segment(
                 confidence=confidence,
                 real_scale=real_scale or 1.0,
                 room_polygons=rooms_data,
-                walls=walls_data,
             )
         else:
             return await run_in_threadpool(
@@ -942,7 +730,6 @@ async def door_segment(
                 confidence=confidence,
                 real_scale=real_scale or 1.0,
                 room_polygons=rooms_data,
-                walls=walls_data,
             )
     except FileNotFoundError as e:
         logger.error(f"Model not found for door segmentation: {e}")
@@ -974,5 +761,6 @@ async def train_door_seg(request: Request, username: str = Depends(validate_sess
     except Exception as e:
         logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Phân đoạn Cửa: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 

@@ -222,115 +222,6 @@ const RoomPolygonLayer = React.memo(({
 });
 
 // ==========================================
-// 3. WallLayer (Memoized)
-// ==========================================
-const WallLayer = React.memo(({
-  walls,
-  showLayer,
-  selectedId,
-  selectedType,
-  selectedPointIndex,
-  realScale,
-  drawing,
-  isDrawingWall,
-  isMeasuring,
-  isDistancing,
-  setSelectedId,
-  setSelectedType,
-  startDrag
-}) => {
-  if (showLayer !== 'all' && showLayer !== 'wall') return null;
-
-  return (
-    <g id="WallLayer">
-      {(walls || []).map(w => {
-        const isSelected = selectedId === w.id && selectedType === "wall";
-        const thicknessPx = realScale ? (w.thickness || 90) / realScale : 10;
-        const pointsStr = w.points.map(p => `${p.x},${p.y}`).join(" ");
-
-        // Review state color mapping
-        const revState = w.review_state || (w.id && String(w.id).startsWith("wall_ai") ? "ai_corrected" : "AI_GENERATED");
-        const revStyle = REVIEW_COLORS[revState];
-        const strokeColor = isSelected ? "#FF5722" : (revStyle ? revStyle.stroke : "#8B5E3C");
-
-        return (
-          <g key={w.id}>
-            {w.isClosed ? (
-              <polygon
-                points={pointsStr}
-                fill={w.id && String(w.id).startsWith("wall_ai") ? "rgba(139,94,60,0.4)" : "none"}
-                stroke={strokeColor}
-                strokeWidth={w.id && String(w.id).startsWith("wall_ai") ? 2 : (isSelected ? thicknessPx + 2 : thicknessPx)}
-                strokeLinejoin="miter"
-                opacity={isSelected ? 1 : 0.8}
-                onClick={(e) => {
-                  if (drawing || isDrawingWall || isMeasuring || isDistancing) return;
-                  e.stopPropagation();
-                  setSelectedId(w.id);
-                  setSelectedType("wall");
-                }}
-              />
-            ) : (
-              <polyline
-                points={pointsStr}
-                fill="none"
-                stroke={strokeColor}
-                strokeWidth={isSelected ? thicknessPx + 2 : thicknessPx}
-                strokeLinecap="square"
-                strokeLinejoin="miter"
-                opacity={isSelected ? 1 : 0.8}
-                onClick={(e) => {
-                  if (drawing || isDrawingWall || isMeasuring || isDistancing) return;
-                  e.stopPropagation();
-                  setSelectedId(w.id);
-                  setSelectedType("wall");
-                }}
-              />
-            )}
-
-            {isSelected && w.points.map((p, i) => {
-              const isPointSelected = selectedPointIndex === i;
-              return (
-                <circle
-                  key={`wall-node-${w.id}-${i}`}
-                  cx={p.x}
-                  cy={p.y}
-                  r={isPointSelected ? 7 : 4}
-                  fill={isPointSelected ? "#fbbf24" : "#FF5722"}
-                  stroke={isPointSelected ? "#000" : "#fff"}
-                  strokeWidth={isPointSelected ? 2 : 1}
-                  style={{ 
-                    cursor: 'move',
-                    filter: isPointSelected ? 'drop-shadow(0 0 4px #fbbf24)' : 'none'
-                  }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    startDrag(w.id, i, 'wall');
-                  }}
-                />
-              );
-            })}
-          </g>
-        );
-      })}
-    </g>
-  );
-}, (prev, next) => {
-  return (
-    prev.walls === next.walls &&
-    prev.showLayer === next.showLayer &&
-    prev.selectedId === next.selectedId &&
-    prev.selectedType === next.selectedType &&
-    prev.selectedPointIndex === next.selectedPointIndex &&
-    prev.realScale === next.realScale &&
-    prev.drawing === next.drawing &&
-    prev.isDrawingWall === next.isDrawingWall &&
-    prev.isMeasuring === next.isMeasuring &&
-    prev.isDistancing === next.isDistancing
-  );
-});
-
-// ==========================================
 // 4. DoorLayer (Memoized)
 // ==========================================
 const DoorLayer = React.memo(({
@@ -340,7 +231,6 @@ const DoorLayer = React.memo(({
   selectedType,
   realScale,
   drawing,
-  isDrawingWall,
   isDrawingDoor,
   isMeasuring,
   isDistancing,
@@ -404,8 +294,6 @@ const DoorLayer = React.memo(({
                 color={color}
                 startDrag={startDrag}
                 updateDoor={updateDoor}
-                drawing={drawing}
-                isDrawingWall={isDrawingWall}
                 isDrawingDoor={isDrawingDoor}
                 isMeasuring={isMeasuring}
                 isDistancing={isDistancing}
@@ -425,7 +313,6 @@ const DoorLayer = React.memo(({
           const hasDisplayPoly = displayPoly && displayPoly.length >= 3;
 
           const renderSingleDoor = () => {
-            if (!isSelected) return null;
             const geom = calculateDoorGeometry({
               p1,
               p2,
@@ -451,32 +338,33 @@ const DoorLayer = React.memo(({
                 <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={color} strokeWidth={isSelected ? 4 : 2.5} />
                 
                 {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
-                <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
-                  <rect
-                    x={-24} y={-8} width={48} height={16} rx={2}
-                    fill="rgba(255, 255, 255, 0.95)"
-                    filter="url(#glow)"
-                    stroke={color} strokeWidth={0.5}
-                  />
-                  <text
-                    x={0} y={1}
-                    fontSize="10"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fill={color}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none' }}
-                  >
-                    {d.width || Math.round(geom.widthPx * (realScale || 20))}
-                  </text>
-                </g>
+                {isSelected && (
+                  <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
+                    <rect
+                      x={-24} y={-8} width={48} height={16} rx={2}
+                      fill="rgba(255, 255, 255, 0.95)"
+                      filter="url(#glow)"
+                      stroke={color} strokeWidth={0.5}
+                    />
+                    <text
+                      x={0} y={1}
+                      fontSize="10"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fill={color}
+                      fontFamily="Inter, sans-serif"
+                      fontWeight="bold"
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                      {d.width || Math.round(geom.widthPx * (realScale || 20))}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           };
 
           const renderDoubleDoor = () => {
-            if (!isSelected) return null;
             const halfLen = len / 2;
             const isInward = (d.swing || d.swing_direction || "inward") === "inward";
             const openAngleDeg = d.angle || d.opening_angle || 90;
@@ -503,7 +391,6 @@ const DoorLayer = React.memo(({
           };
 
           const renderSlidingDoor = () => {
-            if (!isSelected) return null;
             const offsetX = -Math.sin(angle) * 3;
             const offsetY = Math.cos(angle) * 3;
             return (
@@ -517,7 +404,7 @@ const DoorLayer = React.memo(({
           return (
             <g key={d.id} 
                onClick={(e) => {
-                 if (drawing || isDrawingWall || isDrawingDoor || isMeasuring || isDistancing) return;
+                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  e.stopPropagation();
                  setSelectedId(d.id);
                  setSelectedType("door");
@@ -544,40 +431,52 @@ const DoorLayer = React.memo(({
               {type === "double" ? (
                 <>
                   {renderDoubleDoor()}
-                  {isSelected && (
-                    <text 
-                      x={(p1.x + p2.x) / 2} 
-                      y={(p1.y + p2.y) / 2 - 10} 
-                      fontSize="10" 
-                      textAnchor="middle" 
-                      fill={color} 
-                      fontFamily="Inter, sans-serif"
-                      fontWeight="bold"
-                      style={{ pointerEvents: 'none', userSelect: 'none' }}
-                    >
-                      {d.width || Math.round(len * (realScale || 20))}
-                    </text>
-                  )}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={isSelected ? color : "#1e293b"} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                  >
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                  </text>
                 </>
               ) : (type === "sliding" ? (
                 <>
                   {renderSlidingDoor()}
-                  {isSelected && (
-                    <text 
-                      x={(p1.x + p2.x) / 2} 
-                      y={(p1.y + p2.y) / 2 - 10} 
-                      fontSize="10" 
-                      textAnchor="middle" 
-                      fill={color} 
-                      fontFamily="Inter, sans-serif"
-                      fontWeight="bold"
-                      style={{ pointerEvents: 'none', userSelect: 'none' }}
-                    >
-                      {d.width || Math.round(len * (realScale || 20))}
-                    </text>
-                  )}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={isSelected ? color : "#1e293b"} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                  >
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                  </text>
                 </>
-              ) : renderSingleDoor())}
+              ) : (
+                <>
+                  {renderSingleDoor()}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={isSelected ? color : "#1e293b"} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                  >
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                  </text>
+                </>
+              ))}
 
               {/* Bounding Box Corner Handles */}
               {isSelected && hasBBox && bboxPoly.map((p, i) => (
@@ -719,7 +618,6 @@ const DoorLayer = React.memo(({
     prev.selectedType === next.selectedType &&
     prev.realScale === next.realScale &&
     prev.drawing === next.drawing &&
-    prev.isDrawingWall === next.isDrawingWall &&
     prev.isDrawingDoor === next.isDrawingDoor &&
     prev.isMeasuring === next.isMeasuring &&
     prev.isDistancing === next.isDistancing &&
@@ -1229,14 +1127,11 @@ export default function CanvasView({
   offset,
   scale,
   drawing,
-  isDrawingWall,
   isDrawingDoor,
   currentPoly,
-  currentWall,
   currentDoor,
   currentMouse,
   rooms,
-  walls,
   doors,
   scaleValue,
   realScale,
@@ -1273,7 +1168,6 @@ export default function CanvasView({
   pages,
   handleClick,
   finishPolygon,
-  finishWall,
   finishDoor,
   onMouseMove,
   onMouseDown,
@@ -1704,7 +1598,6 @@ export default function CanvasView({
             {(isShiftDown || isSnapMode) && currentMouse && (() => {
               let snapBase = null;
               if (drawing && currentPoly.length > 0) snapBase = currentPoly[currentPoly.length - 1];
-              else if (isDrawingWall && currentWall.length > 0) snapBase = currentWall[currentWall.length - 1];
               else if (isMeasuring && measurePoints.length === 1) snapBase = measurePoints[0];
               else if (isDistancing && distancePoints.length === 1) snapBase = distancePoints[0];
 
@@ -1753,32 +1646,6 @@ export default function CanvasView({
                     opacity={0.8}
                   />
                 )}
-              </g>
-            )}
-
-            {/* Wall Drawing Preview */}
-            {isDrawingWall && (currentWall.length > 0 || currentMouse) && (
-              <g style={{ pointerEvents: 'none' }}>
-                <polyline
-                  points={[...currentWall, currentMouse].filter(Boolean).map(p => `${p.x},${p.y}`).join(" ")}
-                  fill="none"
-                  stroke="#8B5E3C"
-                  strokeWidth={realScale ? 90 / realScale : 10}
-                  strokeLinecap="square"
-                  strokeLinejoin="miter"
-                  strokeDasharray="6,3"
-                  opacity={0.6}
-                />
-                {currentWall.map((p, i) => (
-                  <circle
-                    key={`preview-wall-${i}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={i === 0 ? 5 : 3}
-                    fill={i === 0 ? "#FF5722" : "#8B5E3C"}
-                    stroke="#ffffff"
-                  />
-                ))}
               </g>
             )}
 
@@ -1843,23 +1710,6 @@ export default function CanvasView({
               heatmapMode={heatmapMode}
             />
 
-            {/* Memoized Layer 3: Wall Segment Lines */}
-            <WallLayer
-              walls={walls}
-              showLayer={showLayer}
-              selectedId={selectedId}
-              selectedType={selectedType}
-              selectedPointIndex={selectedPointIndex}
-              realScale={realScale}
-              drawing={drawing}
-              isDrawingWall={isDrawingWall}
-              isMeasuring={isMeasuring}
-              isDistancing={isDistancing}
-              setSelectedId={setSelectedId}
-              setSelectedType={setSelectedType}
-              startDrag={startDrag}
-            />
-
             {/* Memoized Layer 4: Doors */}
             <DoorLayer
               doors={doors}
@@ -1868,7 +1718,6 @@ export default function CanvasView({
               selectedType={selectedType}
               realScale={realScale}
               drawing={drawing}
-              isDrawingWall={isDrawingWall}
               isDrawingDoor={isDrawingDoor}
               isMeasuring={isMeasuring}
               isDistancing={isDistancing}
@@ -1896,7 +1745,7 @@ export default function CanvasView({
               drawing={drawing}
               isMeasuring={isMeasuring}
               isDistancing={isDistancing}
-              isDrawingWall={isDrawingWall}
+              isDistancing={isDistancing}
               config={config}
               heatmapMode={heatmapMode}
               selectedId={selectedId}
@@ -2263,10 +2112,9 @@ export default function CanvasView({
           </div>
           <div className="status-item">
             {drawing && <span style={{ color: "#3b82f6" }}>● Drawing Room</span>}
-            {isDrawingWall && <span style={{ color: "#8B5E3C" }}>● Drawing Wall</span>}
             {isMeasuring && <span style={{ color: "#facc15" }}>● Setting Scale</span>}
             {isDistancing && <span style={{ color: "#00e5ff" }}>📐 Distance Mode{distancePoints.length === 1 ? " — click điểm thứ 2" : " — click điểm thứ 1"}{isShiftDown ? " [Snap 90°]" : ""}</span>}
-            {!drawing && !isDrawingWall && !isMeasuring && !isDistancing && <span>Ready</span>}
+            {!drawing && !isMeasuring && !isDistancing && <span>Ready</span>}
           </div>
         </div>
       </div>

@@ -1,6 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 } from "@/utils/geometry";
+import { polygonAreaM2, distancePointToSegment } from "@/utils/geometry";
+
+
+const getX = (p) => (p && p.x !== undefined ? p.x : p?.[0] ?? 0);
+const getY = (p) => (p && p.y !== undefined ? p.y : p?.[1] ?? 0);
 
 /* ===================================================== */
 /* ================= ENTERPRISE BOQ ===================== */
@@ -13,13 +17,43 @@ const formatArea = (v) => {
   return parseFloat(num.toFixed(2));
 };
 
+function normalizeLabel(str) {
+  return (str || "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, ""); // ✅ remove all special chars
+}
+
+const normalize = (str) =>
+  (str || "").toLowerCase().trim();
+
+function normalizeId(id) {
+  return String(id)
+    .toLowerCase()
+    .replace("wall_", "")
+    .replace("door_", "")
+    .trim();
+}
+
+function buildRoomKey(name, wetness, floor) {
+  return `${normalize(name)}__${normalize(wetness)}__${normalize(floor)}`;
+}
+
+function buildDoorCode(d) {
+  const label = d.label || "Door";
+  const w = Math.round((d.width || 0.82) * 1000);
+  const h = Math.round((d.height || 2.34) * 1000);
+  const hinge = d.hinge || "LH";
+  return `${label}-${w}x${h}-${hinge}`;
+}
+
 
 
 const EMPTY_ARRAY = [];
 
 export default function BOQTable({
   pages = EMPTY_ARRAY,
-  walls = EMPTY_ARRAY,
+
+  doors = EMPTY_ARRAY,
   scaleValue,
   wasteInternal = 10,
   wasteExternal = 15,
@@ -136,6 +170,82 @@ export default function BOQTable({
 
 
 
+  const enrichedDoors = useMemo(() => {
+    return doors.map(d => {
+      let center = d.center;
+      if (!center) {
+        const poly = d.polygon || d.mask_polygon || d.points;
+        if (poly && poly.length > 0) {
+          const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+          const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+          const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+          center = [cx, cy];
+        }
+      }
+
+      const page = pages[d.page_index];
+      if (!center || !page) {
+        const floorFallback = page?.floor_name ? page.floor_name.toLowerCase().replace(/\s+/g, '_') : `floor_${d.page_index ?? 0}`;
+        const roomName = getValidRoomName(d.room_name) || floorFallback;
+        return {
+          ...d,
+          center,
+          leftRoom: { room_name: roomName, wetness: "dry" },
+          rightRoom: { room_name: "Unknown", wetness: "dry" },
+          primaryRoom: { room_name: roomName, wetness: "dry" },
+          label: roomName,
+          floor_name: page?.floor_name || `Floor_${d.page_index ?? 0}`,
+        };
+      }
+
+      const rooms = findRoomsFromDoor(d, page, center);
+      const width = getDoorWidth(d, scaleValue);
+      const height = getDoorHeight(d);
+      
+      const validLeft = getValidRoomName(rooms.left.room_name);
+      const validRight = getValidRoomName(rooms.right.room_name);
+      const floorFallback = page?.floor_name ? page.floor_name.toLowerCase().replace(/\s+/g, '_') : `floor_${d.page_index ?? 0}`;
+      const label = validLeft || validRight || floorFallback;
+
+      const primaryRoom =
+        validLeft
+          ? rooms.left
+          : (validRight ? rooms.right : { room_name: label, wetness: "dry" });
+
+      return {
+        ...d,
+        center,
+        swing: "unknown",
+        hinge: "LH",
+        leftRoom: rooms.left,
+        rightRoom: rooms.right,
+        primaryRoom: {
+          room_name: primaryRoom.room_name,
+          wetness: primaryRoom.wetness
+        },
+        label,
+        swing,
+        hinge, // ✅ NEW
+        floor_name: page.floor_name,
+        width: Number(width.toFixed(2)),
+        height: Number(height.toFixed(2)),
+      };
+    });
+  }, [pages, doors, scaleValue]);
+
+  const doorCountByRoom = useMemo(() => {
+    const map = {};
+    enrichedDoors.forEach(d => {
+      const rooms = [d.leftRoom, d.rightRoom];
+      rooms.forEach(r => {
+        const key = buildRoomKey(r.room_name, r.wetness, d.floor_name);
+        if (!map[key]) map[key] = 0;
+        map[key] = (map[key] || 0) + 1;
+      });
+    });
+    return map;
+  }, [enrichedDoors]);
+
   const baseList = useMemo(() => {
     if (!scaleValue || scaleValue <= 0) return [];
     const rows = [];
@@ -149,6 +259,8 @@ export default function BOQTable({
         const roomWetness = r.wetness || "dry";
         const roomNameLower = (r.room_name || "").toLowerCase();
         const roomTypeLower = (r.type || "").toLowerCase();
+        const roomKey = buildRoomKey(r.room_name, r.wetness, p.floor_name);
+        const doorCount = doorCountByRoom[roomKey] || 0;
         const derivedZone = (roomNameLower.includes("deck") || roomTypeLower.includes("deck"))
           ? "deck"
           : "floor";
@@ -161,6 +273,7 @@ export default function BOQTable({
           deckType: r.type === "tile_deck" ? "tile_deck" : "timber_deck",
           areaCalc,
           areaOverride: null,
+          doorCount,
         });
       })
     );
@@ -177,7 +290,7 @@ export default function BOQTable({
     });
 
     return Object.values(grouped);
-  }, [pages, scaleValue]);
+  }, [pages, scaleValue, doorCountByRoom]);
   const [viewMode, setViewMode] = useState("detail");
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
@@ -215,6 +328,29 @@ export default function BOQTable({
 
   /* ================= Filtering ================= */
 
+  const lockupData = useMemo(() => {
+    return enrichedDoors.map((d, i) => {
+      const room = d.primaryRoom?.room_name || d.label || "floor_0";
+      const wet = d.primaryRoom?.wetness || "dry";
+      const w = Math.round((d.width ?? 0.82) * 1000);
+      const h = Math.round((d.height ?? 2.34) * 1000);
+      
+      return {
+        id: d.id || `door_${i}`,
+        door_name: d.door_name || `D-${i + 1}`,
+        room_name: room,
+        wetness: wet,
+        floor_name: d.floorName || d.floor_name || "Floor_0",
+        doorCount: 1,
+        width: w,
+        height: h,
+        label: d.label || "floor_0",
+        swing: d.swing || "unknown",
+        hinge: d.hinge || "LH",
+        doorCode: d.doorCode || ""
+      };
+    });
+  }, [enrichedDoors]);
 
   const filtered = useMemo(() => {
     return list
@@ -324,54 +460,48 @@ export default function BOQTable({
     // ✔ Parfix Adhesive (for Scyon/Secura) = (scyon + secura) / 4
     const parfixQty = Math.ceil((scyonFinalSheets + securaFinalSheets) / 4);
 
-    // ===== WALLS (Internal/External) =====
-    const wallSummaries = [];
-    const internalWalls = (walls || []).filter(w => w.wall_type === "int");
-    const externalWalls = (walls || []).filter(w => w.wall_type === "ext");
-
-    const calcWallArea = (wallList) => {
-      let totalArea = 0;
-      wallList.forEach(w => {
-        if (!w.points || w.points.length < 2) return;
-        // Calculate length in pixels
-        let lengthPx = 0;
-        for (let i = 0; i < w.points.length - 1; i++) {
-          lengthPx += Math.hypot(w.points[i + 1].x - w.points[i].x, w.points[i + 1].y - w.points[i].y);
-        }
-        if (w.isClosed && w.points.length > 2) {
-          lengthPx += Math.hypot(w.points[0].x - w.points[w.points.length - 1].x, w.points[0].y - w.points[w.points.length - 1].y);
-        }
-
-        const lengthM = lengthPx * scaleValue;
-        const heightM = (w.height || 2400) / 1000;
-        let wallArea = lengthM * heightM;
 
 
+    // ===== DOORS =====
+    const doorSummaries = [];
+    let singleDoorsCount = 0;
+    let doubleDoorsCount = 0;
+    let slidingDoorsCount = 0;
 
-        totalArea += Math.max(0, wallArea);
+    pages.forEach(p => {
+      (p.doors || []).forEach(d => {
+        if (d.class === "single_door") singleDoorsCount++;
+        else if (d.class === "double_door") doubleDoorsCount++;
+        else if (d.class === "sliding_door" || d.class === "double_sliding_door") slidingDoorsCount++;
+        else singleDoorsCount++;
       });
-      return totalArea;
-    };
+    });
 
-    const intWallArea = calcWallArea(internalWalls);
-    const extWallArea = calcWallArea(externalWalls);
-
-    if (intWallArea > 0) {
-      wallSummaries.push({
-        id: "WALL_INT",
-        name: "Internal Wall Framing & Lining",
-        area: intWallArea,
-        finalQty: intWallArea,
-        unit: "m²",
+    if (singleDoorsCount > 0) {
+      doorSummaries.push({
+        id: "DOOR_SINGLE",
+        name: "Single Internal Door",
+        area: 0,
+        finalQty: singleDoorsCount,
+        unit: "ea",
       });
     }
-    if (extWallArea > 0) {
-      wallSummaries.push({
-        id: "WALL_EXT",
-        name: "External Wall Framing & Lining",
-        area: extWallArea,
-        finalQty: extWallArea,
-        unit: "m²",
+    if (doubleDoorsCount > 0) {
+      doorSummaries.push({
+        id: "DOOR_DOUBLE",
+        name: "Double Internal Door",
+        area: 0,
+        finalQty: doubleDoorsCount,
+        unit: "ea",
+      });
+    }
+    if (slidingDoorsCount > 0) {
+      doorSummaries.push({
+        id: "DOOR_SLIDING",
+        name: "Sliding Door",
+        area: 0,
+        finalQty: slidingDoorsCount,
+        unit: "ea",
       });
     }
 
@@ -393,7 +523,8 @@ export default function BOQTable({
         unit: "sheet",
       },
       ...deckSummaries,
-      ...wallSummaries,
+
+      ...doorSummaries,
       {
         id: "1213658",
         name: "Ramset Sausage (1 tube per 4 sheets)",
@@ -551,7 +682,94 @@ export default function BOQTable({
     );
   }
 
-
+  function LockUpTable({ data }) {
+    return (
+      <table style={styles.summaryTable}>
+        <thead style={styles.summaryHead}>
+          <tr>
+            <th style={{ ...styles.th, textAlign: "center" }}>Door ID</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Label</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Height</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Width</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>QTY</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Ex jamb size</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Frame</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Swing</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Jamp type</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Door type</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Code</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Hardware type</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((r, i) => (
+            <tr key={`${r.id}_${i}`} style={styles.rowHover}>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                {r.door_name}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                {r.label}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                <select name="" id="" style={styles.inlineInput2}>
+                  <option value="">{r.height}</option>
+                  <option value="">2040</option>
+                  <option value="">2340</option>
+                  <option value="">spec</option>
+                </select>
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                <select name="" id="" style={{ ...styles.inlineInput2 }}>
+                  <option value="">{r.width}</option>
+                  <option value="">720</option>
+                  <option value="">770</option>
+                  <option value="">820</option>
+                  <option value="">870</option>
+                  <option value="">920</option>
+                  <option value="">1200</option>
+                  <option value="">spec</option>
+                </select>
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                {r.doorCount ?? 0}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                <select name="" id="" style={{ ...styles.inlineInput }}>
+                  <option value="">Door Frame Pre-Made With Sill</option>
+                  <option value="">Door Frame Pre-Made With Sill - Pivot Frame</option>
+                  <option value="">110x19 MDF Jamb Sets RH</option>
+                  <option value="">110x19 MDF Jamb Sets LH</option>
+                </select>
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                <select name="" id="" style={styles.inlineInput2}>
+                  <option value="">37mm Frame</option>
+                  <option value="">42mm Frame</option>
+                  <option value="">sets</option>
+                </select>
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                {r.swing}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                {r.hinge}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                <select name="" id="" style={styles.inlineInput2}>
+                  <option value="">Single</option>
+                  <option value="">Double</option>
+                </select>
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>{buildDoorCode(r)}</td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                Lockwood Satin Chrome Symmetry Entry Lever Set - 4020475
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
 
   function SummaryTable({ title, data }) {
     if (data.length === 0) return null;
@@ -848,7 +1066,18 @@ export default function BOQTable({
         >
           Area Summary
         </button>
-
+        <button
+          onClick={() => setViewMode("Lock_up")}
+          style={{
+            ...styles.tabBtn,
+            background:
+              viewMode === "Lock_up" ? "#111827" : "white",
+            color:
+              viewMode === "Lock_up" ? "white" : "#111827",
+          }}
+        >
+          Lock_up
+        </button>
       </div>
       <br />
       {viewMode === "detail" && (
@@ -879,7 +1108,9 @@ export default function BOQTable({
         </>
       )}
 
-
+      {viewMode === "Lock_up" && (
+        <LockUpTable data={lockupData} />
+      )}
 
       <div style={styles.paginationWrapper}>
         <div>
@@ -1150,3 +1381,164 @@ const styles = {
     transition: "0.2s ease",
   },
 };
+
+function getDoorWidth(door, walls, scaleValue) {
+  // 1. If door has width_mm (from OCR/edit), use it (convert to meters)
+  if (door.width_mm && door.width_mm > 0) {
+    return door.width_mm > 10 ? door.width_mm / 1000 : door.width_mm;
+  }
+  
+  // 2. If door has width (from YOLO/detection), use it (convert to meters)
+  if (door.width && door.width > 0) {
+    return door.width > 10 ? door.width / 1000 : door.width;
+  }
+
+  // 3. Calculate from points
+  if (door.points && door.points.length >= 2) {
+    const [p1, p2] = door.points;
+    const distPx = Math.hypot(getX(p2) - getX(p1), getY(p2) - getY(p1));
+    return distPx * scaleValue;
+  }
+
+  // 4. Bounding box fallback
+  const poly = door.polygon || door.mask_polygon;
+  if (poly && poly.length >= 2) {
+    const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+    let maxDistPx = 0;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+        if (d > maxDistPx) {
+          maxDistPx = d;
+        }
+      }
+    }
+    if (maxDistPx > 0) {
+      return maxDistPx * scaleValue;
+    }
+  }
+
+
+  return 0.82; // standard fallback
+}
+
+function getDoorHeight(door) {
+  if (!door.height) return 2.1;
+  return door.height > 10 ? door.height / 1000 : door.height;
+}
+
+
+function pointInPolygon(point, vs) {
+  const [x, y] = point;
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = getX(vs[i]), yi = getY(vs[i]);
+    const xj = getX(vs[j]), yj = getY(vs[j]);
+    const intersect =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function fallback(page) {
+  return {
+    room_name: page?.floor_name || `Floor_${page?.page_index ?? 0}`,
+    wetness: "dry",
+  };
+}
+
+function getValidRoomName(roomName) {
+  if (!roomName) return null;
+  const normalized = roomName.trim();
+  if (!normalized) return null;
+  const lower = normalized.toLowerCase();
+  if (lower === "unnamed" || lower === "unknown") return null;
+  if (lower.startsWith("floor")) return null;
+  return normalized;
+}
+
+function findRoomsFromDoor(door, page, center) {
+  const centerPoint = center ? { x: center[0], y: center[1] } : null;
+
+  let leftRoom = null;
+  let rightRoom = null;
+
+  if (center) {
+    const offsets = [
+      [20, 0], [-20, 0], [0, 20], [0, -20],
+      [40, 0], [-40, 0], [0, 40], [0, -40]
+    ];
+
+    for (const off of offsets) {
+      const probePoint = [
+        center[0] + off[0],
+        center[1] + off[1],
+      ];
+
+      for (const o of page.objects || []) {
+        if (!o.polygon || (o.id && String(o.id).startsWith("text-"))) continue;
+
+        if (pointInPolygon(probePoint, o.polygon)) {
+          if (!leftRoom) leftRoom = o;
+          else if (!rightRoom && leftRoom !== o) rightRoom = o;
+        }
+      }
+
+      if (leftRoom && rightRoom) break;
+    }
+  }
+
+  // Fallback / Extra search: If leftRoom or rightRoom is still null, 
+  // check if center point itself is inside a room, or find the closest room polygon.
+  if ((!leftRoom || !rightRoom) && centerPoint && page) {
+    // 1. Check if center is inside any room
+    let containingRoom = null;
+    for (const o of page.objects || []) {
+      if (!o.polygon || o.id && String(o.id).startsWith("text-")) continue;
+      if (pointInPolygon(center, o.polygon)) {
+        containingRoom = o;
+        break;
+      }
+    }
+
+    // 2. Check closest room polygon
+    if (!containingRoom) {
+      let minRoomDist = Infinity;
+      for (const o of page.objects || []) {
+        if (!o.polygon || o.id && String(o.id).startsWith("text-")) continue;
+        for (let i = 0; i < o.polygon.length; i++) {
+          const nextIdx = (i + 1) % o.polygon.length;
+          const res = distancePointToSegment(centerPoint, o.polygon[i], o.polygon[nextIdx]);
+          if (res.dist < minRoomDist) {
+            minRoomDist = res.dist;
+            containingRoom = o;
+          }
+        }
+      }
+      if (minRoomDist > 150) {
+        containingRoom = null;
+      }
+    }
+
+    if (containingRoom) {
+      if (!leftRoom) leftRoom = containingRoom;
+      else if (!rightRoom) rightRoom = containingRoom;
+    }
+  }
+
+  const safeLeft = leftRoom || fallback(page);
+  const safeRight = rightRoom || fallback(page);
+
+  return {
+    left: {
+      room_name: safeLeft.room_name || "Unnamed",
+      wetness: safeLeft.wetness || "dry",
+    },
+    right: {
+      room_name: safeRight.room_name || "Unnamed",
+      wetness: safeRight.wetness || "dry",
+    },
+  };
+}

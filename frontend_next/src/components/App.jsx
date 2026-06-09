@@ -30,7 +30,6 @@ import { ApiService } from "@/models/api.service";
 
 // Dynamic imports for heavy components (code-splitting)
 const BOQTable = dynamic(() => import("@/components/BOQTable"), { ssr: false });
-const Wall3DView = dynamic(() => import("@/views/Wall3DView"), { ssr: false });
 const UserManagement = dynamic(() => import("@/components/UserManagement"), { ssr: false });
 const JobHistory = dynamic(() => import("@/components/JobHistory"), { ssr: false });
 
@@ -66,7 +65,6 @@ export default function App() {
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
-    wallsByPage, setWallsByPage,
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId
   } = useAppModel();
@@ -76,8 +74,7 @@ export default function App() {
   const [imgSize, setImgSize] = useState({ w: 800, h: 600 });
   const [highlightType, setHighlightType] = useState(null);
   const [showBOQ, setShowBOQ] = useState(false);
-  const [show3D, setShow3D] = useState(false);
-  const [showLayer, setShowLayer] = useState("all"); // 'all', 'floor', 'wall'
+  const [showLayer, setShowLayer] = useState("all"); // 'all', 'floor'
   const [showExportPageSelector, setShowExportPageSelector] = useState(false);
   const [exportSelectedPages, setExportSelectedPages] = useState([]);
   const [showImportPageSelector, setShowImportPageSelector] = useState(false);
@@ -97,15 +94,13 @@ export default function App() {
     offset, setOffset,
     isPanning,
     drawing, setDrawing,
-    isDrawingWall, setIsDrawingWall,
     isDrawingDoor, setIsDrawingDoor,
     currentPoly, setCurrentPoly,
-    currentWall, setCurrentWall,
     currentDoor, setCurrentDoor,
     currentMouse,
     history, future,
     pushHistory, undo, redo,
-    deleteItem, deleteAllRooms, deleteAllWalls,
+    deleteItem, deleteAllRooms,
     isMeasuring, setIsMeasuring,
     measurePoints, setMeasurePoints,
     isDistancing, setIsDistancing,
@@ -123,7 +118,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishWall, finishDoor, makeCurve,
+    handleClick, finishPolygon, finishDoor,
     startDrag, onMouseMove, onMouseDown, onMouseUp, onWheel
   } = useInteractionController(svgRef);
 
@@ -156,22 +151,31 @@ export default function App() {
 
   const rooms = roomsByPage[currentPage] || [];
 
-  const updateWall = (newWall) => {
-    const walls = wallsByPage[currentPage] || [];
-    pushHistory(null, walls.map(w => w.id === newWall.id ? newWall : w));
-  };
-
   const updateDoor = (newDoor) => {
     const doors = doorsByPage[currentPage] || [];
     pushHistory(null, null, doors.map(d => d.id === newDoor.id ? newDoor : d));
   };
 
+  // Thêm door_name (D-1, D-2) và page_index tự động cho các cửa để hiển thị đồng nhất và liên kết với tầng chính xác
+  const processedDoorsByPage = useMemo(() => {
+    const newObj = {};
+    Object.keys(doorsByPage).forEach(page => {
+      newObj[page] = (doorsByPage[page] || []).map((d, i) => ({
+        ...d,
+        door_name: d.door_name || `D-${i + 1}`,
+        page_index: parseInt(page, 10)
+      }));
+    });
+    return newObj;
+  }, [doorsByPage]);
+
   const boqPages = useMemo(() => 
     pages.map((p, idx) => ({
       ...p,
-      objects: roomsByPage[idx] || []
+      objects: roomsByPage[idx] || [],
+      doors: processedDoorsByPage[idx] || []
     })), 
-    [pages, roomsByPage]
+    [pages, roomsByPage, processedDoorsByPage]
   );
 
   // === CONTROLLERS (Business Logic) ===
@@ -182,18 +186,24 @@ export default function App() {
     inferenceTiming,
     cancelROI,
     autoDetect,
-    detectWallFromFloorAI,
     detectText,
     detectTemplate,
     detectDoorSeg,
     activeScanRoom
-  } = useAIController(image, currentPage, setRoomsByPage, setWallsByPage, realScale, roomsByPage, setDoorsByPage);
+  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
-    user, pages, roomsByPage, wallsByPage, realScale, wasteByPage, setCurrentProjectName,
-    setPages, setRoomsByPage, setWallsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
+    user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
+    setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
     currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage
   );
+
+  // Pass down context for global access
+  const contextValue = {
+    user, pages, roomsByPage, doorsByPage: processedDoorsByPage, realScale, wasteByPage, setCurrentProjectName,
+    currentProjectName,
+    activeTab, setActiveTab
+  };
 
   const handleSaveJob = async (isSaveAs = false) => {
     let name = currentProjectName;
@@ -305,7 +315,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, addTrainWalls, exportPDF } = useDocumentController({
+  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -350,8 +360,8 @@ export default function App() {
   return (
     <div className="cad-root">
       <RibbonView
+        currentPage={currentPage}
         drawing={drawing} setDrawing={setDrawing}
-        isDrawingWall={isDrawingWall} setIsDrawingWall={setIsDrawingWall}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -364,19 +374,16 @@ export default function App() {
         inferenceTiming={inferenceTiming}
         cancelROI={cancelROI}
         showBOQ={showBOQ} setShowBOQ={setShowBOQ}
-        show3D={show3D} setShow3D={setShow3D}
         showLayer={showLayer} setShowLayer={setShowLayer}
         handleLogout={handleLogout}
         handleSaveJob={handleSaveJob}
         undo={undo} redo={redo}
-        deleteItem={deleteItem} deleteAllRooms={deleteAllRooms} deleteAllWalls={deleteAllWalls}
+        deleteItem={deleteItem} deleteAllRooms={deleteAllRooms}
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
-        finishWall={finishWall} setCurrentWall={setCurrentWall}
-        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
+        autoDetect={autoDetect} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
         exportPDF={exportPDF}
         addTrain={addTrain}
-        addTrainWalls={addTrainWalls}
         addTrainPages={addTrainPages}
         showExportPageSelector={showExportPageSelector}
         setShowExportPageSelector={setShowExportPageSelector}
@@ -404,6 +411,7 @@ export default function App() {
         <div className="cad-body">
           <ThumbnailSidebarView
             pages={pages}
+            setPages={setPages}
             currentPage={currentPage}
             onPageClick={goPage}
             roomsByPage={roomsByPage}
@@ -416,15 +424,12 @@ export default function App() {
             offset={offset}
             scale={scale}
             drawing={drawing}
-            isDrawingWall={isDrawingWall}
             isDrawingDoor={isDrawingDoor}
             currentPoly={currentPoly}
-            currentWall={currentWall}
             currentDoor={currentDoor}
             currentMouse={currentMouse}
             rooms={rooms}
-            walls={wallsByPage[currentPage] || []}
-            doors={doorsByPage[currentPage] || []}
+            doors={processedDoorsByPage[currentPage] || []}
             scaleValue={scaleValue}
             realScale={realScale}
             highlightType={highlightType}
@@ -461,7 +466,6 @@ export default function App() {
             pages={pages}
             handleClick={handleClick}
             finishPolygon={finishPolygon}
-            finishWall={finishWall}
             finishDoor={finishDoor}
             onMouseMove={onMouseMove}
             onMouseDown={onMouseDown}
@@ -474,12 +478,9 @@ export default function App() {
 
           <RightPropertyPaneView
             selectedRoom={rooms.find(r => r.id === selectedId)}
-            selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
             selectedType={selectedType}
             selectedPointIndex={selectedPointIndex}
             updateRoom={updateRoom}
-            updateWall={updateWall}
-            makeCurve={makeCurve}
             scaleValue={scaleValue}
             realScale={realScale}
             rooms={rooms}
@@ -488,17 +489,6 @@ export default function App() {
           />
           <AIConfidenceBar />
         </div>
-      )}
-
-      {show3D && (
-        <Wall3DView
-          walls={wallsByPage[currentPage] || []}
-          rooms={rooms}
-          image={image}
-          imgSize={imgSize}
-          onClose={() => setShow3D(false)}
-          realScale={realScale}
-        />
       )}
 
       {showBOQ && (
@@ -512,7 +502,6 @@ export default function App() {
             {scaleValue ? (
               <BOQTable
                 pages={boqPages}
-                walls={wallsByPage[currentPage] || []}
                 scaleValue={scaleValue}
                 wasteInternal={wasteByPage[currentPage]?.internal ?? 10}
                 wasteExternal={wasteByPage[currentPage]?.external ?? 15}

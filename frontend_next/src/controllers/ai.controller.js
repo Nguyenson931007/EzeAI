@@ -35,9 +35,9 @@ function _bboxIoU(polyA, polyB) {
 // Edit these confidence threshold values directly in the code:
 // ====================================================
 const ROOMS_CONF = 0.03;      // Room detection confidence threshold
-const WALLS_CONF = 0.05;      // Wall detection confidence threshold
 const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
 const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
+const DOORS_CONF = 0.25;      // Door detection confidence threshold
 
 function centroidInROI(obj, roiRect) {
   const poly = obj.polygon || obj.points;
@@ -109,8 +109,7 @@ export const useAIController = (
   image,
   currentPage,
   setRoomsByPage,
-  setWallsByPage,
-  realScale,
+  realScale = 1.0,
   roomsByPage,
   setDoorsByPage
 ) => {
@@ -357,54 +356,7 @@ export const useAIController = (
     }
   };
 
-  const detectWallFromFloorAI = async (roiRect, roiMode) => {
-    if (!image) return alert("No image to detect");
-    if (!setWallsByPage) return;
 
-    const job = startROIJob();
-    try {
-      const blob = await fetch(image).then(r => r.blob());
-
-      let data;
-      if (roiRect) {
-        data = await ApiService.floorAIWallDetectROI(
-          blob, String(WALLS_CONF), roiRect, 96, realScale,
-          { signal: job.controller.signal }
-        );
-      } else {
-        data = await ApiService.floorAIWallDetect(blob, String(WALLS_CONF), realScale);
-      }
-
-      if (job.token !== roiInferenceIdRef.current) return;
-
-      const result = Array.isArray(data) ? data[0] : data;
-      const isCacheHit = !!(result && result.cache_hit);
-
-      if (result && result.pages && result.pages[0]) {
-        const pageData = result.pages[0];
-        const detectedWalls = (pageData.walls || []).map(w => ({
-          ...w,
-          review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
-        }));
-        setWallsByPage(prev => ({
-          ...prev,
-          [currentPage]: [...(prev[currentPage] || []), ...detectedWalls]
-        }));
-
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
-      } else {
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
-      }
-    } catch (err) {
-      if (err.name === "AbortError") {
-        console.log("[Wall AI] Request canceled.");
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true, true);
-      } else {
-        console.error("Floor AI Wall Error:", err);
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
-      }
-    }
-  };
 
   const detectText = async () => {
     if (!image) return alert("No image to detect");
@@ -494,44 +446,63 @@ export const useAIController = (
     }
   };
 
-  const detectDoorSeg = async () => {
+  const detectDoorSeg = async (roiRect, roiMode) => {
     if (!image) return alert("No image to detect");
 
-    setIsDetecting(true);
-    setCacheStatus("processing");
-    const startTime = performance.now();
+    const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const conf = String(useAIConfigStore.getState().config?.doors ?? "0.25");
-      const data = await ApiService.detectDoorSeg(blob, conf);
-      console.log("[Door Seg AI] Data:", data);
+      const conf = String(useAIConfigStore.getState().config?.doors ?? DOORS_CONF);
 
-      if (data && data.doors) {
-        const detectedDoors = data.doors.map(d => ({
-          ...d,
-          review_state: "AI_GENERATED"
-        }));
-        
-        setDoorsByPage(prev => ({
-          ...prev,
-          [currentPage]: [...(prev[currentPage] || []), ...detectedDoors]
-        }));
-        
-        const durationSeconds = ((performance.now() - startTime) / 1000).toFixed(2);
-        setInferenceTiming(`${durationSeconds}s`);
-        setCacheStatus("completed");
+      let data;
+      if (roiRect) {
+        data = await ApiService.autoDetectDoorsROI(
+          blob, conf, roiRect, 48, realScale,
+          { signal: job.controller.signal }
+        );
       } else {
-        setCacheStatus("failed");
+        data = await ApiService.detectDoorSeg(blob, conf);
+      }
+
+      if (job.token !== roiInferenceIdRef.current) return;
+
+      const result = Array.isArray(data) ? data[0] : data;
+      const isCacheHit = !!(result && result.cache_hit);
+
+      let doorsArray = [];
+      if (roiRect && result && result.pages && result.pages[0] && result.pages[0].doors) {
+        doorsArray = result.pages[0].doors;
+      } else if (!roiRect && result && result.doors) {
+        doorsArray = result.doors;
+      }
+
+      if (doorsArray && doorsArray.length > 0) {
+        const detectedDoors = doorsArray.map(d => ({
+          ...d,
+          review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
+        }));
+
+        if (setDoorsByPage) {
+          setDoorsByPage(prev => ({
+            ...prev,
+            [currentPage]: [...(prev[currentPage] || []), ...detectedDoors]
+          }));
+        }
+
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
+      } else {
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
       }
     } catch (err) {
-      console.error("Door Seg AI Error:", err);
-      setCacheStatus("failed");
-      alert("Door Seg AI Error: " + err.message);
-    } finally {
-      setIsDetecting(false);
+      if (err.name === "AbortError") {
+        console.log("[Door AI] Request canceled.");
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true, true);
+      } else {
+        console.error("Door Seg AI Error:", err);
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+      }
     }
   };
-
   return {
     isDetecting,
     roiProgress,
@@ -539,7 +510,6 @@ export const useAIController = (
     inferenceTiming,
     cancelROI,
     autoDetect,
-    detectWallFromFloorAI,
     detectText,
     detectTemplate,
     detectDoorSeg,

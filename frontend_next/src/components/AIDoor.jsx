@@ -214,12 +214,12 @@ export default function AIDoor({
         </g>
       )}
 
-      {/* Door Class Name Label (Only when selected) */}
-      {isSelected && (
-        <g 
-          transform={`translate(${cxAvg}, ${cyAvg - 20})`} 
-          style={{ pointerEvents: 'none' }}
-        >
+      {/* Door Class Name / Door ID Label (Always visible, similar to room names) */}
+      <g 
+        transform={`translate(${cxAvg}, ${cyAvg - 20})`} 
+        style={{ pointerEvents: 'none' }}
+      >
+        {isSelected && (
           <rect
             x={-35}
             y={-10}
@@ -229,19 +229,20 @@ export default function AIDoor({
             fill="#FF5722"
             opacity={0.9}
           />
-          <text
-            x={0}
-            y={4}
-            fill="#ffffff"
-            fontSize={11}
-            fontWeight="bold"
-            textAnchor="middle"
-            alignmentBaseline="middle"
-          >
-            {d.class.replace('_door', '')}
-          </text>
-        </g>
-      )}
+        )}
+        <text
+          x={0}
+          y={4}
+          fill={isSelected ? "#ffffff" : "#1e293b"}
+          fontSize={11}
+          fontWeight="bold"
+          textAnchor="middle"
+          alignmentBaseline="middle"
+          style={{ textShadow: isSelected ? 'none' : '0 0 2px white' }}
+        >
+          {d.door_name || (d.class ? d.class.replace('_door', '') : 'Door')}
+        </text>
+      </g>
 
       {/* Flip Buttons when selected */}
       {isSelected && updateDoor && (

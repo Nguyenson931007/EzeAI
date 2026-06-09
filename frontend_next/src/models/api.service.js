@@ -259,6 +259,19 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async detectWallSeg(imageBlob, confidence = "0.3") {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("confidence", confidence);
+    const res = await fetch(`${BASE_URL}/api/wall-segment`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   async autoDetectText(imageBlob, confidence = "0.001") {
     const fd = new FormData();
     fd.append("file", imageBlob);

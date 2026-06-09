@@ -9,7 +9,7 @@ import { useState } from "react";
 import { ApiService } from "@/models/api.service";
 import { polygonAreaM2 } from "@/utils/geometry";
 
-export const useProjectController = (user, pages, roomsByPage, wallsByPage, realScale, wasteByPage, setCurrentProjectName, setPages, setRoomsByPage, setWallsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage) => {
+export const useProjectController = (user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName, setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage) => {
   
   const handleSaveJob = async (projectName, forceNewName = false) => {
     if (!user) return alert("Please login to save jobs");
@@ -22,7 +22,7 @@ export const useProjectController = (user, pages, roomsByPage, wallsByPage, real
     
     const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
-    const jobData = { roomsByPage, wallsByPage, doorsByPage, totalArea, roomCount, pages, realScale, wasteByPage };
+    const jobData = { roomsByPage, doorsByPage, totalArea, roomCount, pages, realScale, wasteByPage };
 
     try {
       const payload = {
@@ -47,7 +47,7 @@ export const useProjectController = (user, pages, roomsByPage, wallsByPage, real
   const handleLoadJob = (jobData, name, id) => {
     if (jobData.pages) setPages(jobData.pages);
     if (jobData.roomsByPage) setRoomsByPage(jobData.roomsByPage);
-    if (jobData.wallsByPage) setWallsByPage(jobData.wallsByPage);
+
     if (jobData.doorsByPage) setDoorsByPage(jobData.doorsByPage);
     else setDoorsByPage({});
     if (jobData.realScale) setRealScale(jobData.realScale);

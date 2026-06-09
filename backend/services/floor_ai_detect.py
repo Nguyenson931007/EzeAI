@@ -1386,7 +1386,10 @@ def _merge_same_name_adjacent_rooms(rooms: list) -> list:
         
     merged_rooms = []
     
-    GENERIC_NAMES = {"ROOM", "UNKNOWN", "VOID", "SPACE", "AREA"}
+    GENERIC_NAMES = {
+        "ROOM", "UNKNOWN", "VOID", "SPACE", "AREA",
+        "BED", "BEDROOM", "WIR", "ROBE", "BATH", "BATHROOM", "ENS", "ENSUITE", "WC"
+    }
     for name, r_list in groups.items():
         if name in GENERIC_NAMES:
             # Do NOT merge generic rooms across thin walls/hallways; just keep them as separate individual rooms

@@ -134,7 +134,7 @@ function DryWetSummary({
 }
 
 export default function RightPropertyPaneView({
-  selectedRoom, selectedWall, selectedType, selectedPointIndex, updateRoom, updateWall, makeCurve, scaleValue, realScale, rooms,
+  selectedRoom, selectedType, selectedPointIndex, updateRoom, scaleValue, realScale, rooms,
   highlightType, setHighlightType
 }) {
   const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
@@ -238,78 +238,8 @@ export default function RightPropertyPaneView({
               </div>
             )}
           </>
-        ) : selectedType === "wall" && selectedWall ? (
-          <>
-            <div className="panel-field">
-              <span className="panel-label">Wall Type</span>
-              <select
-                className="panel-select"
-                value={selectedWall.wall_type || "int"}
-                onChange={e => updateWall({ ...selectedWall, wall_type: e.target.value })}
-              >
-                <option value="int">Internal (Int)</option>
-                <option value="ext">External (Ext)</option>
-              </select>
-            </div>
-
-            <div className="panel-field">
-              <span className="panel-label">Thickness</span>
-              <select
-                className="panel-select"
-                value={selectedWall.thickness || 90}
-                onChange={e => updateWall({ ...selectedWall, thickness: Number(e.target.value) })}
-              >
-                <option value={90}>90 mm</option>
-                <option value={70}>70 mm</option>
-              </select>
-            </div>
-
-            <div className="panel-field">
-              <span className="panel-label">Material</span>
-              <select
-                className="panel-select"
-                value={selectedWall.material || "timber"}
-                onChange={e => updateWall({ ...selectedWall, material: e.target.value })}
-              >
-                <option value="timber">Timber</option>
-                <option value="brick-timber">Brick - Timber</option>
-              </select>
-            </div>
-            <div className="panel-field">
-              <span className="panel-label">Height (mm)</span>
-              <input
-                type="number"
-                className="panel-input"
-                value={selectedWall.height || 2400}
-                onChange={e => updateWall({ ...selectedWall, height: Number(e.target.value) })}
-              />
-            </div>
-
-            {selectedPointIndex !== null && (
-              <div className="panel-field" style={{ marginTop: 10 }}>
-                <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 5 }}>Point #{selectedPointIndex} Selected</div>
-                <button 
-                  className="panel-btn curve-btn" 
-                  onClick={makeCurve}
-                  style={{ 
-                    width: '100%', 
-                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                    color: 'white',
-                    border: 'none',
-                    padding: '8px',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    fontSize: '12px'
-                  }}
-                >
-                  〰 Curve Segment
-                </button>
-              </div>
-            )}
-          </>
         ) : (
-          <div className="panel-hint">Select a room or wall to edit properties</div>
+          <div className="panel-hint">Select a room to edit properties</div>
         )}
       </div>
 

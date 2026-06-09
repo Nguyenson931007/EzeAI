@@ -12,12 +12,12 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, calculateDoorGeometry } from "@/utils/geometry";
+import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 
 export function useInteractionController(svgRef) {
   const {
     roomsByPage, setRoomsByPage,
-    wallsByPage, setWallsByPage,
     doorsByPage, setDoorsByPage,
     currentPage, realScale, setRealScale,
     activeTab
@@ -42,8 +42,6 @@ export function useInteractionController(svgRef) {
 
   const [drawing, setDrawing] = useState(false);
   const [currentPoly, setCurrentPoly] = useState([]);
-  const [isDrawingWall, setIsDrawingWall] = useState(false);
-  const [currentWall, setCurrentWall] = useState([]);
   const [isDrawingDoor, setIsDrawingDoor] = useState(false);
   const [currentDoor, setCurrentDoor] = useState([]);
   const [currentMouse, setCurrentMouse] = useState(null);
@@ -111,8 +109,6 @@ export function useInteractionController(svgRef) {
         setIsMeasuring(false);
         setMeasurePoints([]);
         setIsAddingPoint(false);
-        setIsDrawingWall(false);
-        setCurrentWall([]);
         setIsDrawingDoor(false);
         setCurrentDoor([]);
         setSelectedId(null);
@@ -122,10 +118,9 @@ export function useInteractionController(svgRef) {
         setInteractionMode("select");
       }
 
-      if (e.code === "Enter" && (drawing || isDrawingWall)) {
+      if (e.code === "Enter" && drawing) {
         e.preventDefault();
         if (drawing) finishPolygon();
-        if (isDrawingWall) finishWall();
         if (isDrawingDoor) finishDoor();
       }
 
@@ -162,7 +157,7 @@ export function useInteractionController(svgRef) {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [drawing, isDrawingWall, currentPoly, currentWall, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, wallsByPage, selectedId, isSnapMode, isAddingPoint]);
+  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint]);
 
   // Zoom Handler
   useEffect(() => {
@@ -188,19 +183,13 @@ export function useInteractionController(svgRef) {
     return () => el.removeEventListener("wheel", handleWheel);
   }, [svgRef, activeTab]);
 
-  function pushHistory(newRooms, newWalls, newDoors) {
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, wallsByPage, doorsByPage })]);
+  function pushHistory(newRooms, newDoors) {
+    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage })]);
     setFuture([]);
     if (newRooms) {
       setRoomsByPage(prev => ({
         ...prev,
         [currentPage]: newRooms
-      }));
-    }
-    if (newWalls) {
-      setWallsByPage(prev => ({
-        ...prev,
-        [currentPage]: newWalls
       }));
     }
     if (newDoors) {
@@ -214,9 +203,8 @@ export function useInteractionController(svgRef) {
   function undo() {
     if (!history.length) return;
     const prev = JSON.parse(history[history.length - 1]);
-    setFuture(f => [JSON.stringify({ roomsByPage, wallsByPage, doorsByPage }), ...f]);
+    setFuture(f => [JSON.stringify({ roomsByPage, doorsByPage }), ...f]);
     setRoomsByPage(prev.roomsByPage || {});
-    setWallsByPage(prev.wallsByPage || {});
     setDoorsByPage(prev.doorsByPage || {});
     setHistory(h => h.slice(0, -1));
   }
@@ -224,23 +212,18 @@ export function useInteractionController(svgRef) {
   function redo() {
     if (!future.length) return;
     const next = JSON.parse(future[0]);
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, wallsByPage, doorsByPage })]);
+    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage })]);
     setRoomsByPage(next.roomsByPage || {});
-    setWallsByPage(next.wallsByPage || {});
     setDoorsByPage(next.doorsByPage || {});
     setFuture(f => f.slice(1));
   }
 
   function deleteItem() {
     if (!selectedId) return;
-    if (selectedType === 'wall') {
-      const walls = wallsByPage[currentPage] || [];
-      const newWalls = walls.filter(w => w.id !== selectedId);
-      pushHistory(null, newWalls);
-    } else if (selectedType === 'door') {
+    if (selectedType === 'door') {
       const doors = doorsByPage[currentPage] || [];
       const newDoors = doors.filter(d => d.id !== selectedId);
-      pushHistory(null, null, newDoors);
+      pushHistory(null, newDoors);
     } else {
       const newRooms = rooms.filter(r => r.id !== selectedId);
       pushHistory(newRooms);
@@ -303,102 +286,24 @@ export function useInteractionController(svgRef) {
       setCurrentPoly(prev => [...prev, point]);
       return;
     }
-    if (isDrawingWall) {
-      const last = currentWall[currentWall.length - 1];
-      let snappedP = (isShiftDown || isSnapMode) && last ? snap(last, p) : p;
-      
-      const walls = wallsByPage[currentPage] || [];
-      let bestDist = 20 / scale;
-      let wallSnapTarget = null;
-      for (let w of walls) {
-        for (let pt of w.points) {
-          const d = Math.hypot(snappedP.x - pt.x, snappedP.y - pt.y);
-          if (d < bestDist) {
-            bestDist = d;
-            wallSnapTarget = { ...pt };
-          }
-        }
-        if (!wallSnapTarget) {
-          for (let i = 0; i < w.points.length - 1; i++) {
-            const proj = distancePointToSegment(snappedP, w.points[i], w.points[i+1]);
-            if (proj.dist < bestDist) {
-              bestDist = proj.dist;
-              wallSnapTarget = { x: proj.x, y: proj.y };
-            }
-          }
-        }
-      }
 
-      if (wallSnapTarget) {
-        if ((isShiftDown || isSnapMode) && last) {
-          const dx = Math.abs(wallSnapTarget.x - last.x);
-          const dy = Math.abs(wallSnapTarget.y - last.y);
-          if (dx < 1 || dy < 1) {
-            snappedP = wallSnapTarget;
-          }
-        } else {
-          snappedP = wallSnapTarget;
-        }
-      }
-
-      // Check for auto-close
-      if (currentWall.length > 2) {
-        const first = currentWall[0];
-        const distToFirst = Math.hypot(snappedP.x - first.x, snappedP.y - first.y);
-        if (distToFirst < 20 / scale) {
-          finishWall(true);
-          return;
-        }
-      }
-
-      setCurrentWall(prev => [...prev, snappedP]);
-      return;
-    }
     if (isDrawingDoor) {
       const last = currentDoor[currentDoor.length - 1];
       let snappedP = p;
 
-      const walls = wallsByPage[currentPage] || [];
-      let bestDist = 20 / scale;
-      let wallSnapTarget = null;
-
-      if (last && last.wallId !== undefined && last.segmentIdx !== undefined) {
-        // Force snap to the same wall segment
-        const wall = walls.find(w => String(w.id) === String(last.wallId));
-        if (wall && wall.points[last.segmentIdx] && wall.points[last.segmentIdx + 1]) {
-          const i = last.segmentIdx;
-          const proj = distancePointToSegment(p, wall.points[i], wall.points[i + 1]);
-          snappedP = { x: proj.x, y: proj.y, wallId: wall.id, segmentIdx: i };
-        }
-      } else {
-        // First point: find closest wall segment within threshold
-        const snapThreshold = 40 / scale;
-        for (let w of walls) {
-          for (let i = 0; i < w.points.length - 1; i++) {
-            const proj = distancePointToSegment(p, w.points[i], w.points[i + 1]);
-            if (proj.dist < bestDist) {
-              bestDist = proj.dist;
-              wallSnapTarget = { x: proj.x, y: proj.y, wallId: w.id, segmentIdx: i };
-            }
-          }
-          // Also check closed wall loop
-          if (w.isClosed && w.points.length > 1) {
-            const last = w.points[w.points.length - 1];
-            const first = w.points[0];
-            const proj = distancePointToSegment(p, last, first);
-            if (proj.dist < bestDist) {
-              bestDist = proj.dist;
-              wallSnapTarget = { x: proj.x, y: proj.y, wallId: w.id, segmentIdx: w.points.length - 1 };
-            }
-          }
-        }
-        if (wallSnapTarget) {
-          snappedP = wallSnapTarget;
-        }
-      }
-
       const nextDoor = [...currentDoor, snappedP];
       setCurrentDoor(nextDoor);
+
+      if (nextDoor.length === 1) {
+        animateZoomToHinge({
+          hingePoint: snappedP,
+          svgRef,
+          currentScale: scale,
+          currentOffset: offset,
+          setScale,
+          setOffset
+        });
+      }
 
       if (nextDoor.length === 2) {
         finishDoor(nextDoor);
@@ -552,43 +457,8 @@ export function useInteractionController(svgRef) {
 
   function makeCurve() {
     if (!selectedId || selectedPointIndex === null) return;
-    
-    if (selectedType === 'wall') {
-      const walls = wallsByPage[currentPage] || [];
-      const wall = walls.find(w => w.id === selectedId);
-      if (!wall) return;
-      
-      const idx = selectedPointIndex;
-      const nextIdx = (idx + 1) % wall.points.length;
-      if (!wall.isClosed && idx === wall.points.length - 1) return; // Can't curve after last point of open wall
-
-      const p1 = wall.points[idx];
-      const p2 = wall.points[nextIdx];
-      
-      // Calculate 10 intermediate points for the arc
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const len = Math.hypot(dx, dy);
-      const nx = -dy / len;
-      const ny = dx / len;
-      
-      const offset = len * 0.2; // Default curvature
-      const cp = { x: midX + nx * offset, y: midY + ny * offset };
-
-      const curvePoints = [];
-      for (let t = 0.1; t < 1.0; t += 0.1) {
-        const x = (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * cp.x + t * t * p2.x;
-        const y = (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * cp.y + t * t * p2.y;
-        curvePoints.push({ x, y });
-      }
-
-      const newPts = [...wall.points];
-      newPts.splice(idx + 1, 0, ...curvePoints);
-      pushHistory(null, walls.map(w => w.id === selectedId ? { ...w, points: newPts } : w));
-    }
   }
+
 
   function finishPolygon() {
     if (currentPoly.length < 3) return;
@@ -605,22 +475,6 @@ export function useInteractionController(svgRef) {
     setDrawing(false);
   }
 
-  function finishWall(isClosed = false) {
-    if (currentWall.length < 2) return;
-    const newWall = {
-      id: Date.now(),
-      points: currentWall,
-      isClosed: isClosed,
-      thickness: isClosed ? 240 : 90,
-      wall_type: "int",  // Single class — user can override in property pane
-      material: "timber",
-      height: 2400
-    };
-    const walls = wallsByPage[currentPage] || [];
-    pushHistory(null, [...walls, newWall]);
-    setCurrentWall([]);
-    setIsDrawingWall(false);
-  }
 
   function finishDoor(points = currentDoor) {
     if (points.length < 2) {
@@ -657,10 +511,8 @@ export function useInteractionController(svgRef) {
       const pRaw = getMouse(e);
       let pSnapped = pRaw; // Always use raw mouse for free drag
       
-      if (isShiftDown && (dragging.type === 'wall' || dragging.type === 'room')) {
-        const poly = dragging.type === 'wall' 
-          ? (wallsByPage[currentPage] || []).find(w => w.id === dragging.id)?.points
-          : (roomsByPage[currentPage] || []).find(r => r.id === dragging.id)?.polygon;
+      if (isShiftDown && dragging.type === 'room') {
+        const poly = (roomsByPage[currentPage] || []).find(r => r.id === dragging.id)?.polygon;
         
         if (poly && poly.length > 0) {
           const prevIdx = (dragging.index - 1 + poly.length) % poly.length;
@@ -675,16 +527,7 @@ export function useInteractionController(svgRef) {
         }
       }
 
-      if (dragging.type === 'wall') {
-        setWallsByPage(prev => {
-          const walls = prev[currentPage] || [];
-          return { ...prev, [currentPage]: walls.map(w =>
-            w.id === dragging.id
-              ? { ...w, points: w.points.map((pt, i) => i === dragging.index ? pSnapped : pt) }
-              : w
-          )};
-        });
-      } else if (dragging.type === 'door-polygon') {
+      if (dragging.type === 'door-polygon') {
         if (!dragging.startBbox || !dragging.startPoints) return;
         
         let newMinX = dragging.startBbox.minX;
@@ -825,24 +668,15 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    // If clicking on empty area (no wall vertex, no room), start panning
-    if (!drawing && !isDrawingWall && !isMeasuring && !isDistancing) {
-      const walls = wallsByPage[currentPage] || [];
-      const nearVertex = walls.some(w =>
-        w.points.some(pt => Math.hypot(p.x - pt.x, p.y - pt.y) < 25 / scale)
-      ) || rooms.some(r =>
+    // If clicking on empty area (no vertex, no room), start panning
+    if (!drawing && !isMeasuring && !isDistancing) {
+      const nearVertex = rooms.some(r =>
         r.polygon.some(pt => Math.hypot(p.x - pt.x, p.y - pt.y) < 25 / scale)
       );
 
       const insideRoom = rooms.some(r => pointInPolygon(p, r.polygon));
-      const nearWallLine = walls.some(w => {
-        for (let i = 0; i < w.points.length - 1; i++) {
-          if (distancePointToSegment(p, w.points[i], w.points[i + 1]).dist < 15) return true;
-        }
-        return false;
-      });
 
-      if (!nearVertex && !insideRoom && !nearWallLine) {
+      if (!nearVertex && !insideRoom) {
         panStart.current = { x: e.clientX, y: e.clientY };
       }
     }
@@ -850,11 +684,7 @@ export function useInteractionController(svgRef) {
 
   function onMouseUp() {
     if (dragging) {
-      if (dragging.type === 'wall') {
-        pushHistory(null, wallsByPage[currentPage]);
-      } else {
-        pushHistory(rooms);
-      }
+      pushHistory(rooms);
       setDragging(null);
     }
     panStart.current = null;
@@ -875,6 +705,7 @@ export function useInteractionController(svgRef) {
 
   function onWheel(e) {
     e.preventDefault();
+    cancelActiveZoomAnimation();
     const zoomSpeed = 0.001;
     const delta = -e.deltaY;
     const newScale = Math.min(Math.max(scale + delta * zoomSpeed * scale, 0.05), 20);
@@ -902,15 +733,13 @@ export function useInteractionController(svgRef) {
     offset, setOffset,
     isPanning,
     drawing, setDrawing,
-    isDrawingWall, setIsDrawingWall,
     isDrawingDoor, setIsDrawingDoor,
     currentPoly, setCurrentPoly,
-    currentWall, setCurrentWall,
     currentDoor, setCurrentDoor,
     currentMouse,
     history, future,
     pushHistory, undo, redo,
-    deleteItem, deleteAllRooms, deleteAllWalls,
+    deleteItem, deleteAllRooms,
     isMeasuring, setIsMeasuring,
     measurePoints, setMeasurePoints,
     isDistancing, setIsDistancing,
@@ -928,7 +757,7 @@ export function useInteractionController(svgRef) {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishWall, finishDoor, makeCurve,
+    handleClick, finishPolygon, finishDoor, makeCurve,
     startDrag, onMouseMove, onMouseDown, onMouseUp, onWheel
   };
 }
