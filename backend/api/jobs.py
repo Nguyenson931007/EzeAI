@@ -158,6 +158,13 @@ def create_job(job: JobCreate, username: str = Depends(validate_session)):
                 (user_id, job.project_name, job.room_count, job.total_area, job.data, thumbnail, existing_job["id"])
             )
             conn.commit()
+            
+            try:
+                from services.search.vector_search_engine import clear_project_index_cache
+                clear_project_index_cache(existing_job["id"])
+            except Exception:
+                pass
+                
             return {"status": "updated", "job_id": existing_job["id"]}
         else:
             # Tạo mới hoàn toàn một bản vẽ dự án
@@ -336,6 +343,13 @@ def delete_job(job_id: int):
     try:
         cursor.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         conn.commit()
+        
+        try:
+            from services.search.vector_search_engine import clear_project_index_cache
+            clear_project_index_cache(job_id)
+        except Exception:
+            pass
+            
         return {"status": "success", "message": "Xóa dự án thành công."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

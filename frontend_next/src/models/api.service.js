@@ -434,5 +434,43 @@ export const ApiService = {
       method: "DELETE", headers: getHeaders(), credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  async searchText(payload) {
+    const res = await fetch(`${BASE_URL}/api/search/text`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async searchObject(payload) {
+    const res = await fetch(`${BASE_URL}/api/search/object`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async searchCount(payload) {
+    const res = await fetch(`${BASE_URL}/api/search/count`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async getSearchHistory(projectId) {
+    const res = await fetch(`${BASE_URL}/api/search/history/${projectId}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };

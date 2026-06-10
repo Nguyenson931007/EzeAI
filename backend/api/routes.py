@@ -744,6 +744,7 @@ async def wall_segment(
     file: UploadFile = File(...),
     confidence: float = Form(0.25),
     imgsz: int = Form(1280),
+    real_scale: Optional[float] = Form(1.0),
     username: str = Depends(validate_session)
 ):
     """
@@ -763,7 +764,8 @@ async def wall_segment(
                 pdf_bytes=content,
                 filename=filename,
                 confidence=confidence,
-                imgsz=imgsz
+                imgsz=imgsz,
+                real_scale=real_scale or 1.0
             )
         else:
             img = PILImage.open(io.BytesIO(content)).convert("RGB")
@@ -773,7 +775,9 @@ async def wall_segment(
                 WallSegmentService.predict,
                 image_bytes=content,
                 confidence=confidence,
-                imgsz=imgsz
+                imgsz=imgsz,
+                real_scale=real_scale or 1.0,
+                filename=filename
             )
             
             return {
@@ -815,6 +819,134 @@ async def train_door_seg(request: Request, username: str = Depends(validate_sess
     except Exception as e:
         logger.error(f"Lỗi khởi chạy tiến trình huấn luyện Phân đoạn Cửa: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Smart Search & Auto Count Endpoints ──
+
+class TextSearchRequest(BaseModel):
+    query: str
+    project_id: int
+    page_id: Optional[int] = None
+
+class ObjectSearchRequest(BaseModel):
+    project_id: int
+    object_id: Optional[str] = None
+    bbox: Optional[TypingList[int]] = None
+    page_id: Optional[int] = 0
+    threshold: Optional[float] = 0.90
+    scope: Optional[str] = "project"
+
+class CountRequest(BaseModel):
+    project_id: int
+    search_result_ids: TypingList[str]
+    export_format: Optional[str] = "json"
+
+@router.post("/api/search/text")
+async def api_search_text(req: TextSearchRequest, username: str = Depends(validate_session)):
+    """
+    Search text labels (OCR) across the project or a single page.
+    """
+    from services.search.ocr_search_engine import OCRSearchEngine
+    try:
+        search_engine = OCRSearchEngine(req.project_id)
+        results = search_engine.search_text(req.query, req.page_id)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/search/object")
+async def api_search_object(req: ObjectSearchRequest, username: str = Depends(validate_session)):
+    """
+    Find visually similar objects using ResNet50 embeddings & FAISS vector database.
+    Supports both clicked object_id and custom ROI bounding box.
+    """
+    from services.search.pattern_search_engine import PatternSearchEngine
+    try:
+        search_engine = PatternSearchEngine(req.project_id)
+        if req.object_id:
+            # Query by existing object
+            results = search_engine.search_by_object_id(
+                req.object_id, 
+                threshold=req.threshold, 
+                scope=req.scope
+            )
+        elif req.bbox:
+            # Query by custom visual ROI
+            results = search_engine.search_by_roi(
+                req.page_id, 
+                req.bbox, 
+                threshold=req.threshold, 
+                scope=req.scope
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Either object_id or bbox must be provided.")
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/search/count")
+async def api_search_count(req: CountRequest, username: str = Depends(validate_session)):
+    """
+    Auto count matched objects, group them by class/type, and generate export reports.
+    """
+    from services.search.count_engine import CountEngine
+    from services.search.vector_search_engine import get_or_create_project_index
+    try:
+        index_data = get_or_create_project_index(req.project_id)
+        if not index_data:
+            raise HTTPException(status_code=404, detail="Project search index not found.")
+            
+        metadata = index_data["metadata"]
+        
+        # Filter matching metadata by search_result_ids
+        matched_objects = []
+        for obj_id in req.search_result_ids:
+            for item in metadata:
+                if item["object_id"] == obj_id:
+                    matched_objects.append(item)
+                    break
+                    
+        # Group and count
+        summary = CountEngine.count_results(matched_objects)
+        export_data = CountEngine.export_report(matched_objects, req.export_format)
+        
+        # Identify door/window/symbol type counts or guess the dominant class
+        dominant_class = "object"
+        if summary["groups"]:
+            dominant_class = max(summary["groups"], key=summary["groups"].get)
+            
+        return {
+            "count": summary["total_count"],
+            "class": dominant_class,
+            "groups": summary["categories"],
+            "raw_groups": summary["groups"],
+            "subgroups": summary["subgroups"],
+            "results": summary["results"],
+            "export_data": export_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/search/history/{project_id}")
+def api_get_search_history(project_id: int, username: str = Depends(validate_session)):
+    """
+    Fetch recent search history for analytics and query suggestions.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT query, result_count, timestamp FROM search_history WHERE project_id = ? ORDER BY timestamp DESC LIMIT 10",
+            (project_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 

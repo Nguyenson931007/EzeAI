@@ -1223,7 +1223,11 @@ export default function CanvasView({
   startDrag,
   pushHistory,
   showLayer,
-  updateDoor
+  updateDoor,
+  searchResults = [],
+  searchResultsVisible = true,
+  hoveredSearchResultId = null,
+  zoomToBbox
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -2011,6 +2015,76 @@ export default function CanvasView({
                 </text>
               </>
             )}
+
+            {/* Smart Search Results Highlights Layer (Requirement 6) */}
+            {searchResultsVisible && searchResults && searchResults.map((match, idx) => {
+              if (match.page !== currentPage) return null;
+              
+              const [x1, y1, x2, y2] = match.bbox;
+              const width = x2 - x1;
+              const height = y2 - y1;
+              
+              const isHovered = idx === hoveredSearchResultId;
+              const score = match.similarity ? Math.round(match.similarity * 100) : 100;
+              
+              // Colors matching requirements: strict/green, balanced/yellow, loose/orange
+              let color = "#fbbf24"; // yellow match
+              if (score >= 95) color = "#10b981"; // green exact match
+              else if (score < 85) color = "#f97316"; // orange/low confidence
+              
+              return (
+                <g key={`search-match-highlight-${idx}`} style={{ cursor: "pointer" }}
+                   onClick={() => zoomToBbox(match.page, match.bbox)}>
+                  {/* Bounding Box Outline */}
+                  <rect
+                    x={x1}
+                    y={y1}
+                    width={width}
+                    height={height}
+                    fill={isHovered ? "rgba(255, 255, 255, 0.08)" : "rgba(250, 204, 21, 0.02)"}
+                    stroke={color}
+                    strokeWidth={isHovered ? 3 / scale : 2 / scale}
+                    strokeDasharray={isHovered ? undefined : `${4 / scale},${2 / scale}`}
+                    filter={isHovered ? "url(#glow)" : undefined}
+                    style={{ transition: "all 0.15s ease" }}
+                  />
+                  
+                  {/* Badge showing Class and Score */}
+                  <g transform={`translate(${x1}, ${y1 - 6 / scale})`}>
+                    <rect
+                      x={0}
+                      y={-11 / scale}
+                      width={(((match.text || match.predicted_class || match.class || "Object").length * 5) + 32) / scale}
+                      height={13 / scale}
+                      fill="rgba(15, 23, 42, 0.88)"
+                      stroke={color}
+                      strokeWidth={0.5 / scale}
+                      rx={2 / scale}
+                    />
+                    <text
+                      x={4 / scale}
+                      y={-2 / scale}
+                      fontSize={8 / scale}
+                      fill="#ffffff"
+                      fontWeight="bold"
+                      fontFamily="Inter, sans-serif"
+                    >
+                      {match.text || match.predicted_class || match.class || "Object"}
+                    </text>
+                    <text
+                      x={(((match.text || match.predicted_class || match.class || "Object").length * 5) + 14) / scale}
+                      y={-2 / scale}
+                      fontSize={8 / scale}
+                      fill={color}
+                      fontWeight="black"
+                      fontFamily="Inter, sans-serif"
+                    >
+                      {score}%
+                    </text>
+                  </g>
+                </g>
+              );
+            })}
 
             {/* Memoized Layer 6: ROI Overlay region */}
             <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} />

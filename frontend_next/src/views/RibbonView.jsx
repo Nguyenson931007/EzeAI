@@ -36,7 +36,10 @@ export default function RibbonView({
   pendingPages, setPendingPages,
   confirmImport,
   fitToScreen, rotatePlan90, goPage,
-  loadPDF, setImage, setImgSize
+  loadPDF, setImage, setImgSize,
+  // Add new search props
+  searchResultsVisible, setSearchResultsVisible,
+  clearSearch, runROISearch
 }) {
   const {
     activeTab, setActiveTab,
@@ -55,7 +58,7 @@ export default function RibbonView({
           <img src="/logo.png" alt="ezequote" style={{ height: "20px", width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 6px rgba(255, 255, 255, 0.95)) brightness(1.3)" }} />
         </span>
         <div className="cad-tabs">
-          {["Home", "Measure", "AI & Reports", "View", "Saved Jobs"].map(tab => (
+          {["Home", "Measure", "AI & Reports", "Search", "View", "Saved Jobs"].map(tab => (
             <button
               key={tab}
               className={`cad-tab ${activeTab === tab ? "active" : ""}`}
@@ -268,6 +271,30 @@ export default function RibbonView({
           </>
         )}
 
+        {activeTab === "Search" && (
+          <>
+            {/* SEARCH ACTIONS */}
+            <div className="ribbon-group">
+              <div className="ribbon-buttons">
+                <button className="ribbon-btn danger" onClick={() => { if (window.confirm("Clear all search results?")) clearSearch(); }}>
+                  <span className="icon">🧹</span><span className="label">Clear Search</span>
+                </button>
+                <button className={`ribbon-btn ${searchResultsVisible ? "active" : ""}`} onClick={() => setSearchResultsVisible(v => !v)}>
+                  <span className="icon">{searchResultsVisible ? "👁" : "👁‍🗨"}</span>
+                  <span className="label">Highlights</span>
+                </button>
+              </div>
+              <span className="ribbon-group-title">SEARCH ACTIONS</span>
+            </div>
+            <div className="ribbon-divider" />
+
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 12px", color: "#94a3b8", fontSize: "11px", gap: "2px" }}>
+              <div>💡 <b>ROI Search:</b> Alt + Drag on canvas to select region, click <b>Search Region</b> in Right Panel or ROI Toolbar.</div>
+              <div>💡 <b>Symbol Search:</b> Select a Door or Room, click <b>Search Similar</b> in Right Panel.</div>
+            </div>
+          </>
+        )}
+
         {activeTab === "View" && (
           <>
             {/* NAVIGATE */}
@@ -344,6 +371,16 @@ export default function RibbonView({
               🚪 Doors
             </button>
 
+            {activeTab === "Search" && (
+              <button 
+                className="roi-btn-detect search"
+                onClick={runROISearch}
+                title="Search similar symbols in this region"
+                style={{ background: "#3b82f6", color: "#fff" }}
+              >
+                🔍 Search Region
+              </button>
+            )}
 
             <div className="roi-select-wrapper">
               <select value={roiMode} onChange={e => setRoiMode(e.target.value)}>

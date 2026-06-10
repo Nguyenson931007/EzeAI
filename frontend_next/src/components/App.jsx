@@ -23,6 +23,7 @@ import LoginView from "@/views/LoginView";
 import RibbonView from "@/views/RibbonView";
 import RightPropertyPaneView from "@/views/RightPropertyPaneView";
 import CanvasView from "@/views/CanvasView";
+import SearchSidebarView from "@/views/SearchSidebarView";
 import ThumbnailSidebarView from "@/views/ThumbnailSidebarView";
 import TrainButton from "@/components/TrainButton";
 import AIConfidenceBar from "@/features/ai/AIConfidenceBar";
@@ -72,6 +73,16 @@ export default function App() {
 
   // === LOCAL UI STATE (View-specific) ===
   const [image, setImage] = useState(null);
+
+  // === SEARCH STATE (Smart Search & Auto Count) ===
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchThreshold, setSearchThreshold] = useState(0.90);
+  const [searchScope, setSearchScope] = useState("project");
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchCountData, setSearchCountData] = useState(null);
+  const [searchResultsVisible, setSearchResultsVisible] = useState(true);
+  const [hoveredSearchResultId, setHoveredSearchResultId] = useState(null);
   const [imgSize, setImgSize] = useState({ w: 800, h: 600 });
   const [highlightType, setHighlightType] = useState(null);
   const [showBOQ, setShowBOQ] = useState(false);
@@ -273,6 +284,92 @@ export default function App() {
     setTimeout(fitToScreen, 50);
   }
 
+  const zoomToBbox = (pageIndex, bbox) => {
+    if (!pages[pageIndex]) return;
+    
+    if (currentPage !== pageIndex) {
+      setCurrentPage(pageIndex);
+      setImage(pages[pageIndex].image);
+      setImgSize({ w: pages[pageIndex].w, h: pages[pageIndex].h });
+    }
+    
+    setTimeout(() => {
+      const container = svgRef.current?.parentElement;
+      if (!container) return;
+      
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      const [x1, y1, x2, y2] = bbox;
+      const cx = (x1 + x2) / 2;
+      const cy = (y1 + y2) / 2;
+      const bboxW = x2 - x1;
+      const bboxH = y2 - y1;
+      
+      const scaleX = cw / (bboxW || 1);
+      const scaleY = ch / (bboxH || 1);
+      const newScale = Math.min(3.0, Math.max(1.0, Math.min(scaleX, scaleY) * 0.45));
+      
+      setScale(newScale);
+      setOffset({
+        x: cw / 2 - cx * newScale,
+        y: ch / 2 - cy * newScale
+      });
+    }, currentPage !== pageIndex ? 150 : 20);
+  };
+
+  const clearSearch = () => {
+    setSearchResults([]);
+    setSearchCountData(null);
+    setSearchQuery("");
+  };
+
+  const runROISearch = async () => {
+    if (!currentJobId) {
+      alert("Please save your project first to initialize the search index!");
+      return;
+    }
+    if (!roiRect) return;
+
+    setIsSearching(true);
+    try {
+      const bbox = [
+        Math.round(roiRect.x),
+        Math.round(roiRect.y),
+        Math.round(roiRect.x + roiRect.w),
+        Math.round(roiRect.y + roiRect.h)
+      ];
+
+      const payload = {
+        project_id: currentJobId,
+        bbox: bbox,
+        page_id: currentPage,
+        threshold: searchThreshold,
+        scope: searchScope
+      };
+
+      const results = await ApiService.searchObject(payload);
+      setSearchResults(results || []);
+
+      const matchedIds = (results || []).filter(r => r.object_id).map(r => r.object_id);
+      if (matchedIds.length > 0) {
+        const countRes = await ApiService.searchCount({
+          project_id: currentJobId,
+          search_result_ids: matchedIds,
+          export_format: "csv"
+        });
+        setSearchCountData(countRes);
+      } else {
+        setSearchCountData(null);
+      }
+      clearROI();
+    } catch (e) {
+      console.error("ROI Search error:", e);
+      alert("Region search failed: " + e.message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   function confirmImport() {
     if (importSelectedPages.length === 0) return;
     
@@ -399,6 +496,10 @@ export default function App() {
         confirmImport={confirmImport}
         fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} goPage={goPage}
         loadPDF={loadPDF} setImage={setImage} setImgSize={setImgSize}
+        searchResultsVisible={searchResultsVisible}
+        setSearchResultsVisible={setSearchResultsVisible}
+        clearSearch={clearSearch}
+        runROISearch={runROISearch}
       />
 
       {activeTab === "Admin" ? (
@@ -476,20 +577,52 @@ export default function App() {
             startDrag={startDrag}
             pushHistory={pushHistory}
             updateDoor={updateDoor}
+            searchResults={searchResults}
+            searchResultsVisible={searchResultsVisible}
+            hoveredSearchResultId={hoveredSearchResultId}
+            zoomToBbox={zoomToBbox}
           />
 
-          <RightPropertyPaneView
-            selectedRoom={rooms.find(r => r.id === selectedId)}
-            selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
-            selectedType={selectedType}
-            selectedPointIndex={selectedPointIndex}
-            updateRoom={updateRoom}
-            scaleValue={scaleValue}
-            realScale={realScale}
-            rooms={rooms}
-            highlightType={highlightType}
-            setHighlightType={setHighlightType}
-          />
+          {activeTab === "Search" ? (
+            <SearchSidebarView
+              searchResults={searchResults}
+              setSearchResults={setSearchResults}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              searchThreshold={searchThreshold}
+              setSearchThreshold={setSearchThreshold}
+              searchScope={searchScope}
+              setSearchScope={setSearchScope}
+              isSearching={isSearching}
+              setIsSearching={setIsSearching}
+              searchCountData={searchCountData}
+              setSearchCountData={setSearchCountData}
+              searchResultsVisible={searchResultsVisible}
+              setSearchResultsVisible={setSearchResultsVisible}
+              currentPage={currentPage}
+              currentJobId={currentJobId}
+              projectName={currentProjectName}
+              selectedId={selectedId}
+              selectedType={selectedType}
+              roiRect={roiRect}
+              clearROI={clearROI}
+              zoomToBbox={zoomToBbox}
+              setHoveredSearchResultId={setHoveredSearchResultId}
+            />
+          ) : (
+            <RightPropertyPaneView
+              selectedRoom={rooms.find(r => r.id === selectedId)}
+              selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
+              selectedType={selectedType}
+              selectedPointIndex={selectedPointIndex}
+              updateRoom={updateRoom}
+              scaleValue={scaleValue}
+              realScale={realScale}
+              rooms={rooms}
+              highlightType={highlightType}
+              setHighlightType={setHighlightType}
+            />
+          )}
           <AIConfidenceBar />
         </div>
       )}
