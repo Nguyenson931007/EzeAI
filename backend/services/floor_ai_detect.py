@@ -2237,8 +2237,8 @@ def _get_tight_door_polygon(p1, p2, thickness=12.0):
 
 def _expand_door_polygon_for_arc(box_pts, p1, p2, door_type, hinge_side, swing, opening_angle, has_mask=False):
     """
-    Expand door bounding box polygon to encompass the full arc sweep area.
-    Replicates the arc geometry math from frontend DoorArcLabelEngine.js.
+    Constructs a clean wedge/double-wedge polygon to represent swing doors,
+    or a bounding box rectangle for sliding doors.
     """
     if door_type == "sliding":
         # Sliding doors have no arc sweep — just return the bounding box of box_pts.
@@ -2265,34 +2265,41 @@ def _expand_door_polygon_for_arc(box_pts, p1, p2, door_type, hinge_side, swing, 
 
     open_angle_rad = math.radians(opening_angle or 90)
 
-    # Collect all critical arc points to determine the expanded bbox
-    arc_points_x = [p["x"] for p in box_pts]
-    arc_points_y = [p["y"] for p in box_pts]
-
     if door_type == "double":
-        # Double door: two arcs from each end toward the center
+        # Double door: two symmetric wedges meeting in the middle.
         mid_x = (p1["x"] + p2["x"]) / 2
         mid_y = (p1["y"] + p2["y"]) / 2
         half_len = door_len / 2
         is_inward = (swing or "inward") == "inward"
         side_factor = 1 if is_inward else -1
 
-        # Arc from p1 toward mid
         ang1_start = math.atan2(mid_y - p1["y"], mid_x - p1["x"])
-        # Arc from p2 toward mid
         ang2_start = math.atan2(mid_y - p2["y"], mid_x - p2["x"])
 
-        # Sample points along both arcs for accurate bbox
-        for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
-            a1 = ang1_start + t * side_factor * open_angle_rad
-            arc_points_x.append(p1["x"] + half_len * math.cos(a1))
-            arc_points_y.append(p1["y"] + half_len * math.sin(a1))
-
+        # Construct a combined double wedge:
+        # p1 -> mid -> p2 -> arc2 points -> arc1 points -> p1
+        pts = [
+            {"x": float(p1["x"]), "y": float(p1["y"])},
+            {"x": float(mid_x), "y": float(mid_y)},
+            {"x": float(p2["x"]), "y": float(p2["y"])}
+        ]
+        # Arc 2 (from mid to open2)
+        for t in np.linspace(0.0, 1.0, 10):
             a2 = ang2_start - t * side_factor * open_angle_rad
-            arc_points_x.append(p2["x"] + half_len * math.cos(a2))
-            arc_points_y.append(p2["y"] + half_len * math.sin(a2))
+            pts.append({
+                "x": float(p2["x"] + half_len * math.cos(a2)),
+                "y": float(p2["y"] + half_len * math.sin(a2))
+            })
+        # Arc 1 (from open1 to mid, in reverse)
+        for t in np.linspace(1.0, 0.0, 10):
+            a1 = ang1_start + t * side_factor * open_angle_rad
+            pts.append({
+                "x": float(p1["x"] + half_len * math.cos(a1)),
+                "y": float(p1["y"] + half_len * math.sin(a1))
+            })
+        return pts
     else:
-        # Single door: one arc from hinge spanning the full door length
+        # Single door: a clean wedge polygon
         is_right_hinge = (hinge_side or "left") == "right"
         hinge = p2 if is_right_hinge else p1
         other = p1 if is_right_hinge else p2
@@ -2304,25 +2311,14 @@ def _expand_door_polygon_for_arc(box_pts, p1, p2, door_type, hinge_side, swing, 
         start_angle = math.atan2(other["y"] - hinge["y"], other["x"] - hinge["x"])
         sweep_angle = hinge_factor * side_factor * open_angle_rad
 
-        # Sample 5 points along the arc for accurate bbox coverage
-        for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
+        pts = [{"x": float(hinge["x"]), "y": float(hinge["y"])}]
+        for t in np.linspace(0.0, 1.0, 10):
             angle = start_angle + sweep_angle * t
-            arc_points_x.append(hinge["x"] + door_len * math.cos(angle))
-            arc_points_y.append(hinge["y"] + door_len * math.sin(angle))
-
-    # Compute expanded bbox with small padding
-    pad = 5
-    min_x = min(arc_points_x) - pad
-    min_y = min(arc_points_y) - pad
-    max_x = max(arc_points_x) + pad
-    max_y = max(arc_points_y) + pad
-
-    return [
-        {"x": float(min_x), "y": float(min_y)},
-        {"x": float(max_x), "y": float(min_y)},
-        {"x": float(max_x), "y": float(max_y)},
-        {"x": float(min_x), "y": float(max_y)},
-    ]
+            pts.append({
+                "x": float(hinge["x"] + door_len * math.cos(angle)),
+                "y": float(hinge["y"] + door_len * math.sin(angle))
+            })
+        return pts
 
 
 def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: float = 0.3, real_scale: float = 1.0, imgsz: int = 2048):

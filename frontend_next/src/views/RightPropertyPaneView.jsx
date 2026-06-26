@@ -135,7 +135,8 @@ function DryWetSummary({
 
 export default function RightPropertyPaneView({
   selectedRoom, selectedWall, selectedType, selectedPointIndex, updateRoom, scaleValue, realScale, rooms,
-  highlightType, setHighlightType
+  highlightType, setHighlightType,
+  selectedWallIds = [], updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm
 }) {
   const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
 
@@ -238,26 +239,108 @@ export default function RightPropertyPaneView({
               </div>
             )}
           </>
-        ) : selectedType === "wall" && selectedWall ? (
+        ) : selectedType === "wall" && (selectedWall || selectedWallIds.length > 0) ? (
           <>
             <div className="panel-field">
               <span className="panel-label">Wall ID</span>
-              <div className="panel-value"><b>{selectedWall.id}</b></div>
+              <div className="panel-value">
+                <b>
+                  {selectedWallIds.length > 1
+                    ? `${selectedWallIds.length} walls selected`
+                    : selectedWall?.id}
+                </b>
+              </div>
             </div>
 
             <div className="panel-field">
-              <span className="panel-label">Confidence</span>
-              <div className="panel-value">{(selectedWall.confidence * 100).toFixed(1)}%</div>
+              <span className="panel-label">Wall Type</span>
+              <select
+                className="panel-select"
+                value={
+                  selectedWallIds.length > 1
+                    ? "multiple"
+                    : selectedWall?.class_name || selectedWall?.wall_type || "interior_wall"
+                }
+                onChange={e => {
+                  if (e.target.value === "multiple") return;
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  updateWallsProperty && updateWallsProperty(targetIds, "class_name", e.target.value);
+                }}
+              >
+                {selectedWallIds.length > 1 && <option value="multiple" disabled>— Multiple Types —</option>}
+                <option value="exterior_wall">🏠 Exterior Wall (ext)</option>
+                <option value="interior_wall">🔲 Interior Wall (int)</option>
+                <option value="partition_wall">🧱 Partition Wall (part)</option>
+              </select>
             </div>
 
             <div className="panel-field">
-              <span className="panel-label">Area (px²)</span>
-              <div className="panel-value">{selectedWall.area_px?.toFixed(1) || 0} px²</div>
+              <span className="panel-label">Wall Thickness</span>
+              <select
+                className="panel-select"
+                value={
+                  selectedWallIds.length > 1
+                    ? "multiple"
+                    : (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : 90)
+                }
+                onChange={e => {
+                  if (e.target.value === "multiple") return;
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  updateWallsProperty && updateWallsProperty(targetIds, "thickness", Number(e.target.value));
+                }}
+              >
+                {selectedWallIds.length > 1 && <option value="multiple" disabled>— Multiple Thicknesses —</option>}
+                <option value={70}>70 mm</option>
+                <option value={90}>90 mm</option>
+              </select>
             </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Perimeter (px)</span>
-              <div className="panel-value">{selectedWall.perimeter_px?.toFixed(1) || 0} px</div>
+            {selectedWallIds.length === 1 && selectedWall && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="panel-action-btn"
+                  style={{
+                    width: "100%",
+                    padding: "6px 12px",
+                    background: interactionMode === "cut-wall" ? "#ef4444" : "#3b82f6",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    marginBottom: "8px"
+                  }}
+                  onClick={() => {
+                    setInteractionMode && setInteractionMode(prev => prev === "cut-wall" ? "select" : "cut-wall");
+                  }}
+                >
+                  {interactionMode === "cut-wall" ? "✕ Cancel Cut Mode" : "✂️ Cut/Split Wall"}
+                </button>
+              </div>
+            )}
+
+            <div style={{ marginTop: 4 }}>
+              <button
+                className="panel-action-btn delete-btn"
+                style={{
+                  width: "100%",
+                  padding: "6px 12px",
+                  background: "#dc2626",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: "bold"
+                }}
+                onClick={() => {
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  deleteWalls && deleteWalls(targetIds);
+                }}
+              >
+                🗑️ Delete Selected Wall(s)
+              </button>
             </div>
           </>
         ) : (

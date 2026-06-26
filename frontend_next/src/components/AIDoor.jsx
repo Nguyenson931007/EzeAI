@@ -13,7 +13,9 @@ export default function AIDoor({
   setSelectedId,
   setSelectedType
 }) {
-  const maskPoly = d.polygon || d.mask_polygon;
+  const maskPoly = d.polygon || d.mask_polygon || [];
+  if (maskPoly.length < 3) return null;
+
   const polyPoints = maskPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
 
   // Calculate centroid for label placement
@@ -22,68 +24,378 @@ export default function AIDoor({
   const cxAvg = cxSum / polyPoints.length;
   const cyAvg = cySum / polyPoints.length;
 
-  const minX = Math.min(...polyPoints.map(p => p.x));
-  const minY = Math.min(...polyPoints.map(p => p.y));
-  const maxX = Math.max(...polyPoints.map(p => p.x));
-  const maxY = Math.max(...polyPoints.map(p => p.y));
-  const boxWidth = maxX - minX;
-  const boxHeight = maxY - minY;
-
   const widthLabel = d.width_mm ? `${d.width_mm}mm` : null;
   const widthSource = d.width_source || "geometry";
 
-  // Find 2 longest edges for snapping highlight and arc generation
-  const edges = polyPoints.map((p, i) => {
-    const next = polyPoints[(i + 1) % polyPoints.length];
-    return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
-  });
-  edges.sort((a, b) => b.len - a.len);
-  const topEdges = edges.slice(0, 2);
-
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
 
-  // --- Arc Calculation ---
+  // --- Arc and Sector Calculation from Hinge Angle Detection ---
+  let isDouble = (d.class && d.class.includes("double_door")) || (d.door_name && d.door_name.toLowerCase().includes("2x"));
+
   let arcPath = null;
   let sectorPath = null;
-  if (topEdges.length === 2 && !isSliding) {
-    const e1 = topEdges[0];
-    const e2 = topEdges[1];
-    
-    // Find hinge by identifying the closest pair of endpoints between e1 and e2
-    const pts1 = [e1.p1, e1.p2];
-    const pts2 = [e2.p1, e2.p2];
-    let minDist = Infinity;
-    let h1, h2, o1, o2;
-    
-    for (let i = 0; i < 2; i++) {
-      for (let j = 0; j < 2; j++) {
-        const dist = Math.hypot(pts1[i].x - pts2[j].x, pts1[i].y - pts2[j].y);
-        if (dist < minDist) {
-          minDist = dist;
-          h1 = pts1[i];
-          h2 = pts2[j];
-          o1 = pts1[1-i];
-          o2 = pts2[1-j];
+  let topEdges = [];
+  let frameEdgeIndex = 0;
+
+  // Double door calculations
+  let arcPath1 = null;
+  let arcPath2 = null;
+  let sectorPath1 = null;
+  let sectorPath2 = null;
+  let doubleEdges = [];
+
+  if (polyPoints.length >= 3 && !isSliding) {
+    // Use raw mask polygon from YOLO if available to find the correct hinges in the wall opening.
+    // This prevents the frame line from being flipped to the wrong side of the door.
+    const hingeSourcePoints = (d.mask_polygon && d.mask_polygon.length >= 3)
+      ? d.mask_polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p)
+      : polyPoints;
+
+    // 1. Find the longest straight segment composed of consecutive boundary edges of the polygon.
+    // This represents the physical frame line (longest straight edge along the wall opening).
+    let bestH1 = hingeSourcePoints[0];
+    let bestH2 = hingeSourcePoints[1];
+    let maxBoundaryLen = 0;
+    const nSource = hingeSourcePoints.length;
+
+    for (let i = 0; i < nSource; i++) {
+      for (let j = 0; j < nSource; j++) {
+        if (i === j) continue;
+        const pA = hingeSourcePoints[i];
+        const pB = hingeSourcePoints[j];
+        const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+        if (len < 10) continue;
+
+        let isCollinear = true;
+        const dx = pB.x - pA.x;
+        const dy = pB.y - pA.y;
+
+        // Walk along the boundary from i to j and check if all intermediate vertices are collinear
+        let curr = i;
+        while (curr !== j) {
+          const next = (curr + 1) % nSource;
+          const pC = hingeSourcePoints[next];
+          const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
+          const dist = Math.abs(cross) / len;
+          if (dist > 3.0) { // Max 3px alignment tolerance
+            isCollinear = false;
+            break;
+          }
+          curr = next;
+        }
+
+        if (isCollinear) {
+          if (len > maxBoundaryLen) {
+            maxBoundaryLen = len;
+            bestH1 = pA;
+            bestH2 = pB;
+          }
         }
       }
     }
-    
-    // Hinge is roughly the midpoint of h1 and h2
-    const hingeX = (h1.x + h2.x) / 2;
-    const hingeY = (h1.y + h2.y) / 2;
-    
-    const r = Math.max(e1.len, e2.len);
-    
-    // Determine sweep flag using cross product
-    const v1x = o1.x - hingeX;
-    const v1y = o1.y - hingeY;
-    const v2x = o2.x - hingeX;
-    const v2y = o2.y - hingeY;
-    const crossProduct = v1x * v2y - v1y * v2x;
-    const sweepFlag = crossProduct > 0 ? 1 : 0;
-    
-    arcPath = `M ${o1.x} ${o1.y} A ${r} ${r} 0 0 ${sweepFlag} ${o2.x} ${o2.y}`;
-    sectorPath = `M ${hingeX} ${hingeY} L ${o1.x} ${o1.y} A ${r} ${r} 0 0 ${sweepFlag} ${o2.x} ${o2.y} Z`;
+
+    const h1 = bestH1;
+    const h2 = bestH2;
+    const w = maxBoundaryLen;
+
+    // 2. Geometric Auto-Detection (User's Parallel Edge Idea):
+    // List all polygon boundary edges. Exclude the edges lying on the frame line h1 -> h2.
+    // Filter remaining edges that are longer than 0.35 * w (potential door leaves).
+    // If we have at least 2 such edges and the 2 longest are parallel to each other,
+    // it is a double door. If they are perpendicular, or only 1 exists, it is a single door.
+    let isDoubleGeom = false;
+    if (w > 0) {
+      const edges = polyPoints.map((p, i) => {
+        const next = polyPoints[(i + 1) % polyPoints.length];
+        return { p1: p, p2: next, len: Math.hypot(next.x - p.x, next.y - p.y) };
+      });
+
+      const leafCandidates = [];
+      const dxF = h2.x - h1.x;
+      const dyF = h2.y - h1.y;
+
+      edges.forEach(e => {
+        const dist1 = Math.abs(dxF * (e.p1.y - h1.y) - dyF * (e.p1.x - h1.x)) / w;
+        const dist2 = Math.abs(dxF * (e.p2.y - h1.y) - dyF * (e.p2.x - h1.x)) / w;
+        const isOnFrame = dist1 < 5.0 && dist2 < 5.0;
+
+        if (!isOnFrame && e.len >= 0.35 * w) {
+          leafCandidates.push(e);
+        }
+      });
+
+      if (leafCandidates.length >= 2) {
+        leafCandidates.sort((a, b) => b.len - a.len);
+        const e1 = leafCandidates[0];
+        const e2 = leafCandidates[1];
+
+        const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+        const v2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
+
+        const dot = v1.x * v2.x + v1.y * v2.y;
+        if (Math.abs(dot) >= 0.8) {
+          isDoubleGeom = true;
+        }
+      }
+    }
+
+    if (isDoubleGeom) {
+      isDouble = true;
+    }
+
+    if (isDouble) {
+      const r = w / 2;
+      const mid = { x: (h1.x + h2.x) / 2, y: (h1.y + h2.y) / 2 };
+
+      // Determine swing side normal vector pointing inside the door polygon area
+      const ux = (h2.x - h1.x) / w;
+      const uy = (h2.y - h1.y) / w;
+      const n1 = { x: -uy, y: ux };
+      const n2 = { x: uy, y: -ux };
+
+      const cx = polyPoints.reduce((sum, p) => sum + p.x, 0) / polyPoints.length;
+      const cy = polyPoints.reduce((sum, p) => sum + p.y, 0) / polyPoints.length;
+      const dot1 = (cx - mid.x) * n1.x + (cy - mid.y) * n1.y;
+      const dot2 = (cx - mid.x) * n2.x + (cy - mid.y) * n2.y;
+      const n = dot1 > dot2 ? n1 : n2;
+
+      // Calculate open positions
+      const O1 = { x: h1.x + r * n.x, y: h1.y + r * n.y };
+      const O2 = { x: h2.x + r * n.x, y: h2.y + r * n.y };
+
+      // Calculate sweep flags
+      const dx1 = mid.x - h1.x;
+      const dy1 = mid.y - h1.y;
+      const dx2 = O1.x - h1.x;
+      const dy2 = O1.y - h1.y;
+      const cross = dx1 * dy2 - dy1 * dx2;
+      const sweepFlag1 = cross > 0 ? 1 : 0;
+      const sweepFlag2 = 1 - sweepFlag1;
+
+      arcPath1 = `M ${mid.x} ${mid.y} A ${r} ${r} 0 0 ${sweepFlag1} ${O1.x} ${O1.y}`;
+      arcPath2 = `M ${mid.x} ${mid.y} A ${r} ${r} 0 0 ${sweepFlag2} ${O2.x} ${O2.y}`;
+
+      sectorPath1 = `M ${h1.x} ${h1.y} L ${mid.x} ${mid.y} A ${r} ${r} 0 0 ${sweepFlag1} ${O1.x} ${O1.y} Z`;
+      sectorPath2 = `M ${h2.x} ${h2.y} L ${mid.x} ${mid.y} A ${r} ${r} 0 0 ${sweepFlag2} ${O2.x} ${O2.y} Z`;
+
+      doubleEdges = [
+        { p1: h1, p2: h2, type: 'frame' },
+        { p1: h1, p2: O1, type: 'leaf' },
+        { p1: h2, p2: O2, type: 'leaf' }
+      ];
+    } else {
+      const n = polyPoints.length;
+      const straightSegments = [];
+
+      for (let i = 0; i < n; i++) {
+        let bestJ = (i + 1) % n;
+        let maxLen = Math.hypot(polyPoints[bestJ].x - polyPoints[i].x, polyPoints[bestJ].y - polyPoints[i].y);
+        
+        // Try to expand forward to find a longer collinear path
+        for (let step = 2; step < n; step++) {
+          const j = (i + step) % n;
+          const pA = polyPoints[i];
+          const pB = polyPoints[j];
+          const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+          if (len < 5) break;
+
+          let isCollinear = true;
+          const dx = pB.x - pA.x;
+          const dy = pB.y - pA.y;
+
+          // Verify all intermediate vertices along the boundary path are within 3px of the line pA -> pB
+          for (let k = 1; k < step; k++) {
+            const idx = (i + k) % n;
+            const pC = polyPoints[idx];
+            const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
+            const dist = Math.abs(cross) / len;
+            if (dist > 3.0) { // 3px tolerance
+              isCollinear = false;
+              break;
+            }
+          }
+
+          if (isCollinear) {
+            bestJ = j;
+            maxLen = len;
+          } else {
+            break;
+          }
+        }
+
+        straightSegments.push({
+          p1: polyPoints[i],
+          p2: polyPoints[bestJ],
+          len: maxLen
+        });
+      }
+
+      // Find the pair of segments that are longest and most perpendicular to each other
+      let bestPair = null;
+      let maxScore = -Infinity;
+
+      for (let i = 0; i < straightSegments.length; i++) {
+        for (let j = i + 1; j < straightSegments.length; j++) {
+          const e1 = straightSegments[i];
+          const e2 = straightSegments[j];
+
+          // Calculate unit direction vectors
+          const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+          const v2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
+          const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+
+          // Skip if they are nearly parallel and close to each other (same physical edge)
+          if (dot > 0.9) {
+            const midX = (e2.p1.x + e2.p2.x) / 2;
+            const midY = (e2.p1.y + e2.p2.y) / 2;
+            const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
+            if (dist < 15.0) {
+              continue;
+            }
+          }
+
+          // Score is: len1 * len2 * (1.0 - dot)
+          // This prioritizes pairs that are long and perpendicular (dot product close to 0)
+          const score = e1.len * e2.len * (1.0 - dot);
+          if (score > maxScore) {
+            maxScore = score;
+            bestPair = [e1, e2];
+          }
+        }
+      }
+
+      const selected = [];
+      if (bestPair) {
+        selected.push(bestPair[0], bestPair[1]);
+      }
+
+      // Fallback if we couldn't find 2 distinct straight segments
+      if (selected.length < 2) {
+        // Sort candidate segments by length descending as fallback
+        straightSegments.sort((a, b) => b.len - a.len);
+        if (straightSegments.length > 0 && selected.length === 0) {
+          selected.push(straightSegments[0]);
+        }
+        for (let i = 0; i < straightSegments.length; i++) {
+          if (selected.length >= 2) break;
+          const raw = straightSegments[i];
+          if (selected.length === 1) {
+            const first = selected[0];
+            const v1 = { x: (first.p2.x - first.p1.x) / first.len, y: (first.p2.y - first.p1.y) / first.len };
+            const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
+            const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+            if (dot > 0.9) {
+              const midX = (raw.p1.x + raw.p2.x) / 2;
+              const midY = (raw.p1.y + raw.p2.y) / 2;
+              const dist = Math.abs((first.p2.x - first.p1.x) * (midY - first.p1.y) - (first.p2.y - first.p1.y) * (midX - first.p1.x)) / first.len;
+              if (dist < 15.0) continue;
+            }
+          }
+          if (!selected.includes(raw)) {
+            selected.push(raw);
+          }
+        }
+      }
+
+      // Final fallback to raw simple edges if still not enough
+      if (selected.length < 2) {
+        const rawEdges = polyPoints.map((p, i) => {
+          const next = polyPoints[(i + 1) % polyPoints.length];
+          return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
+        });
+        rawEdges.sort((a, b) => b.len - a.len);
+        while (selected.length < 2 && rawEdges.length > 0) {
+          const raw = rawEdges.shift();
+          if (selected.length === 1) {
+            const first = selected[0];
+            const v1 = { x: (first.p2.x - first.p1.x) / first.len, y: (first.p2.y - first.p1.y) / first.len };
+            const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
+            const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+            if (dot > 0.9) {
+              const midX = (raw.p1.x + raw.p2.x) / 2;
+              const midY = (raw.p1.y + raw.p2.y) / 2;
+              const dist = Math.abs((first.p2.x - first.p1.x) * (midY - first.p1.y) - (first.p2.y - first.p1.y) * (midX - first.p1.x)) / first.len;
+              if (dist < 15.0) continue;
+            }
+          }
+          selected.push(raw);
+        }
+      }
+
+      const topTwoEdges = selected;
+
+      if (topTwoEdges.length === 2) {
+        const e1 = topTwoEdges[0];
+        const e2 = topTwoEdges[1];
+        
+        const pts1 = [e1.p1, e1.p2];
+        const pts2 = [e2.p1, e2.p2];
+        let minDist = Infinity;
+        let h1, h2, o1, o2;
+        
+        for (let i = 0; i < 2; i++) {
+          for (let j = 0; j < 2; j++) {
+            const dist = Math.hypot(pts1[i].x - pts2[j].x, pts1[i].y - pts2[j].y);
+            if (dist < minDist) {
+              minDist = dist;
+              h1 = pts1[i];
+              h2 = pts2[j];
+              o1 = pts1[1-i];
+              o2 = pts2[1-j];
+            }
+          }
+        }
+        
+        const hingeX = (h1.x + h2.x) / 2;
+        const hingeY = (h1.y + h2.y) / 2;
+        
+        const r = Math.max(e1.len, e2.len);
+        const len1 = Math.hypot(o1.x - hingeX, o1.y - hingeY);
+        const len2 = Math.hypot(o2.x - hingeX, o2.y - hingeY);
+
+        if (len1 > 1e-3 && len2 > 1e-3) {
+          const o1_proj = {
+            x: hingeX + (o1.x - hingeX) * (r / len1),
+            y: hingeY + (o1.y - hingeY) * (r / len1)
+          };
+          const o2_proj = {
+            x: hingeX + (o2.x - hingeX) * (r / len2),
+            y: hingeY + (o2.y - hingeY) * (r / len2)
+          };
+
+          const dx1 = o1_proj.x - hingeX;
+          const dy1 = o1_proj.y - hingeY;
+          const dx2 = o2_proj.x - hingeX;
+          const dy2 = o2_proj.y - hingeY;
+          const crossProduct = dx1 * dy2 - dy1 * dx2;
+          const sweepFlag = crossProduct > 0 ? 1 : 0;
+
+          arcPath = `M ${o1_proj.x} ${o1_proj.y} A ${r} ${r} 0 0 ${sweepFlag} ${o2_proj.x} ${o2_proj.y}`;
+          sectorPath = `M ${hingeX} ${hingeY} L ${o1_proj.x} ${o1_proj.y} A ${r} ${r} 0 0 ${sweepFlag} ${o2_proj.x} ${o2_proj.y} Z`;
+
+          topEdges = [
+            { p1: { x: hingeX, y: hingeY }, p2: o1_proj },
+            { p1: { x: hingeX, y: hingeY }, p2: o2_proj }
+          ];
+
+          if (d.points && d.points.length >= 2) {
+            const pts = d.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+            const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
+            const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
+            const frame_end_target = d0 > d1 ? pts[0] : pts[1];
+
+            const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
+            const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
+
+            if (dist1 < dist2) {
+              frameEdgeIndex = 0;
+            } else {
+              frameEdgeIndex = 1;
+            }
+          }
+        }
+      }
+    }
   }
 
   return (
@@ -96,83 +408,142 @@ export default function AIDoor({
       }}
       style={{ cursor: 'pointer' }}
     >
-      {/* Sliding Door Bounding Box */}
+      {/* Clickable Overlay (Raw mask polygon with transparent styling for click/drag) */}
+      <polygon
+        points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
+        fill="transparent"
+        stroke="transparent"
+        strokeWidth={0}
+        onMouseDown={(e) => {
+          if (isSelected && startDrag) {
+            e.stopPropagation();
+            startDrag(d.id, null, 'door-move');
+          }
+        }}
+      />
+
+      {/* Raw Mask Polygon from YOLO detection model (for visual validation) */}
+      <polygon
+        points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
+        fill="rgba(168, 85, 247, 0.08)"
+        stroke="rgba(168, 85, 247, 0.35)"
+        strokeWidth={1.5}
+        strokeDasharray="2,2"
+        style={{ pointerEvents: 'none' }}
+      />
+
+      {/* For Sliding Doors: Render filled raw polygon (no arc) */}
       {isSliding && (
-        <rect
-          x={minX}
-          y={minY}
-          width={boxWidth}
-          height={boxHeight}
+        <polygon
+          points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
           fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
           stroke={isSelected ? "#FF5722" : "#a855f7"}
           strokeWidth={isSelected ? 3.5 : 2}
-          onMouseDown={(e) => {
-            if (isSelected && startDrag) {
-              e.stopPropagation();
-              startDrag(d.id, null, 'door-move');
-            }
-          }}
+          style={{ pointerEvents: 'none' }}
         />
       )}
 
+      {/* For Swing Doors: Render exact circle sector fill, arc line, and straight edges */}
       {!isSliding && (
         <>
-          {/* Segmentation mask polygon (invisible but clickable, fallback for fill if no sector) */}
-          <polygon
-            points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-            fill={(!sectorPath) ? (isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)") : "transparent"}
-            stroke="transparent"
-            strokeWidth={0}
-            onMouseDown={(e) => {
-              if (isSelected && startDrag) {
-                e.stopPropagation();
-                startDrag(d.id, null, 'door-move');
-              }
-            }}
-          />
-
-          {/* Perfect Geometric Sector Fill */}
-          {sectorPath && (
-            <path
-              d={sectorPath}
-              fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
-              stroke="transparent"
-              strokeWidth={0}
-              onMouseDown={(e) => {
-                if (isSelected && startDrag) {
-                  e.stopPropagation();
-                  startDrag(d.id, null, 'door-move');
-                }
-              }}
-            />
+          {/* Sector Fill (Màu không vượt qua line cửa) */}
+          {isDouble ? (
+            <>
+              {sectorPath1 && (
+                <path 
+                  d={sectorPath1} 
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+                  stroke="transparent"
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+              {sectorPath2 && (
+                <path 
+                  d={sectorPath2} 
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+                  stroke="transparent"
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+            </>
+          ) : (
+            sectorPath && (
+              <path 
+                d={sectorPath} 
+                fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+                stroke="transparent"
+                style={{ pointerEvents: 'none' }}
+              />
+            )
           )}
 
-          {/* The Arc (Cung Cửa) */}
-          {arcPath && (
-            <path 
-              d={arcPath} 
-              fill="none" 
-              stroke={isSelected ? "#FF5722" : "#a855f7"} 
-              strokeWidth={1.5} 
-              strokeDasharray="3,2" 
-              style={{ pointerEvents: 'none' }}
-            />
+          {/* Hinge Arc Swing line */}
+          {isDouble ? (
+            <>
+              {arcPath1 && (
+                <path 
+                  d={arcPath1} 
+                  fill="none" 
+                  stroke={isSelected ? "#FF5722" : "purple"} 
+                  strokeWidth={1.5} 
+                  strokeDasharray="3,2" 
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+              {arcPath2 && (
+                <path 
+                  d={arcPath2} 
+                  fill="none" 
+                  stroke={isSelected ? "#FF5722" : "purple"} 
+                  strokeWidth={1.5} 
+                  strokeDasharray="3,2" 
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+            </>
+          ) : (
+            arcPath && (
+              <path 
+                d={arcPath} 
+                fill="none" 
+                stroke={isSelected ? "#FF5722" : "purple"} 
+                strokeWidth={1.5} 
+                strokeDasharray="3,2" 
+                style={{ pointerEvents: 'none' }}
+              />
+            )
           )}
 
-          {/* Highlight 2 longest edges (Thanh Cửa) */}
-          {topEdges.map((edge, i) => (
-            <line
-              key={i}
-              x1={edge.p1.x}
-              y1={edge.p1.y}
-              x2={edge.p2.x}
-              y2={edge.p2.y}
-              stroke={isSelected ? "#FF5722" : "#a855f7"}
-              strokeWidth={isSelected ? 3.5 : 2}
-              strokeLinecap="round"
-              style={{ pointerEvents: 'none' }}
-            />
-          ))}
+          {/* Highlight the straight lines (Door Leaf and Frame edge) */}
+          {isDouble ? (
+            doubleEdges.map((edge, i) => (
+              <line
+                key={i}
+                x1={edge.p1.x}
+                y1={edge.p1.y}
+                x2={edge.p2.x}
+                y2={edge.p2.y}
+                stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "purple")}
+                strokeWidth={isSelected ? 3.5 : 2}
+                strokeLinecap="round"
+                style={{ pointerEvents: 'none' }}
+              />
+            ))
+          ) : (
+            topEdges.map((edge, i) => (
+              <line
+                key={i}
+                x1={edge.p1.x}
+                y1={edge.p1.y}
+                x2={edge.p2.x}
+                y2={edge.p2.y}
+                stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "purple")}
+                strokeWidth={isSelected ? 3.5 : 2}
+                strokeLinecap="round"
+                style={{ pointerEvents: 'none' }}
+              />
+            ))
+          )}
         </>
       )}
 
@@ -213,7 +584,7 @@ export default function AIDoor({
         </g>
       )}
 
-      {/* Door Class Name / Door ID Label (Always visible, similar to room names) */}
+      {/* Door Class Name / Door ID Label */}
       <g 
         transform={`translate(${cxAvg}, ${cyAvg - 20})`} 
         style={{ pointerEvents: 'none' }}

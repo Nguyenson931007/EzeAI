@@ -50,3 +50,7 @@ backend.zip
 # Temp files
 cookies.txt
 image-removebg-preview.png
+
+# Debug outputs
+debug_outputs/
+

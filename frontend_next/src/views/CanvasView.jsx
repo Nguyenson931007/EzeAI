@@ -20,6 +20,7 @@ import {
   polygonAreaM2 as polygonAreaM2Util, 
   calculateWallPolygon 
 } from "@/utils/geometry";
+import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
 
 
 // Review/Confidence Color Mapping
@@ -230,33 +231,97 @@ const WallLayer = React.memo(({
   selectedId,
   selectedType,
   setSelectedId,
-  setSelectedType
+  setSelectedType,
+  selectedWallIds = [],
+  selectWall,
+  startDrag,
+  interactionMode
 }) => {
   if (showLayer !== 'all' && showLayer !== 'wall') return null;
 
   return (
     <g id="WallLayer">
+      {/* 1. Render all wall polygons first */}
       {(walls || []).map(w => {
-        const isSelected = selectedId === w.id && selectedType === "wall";
+        const isSelected = selectedWallIds.includes(w.id);
         const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
-        const strokeColor = isSelected ? "#38bdf8" : "#a855f7";
         
+        const cls = (w.class_name || "").toLowerCase();
+        let strokeColor = "#a855f7"; // purple default
+        let fillColor = "rgba(168, 85, 247, 0.15)";
+
+        if (cls.includes("ext") || cls.includes("external")) {
+          strokeColor = "#a855f7"; // purple
+          fillColor = "rgba(168, 85, 247, 0.15)";
+        } else if (cls.includes("int") || cls.includes("internal")) {
+          strokeColor = "#b45309"; // brown
+          fillColor = "rgba(180, 83, 9, 0.15)";
+        } else if (cls.includes("part") || cls.includes("partition")) {
+          strokeColor = "#eab308"; // yellow
+          fillColor = "rgba(234, 179, 8, 0.15)";
+        }
+
+        if (isSelected) {
+          strokeColor = "#38bdf8";
+          fillColor = "rgba(56, 189, 248, 0.25)";
+        }
+
         return (
-          <g
+          <polygon
             key={w.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedId(w.id);
-              setSelectedType("wall");
-            }}
+            points={pointsStr}
+            fill={fillColor}
+            stroke={strokeColor}
+            strokeWidth={isSelected ? 3 : 1.5}
             style={{ cursor: 'pointer' }}
-          >
-            <polygon
-              points={pointsStr}
-              fill={isSelected ? "rgba(56,189,248,0.25)" : "rgba(168, 85, 247, 0.15)"}
-              stroke={strokeColor}
-              strokeWidth={isSelected ? 3 : 1.5}
-            />
+            onClick={(e) => {
+              if (interactionMode === "cut-wall") {
+                // Let the click propagate to the SVG so handleClick handles it!
+                return;
+              }
+              e.stopPropagation();
+              if (selectWall) {
+                selectWall(w.id, e.ctrlKey || e.shiftKey);
+              } else {
+                setSelectedId(w.id);
+                setSelectedType("wall");
+              }
+            }}
+            onMouseDown={(e) => {
+              if (isSelected && startDrag && interactionMode !== "cut-wall") {
+                e.stopPropagation();
+                startDrag(w.id, null, 'wall-move');
+              }
+            }}
+          />
+        );
+      })}
+
+      {/* 2. Render selected wall vertex handles on top of everything */}
+      {interactionMode !== "cut-wall" && (walls || []).map(w => {
+        const isSelected = selectedWallIds.includes(w.id);
+        if (!isSelected || !w.centerline || w.centerline.length !== 2) return null;
+
+        return (
+          <g key={`handles-${w.id}`}>
+            {w.centerline.map((pt, i) => (
+              <circle
+                key={i}
+                cx={pt[0]}
+                cy={pt[1]}
+                r={6}
+                fill="white"
+                stroke="#0284c7"
+                strokeWidth={2}
+                style={{ cursor: 'move' }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  if (startDrag) {
+                    startDrag(w.id, i, 'wall-vertex');
+                  }
+                }}
+              />
+            ))}
           </g>
         );
       })}
@@ -266,7 +331,11 @@ const WallLayer = React.memo(({
   prev.walls === next.walls &&
   prev.showLayer === next.showLayer &&
   prev.selectedId === next.selectedId &&
-  prev.selectedType === next.selectedType
+  prev.selectedType === next.selectedType &&
+  prev.selectedWallIds === next.selectedWallIds &&
+  prev.selectWall === next.selectWall &&
+  prev.startDrag === next.startDrag &&
+  prev.interactionMode === next.interactionMode
 ));
 
 // ==========================================
@@ -378,12 +447,12 @@ const DoorLayer = React.memo(({
 
             return (
               <g>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
                 <path 
                   d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
-                  fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3,2"
+                  fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1.5} strokeDasharray="3,2"
                 />
-                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={color} strokeWidth={isSelected ? 4 : 2.5} />
+                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isSelected ? 4 : 2.5} />
                 
                 {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
                 {isSelected && (
@@ -429,11 +498,11 @@ const DoorLayer = React.memo(({
 
             return (
               <g>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
-                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
-                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={color} strokeWidth={isSelected ? 3 : 2} />
-                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
-                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={color} strokeWidth={isSelected ? 3 : 2} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1} strokeDasharray="3,2" />
+                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isSelected ? 3 : 2} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1} strokeDasharray="3,2" />
+                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isSelected ? 3 : 2} />
               </g>
             );
           };
@@ -443,8 +512,8 @@ const DoorLayer = React.memo(({
             const offsetY = Math.cos(angle) * 3;
             return (
               <g>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth={isSelected ? 6 : 4} />
-                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={color} strokeWidth={1} opacity={0.5} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isSelected ? 6 : 4} />
+                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1} opacity={0.5} />
               </g>
             );
           };
@@ -1204,6 +1273,10 @@ export default function CanvasView({
   isSnapMode,
   rect,
   roiRect,
+  selectedWallIds = [],
+  selectWall,
+  cutPreviewPoint,
+  interactionMode,
   roiProgress,
   cacheStatus,
   inferenceTiming,
@@ -1767,6 +1840,10 @@ export default function CanvasView({
               selectedType={selectedType}
               setSelectedId={setSelectedId}
               setSelectedType={setSelectedType}
+              selectedWallIds={selectedWallIds}
+              selectWall={selectWall}
+              startDrag={startDrag}
+              interactionMode={interactionMode}
             />
 
             {/* Memoized Layer 4: Doors */}
@@ -2000,19 +2077,21 @@ export default function CanvasView({
                   y={Math.min(rect.y1, rect.y2)}
                   width={Math.abs(rect.x2 - rect.x1)}
                   height={Math.abs(rect.y2 - rect.y1)}
-                  fill="rgba(59,130,246,0.08)"
-                  stroke="#3b82f6"
+                  fill={rect.isMarquee ? "rgba(16, 185, 129, 0.05)" : "rgba(59,130,246,0.08)"}
+                  stroke={rect.isMarquee ? "#10b981" : "#3b82f6"}
                   strokeWidth={2 / scale}
                   strokeDasharray={`${6/scale} ${3/scale}`}
                   className="roi-marching-ants"
                 />
-                <text
-                  x={Math.min(rect.x1, rect.x2)}
-                  y={Math.min(rect.y1, rect.y2) - 6/scale}
-                  fontSize={11 / scale} fill="#3b82f6" fontWeight="700" fontFamily="Inter, sans-serif"
-                >
-                  {Math.round(Math.abs(rect.x2 - rect.x1))}×{Math.round(Math.abs(rect.y2 - rect.y1))}px
-                </text>
+                {!rect.isMarquee && (
+                  <text
+                    x={Math.min(rect.x1, rect.x2)}
+                    y={Math.min(rect.y1, rect.y2) - 6/scale}
+                    fontSize={11 / scale} fill="#3b82f6" fontWeight="700" fontFamily="Inter, sans-serif"
+                  >
+                    {Math.round(Math.abs(rect.x2 - rect.x1))}×{Math.round(Math.abs(rect.y2 - rect.y1))}px
+                  </text>
+                )}
               </>
             )}
 
@@ -2088,6 +2167,39 @@ export default function CanvasView({
 
             {/* Memoized Layer 6: ROI Overlay region */}
             <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} />
+
+            {/* Cut Wall Preview Dot */}
+            {cutPreviewPoint && (
+              <g id="CutWallPreview">
+                <circle
+                  cx={cutPreviewPoint.x}
+                  cy={cutPreviewPoint.y}
+                  r={6 / scale}
+                  fill="#ef4444"
+                  stroke="white"
+                  strokeWidth={1.5 / scale}
+                  pointerEvents="none"
+                />
+                <line
+                  x1={cutPreviewPoint.x - 10 / scale}
+                  y1={cutPreviewPoint.y}
+                  x2={cutPreviewPoint.x + 10 / scale}
+                  y2={cutPreviewPoint.y}
+                  stroke="#ef4444"
+                  strokeWidth={1.5 / scale}
+                  pointerEvents="none"
+                />
+                <line
+                  x1={cutPreviewPoint.x}
+                  y1={cutPreviewPoint.y - 10 / scale}
+                  x2={cutPreviewPoint.x}
+                  y2={cutPreviewPoint.y + 10 / scale}
+                  stroke="#ef4444"
+                  strokeWidth={1.5 / scale}
+                  pointerEvents="none"
+                />
+              </g>
+            )}
 
           </g>
         </svg>

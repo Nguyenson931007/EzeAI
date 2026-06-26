@@ -29,8 +29,9 @@ MODEL_CANDIDATES = {
         BASE_DIR / "backend" / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
         BASE_DIR / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
     ],
+
     "wall_seg": [
-        BASE_DIR / "backend" / "models" / "Walls" / "best.pt",
+        BASE_DIR / "backend" / "models" / "Walls" / "best_3.pt",
         Path("D:/EzeFloor-main/EzeFloor-main/backend/models/Walls/best.pt"),
     ],
     "text": [

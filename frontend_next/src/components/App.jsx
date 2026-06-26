@@ -33,6 +33,7 @@ import { ApiService } from "@/models/api.service";
 const BOQTable = dynamic(() => import("@/components/BOQTable"), { ssr: false });
 const UserManagement = dynamic(() => import("@/components/UserManagement"), { ssr: false });
 const JobHistory = dynamic(() => import("@/components/JobHistory"), { ssr: false });
+const ThreeDView = dynamic(() => import("@/views/ThreeDView"), { ssr: false });
 
 // PDF.js worker — Next.js compatible (served from public/)
 if (typeof window !== "undefined") {
@@ -86,6 +87,7 @@ export default function App() {
   const [imgSize, setImgSize] = useState({ w: 800, h: 600 });
   const [highlightType, setHighlightType] = useState(null);
   const [showBOQ, setShowBOQ] = useState(false);
+  const [show3D, setShow3D] = useState(false);
   const [showLayer, setShowLayer] = useState("all"); // 'all', 'floor'
   const [showExportPageSelector, setShowExportPageSelector] = useState(false);
   const [exportSelectedPages, setExportSelectedPages] = useState([]);
@@ -127,6 +129,12 @@ export default function App() {
     selectedId, setSelectedId,
     selectedType, setSelectedType,
     selectedPointIndex,
+    selectedWallIds,
+    cutPreviewPoint,
+    selectWall,
+    deleteWalls,
+    updateWallsProperty,
+    pxToMm,
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
@@ -202,8 +210,13 @@ export default function App() {
     detectText,
     detectTemplate,
     detectDoorSeg,
-    activeScanRoom
-  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage, setWallsByPage);
+    activeScanRoom,
+    // Smart AI pipeline
+    smartDetect,
+    cancelSmartDetect,
+    isSmartDetecting,
+    smartProgress
+  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage, setWallsByPage, doorsByPage, wallsByPage, pushHistory);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
     user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
@@ -464,6 +477,7 @@ export default function App() {
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
         isAddingPoint={isAddingPoint} setIsAddingPoint={setIsAddingPoint}
+        interactionMode={interactionMode} setInteractionMode={setInteractionMode}
         scaleValue={scaleValue}
         rooms={rooms}
         isDetecting={isDetecting}
@@ -472,6 +486,7 @@ export default function App() {
         inferenceTiming={inferenceTiming}
         cancelROI={cancelROI}
         showBOQ={showBOQ} setShowBOQ={setShowBOQ}
+        show3D={show3D} setShow3D={setShow3D}
         showLayer={showLayer} setShowLayer={setShowLayer}
         handleLogout={handleLogout}
         handleSaveJob={handleSaveJob}
@@ -479,6 +494,7 @@ export default function App() {
         deleteItem={deleteItem} deleteAllRooms={deleteAllRooms}
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
         autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
+        smartDetect={smartDetect} cancelSmartDetect={cancelSmartDetect} isSmartDetecting={isSmartDetecting} smartProgress={smartProgress}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
         exportPDF={exportPDF}
         addTrain={addTrain}
@@ -511,117 +527,141 @@ export default function App() {
         />
       ) : (
         <div className="cad-body">
-          <ThumbnailSidebarView
-            pages={pages}
-            setPages={setPages}
-            currentPage={currentPage}
-            onPageClick={goPage}
-            roomsByPage={roomsByPage}
-          />
-
-          <CanvasView
-            svgRef={svgRef}
-            image={image}
-            imgSize={imgSize}
-            offset={offset}
-            scale={scale}
-            drawing={drawing}
-            isDrawingDoor={isDrawingDoor}
-            currentPoly={currentPoly}
-            currentDoor={currentDoor}
-            currentMouse={currentMouse}
-            rooms={rooms}
-            walls={wallsByPage[currentPage] || []}
-            doors={processedDoorsByPage[currentPage] || []}
-            scaleValue={scaleValue}
-            realScale={realScale}
-            highlightType={highlightType}
-            selectedId={selectedId}
-            setSelectedId={setSelectedId}
-            selectedType={selectedType}
-            setSelectedType={setSelectedType}
-            selectedPointIndex={selectedPointIndex}
-            hoverId={hoverId}
-            setHoverId={setHoverId}
-            showLayer={showLayer}
-            isPanning={isPanning}
-            isDistancing={isDistancing}
-            isMeasuring={isMeasuring}
-            isAddingPoint={isAddingPoint}
-            measurePoints={measurePoints}
-            distancePoints={distancePoints}
-            distanceResults={distanceResults}
-            setDistanceResults={setDistanceResults}
-            hoveredDistIdx={hoveredDistIdx}
-            setHoveredDistIdx={setHoveredDistIdx}
-            isShiftDown={isShiftDown}
-            isSnapMode={isSnapMode}
-            rect={rect}
-            roiRect={roiRect}
-            roiProgress={roiProgress}
-            cacheStatus={cacheStatus}
-            inferenceTiming={inferenceTiming}
-            isDetecting={isDetecting}
-            activeScanRoom={activeScanRoom}
-            setOffset={setOffset}
-            setScale={setScale}
-            currentPage={currentPage}
-            pages={pages}
-            handleClick={handleClick}
-            finishPolygon={finishPolygon}
-            finishDoor={finishDoor}
-            onMouseMove={onMouseMove}
-            onMouseDown={onMouseDown}
-            onMouseUp={onMouseUp}
-            onWheel={onWheel}
-            startDrag={startDrag}
-            pushHistory={pushHistory}
-            updateDoor={updateDoor}
-            searchResults={searchResults}
-            searchResultsVisible={searchResultsVisible}
-            hoveredSearchResultId={hoveredSearchResultId}
-            zoomToBbox={zoomToBbox}
-          />
-
-          {activeTab === "Search" ? (
-            <SearchSidebarView
-              searchResults={searchResults}
-              setSearchResults={setSearchResults}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              searchThreshold={searchThreshold}
-              setSearchThreshold={setSearchThreshold}
-              searchScope={searchScope}
-              setSearchScope={setSearchScope}
-              isSearching={isSearching}
-              setIsSearching={setIsSearching}
-              searchCountData={searchCountData}
-              setSearchCountData={setSearchCountData}
-              searchResultsVisible={searchResultsVisible}
-              setSearchResultsVisible={setSearchResultsVisible}
+          {!show3D && (
+            <ThumbnailSidebarView
+              pages={pages}
+              setPages={setPages}
               currentPage={currentPage}
-              currentJobId={currentJobId}
-              projectName={currentProjectName}
-              selectedId={selectedId}
-              selectedType={selectedType}
-              roiRect={roiRect}
-              clearROI={clearROI}
-              zoomToBbox={zoomToBbox}
-              setHoveredSearchResultId={setHoveredSearchResultId}
+              onPageClick={goPage}
+              roomsByPage={roomsByPage}
+            />
+          )}
+
+          {show3D ? (
+            <ThreeDView
+              rooms={rooms}
+              walls={wallsByPage[currentPage] || []}
+              doors={processedDoorsByPage[currentPage] || []}
+              realScale={realScale}
+              onClose={() => setShow3D(false)}
             />
           ) : (
-            <RightPropertyPaneView
-              selectedRoom={rooms.find(r => r.id === selectedId)}
-              selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
-              selectedType={selectedType}
-              selectedPointIndex={selectedPointIndex}
-              updateRoom={updateRoom}
+            <CanvasView
+              svgRef={svgRef}
+              image={image}
+              imgSize={imgSize}
+              offset={offset}
+              scale={scale}
+              drawing={drawing}
+              isDrawingDoor={isDrawingDoor}
+              currentPoly={currentPoly}
+              currentDoor={currentDoor}
+              currentMouse={currentMouse}
+              rooms={rooms}
+              walls={wallsByPage[currentPage] || []}
+              doors={processedDoorsByPage[currentPage] || []}
               scaleValue={scaleValue}
               realScale={realScale}
-              rooms={rooms}
               highlightType={highlightType}
-              setHighlightType={setHighlightType}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              selectedType={selectedType}
+              setSelectedType={setSelectedType}
+              selectedPointIndex={selectedPointIndex}
+              selectedWallIds={selectedWallIds}
+              selectWall={selectWall}
+              cutPreviewPoint={cutPreviewPoint}
+              interactionMode={interactionMode}
+              hoverId={hoverId}
+              setHoverId={setHoverId}
+              showLayer={showLayer}
+              isPanning={isPanning}
+              isDistancing={isDistancing}
+              isMeasuring={isMeasuring}
+              isAddingPoint={isAddingPoint}
+              measurePoints={measurePoints}
+              distancePoints={distancePoints}
+              distanceResults={distanceResults}
+              setDistanceResults={setDistanceResults}
+              hoveredDistIdx={hoveredDistIdx}
+              setHoveredDistIdx={setHoveredDistIdx}
+              isShiftDown={isShiftDown}
+              isSnapMode={isSnapMode}
+              rect={rect}
+              roiRect={roiRect}
+              roiProgress={roiProgress}
+              cacheStatus={cacheStatus}
+              inferenceTiming={inferenceTiming}
+              isDetecting={isDetecting}
+              activeScanRoom={activeScanRoom}
+              setOffset={setOffset}
+              setScale={setScale}
+              currentPage={currentPage}
+              pages={pages}
+              handleClick={handleClick}
+              finishPolygon={finishPolygon}
+              finishDoor={finishDoor}
+              onMouseMove={onMouseMove}
+              onMouseDown={onMouseDown}
+              onMouseUp={onMouseUp}
+              onWheel={onWheel}
+              startDrag={startDrag}
+              pushHistory={pushHistory}
+              updateDoor={updateDoor}
+              searchResults={searchResults}
+              searchResultsVisible={searchResultsVisible}
+              hoveredSearchResultId={hoveredSearchResultId}
+              zoomToBbox={zoomToBbox}
             />
+          )}
+
+          {!show3D && (
+            activeTab === "Search" ? (
+              <SearchSidebarView
+                searchResults={searchResults}
+                setSearchResults={setSearchResults}
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                searchThreshold={searchThreshold}
+                setSearchThreshold={setSearchThreshold}
+                searchScope={searchScope}
+                setSearchScope={setSearchScope}
+                isSearching={isSearching}
+                setIsSearching={setIsSearching}
+                searchCountData={searchCountData}
+                setSearchCountData={setSearchCountData}
+                searchResultsVisible={searchResultsVisible}
+                setSearchResultsVisible={setSearchResultsVisible}
+                currentPage={currentPage}
+                currentJobId={currentJobId}
+                projectName={currentProjectName}
+                selectedId={selectedId}
+                selectedType={selectedType}
+                roiRect={roiRect}
+                clearROI={clearROI}
+                zoomToBbox={zoomToBbox}
+                setHoveredSearchResultId={setHoveredSearchResultId}
+              />
+            ) : (
+              <RightPropertyPaneView
+                selectedRoom={rooms.find(r => r.id === selectedId)}
+                selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
+                selectedType={selectedType}
+                selectedPointIndex={selectedPointIndex}
+                updateRoom={updateRoom}
+                scaleValue={scaleValue}
+                realScale={realScale}
+                rooms={rooms}
+                highlightType={highlightType}
+                setHighlightType={setHighlightType}
+                selectedWallIds={selectedWallIds}
+                updateWallsProperty={updateWallsProperty}
+                deleteWalls={deleteWalls}
+                interactionMode={interactionMode}
+                setInteractionMode={setInteractionMode}
+                pxToMm={pxToMm}
+              />
+            )
           )}
           <AIConfidenceBar />
         </div>

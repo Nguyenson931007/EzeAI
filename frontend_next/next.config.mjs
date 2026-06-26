@@ -13,8 +13,7 @@ const nextConfig = {
       // AI inference endpoints
       { source: "/predict_seg", destination: `${backendUrl}/predict_seg` },
       { source: "/predict_seg_roi", destination: `${backendUrl}/predict_seg_roi` },
-      { source: "/predict_seg_wall", destination: `${backendUrl}/predict_seg_wall` },
-      { source: "/predict_seg_wall_roi", destination: `${backendUrl}/predict_seg_wall_roi` },
+
       { source: "/predict_door", destination: `${backendUrl}/predict_door` },
       { source: "/predict_door_roi", destination: `${backendUrl}/predict_door_roi` },
       { source: "/predict_text", destination: `${backendUrl}/predict_text` },

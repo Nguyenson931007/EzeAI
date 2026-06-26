@@ -161,6 +161,34 @@ def test_pattern_search_engine(mock_db):
     roi_matches = search_engine.search_by_roi(page_id=0, bbox=[10, 20, 25, 25], threshold=0.5)
     assert len(roi_matches) > 0
 
+def test_roi_search_engine(mock_db, monkeypatch):
+    from services.search.roi_search_engine import ROISearchEngine
+    
+    # 1. Test case where OCR returns text -> routes to OCR search
+    def mock_run_ocr_with_text(image):
+        return [{"text": "820", "conf": 0.9, "bbox": {"x": 10, "y": 10, "w": 15, "h": 8}}]
+    
+    monkeypatch.setattr("services.search.roi_search_engine.run_ocr", mock_run_ocr_with_text)
+    
+    roi_search = ROISearchEngine(mock_db)
+    # Bbox around the "820" label
+    results_text = roi_search.search_by_roi(page_id=0, bbox=[10, 10, 25, 18], threshold=0.5)
+    assert len(results_text) == 1
+    assert results_text[0]["text"] == "820"
+    assert results_text[0]["class"] == "text"
+    
+    # 2. Test case where OCR returns no text -> routes to Visual pattern search
+    def mock_run_ocr_empty(image):
+        return []
+        
+    monkeypatch.setattr("services.search.roi_search_engine.run_ocr", mock_run_ocr_empty)
+    
+    results_visual = roi_search.search_by_roi(page_id=0, bbox=[10, 20, 25, 25], threshold=0.5)
+    assert len(results_visual) > 0
+    # Should find the door at the bbox since it routed to PatternSearchEngine
+    matched_ids = [m["object_id"] for m in results_visual]
+    assert "door_001" in matched_ids
+
 def test_count_engine():
     from services.search.count_engine import CountEngine
     

@@ -217,20 +217,6 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async floorAIWallDetect(imageBlob, confidence = "0.3", realScale = null) {
-    const fd = new FormData();
-    fd.append("files", imageBlob);
-    fd.append("confidence", confidence);
-    if (realScale) fd.append("real_scale", realScale);
-
-    const res = await fetch(`${BASE_URL}/predict_seg_wall`, {
-      method: "POST",
-      headers: getHeaders(null),
-      body: fd,
-      credentials: "include"
-    });
-    return handleResponse(res);
-  },
 
   async autoDetectDoors(imageBlob, confidence = "0.3", realScale = 1.0) {
     const fd = new FormData();
@@ -259,7 +245,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async detectWallSeg(imageBlob, confidence = "0.3") {
+  async detectWallSeg(imageBlob, confidence = "0.25") {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
@@ -386,23 +372,6 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async floorAIWallDetectROI(imageBlob, confidence = "0.3", roi, padding = 96, realScale = null, options = {}) {
-    const fd = new FormData();
-    fd.append("files", imageBlob);
-    fd.append("confidence", confidence);
-    if (roi) {
-      fd.append("roi_x", roi.x);
-      fd.append("roi_y", roi.y);
-      fd.append("roi_w", roi.w);
-      fd.append("roi_h", roi.h);
-    }
-    fd.append("roi_padding", padding);
-    if (realScale) fd.append("real_scale", realScale);
-    const res = await fetch(`${BASE_URL}/predict_seg_wall_roi`, {
-      method: "POST", headers: getHeaders(null), body: fd, credentials: "include", signal: options.signal
-    });
-    return handleResponse(res);
-  },
 
   async autoDetectDoorsROI(imageBlob, confidence = "0.2", roi, padding = 48, realScale = 1.0, options = {}) {
     const fd = new FormData();

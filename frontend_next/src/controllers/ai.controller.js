@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 
 /**
@@ -30,6 +30,150 @@ function _bboxIoU(polyA, polyB) {
   return union > 0 ? inter / union : 0;
 }
 
+const _doorLength = doorLength;
+const _doorBbox = doorBbox;
+const _overlapsWithAnyDoor = overlapsWithAnyDoor;
+const _cutWallsByDoors = cutWallsByDoors;
+
+function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
+  const EDGE_MARGIN = 20;
+  
+  // Calculate room bounding box if rooms exist
+  let hasRooms = rooms && rooms.length > 0;
+  let minRoomX = Infinity, maxRoomX = -Infinity;
+  let minRoomY = Infinity, maxRoomY = -Infinity;
+  if (hasRooms) {
+    rooms.forEach(r => {
+      if (r.polygon) {
+        r.polygon.forEach(pt => {
+          const px = pt.x ?? pt[0];
+          const py = pt.y ?? pt[1];
+          if (px < minRoomX) minRoomX = px;
+          if (px > maxRoomX) maxRoomX = px;
+          if (py < minRoomY) minRoomY = py;
+          if (py > maxRoomY) maxRoomY = py;
+        });
+      }
+    });
+  }
+  
+  const ROOM_PADDING = 350; // generous padding around rooms
+  
+  return walls.filter(w => {
+    if (!w.centerline || w.centerline.length !== 2) return true;
+    const [p1, p2] = w.centerline;
+    
+    // 1. Edge Wall Filter (parallel to image boundaries)
+    if (imgW && imgH) {
+      if (p1[1] < EDGE_MARGIN && p2[1] < EDGE_MARGIN) return false; // top edge
+      if (p1[1] > imgH - EDGE_MARGIN && p2[1] > imgH - EDGE_MARGIN) return false; // bottom edge
+      if (p1[0] < EDGE_MARGIN && p2[0] < EDGE_MARGIN) return false; // left edge
+      if (p1[0] > imgW - EDGE_MARGIN && p2[0] > imgW - EDGE_MARGIN) return false; // right edge
+    }
+    
+    // 2. Room Proximity Filter (only if rooms exist)
+    if (hasRooms && minRoomX !== Infinity) {
+      const wMinX = Math.min(p1[0], p2[0]);
+      const wMaxX = Math.max(p1[0], p2[0]);
+      const wMinY = Math.min(p1[1], p2[1]);
+      const wMaxY = Math.max(p1[1], p2[1]);
+      
+      // If the wall is completely outside the padded rooms bounding box, discard it
+      if (wMaxX < minRoomX - ROOM_PADDING || 
+          wMinX > maxRoomX + ROOM_PADDING || 
+          wMaxY < minRoomY - ROOM_PADDING || 
+          wMinY > maxRoomY + ROOM_PADDING) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+}
+
+
+
+
+/**
+ * Merge overlapping doors: when two doors overlap significantly,
+ * keep the longer one and discard the shorter one.
+ *
+ * Overlap is detected via:
+ *   - IoU > 0.3
+ *   - Overlap coefficient > 0.5 (intersection / min area)
+ *   - Center distance < 40px
+ *
+ * @param {Array} existingDoors - doors already on the canvas
+ * @param {Array} newDoors      - freshly detected doors to add
+ * @returns {Array} merged list of doors (no duplicates)
+ */
+function _mergeOverlappingDoors(existingDoors, newDoors) {
+  // Start with a mutable copy of existing doors
+  const merged = [...existingDoors];
+
+  for (const newDoor of newDoors) {
+    const newBbox = _doorBbox(newDoor);
+    const newLen = _doorLength(newDoor);
+    const newCx = (newBbox[0] + newBbox[2]) / 2;
+    const newCy = (newBbox[1] + newBbox[3]) / 2;
+    const newArea = (newBbox[2] - newBbox[0]) * (newBbox[3] - newBbox[1]);
+
+    let overlapIdx = -1;
+
+    for (let i = 0; i < merged.length; i++) {
+      const eBbox = _doorBbox(merged[i]);
+      const eCx = (eBbox[0] + eBbox[2]) / 2;
+      const eCy = (eBbox[1] + eBbox[3]) / 2;
+      const eArea = (eBbox[2] - eBbox[0]) * (eBbox[3] - eBbox[1]);
+
+      // Intersection
+      const ix1 = Math.max(newBbox[0], eBbox[0]);
+      const iy1 = Math.max(newBbox[1], eBbox[1]);
+      const ix2 = Math.min(newBbox[2], eBbox[2]);
+      const iy2 = Math.min(newBbox[3], eBbox[3]);
+      const iw = Math.max(0, ix2 - ix1);
+      const ih = Math.max(0, iy2 - iy1);
+      const interArea = iw * ih;
+
+      // IoU
+      const unionArea = newArea + eArea - interArea;
+      const iou = unionArea > 0 ? interArea / unionArea : 0;
+
+      // Overlap coefficient (intersection / smaller area)
+      const minArea = Math.min(newArea, eArea);
+      const overlapCoeff = minArea > 0 ? interArea / minArea : 0;
+
+      // Center distance
+      const centerDist = Math.sqrt((newCx - eCx) ** 2 + (newCy - eCy) ** 2);
+
+      if (centerDist < 40 || iou > 0.3 || overlapCoeff > 0.5) {
+        overlapIdx = i;
+        break;
+      }
+    }
+
+    if (overlapIdx >= 0) {
+      // Overlap detected → keep the longer door
+      const existingLen = _doorLength(merged[overlapIdx]);
+      if (newLen > existingLen) {
+        console.log(
+          `[Door Merge] Replacing shorter door (${existingLen.toFixed(0)}px) with longer one (${newLen.toFixed(0)}px)`
+        );
+        merged[overlapIdx] = newDoor;
+      } else {
+        console.log(
+          `[Door Merge] Keeping existing longer door (${existingLen.toFixed(0)}px), discarding new (${newLen.toFixed(0)}px)`
+        );
+      }
+    } else {
+      // No overlap → truly new door
+      merged.push(newDoor);
+    }
+  }
+
+  return merged;
+}
+
 // ====================================================
 // AI Threshold Configurations
 // Edit these confidence threshold values directly in the code:
@@ -37,7 +181,7 @@ function _bboxIoU(polyA, polyB) {
 const ROOMS_CONF = 0.03;      // Room detection confidence threshold
 const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
 const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
-const DOORS_CONF = 0.25;      // Door detection confidence threshold
+const DOORS_CONF = 0.20;      // Door detection confidence threshold
 
 function centroidInROI(obj, roiRect) {
   const poly = obj.polygon || obj.points;
@@ -112,13 +256,28 @@ export const useAIController = (
   realScale = 1.0,
   roomsByPage,
   setDoorsByPage,
-  setWallsByPage
+  setWallsByPage,
+  doorsByPage,
+  wallsByPage,
+  pushHistory
 ) => {
   const [isDetecting, setIsDetecting] = useState(false);
   const [roiProgress, setRoiProgress] = useState(0);
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
   const [inferenceTiming, setInferenceTiming] = useState("");
   const [activeScanRoom, setActiveScanRoom] = useState(null);
+
+  // Smart AI pipeline state
+  const [isSmartDetecting, setIsSmartDetecting] = useState(false);
+  const [smartProgress, setSmartProgress] = useState({
+    stage: null,       // 'door' | 'wall' | 'room' | null
+    percent: 0,        // 0-100 overall
+    message: '',       // Current step description
+    doorStatus: 'pending',   // 'pending' | 'running' | 'done' | 'failed'
+    wallStatus: 'pending',
+    roomStatus: 'pending'
+  });
+  const smartAbortRef = useRef(null);
 
   const activeControllerRef = useRef(null);
   const roiInferenceIdRef = useRef(0);
@@ -358,7 +517,6 @@ export const useAIController = (
   };
 
 
-
   const detectWallFromFloorAI = async () => {
     if (!image) return alert("No image to detect");
     if (!setWallsByPage) return;
@@ -366,7 +524,7 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.25");
+      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.10");
       const data = await ApiService.detectWallSeg(blob, conf);
       console.log("[Wall Seg AI] Data:", data);
 
@@ -376,15 +534,39 @@ export const useAIController = (
       const isCacheHit = !!(result && result.cache_hit);
 
       if (result && result.walls) {
-        const detectedWalls = result.walls.map(w => ({
-          ...w,
-          review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
-        }));
+        let detectedWalls = result.walls.map(w => {
+          let wall_type = "int";
+          let thickness = 70;
+          if (w.class_name === "exterior_wall") {
+            wall_type = "ext";
+            thickness = 90;
+          } else if (w.class_name === "partition_wall") {
+            wall_type = "part";
+            thickness = 70;
+          } else if (w.class_name === "interior_wall") {
+            wall_type = "int";
+            thickness = 70;
+          }
+          return {
+            ...w,
+            wall_type,
+            thickness,
+            review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
+          };
+        });
 
-        setWallsByPage(prev => ({
-          ...prev,
-          [currentPage]: [...(prev[currentPage] || []), ...detectedWalls]
-        }));
+        // Filter out false positive walls (walls that are almost entirely on top of doors)
+        const doors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
+        let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
+        cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], result.width, result.height);
+
+        setWallsByPage(prev => {
+          const allWalls = [...(prev[currentPage] || []), ...cleanWalls];
+          return {
+            ...prev,
+            [currentPage]: _cutWallsByDoors(allWalls, doors)
+          };
+        });
 
         finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
       } else {
@@ -525,11 +707,24 @@ export const useAIController = (
           review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
         }));
 
+        const mergedDoors = _mergeOverlappingDoors(doorsByPage[currentPage] || [], detectedDoors);
+
         if (setDoorsByPage) {
           setDoorsByPage(prev => ({
             ...prev,
-            [currentPage]: [...(prev[currentPage] || []), ...detectedDoors]
+            [currentPage]: mergedDoors
           }));
+        }
+
+        // Cut existing walls at the new doors
+        if (setWallsByPage && wallsByPage) {
+          const currentWalls = wallsByPage[currentPage] || [];
+          if (currentWalls.length > 0) {
+            setWallsByPage(prev => ({
+              ...prev,
+              [currentPage]: _cutWallsByDoors(currentWalls, mergedDoors)
+            }));
+          }
         }
 
         finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
@@ -546,6 +741,330 @@ export const useAIController = (
       }
     }
   };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Smart AI — Orchestrated Pipeline: Door → Wall → Room
+  // ═══════════════════════════════════════════════════════════════
+
+  const cancelSmartDetect = () => {
+    if (smartAbortRef.current) {
+      smartAbortRef.current.abort();
+      smartAbortRef.current = null;
+    }
+    setIsSmartDetecting(false);
+    setSmartProgress({
+      stage: null, percent: 0, message: 'Canceled',
+      doorStatus: 'pending', wallStatus: 'pending', roomStatus: 'pending'
+    });
+  };
+
+  const smartDetect = async () => {
+    if (!image) return alert("No image loaded. Please open a floor plan first.");
+
+    // ── Confirm dialog: clear or merge ──
+    const clearExisting = window.confirm(
+      "Smart AI will detect Doors → Walls → Rooms sequentially.\n\n" +
+      "Click OK to CLEAR existing data first,\n" +
+      "or Cancel to MERGE with existing data."
+    );
+
+    // Set up abort controller
+    const abortController = new AbortController();
+    smartAbortRef.current = abortController;
+    const startTime = performance.now();
+
+    setIsSmartDetecting(true);
+    setSmartProgress({
+      stage: 'door', percent: 0, message: 'Starting Smart AI pipeline...',
+      doorStatus: 'running', wallStatus: 'pending', roomStatus: 'pending'
+    });
+
+    // Clear existing data if user chose to
+    if (clearExisting) {
+      setDoorsByPage(prev => ({ ...prev, [currentPage]: [] }));
+      setWallsByPage(prev => ({ ...prev, [currentPage]: [] }));
+      setRoomsByPage(prev => ({ ...prev, [currentPage]: [] }));
+    }
+
+    try {
+      const blob = await fetch(image).then(r => r.blob());
+
+      // Check if aborted
+      if (abortController.signal.aborted) return;
+
+      // ════════════════════════════════════════════
+      // STEP 1: Door Detection
+      // ════════════════════════════════════════════
+      setSmartProgress(prev => ({
+        ...prev, stage: 'door', percent: 5,
+        message: '🚪 Step 1/3: Detecting doors...',
+        doorStatus: 'running'
+      }));
+
+      let detectedDoors = [];
+      try {
+        const doorConf = String(useAIConfigStore.getState().config?.doors ?? DOORS_CONF);
+        const doorData = await ApiService.detectDoorSeg(blob, doorConf);
+
+        if (abortController.signal.aborted) return;
+
+        const doorResult = Array.isArray(doorData) ? doorData[0] : doorData;
+        let doorsArray = [];
+        if (doorResult && doorResult.doors) {
+          doorsArray = doorResult.doors;
+        }
+
+        if (doorsArray.length > 0) {
+          detectedDoors = doorsArray.map(d => ({
+            ...d,
+            review_state: 'AI_GENERATED'
+          }));
+
+          const existingDoors = clearExisting ? [] : (doorsByPage[currentPage] || []);
+          const mergedDoors = _mergeOverlappingDoors(existingDoors, detectedDoors);
+          detectedDoors = mergedDoors;
+
+          setDoorsByPage(prev => ({
+            ...prev,
+            [currentPage]: mergedDoors
+          }));
+        }
+
+        setSmartProgress(prev => ({
+          ...prev, percent: 30,
+          message: `🚪 Door detection complete! Found ${detectedDoors.length} doors.`,
+          doorStatus: 'done'
+        }));
+        console.log(`[Smart AI] Step 1 complete: ${detectedDoors.length} doors detected`);
+
+      } catch (doorErr) {
+        if (abortController.signal.aborted) return;
+        console.error('[Smart AI] Door detection failed:', doorErr);
+        setSmartProgress(prev => ({
+          ...prev, percent: 30,
+          message: '🚪 Door detection failed, continuing...',
+          doorStatus: 'failed'
+        }));
+      }
+
+      if (abortController.signal.aborted) return;
+
+      // ════════════════════════════════════════════
+      // STEP 2: Wall Detection (with door cutout)
+      // ════════════════════════════════════════════
+      setSmartProgress(prev => ({
+        ...prev, stage: 'wall', percent: 35,
+        message: '🧱 Step 2/3: Detecting walls...',
+        wallStatus: 'running'
+      }));
+
+      let detectedWalls = [];
+      try {
+        const wallConf = String(useAIConfigStore.getState().config?.walls ?? '0.10');
+        const wallData = await ApiService.detectWallSeg(blob, wallConf);
+
+        if (abortController.signal.aborted) return;
+
+        if (wallData && wallData.walls) {
+          let rawWalls = wallData.walls.map(w => {
+            let wall_type = "int";
+            let thickness = 70;
+            if (w.class_name === "exterior_wall") {
+              wall_type = "ext";
+              thickness = 90;
+            } else if (w.class_name === "partition_wall") {
+              wall_type = "part";
+              thickness = 70;
+            } else if (w.class_name === "interior_wall") {
+              wall_type = "int";
+              thickness = 70;
+            }
+            return {
+              ...w,
+              wall_type,
+              thickness,
+              review_state: 'AI_GENERATED'
+            };
+          });
+
+          // Get current doors (including just-detected ones)
+          const currentDoors = detectedDoors.length > 0
+            ? detectedDoors
+            : (doorsByPage[currentPage] || []);
+
+          // Filter false positive walls that overlap entirely with doors
+          let cleanWalls = rawWalls.filter(w => !_overlapsWithAnyDoor(w, currentDoors));
+          cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], wallData.width, wallData.height);
+
+          // Merge with existing walls if not clearing
+          const existingWalls = clearExisting ? [] : (wallsByPage[currentPage] || []);
+          const allWalls = [...existingWalls, ...cleanWalls];
+
+          // Cut walls at door positions
+          detectedWalls = _cutWallsByDoors(allWalls, currentDoors);
+
+          setWallsByPage(prev => ({
+            ...prev,
+            [currentPage]: detectedWalls
+          }));
+        }
+
+        setSmartProgress(prev => ({
+          ...prev, percent: 60,
+          message: `🧱 Wall detection complete! Found ${detectedWalls.length} wall segments.`,
+          wallStatus: 'done'
+        }));
+        console.log(`[Smart AI] Step 2 complete: ${detectedWalls.length} walls detected (cut by ${detectedDoors.length} doors)`);
+
+      } catch (wallErr) {
+        if (abortController.signal.aborted) return;
+        console.error('[Smart AI] Wall detection failed:', wallErr);
+        setSmartProgress(prev => ({
+          ...prev, percent: 60,
+          message: '🧱 Wall detection failed, continuing...',
+          wallStatus: 'failed'
+        }));
+      }
+
+      if (abortController.signal.aborted) return;
+
+      // ════════════════════════════════════════════
+      // STEP 3: Room Detection (YOLO + Wall Topology)
+      // ════════════════════════════════════════════
+      setSmartProgress(prev => ({
+        ...prev, stage: 'room', percent: 65,
+        message: '🏠 Step 3/3: Detecting rooms (YOLO)...',
+        roomStatus: 'running'
+      }));
+
+      let yoloRooms = [];
+      try {
+        // Step 3a: YOLO Room Detection via streaming
+        const existingRooms = clearExisting ? [] : (roomsByPage[currentPage] || []);
+
+        await ApiService.floorAIDetectStream(
+          blob,
+          String(ROOMS_CONF),
+          null,  // no ROI — full image
+          128,
+          1.0,
+          existingRooms,
+          (event) => {
+            if (abortController.signal.aborted) return;
+
+            if (event.status === 'yolo_started') {
+              setSmartProgress(prev => ({ ...prev, percent: 70, message: '🏠 YOLO Room segmentation running...' }));
+            } else if (event.status === 'ocr_text_started') {
+              setSmartProgress(prev => ({ ...prev, percent: 80, message: '🏠 OCR room labeling...' }));
+            } else if (event.status === 'finalizing') {
+              setSmartProgress(prev => ({ ...prev, percent: 85, message: '🏠 Finalizing room boundaries...' }));
+            }
+
+            // Apply room results as they stream in
+            if (event.rooms) {
+              yoloRooms = event.rooms;
+              setRoomsByPage(prev => ({
+                ...prev,
+                [currentPage]: event.rooms.map(r => ({
+                  ...r,
+                  correction_source: 'AI_GENERATED'
+                }))
+              }));
+            }
+          },
+          abortController.signal
+        );
+
+        if (abortController.signal.aborted) return;
+
+        setSmartProgress(prev => ({
+          ...prev, percent: 88,
+          message: `🏠 YOLO detected ${yoloRooms.length} rooms. Running wall topology...`
+        }));
+
+        // Step 3b: Wall Topology Room Extraction
+        if (detectedWalls.length >= 4) {
+          try {
+            const topoRooms = extractRoomsFromWallTopology(detectedWalls);
+            console.log(`[Smart AI] Wall topology found ${topoRooms.length} enclosed regions`);
+
+            if (topoRooms.length > 0) {
+              // Filter topology rooms that don't overlap with YOLO rooms
+              const IOU_THRESHOLD = 0.3;
+              const newTopoRooms = topoRooms.filter(tRoom => {
+                const tPoly = tRoom.polygon;
+                for (const yRoom of yoloRooms) {
+                  const yPoly = yRoom.polygon || yRoom.points;
+                  if (yPoly && _bboxIoU(tPoly, yPoly) >= IOU_THRESHOLD) {
+                    return false; // Already covered by YOLO
+                  }
+                }
+                return true;
+              });
+
+              if (newTopoRooms.length > 0) {
+                console.log(`[Smart AI] Adding ${newTopoRooms.length} topology rooms not covered by YOLO`);
+                setRoomsByPage(prev => ({
+                  ...prev,
+                  [currentPage]: [
+                    ...(prev[currentPage] || []),
+                    ...newTopoRooms.map(r => ({
+                      ...r,
+                      correction_source: 'WALL_TOPOLOGY'
+                    }))
+                  ]
+                }));
+              }
+            }
+          } catch (topoErr) {
+            console.warn('[Smart AI] Wall topology extraction failed:', topoErr);
+          }
+        }
+
+        setSmartProgress(prev => ({
+          ...prev, percent: 100,
+          message: '🏠 Room detection complete!',
+          roomStatus: 'done'
+        }));
+
+      } catch (roomErr) {
+        if (abortController.signal.aborted) return;
+        console.error('[Smart AI] Room detection failed:', roomErr);
+        setSmartProgress(prev => ({
+          ...prev, percent: 100,
+          message: '🏠 Room detection failed.',
+          roomStatus: 'failed'
+        }));
+      }
+
+      // ── Pipeline Complete ──
+      const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
+      console.log(`[Smart AI] Pipeline completed in ${totalTime}s`);
+      setSmartProgress(prev => ({
+        ...prev, stage: null, percent: 100,
+        message: `✅ Smart AI complete in ${totalTime}s — ${detectedDoors.length} doors, ${detectedWalls.length} walls, ${yoloRooms.length}+ rooms`
+      }));
+
+      setIsSmartDetecting(false);
+      smartAbortRef.current = null;
+
+    } catch (err) {
+      if (err.name === 'AbortError' || abortController.signal.aborted) {
+        console.log('[Smart AI] Pipeline canceled by user.');
+        setSmartProgress(prev => ({
+          ...prev, stage: null, percent: 0, message: 'Canceled by user'
+        }));
+      } else {
+        console.error('[Smart AI] Pipeline failed:', err);
+        setSmartProgress(prev => ({
+          ...prev, stage: null, percent: 0, message: `Failed: ${err.message}`
+        }));
+      }
+      setIsSmartDetecting(false);
+      smartAbortRef.current = null;
+    }
+  };
+
   return {
     isDetecting,
     roiProgress,
@@ -557,6 +1076,11 @@ export const useAIController = (
     detectText,
     detectTemplate,
     detectDoorSeg,
-    activeScanRoom
+    activeScanRoom,
+    // Smart AI pipeline
+    smartDetect,
+    cancelSmartDetect,
+    isSmartDetecting,
+    smartProgress
   };
 };

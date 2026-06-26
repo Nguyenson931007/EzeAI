@@ -7,8 +7,8 @@ import ConfidenceFooter from './ConfidenceFooter';
 
 const DEFAULT_DEFAULTS = {
   rooms: 0.55,
-  doors: 0.72,
-  walls: 0.80,
+  doors: 0.20,
+  walls: 0.10,
   ocr: 0.45,
   symbols: 0.60
 };

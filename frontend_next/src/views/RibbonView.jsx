@@ -9,6 +9,7 @@ export default function RibbonView({
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
   isSnapMode, setIsSnapMode,
   isAddingPoint, setIsAddingPoint,
+  interactionMode, setInteractionMode,
   scaleValue,
   rooms,
   isDetecting,
@@ -26,6 +27,8 @@ export default function RibbonView({
   deleteItem, deleteAllRooms,
   finishPolygon, setCurrentPoly,
   autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg,
+  // Smart AI pipeline
+  smartDetect, cancelSmartDetect, isSmartDetecting, smartProgress,
   roiRect, roiMode, setRoiMode, roiUpscale, clearROI,
   exportPDF, addTrain,
   addTrainPages,
@@ -58,7 +61,7 @@ export default function RibbonView({
           <img src="/logo.png" alt="ezequote" style={{ height: "20px", width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 6px rgba(255, 255, 255, 0.95)) brightness(1.3)" }} />
         </span>
         <div className="cad-tabs">
-          {["Home", "Measure", "AI & Reports", "Search", "View", "Saved Jobs"].map(tab => (
+          {["Home", "Measure", "AI & Reports", "View", "Saved Jobs"].map(tab => (
             <button
               key={tab}
               className={`cad-tab ${activeTab === tab ? "active" : ""}`}
@@ -134,6 +137,13 @@ export default function RibbonView({
                   <span className="icon">🗑</span><span className="label">Delete</span>
                 </button>
                 <button
+                  className={`ribbon-btn ${interactionMode === "marquee" ? "active" : ""}`}
+                  onClick={() => setInteractionMode && setInteractionMode(prev => prev === "marquee" ? "select" : "marquee")}
+                  title="Marquee Select Walls (Ctrl + Drag)"
+                >
+                  <span className="icon">🟦</span><span className="label">Marquee</span>
+                </button>
+                <button
                   className="ribbon-btn danger"
                   onClick={() => {
                     const hasRooms = (roomsByPage[currentPage] || []).length > 0;
@@ -202,13 +212,41 @@ export default function RibbonView({
                   <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Auto AI</span>
                 </button>
 
+
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectWallFromFloorAI()} disabled={isDetecting} title="Dùng AI tự động vẽ tường">
                   <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
                 </button>
 
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
+                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
+
+                {/* Smart AI Button — Premium gradient style (Tạm ẩn)
+                <button
+                  className={`ribbon-btn ${isSmartDetecting ? "active" : ""}`}
+                  onClick={() => smartDetect()}
+                  disabled={isDetecting || isSmartDetecting}
+                  title="Smart AI: Tự động detect Cửa → Tường → Phòng tuần tự"
+                  style={{
+                    background: isSmartDetecting
+                      ? 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)'
+                      : 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #3b82f6 100%)',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    fontWeight: 700,
+                    textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                    boxShadow: isSmartDetecting
+                      ? '0 0 12px rgba(245,158,11,0.5)'
+                      : '0 2px 8px rgba(99,102,241,0.4)',
+                    transition: 'all 0.3s ease',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <span className="icon" style={{ fontSize: '15px' }}>{isSmartDetecting ? "⏳" : "⚡"}</span>
+                  <span className="label">Smart AI</span>
+                </button>
+                */}
 
                 {/*
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectText()} disabled={isDetecting}>
@@ -219,6 +257,99 @@ export default function RibbonView({
                 </button>
                 */}
               </div>
+
+              {/* Smart AI 3-Stage Progress Bar */}
+              {isSmartDetecting && smartProgress && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '4px 10px', marginTop: '2px',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  color: '#e2e8f0',
+                  minWidth: '340px'
+                }}>
+                  {/* 3 stage indicators */}
+                  {[
+                    { key: 'door', icon: '🚪', label: 'Door', status: smartProgress.doorStatus },
+                    { key: 'wall', icon: '🧱', label: 'Wall', status: smartProgress.wallStatus },
+                    { key: 'room', icon: '🏠', label: 'Room', status: smartProgress.roomStatus }
+                  ].map((step, idx) => (
+                    <React.Fragment key={step.key}>
+                      {idx > 0 && <span style={{ color: '#475569', fontSize: '10px' }}>→</span>}
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '3px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        fontWeight: step.status === 'running' ? 700 : 400,
+                        background: step.status === 'running' ? 'rgba(99,102,241,0.3)'
+                          : step.status === 'done' ? 'rgba(34,197,94,0.2)'
+                          : step.status === 'failed' ? 'rgba(239,68,68,0.2)'
+                          : 'transparent',
+                        color: step.status === 'running' ? '#a5b4fc'
+                          : step.status === 'done' ? '#86efac'
+                          : step.status === 'failed' ? '#fca5a5'
+                          : '#94a3b8',
+                        animation: step.status === 'running' ? 'pulse 1.5s ease-in-out infinite' : 'none'
+                      }}>
+                        <span>{step.icon}</span>
+                        <span>{step.label}</span>
+                        {step.status === 'done' && <span>✓</span>}
+                        {step.status === 'failed' && <span>✗</span>}
+                        {step.status === 'running' && <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>◌</span>}
+                      </span>
+                    </React.Fragment>
+                  ))}
+
+                  {/* Overall progress bar */}
+                  <div style={{
+                    flex: 1, height: '6px',
+                    background: 'rgba(51,65,85,0.6)',
+                    borderRadius: '3px',
+                    overflow: 'hidden',
+                    marginLeft: '6px'
+                  }}>
+                    <div style={{
+                      width: `${smartProgress.percent}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #8b5cf6, #6366f1, #3b82f6)',
+                      borderRadius: '3px',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '10px', color: '#94a3b8', minWidth: '28px', textAlign: 'right' }}>{smartProgress.percent}%</span>
+
+                  {/* Cancel button */}
+                  <button
+                    onClick={cancelSmartDetect}
+                    style={{
+                      background: 'rgba(239,68,68,0.2)',
+                      border: '1px solid rgba(239,68,68,0.4)',
+                      color: '#fca5a5',
+                      borderRadius: '4px',
+                      padding: '1px 6px',
+                      fontSize: '10px',
+                      cursor: 'pointer'
+                    }}
+                    title="Cancel Smart AI"
+                  >✕</button>
+                </div>
+              )}
+
+              {/* Smart AI completion message (shown briefly after complete) */}
+              {!isSmartDetecting && smartProgress && smartProgress.percent === 100 && smartProgress.message && (
+                <div style={{
+                  padding: '3px 10px',
+                  marginTop: '2px',
+                  background: 'rgba(34,197,94,0.15)',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  color: '#86efac'
+                }}>
+                  {smartProgress.message}
+                </div>
+              )}
+
               <span className="ribbon-group-title">AI DETECT</span>
             </div>
             <div className="ribbon-divider" />
@@ -353,9 +484,9 @@ export default function RibbonView({
               🤖 Rooms
             </button>
 
-             <button 
+            <button 
               className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
-              onClick={() => detectWallFromFloorAI(roiRect, roiMode)} 
+              onClick={() => detectWallFromFloorAI()} 
               disabled={isDetecting}
               title="Nhận diện tường trong vùng cắt (ROI)"
             >

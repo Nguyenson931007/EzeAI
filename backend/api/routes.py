@@ -561,7 +561,7 @@ async def predict_template(
 @router.post("/diagnose/predict_door")
 async def diagnose_predict_door(
     file: UploadFile = File(...),
-    confidence: float = Form(0.3),
+    confidence: float = Form(0.5),
     real_scale: Optional[float] = Form(1.0),
     username: str = Depends(validate_session)
 ):
@@ -685,7 +685,7 @@ async def add_train_door_bim(request: Request, username: str = Depends(validate_
 @router.post("/api/door-segment")
 async def door_segment(
     file: UploadFile = File(...),
-    confidence: float = Form(0.3),
+    confidence: float = Form(0.20),
     real_scale: Optional[float] = Form(1.0),
     room_polygons: Optional[str] = Form(None),
     debug: bool = Form(False),
@@ -742,7 +742,7 @@ async def door_segment(
 @router.post("/api/wall-segment")
 async def wall_segment(
     file: UploadFile = File(...),
-    confidence: float = Form(0.25),
+    confidence: float = Form(0.10),
     imgsz: int = Form(1280),
     real_scale: Optional[float] = Form(1.0),
     username: str = Depends(validate_session)
@@ -750,10 +750,10 @@ async def wall_segment(
     """
     POST /api/wall-segment
     Định tuyến nhận diện phân đoạn tường (Wall Segmentation).
-    Nhận diện đa giác tường từ mô hình YOLO Segmentation.
+    Nhận diện đa giác tường từ mô hình YOLO Segmentation (raw output, không hậu xử lý).
     """
     from services.wall_segment_service import WallSegmentService
-    
+
     content = await file.read()
     filename = file.filename or "plan.png"
 
@@ -768,9 +768,6 @@ async def wall_segment(
                 real_scale=real_scale or 1.0
             )
         else:
-            img = PILImage.open(io.BytesIO(content)).convert("RGB")
-            img_w, img_h = img.size
-            
             result = await run_in_threadpool(
                 WallSegmentService.predict,
                 image_bytes=content,
@@ -779,15 +776,8 @@ async def wall_segment(
                 real_scale=real_scale or 1.0,
                 filename=filename
             )
-            
-            return {
-                "filename": filename,
-                "page_index": 0,
-                "width": img_w,
-                "height": img_h,
-                "walls": result["walls"]
-            }
-            
+            return result
+
     except FileNotFoundError as e:
         logger.error(f"Model not found for wall segmentation: {e}")
         raise HTTPException(status_code=500, detail=f"Không tìm thấy mô hình YOLO Wall Seg: {e}")
@@ -872,7 +862,9 @@ async def api_search_object(req: ObjectSearchRequest, username: str = Depends(va
             )
         elif req.bbox:
             # Query by custom visual ROI
-            results = search_engine.search_by_roi(
+            from services.search.roi_search_engine import ROISearchEngine
+            roi_search_engine = ROISearchEngine(req.project_id)
+            results = roi_search_engine.search_by_roi(
                 req.page_id, 
                 req.bbox, 
                 threshold=req.threshold, 
@@ -932,19 +924,42 @@ async def api_search_count(req: CountRequest, username: str = Depends(validate_s
 def api_get_search_history(project_id: int, username: str = Depends(validate_session)):
     """
     Fetch recent search history for analytics and query suggestions.
+    Ensures connection is closed, handles errors gracefully, and validation is logged.
     """
+    if project_id <= 0:
+        logger.error(f"[api_get_search_history] Malformed project ID: {project_id}")
+        raise HTTPException(status_code=400, detail="Invalid project ID. Must be positive integer.")
+
+    conn = None
     try:
-        conn = get_db_connection()
+        from app.database import get_db_connection
+        try:
+            conn = get_db_connection()
+        except Exception as conn_err:
+            logger.critical(f"[api_get_search_history] DB connection failure for project {project_id}: {conn_err}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Database connection failed: {conn_err}")
+
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT query, result_count, timestamp FROM search_history WHERE project_id = ? ORDER BY timestamp DESC LIMIT 10",
-            (project_id,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        try:
+            cursor.execute(
+                "SELECT query, result_count, timestamp FROM search_history WHERE project_id = ? ORDER BY timestamp DESC LIMIT 10",
+                (project_id,)
+            )
+            rows = cursor.fetchall()
+        except Exception as sql_err:
+            logger.error(f"[api_get_search_history] SQL execution failure for project {project_id}: {sql_err}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Database query failed: {sql_err}")
+
+        return {
+            "success": True,
+            "history": [dict(r) for r in rows]
+        }
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception as close_err:
+                logger.error(f"[api_get_search_history] Error closing connection for project {project_id}: {close_err}")
 
 
 

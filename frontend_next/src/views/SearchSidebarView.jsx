@@ -37,10 +37,14 @@ export default function SearchSidebarView({
 
   const fetchHistory = async () => {
     try {
-      const history = await ApiService.getSearchHistory(currentJobId);
-      if (Array.isArray(history)) {
-        setRecentSearches(history);
+      const res = await ApiService.getSearchHistory(currentJobId);
+      let historyData = [];
+      if (res && res.success && Array.isArray(res.history)) {
+        historyData = res.history;
+      } else if (Array.isArray(res)) {
+        historyData = res;
       }
+      setRecentSearches(historyData);
     } catch (e) {
       console.error("Failed to load search history:", e);
     }
@@ -178,6 +182,28 @@ export default function SearchSidebarView({
           export_format: "csv"
         });
         setSearchCountData(countRes);
+      } else if (results && results.length > 0 && results[0].class === "text") {
+        // Fallback for OCR text results detected via ROI
+        const extractedText = results[0].text || "Extracted Text";
+        const count = results.length;
+        const groups = { "Text Label": count };
+        const subgroups = { "Text Label": { [extractedText]: count } };
+        
+        // Generate CSV Takeoff offline for text matches
+        let csvContent = "Drawing/Floor,Object,Count,Location,Room,Confidence\n";
+        results.forEach(r => {
+          const locStr = `(${int_coord(r.bbox)})`;
+          csvContent += `Floor ${r.page + 1},Text Label,1,"${locStr}",None,100%\n`;
+        });
+        
+        setSearchCountData({
+          count,
+          class: "Text Label",
+          groups,
+          subgroups,
+          export_data: csvContent,
+          results
+        });
       } else {
         setSearchCountData(null);
       }
