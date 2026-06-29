@@ -654,12 +654,14 @@ class WallSegmentService:
                         length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
                         
                         # Aspect Ratio and Length Filtering (Idea 7)
-                        # Discard walls that are too short (< 35px)
-                        if length < 35.0:
+                        # Discard walls that are too short (< 35px, or < 12px for high sensitivity)
+                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                        if length < min_len_thresh:
                             continue
                             
-                        # Discard square-like blocks (length to thickness ratio < 2.0)
-                        if raw_thickness_px > 0 and (length / raw_thickness_px) < 2.0:
+                        # Discard square-like blocks (length to thickness ratio < 2.0, or < 1.0 for high sensitivity)
+                        ratio_thresh = 1.0 if confidence < 0.01 else 2.0
+                        if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
                             continue
 
                         # OpenCV parallel edge validation (filters out furniture, text, etc.)
@@ -971,10 +973,12 @@ class WallSegmentService:
                         p1, p2 = centerline[0], centerline[1]
                         length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
                         
-                        if length < 35.0:
+                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                        if length < min_len_thresh:
                             continue
                             
-                        if raw_thickness_px > 0 and (length / raw_thickness_px) < 2.0:
+                        ratio_thresh = 1.0 if confidence < 0.01 else 2.0
+                        if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
                             continue
 
                         if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
