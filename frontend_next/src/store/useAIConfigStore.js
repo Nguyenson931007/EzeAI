@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 const DEFAULT_CONFIDENCE = {
-  rooms: 0.55,
+  rooms: 0.03,
   doors: 0.20,
   walls: 0.001,
   ocr: 0.45,

@@ -3,27 +3,27 @@ import React, { useState } from 'react';
 const PRESETS = [
   {
     name: 'Balanced Mode',
-    config: { rooms: 0.55, doors: 0.20, walls: 0.001, ocr: 0.45, symbols: 0.60 },
+    config: { rooms: 0.03, doors: 0.20, walls: 0.001, ocr: 0.45, symbols: 0.60 },
     description: 'Standard optimal CAD defaults.'
   },
   {
     name: 'Fast Detection',
-    config: { rooms: 0.35, doors: 0.10, walls: 0.001, ocr: 0.25, symbols: 0.40 },
+    config: { rooms: 0.005, doors: 0.10, walls: 0.001, ocr: 0.25, symbols: 0.40 },
     description: 'Maximum recall, lowest confidence thresholds.'
   },
   {
     name: 'High Accuracy',
-    config: { rooms: 0.75, doors: 0.60, walls: 0.50, ocr: 0.70, symbols: 0.80 },
+    config: { rooms: 0.15, doors: 0.60, walls: 0.50, ocr: 0.70, symbols: 0.80 },
     description: 'Precision extraction, minimal false positives.'
   },
   {
     name: 'OCR Focus',
-    config: { rooms: 0.50, doors: 0.35, walls: 0.45, ocr: 0.15, symbols: 0.50 },
+    config: { rooms: 0.03, doors: 0.35, walls: 0.45, ocr: 0.15, symbols: 0.50 },
     description: 'Ultra-sensitive text/label OCR parsing.'
   },
   {
     name: 'Door Focus',
-    config: { rooms: 0.55, doors: 0.10, walls: 0.001, ocr: 0.45, symbols: 0.60 },
+    config: { rooms: 0.03, doors: 0.10, walls: 0.001, ocr: 0.45, symbols: 0.60 },
     description: 'Optimized specifically for detailed door annotations.'
   }
 ];

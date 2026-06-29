@@ -379,9 +379,10 @@ export const useAIController = (
       let isCacheHit = false;
 
       // Call the real-time NDJSON streaming API!
+      const roomsConf = String(useAIConfigStore.getState().config?.rooms ?? ROOMS_CONF);
       await ApiService.floorAIDetectStream(
         blob,
-        String(ROOMS_CONF),
+        roomsConf,
         roiRect || null,
         128,
         roiUpscale || 1.0,
@@ -964,9 +965,10 @@ export const useAIController = (
         // Step 3a: YOLO Room Detection via streaming
         const existingRooms = clearExisting ? [] : (roomsByPage[currentPage] || []);
 
+        const roomsConf = String(useAIConfigStore.getState().config?.rooms ?? ROOMS_CONF);
         await ApiService.floorAIDetectStream(
           blob,
-          String(ROOMS_CONF),
+          roomsConf,
           null,  // no ROI — full image
           128,
           1.0,
