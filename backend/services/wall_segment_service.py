@@ -654,8 +654,13 @@ class WallSegmentService:
                         length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
                         
                         # Aspect Ratio and Length Filtering (Idea 7)
-                        # Discard walls that are too short (< 35px, or < 12px for high sensitivity)
-                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                        # Discard walls that are too short based on real scale
+                        if real_scale and real_scale != 1.0:
+                            min_len_mm = 120.0 if confidence < 0.01 else 350.0
+                            min_len_thresh = float(min_len_mm) / real_scale
+                        else:
+                            min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                            
                         if length < min_len_thresh:
                             continue
                             
@@ -786,7 +791,11 @@ class WallSegmentService:
                 reconstructed_walls.append(w)
 
         # Step 4: Remove short wall segments that overlap significantly with longer wall segments
-        cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls)
+        if real_scale and real_scale != 1.0:
+            overlap_min_len = 800.0 / real_scale
+        else:
+            overlap_min_len = 80.0
+        cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls, min_length=overlap_min_len)
 
         # Helper to compute centerline length of a wall object
         def _get_wall_len(w):
@@ -973,7 +982,12 @@ class WallSegmentService:
                         p1, p2 = centerline[0], centerline[1]
                         length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
                         
-                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                        if real_scale and real_scale != 1.0:
+                            min_len_mm = 120.0 if confidence < 0.01 else 350.0
+                            min_len_thresh = float(min_len_mm) / real_scale
+                        else:
+                            min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                            
                         if length < min_len_thresh:
                             continue
                             
@@ -1131,7 +1145,11 @@ class WallSegmentService:
                 reconstructed_walls.append(w)
 
         # Step 4: Remove short wall segments
-        cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls)
+        if real_scale and real_scale != 1.0:
+            overlap_min_len = 800.0 / real_scale
+        else:
+            overlap_min_len = 80.0
+        cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls, min_length=overlap_min_len)
 
         # Helper
         def _get_wall_len(w):
