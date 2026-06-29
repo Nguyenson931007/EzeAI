@@ -320,6 +320,19 @@ export function cutWallsByDoors(walls, doors) {
     for (const d of doors) {
       const dPoly = d.polygon || d.points || [];
       if (dPoly.length === 0) continue;
+
+      const dClass = (d.class || d.class_name || d.door_type || "").toLowerCase();
+      if (
+        dClass.includes("sliding") ||
+        dClass.includes("cavity") ||
+        dClass.includes("fold") ||
+        dClass.includes("bifold") ||
+        dClass.includes("bi_fold") ||
+        dClass.includes("robe") ||
+        dClass.includes("wardrobe")
+      ) {
+        continue;
+      }
       
       const polyPoints = dPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
       const dWidth = doorLength(d);
