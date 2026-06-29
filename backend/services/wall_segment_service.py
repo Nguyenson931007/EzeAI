@@ -1004,7 +1004,7 @@ class WallSegmentService:
                     "perimeter_px": round(2.0 * (length + thickness_val), 1)
                 })
 
-        yield {"status": "raw_detected", "walls": raw_yield_walls, "message": f"YOLO found {len(raw_yield_walls)} walls. Post-processing..."}
+        yield {"status": "raw_detected", "walls": raw_yield_walls, "width": img_w, "height": img_h, "message": f"YOLO found {len(raw_yield_walls)} walls. Post-processing..."}
 
         # Step 0.5: Cross-filter walls against door detections to remove misidentified doors
         processed_walls = _filter_walls_by_doors(detected_walls, image_bytes)
@@ -1152,6 +1152,8 @@ class WallSegmentService:
         yield {
             "status": "final",
             "walls": filtered_walls,
+            "width": img_w,
+            "height": img_h,
             "message": f"Post-processing complete! Reconstructed {len(filtered_walls)} walls."
         }
 
