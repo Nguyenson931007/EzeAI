@@ -143,34 +143,54 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
     const ux = dx / length;
     const uy = dy / length;
     const d = thicknessPx / 2;
-    const extFactor = 1.4;
 
     let p1Ext = { ...p1 };
     let p2Ext = { ...p2 };
 
-    const isJunction = (pt) => {
-      if (!allWalls) return false;
+    const getExtFactor = (pt) => {
+      if (!allWalls) return 0.0;
+      
+      let bestFactor = 0.0;
+      
       for (const otherW of allWalls) {
         if (otherW.id === currentWallId) continue;
         const otherC = otherW.centerline;
         if (!otherC || otherC.length !== 2) continue;
         const otherP1 = { x: otherC[0][0], y: otherC[0][1] };
         const otherP2 = { x: otherC[1][0], y: otherC[1][1] };
+        
+        // Check if pt is close to the other wall's centerline segment
         const proj = distancePointToSegment(pt, otherP1, otherP2);
-        if (proj.dist < 8.0) {
-          return true;
+        if (proj.dist < 12.0) {
+          // It's a junction! Let's check if L-junction or T-junction
+          const distToP1 = Math.hypot(pt.x - otherP1.x, pt.y - otherP1.y);
+          const distToP2 = Math.hypot(pt.x - otherP2.x, pt.y - otherP2.y);
+          
+          if (distToP1 < 12.0 || distToP2 < 12.0) {
+            // L-junction (Corner): extend vertical, retract/stop horizontal
+            const currentIsVert = Math.abs(uy) > Math.abs(ux);
+            if (currentIsVert) {
+              bestFactor = Math.max(bestFactor, 1.0);
+            }
+          } else {
+            // T-junction (stem touches side): extend to centerline
+            bestFactor = Math.max(bestFactor, 1.0);
+          }
         }
       }
-      return false;
+      return bestFactor;
     };
 
-    if (isJunction(p1)) {
-      p1Ext.x -= d * ux * extFactor;
-      p1Ext.y -= d * uy * extFactor;
+    const ext1 = getExtFactor(p1);
+    const ext2 = getExtFactor(p2);
+
+    if (ext1 > 0) {
+      p1Ext.x -= d * ux * ext1;
+      p1Ext.y -= d * uy * ext1;
     }
-    if (isJunction(p2)) {
-      p2Ext.x += d * ux * extFactor;
-      p2Ext.y += d * uy * extFactor;
+    if (ext2 > 0) {
+      p2Ext.x += d * ux * ext2;
+      p2Ext.y += d * uy * ext2;
     }
 
     const extendedPoints = [...points];

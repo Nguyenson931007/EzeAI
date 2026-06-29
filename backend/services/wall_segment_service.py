@@ -705,18 +705,31 @@ class WallSegmentService:
             proj_y = y1 + t*dy
             return math.hypot(x0 - proj_x, y0 - proj_y)
 
-        def is_junction_point(pt, current_wall_idx, all_walls):
+        def get_ext_factor(pt, current_wall_idx, all_walls, ux, uy):
+            best_factor = 0.0
             for idx, other_w in enumerate(all_walls):
                 if idx == current_wall_idx:
                     continue
                 other_c = other_w.get("centerline")
                 if not other_c or len(other_c) != 2:
                     continue
+                other_p1 = other_c[0]
+                other_p2 = other_c[1]
                 # Check if point is very close to the other wall's segment
-                dist = point_to_segment_distance(pt, other_c[0], other_c[1])
-                if dist < 8.0:
-                    return True
-            return False
+                dist = point_to_segment_distance(pt, other_p1, other_p2)
+                if dist < 12.0:
+                    # L-junction (Corner) vs T-junction check
+                    dist_to_p1 = math.hypot(pt[0] - other_p1[0], pt[1] - other_p1[1])
+                    dist_to_p2 = math.hypot(pt[0] - other_p2[0], pt[1] - other_p2[1])
+                    if dist_to_p1 < 12.0 or dist_to_p2 < 12.0:
+                        # Corner: extend vertical, stop horizontal
+                        current_is_vert = abs(uy) > abs(ux)
+                        if current_is_vert:
+                            best_factor = max(best_factor, 1.0)
+                    else:
+                        # T-junction: stem touches side
+                        best_factor = max(best_factor, 1.0)
+            return best_factor
 
         for idx, w in enumerate(snapped_walls):
             c = w.get("centerline")
@@ -746,13 +759,14 @@ class WallSegmentService:
                 p1_ext = list(p1)
                 p2_ext = list(p2)
                 # Use a factor of 1.4 to ensure inner corner boundaries overlap and seal gaps
-                ext_factor = 1.4
-                if is_junction_point(p1, idx, snapped_walls):
-                    p1_ext[0] -= d * ux * ext_factor
-                    p1_ext[1] -= d * uy * ext_factor
-                if is_junction_point(p2, idx, snapped_walls):
-                    p2_ext[0] += d * ux * ext_factor
-                    p2_ext[1] += d * uy * ext_factor
+                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
+                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
+                if ext1 > 0:
+                    p1_ext[0] -= d * ux * ext1
+                    p1_ext[1] -= d * uy * ext1
+                if ext2 > 0:
+                    p2_ext[0] += d * ux * ext2
+                    p2_ext[1] += d * uy * ext2
 
                 nx = -uy
                 ny = ux
@@ -1044,17 +1058,27 @@ class WallSegmentService:
             proj_y = y1 + t*dy
             return math.hypot(x0 - proj_x, y0 - proj_y)
 
-        def is_junction_point(pt, current_wall_idx, all_walls):
+        def get_ext_factor(pt, current_wall_idx, all_walls, ux, uy):
+            best_factor = 0.0
             for idx, other_w in enumerate(all_walls):
                 if idx == current_wall_idx:
                     continue
                 other_c = other_w.get("centerline")
                 if not other_c or len(other_c) != 2:
                     continue
-                dist = point_to_segment_distance(pt, other_c[0], other_c[1])
-                if dist < 8.0:
-                    return True
-            return False
+                other_p1 = other_c[0]
+                other_p2 = other_c[1]
+                dist = point_to_segment_distance(pt, other_p1, other_p2)
+                if dist < 12.0:
+                    dist_to_p1 = math.hypot(pt[0] - other_p1[0], pt[1] - other_p1[1])
+                    dist_to_p2 = math.hypot(pt[0] - other_p2[0], pt[1] - other_p2[1])
+                    if dist_to_p1 < 12.0 or dist_to_p2 < 12.0:
+                        current_is_vert = abs(uy) > abs(ux)
+                        if current_is_vert:
+                            best_factor = max(best_factor, 1.0)
+                    else:
+                        best_factor = max(best_factor, 1.0)
+            return best_factor
 
         for idx, w in enumerate(snapped_walls):
             c = w.get("centerline")
@@ -1078,13 +1102,14 @@ class WallSegmentService:
 
                 p1_ext = list(p1)
                 p2_ext = list(p2)
-                ext_factor = 1.4
-                if is_junction_point(p1, idx, snapped_walls):
-                    p1_ext[0] -= d * ux * ext_factor
-                    p1_ext[1] -= d * uy * ext_factor
-                if is_junction_point(p2, idx, snapped_walls):
-                    p2_ext[0] += d * ux * ext_factor
-                    p2_ext[1] += d * uy * ext_factor
+                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
+                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
+                if ext1 > 0:
+                    p1_ext[0] -= d * ux * ext1
+                    p1_ext[1] -= d * uy * ext1
+                if ext2 > 0:
+                    p2_ext[0] += d * ux * ext2
+                    p2_ext[1] += d * uy * ext2
 
                 nx = -uy
                 ny = ux
