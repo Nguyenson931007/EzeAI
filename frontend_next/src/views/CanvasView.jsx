@@ -172,8 +172,8 @@ const RoomPolygonLayer = React.memo(({
                 setSelectedType("room");
               }}
             />
-            {/* Polygon vertex handles - SKIP entirely for text rooms! */}
-            {!isText && r.polygon.map((p, i) => {
+            {/* Polygon vertex handles - ONLY show if the room is selected! */}
+            {!isText && isSelected && r.polygon.map((p, i) => {
               const isDraggingThisVertex = dragging && dragging.id === r.id && dragging.index === i;
               return (
                 <g key={`vertex-${r.id}-${i}`}>
