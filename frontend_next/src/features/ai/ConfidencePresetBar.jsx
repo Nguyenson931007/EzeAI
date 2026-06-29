@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 
 const PRESETS = [
-  { id: 'fast', name: 'Fast', icon: '⚡', config: { rooms: 0.35, doors: 0.10, walls: 0.01, ocr: 0.25, symbols: 0.40 }, tooltip: 'Maximize speed & recall' },
-  { id: 'balanced', name: 'Balanced', icon: '⚖', config: { rooms: 0.55, doors: 0.20, walls: 0.01, ocr: 0.45, symbols: 0.60 }, tooltip: 'Standard optimal default values' },
+  { id: 'fast', name: 'Fast', icon: '⚡', config: { rooms: 0.35, doors: 0.10, walls: 0.001, ocr: 0.25, symbols: 0.40 }, tooltip: 'Maximize speed & recall' },
+  { id: 'balanced', name: 'Balanced', icon: '⚖', config: { rooms: 0.55, doors: 0.20, walls: 0.001, ocr: 0.45, symbols: 0.60 }, tooltip: 'Standard optimal default values' },
   { id: 'accuracy', name: 'Accuracy', icon: '🎯', config: { rooms: 0.75, doors: 0.60, walls: 0.50, ocr: 0.70, symbols: 0.80 }, tooltip: 'High accuracy & minimal noise' }
 ];
 

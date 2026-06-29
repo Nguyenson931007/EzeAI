@@ -245,10 +245,11 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async detectWallSeg(imageBlob, confidence = "0.25") {
+  async detectWallSeg(imageBlob, confidence = "0.25", realScale = 1.0) {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
+    fd.append("real_scale", realScale || 1.0);
     const res = await fetch(`${BASE_URL}/api/wall-segment`, {
       method: "POST",
       headers: getHeaders(null),
@@ -256,6 +257,58 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  async detectWallSegStream(imageBlob, confidence = "0.25", realScale = 1.0, onEvent, signal = null) {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("confidence", confidence);
+    fd.append("real_scale", realScale || 1.0);
+
+    const res = await fetch(`${BASE_URL}/predict_wall_stream`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include",
+      signal: signal
+    });
+
+    if (!res.ok) {
+      throw new Error(`Server returned ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const parsed = JSON.parse(line);
+            onEvent(parsed);
+          } catch (e) {
+            console.error("Failed to parse NDJSON line:", line, e);
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      try {
+        const parsed = JSON.parse(buffer);
+        onEvent(parsed);
+      } catch (e) {
+        console.error("Failed to parse final NDJSON buffer:", buffer, e);
+      }
+    }
   },
 
   async autoDetectText(imageBlob, confidence = "0.001") {

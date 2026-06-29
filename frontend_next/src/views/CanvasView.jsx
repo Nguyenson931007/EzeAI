@@ -1316,6 +1316,7 @@ export default function CanvasView({
   inferenceTiming,
   isDetecting,
   activeScanRoom,
+  cancelROI,
   setOffset,
   setScale,
   currentPage,
@@ -1625,7 +1626,7 @@ export default function CanvasView({
         onMouseUp={onMouseUp}
       >
         <style>{scanStyles}</style>
-        {activeScanRoom && <div className="sweep-line" />}
+        {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
         
         {/* Floating Dynamic Diagnostic ROI Panel (Requirement 10) */}
         {roiRect && (
@@ -1703,6 +1704,56 @@ export default function CanvasView({
                 className="scanner-bar-fill" 
                 style={{ width: `${((activeScanRoom.index + 1) / activeScanRoom.total) * 100}%` }} 
               />
+            </div>
+          </div>
+        )}
+
+        {isDetecting && !activeScanRoom && (
+          <div className="scanner-panel" style={{ border: '1px solid rgba(99, 102, 241, 0.4)' }}>
+            <div className="scanner-header">
+              <div className="scanner-live-badge" style={{ color: '#a5b4fc' }}>
+                <span className="live-dot" style={{ backgroundColor: '#6366f1', boxR: '0 0 8px #6366f1' }} />
+                AI Inference Running
+              </div>
+              <span className="scanner-progress-text">
+                {roiProgress}%
+              </span>
+            </div>
+            
+            <div className="scanner-target-title">ACTIVE PIPELINE PROCESS</div>
+            <div className="scanner-target-name" style={{ fontSize: '16px', background: 'linear-gradient(135deg, #a5b4fc 0%, #3b82f6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.4' }}>
+              {cacheStatus === "processing" ? "Analyzing Architectural Drawings..." : cacheStatus}
+            </div>
+            
+            <div className="scanner-bar-container" style={{ marginTop: '14px', marginBottom: '14px' }}>
+              <div 
+                className="scanner-bar-fill" 
+                style={{ 
+                  width: `${roiProgress}%`,
+                  background: 'linear-gradient(90deg, #6366f1, #3b82f6)' 
+                }} 
+              />
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={cancelROI}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  color: '#fca5a5',
+                  borderRadius: '6px',
+                  padding: '4px 12px',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.2)'}
+              >
+                🛑 Hủy quét (Cancel)
+              </button>
             </div>
           </div>
         )}

@@ -727,11 +727,14 @@ class WallSegmentService:
                 # Determine thickness based on wall class
                 class_name = w.get("class_name", "exterior_wall")
                 if class_name == "exterior_wall":
-                    thickness_val = 20.0  # 90mm
                     thickness_mm = 90
                 else:
-                    thickness_val = 15.0  # 70mm (for interior/partition walls)
                     thickness_mm = 70
+
+                if real_scale and real_scale != 1.0:
+                    thickness_val = float(thickness_mm) / real_scale
+                else:
+                    thickness_val = 20.0 if class_name == "exterior_wall" else 15.0
                 
                 d = thickness_val / 2.0
 
@@ -826,6 +829,330 @@ class WallSegmentService:
             "width": img_w,
             "height": img_h,
             "walls": filtered_walls
+        }
+
+    @staticmethod
+    def predict_stream(
+        image_bytes: bytes,
+        confidence: float = 0.001,
+        imgsz: int = 1280,
+        real_scale: float = 1.0,
+        filename: str = "plan.png"
+    ):
+        """
+        Runs wall segmentation inference and yields events progressively:
+        - raw_detected: raw walls right after YOLO prediction
+        - final: fully processed, snapped, and cleaned walls
+        """
+        yield {"status": "started", "message": "Initializing Wall AI..."}
+        
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = _get_model()
+
+        # Load image
+        img_original = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img_w, img_h = img_original.size
+        img_np = np.array(img_original)
+
+        # Calculate inference dimensions preserving aspect ratio
+        if img_w >= img_h:
+            inference_width = imgsz
+            inference_height = int(imgsz * img_h / img_w)
+        else:
+            inference_height = imgsz
+            inference_width = int(imgsz * img_w / img_h)
+
+        img_inference = img_original.resize((inference_width, inference_height))
+
+        yield {"status": "yolo_started", "message": "Running YOLO Segmenter..."}
+
+        # Run segmentation inference
+        results = model.predict(
+            source=img_inference,
+            conf=float(confidence),
+            imgsz=imgsz,
+            retina_masks=True,
+            device=device,
+            verbose=False
+        )
+
+        detected_walls = []
+
+        if len(results) > 0:
+            res = results[0]
+            boxes = res.boxes
+            masks = res.masks
+
+            if boxes is not None and masks is not None:
+                for idx in range(len(boxes)):
+                    if idx >= len(masks.xy):
+                        continue
+
+                    box = boxes[idx]
+                    conf = float(box.conf[0].item())
+                    class_id = int(box.cls[0].item())
+                    class_name = model.names.get(class_id, f"wall_{class_id}")
+
+                    # Class-specific confidence filtering
+                    if class_name == "partition_wall":
+                        if conf < max(confidence, 0.08):
+                            continue
+                    elif class_name == "interior_wall":
+                        if conf < max(confidence, 0.05):
+                            continue
+                    elif class_name == "exterior_wall":
+                        if conf < max(confidence, 0.03):
+                            continue
+                    else:
+                        if conf < confidence:
+                            continue
+
+                    # Get raw polygon coordinates from YOLO masks
+                    poly_xy = masks.xy[idx]
+                    if len(poly_xy) < 3:
+                        continue
+
+                    # Scale coordinates from inference scale back to original image scale
+                    scale_x = img_w / inference_width
+                    scale_y = img_h / inference_height
+                    raw_polygon_coords = [[float(p[0]) * scale_x, float(p[1]) * scale_y] for p in poly_xy]
+
+                    # Basic geometric properties and simplification from Shapely
+                    try:
+                        poly_geom = ShapelyPolygon(raw_polygon_coords)
+                        if not poly_geom.is_valid:
+                            poly_geom = poly_geom.buffer(0)
+                        
+                        poly_geom = poly_geom.simplify(2.0, preserve_topology=True)
+                        
+                        if poly_geom.is_empty:
+                            continue
+                            
+                        if poly_geom.geom_type == 'Polygon':
+                            polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
+                        elif poly_geom.geom_type == 'MultiPolygon':
+                            largest_poly = max(poly_geom.geoms, key=lambda p: p.area)
+                            poly_geom = largest_poly
+                            polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
+                        else:
+                            polygon_coords = raw_polygon_coords
+
+                        if len(polygon_coords) < 3:
+                            polygon_coords = raw_polygon_coords
+                    except Exception:
+                        polygon_coords = raw_polygon_coords
+
+                    # Centerline and thickness from MRR
+                    centerline, raw_thickness_px = _compute_centerline_and_thickness(polygon_coords)
+
+                    if centerline and len(centerline) == 2:
+                        p1, p2 = centerline[0], centerline[1]
+                        length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+                        
+                        if length < 35.0:
+                            continue
+                            
+                        if raw_thickness_px > 0 and (length / raw_thickness_px) < 2.0:
+                            continue
+
+                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px):
+                            continue
+
+                        wall_obj = {
+                            "class_name": class_name,
+                            "confidence": round(conf, 3),
+                            "centerline": centerline,
+                            "polygon": polygon_coords
+                        }
+                        detected_walls.append(wall_obj)
+
+        # Build initial raw walls to yield immediately so the user doesn't wait
+        raw_yield_walls = []
+        for idx, w in enumerate(detected_walls):
+            c = w.get("centerline")
+            p1, p2 = c[0], c[1]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            length = math.sqrt(dx * dx + dy * dy)
+            if length > 0:
+                ux = dx / length
+                uy = dy / length
+                class_name = w.get("class_name", "exterior_wall")
+                thickness_mm = 90 if class_name == "exterior_wall" else 70
+                if real_scale and real_scale != 1.0:
+                    thickness_val = float(thickness_mm) / real_scale
+                else:
+                    thickness_val = 20.0 if class_name == "exterior_wall" else 15.0
+                
+                d = thickness_val / 2.0
+                nx = -uy
+                ny = ux
+                c1 = [round(p1[0] + d * nx, 1), round(p1[1] + d * ny, 1)]
+                c2 = [round(p2[0] + d * nx, 1), round(p2[1] + d * ny, 1)]
+                c3 = [round(p2[0] - d * nx, 1), round(p2[1] - d * ny, 1)]
+                c4 = [round(p1[0] - d * nx, 1), round(p1[1] - d * ny, 1)]
+                
+                raw_yield_walls.append({
+                    "id": f"wall_raw_{idx+1:03d}",
+                    "class_name": class_name,
+                    "confidence": w["confidence"],
+                    "centerline": centerline,
+                    "polygon": [c1, c2, c3, c4],
+                    "thickness_px": thickness_val,
+                    "thickness": thickness_mm,
+                    "area_px": round(length * thickness_val, 1),
+                    "perimeter_px": round(2.0 * (length + thickness_val), 1)
+                })
+
+        yield {"status": "raw_detected", "walls": raw_yield_walls, "message": f"YOLO found {len(raw_yield_walls)} walls. Post-processing..."}
+
+        # Step 0.5: Cross-filter walls against door detections to remove misidentified doors
+        processed_walls = _filter_walls_by_doors(detected_walls, image_bytes)
+
+        # Step 1: Merge collinear overlapping walls of the same class
+        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=12.0)
+
+        # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
+        snapped_walls = _snap_perpendicular_corners(merged_walls)
+        snapped_walls = _snap_t_junctions(snapped_walls)
+        snapped_walls = _split_walls_at_t_junctions(snapped_walls)
+        snapped_walls = _orthogonalize_walls(snapped_walls, max_angle_deviation=5.0)
+
+        # Step 3: Reconstruct
+        reconstructed_walls = []
+        
+        def point_to_segment_distance(pt, seg_p1, seg_p2):
+            x0, y0 = pt
+            x1, y1 = seg_p1
+            x2, y2 = seg_p2
+            dx = x2 - x1
+            dy = y2 - y1
+            length_sq = dx*dx + dy*dy
+            if length_sq == 0:
+                return math.hypot(x0 - x1, y0 - y1)
+            t = ((x0 - x1)*dx + (y0 - y1)*dy) / length_sq
+            t = max(0.0, min(1.0, t))
+            proj_x = x1 + t*dx
+            proj_y = y1 + t*dy
+            return math.hypot(x0 - proj_x, y0 - proj_y)
+
+        def is_junction_point(pt, current_wall_idx, all_walls):
+            for idx, other_w in enumerate(all_walls):
+                if idx == current_wall_idx:
+                    continue
+                other_c = other_w.get("centerline")
+                if not other_c or len(other_c) != 2:
+                    continue
+                dist = point_to_segment_distance(pt, other_c[0], other_c[1])
+                if dist < 8.0:
+                    return True
+            return False
+
+        for idx, w in enumerate(snapped_walls):
+            c = w.get("centerline")
+            p1, p2 = c[0], c[1]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            length = math.sqrt(dx * dx + dy * dy)
+            if length > 0:
+                ux = dx / length
+                uy = dy / length
+                
+                class_name = w.get("class_name", "exterior_wall")
+                thickness_mm = 90 if class_name == "exterior_wall" else 70
+
+                if real_scale and real_scale != 1.0:
+                    thickness_val = float(thickness_mm) / real_scale
+                else:
+                    thickness_val = 20.0 if class_name == "exterior_wall" else 15.0
+                
+                d = thickness_val / 2.0
+
+                p1_ext = list(p1)
+                p2_ext = list(p2)
+                ext_factor = 1.4
+                if is_junction_point(p1, idx, snapped_walls):
+                    p1_ext[0] -= d * ux * ext_factor
+                    p1_ext[1] -= d * uy * ext_factor
+                if is_junction_point(p2, idx, snapped_walls):
+                    p2_ext[0] += d * ux * ext_factor
+                    p2_ext[1] += d * uy * ext_factor
+
+                nx = -uy
+                ny = ux
+                
+                c1 = [round(p1_ext[0] + d * nx, 1), round(p1_ext[1] + d * ny, 1)]
+                c2 = [round(p2_ext[0] + d * nx, 1), round(p2_ext[1] + d * ny, 1)]
+                c3 = [round(p2_ext[0] - d * nx, 1), round(p2_ext[1] - d * ny, 1)]
+                c4 = [round(p1_ext[0] - d * nx, 1), round(p1_ext[1] - d * ny, 1)]
+                
+                w["polygon"] = [c1, c2, c3, c4]
+                w["thickness_px"] = thickness_val
+                w["thickness"] = thickness_mm
+                w["area_px"] = round(length * thickness_val, 1)
+                w["perimeter_px"] = round(2.0 * (length + thickness_val), 1)
+                reconstructed_walls.append(w)
+
+        # Step 4: Remove short wall segments
+        cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls)
+
+        # Helper
+        def _get_wall_len(w):
+            c = w.get("centerline")
+            if c and len(c) == 2:
+                p1, p2 = c[0], c[1]
+                return math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2)
+            return 0.0
+
+        # Step 5: Final general Polygon-level NMS
+        cleaned_walls.sort(key=_get_wall_len, reverse=True)
+        
+        filtered_walls = []
+        for w in cleaned_walls:
+            try:
+                w_geom = ShapelyPolygon(w["polygon"])
+                if not w_geom.is_valid:
+                    w_geom = w_geom.buffer(0)
+            except Exception:
+                continue
+
+            if w_geom.is_empty or w_geom.area < 10:
+                continue
+
+            overlap = False
+            for accepted_w in filtered_walls:
+                try:
+                    acc_geom = ShapelyPolygon(accepted_w["polygon"])
+                    if not acc_geom.is_valid:
+                        acc_geom = acc_geom.buffer(0)
+                except Exception:
+                    continue
+
+                if w_geom.intersects(acc_geom):
+                    try:
+                        inter_area = w_geom.intersection(acc_geom).area
+                        union_area = w_geom.union(acc_geom).area
+                        iou = inter_area / union_area if union_area > 0 else 0
+                        
+                        min_area = min(w_geom.area, acc_geom.area)
+                        containment = inter_area / min_area if min_area > 0 else 0
+
+                        if iou > 0.45 or containment > 0.70:
+                            overlap = True
+                            break
+                    except Exception:
+                        pass
+
+            if not overlap:
+                filtered_walls.append(w)
+
+        for idx, w in enumerate(filtered_walls):
+            w["id"] = f"wall_{idx + 1:03d}"
+
+        yield {
+            "status": "final",
+            "walls": filtered_walls,
+            "message": f"Post-processing complete! Reconstructed {len(filtered_walls)} walls."
         }
 
     @staticmethod

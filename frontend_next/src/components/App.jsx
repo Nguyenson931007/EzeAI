@@ -595,6 +595,7 @@ export default function App() {
               inferenceTiming={inferenceTiming}
               isDetecting={isDetecting}
               activeScanRoom={activeScanRoom}
+              cancelROI={cancelROI}
               setOffset={setOffset}
               setScale={setScale}
               currentPage={currentPage}

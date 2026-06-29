@@ -786,6 +786,51 @@ async def wall_segment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/predict_wall_stream")
+async def predict_wall_stream(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.001),
+    real_scale: Optional[float] = Form(1.0),
+    username: str = Depends(validate_session)
+):
+    """
+    Tuyến API truyền luồng sự kiện (NDJSON Streaming) nhận diện tường:
+    Khi phát hiện được tường thô từ YOLO, sẽ trả về ngay lập tức để frontend hiển thị.
+    Sau khi hậu xử lý xong, sẽ trả về kết quả tường hoàn chỉnh.
+    """
+    from services.wall_segment_service import WallSegmentService
+    from fastapi.responses import StreamingResponse
+
+    content = await file.read()
+
+    async def event_generator():
+        try:
+            generator = WallSegmentService.predict_stream(
+                image_bytes=content,
+                confidence=confidence,
+                real_scale=real_scale or 1.0,
+                filename=file.filename or "plan.png"
+            )
+            
+            while True:
+                def get_next():
+                    try:
+                        return next(generator)
+                    except StopIteration:
+                        return None
+                
+                event = await run_in_threadpool(get_next)
+                if event is None:
+                    break
+                
+                yield json.dumps(event) + "\n"
+                await asyncio.sleep(0.05)
+                
+        except Exception as e:
+            yield json.dumps({"status": "failed", "message": f"Lỗi luồng tường AI: {str(e)}"}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 
 @router.post("/train-door-seg")
 @limiter.limit("10/minute")

@@ -524,54 +524,76 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.01");
-      const data = await ApiService.detectWallSeg(blob, conf);
-      console.log("[Wall Seg AI] Data:", data);
+      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.001");
+      const existingWallsSnapshot = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+      let isCacheHit = false;
 
-      if (job.token !== roiInferenceIdRef.current) return;
+      await ApiService.detectWallSegStream(
+        blob,
+        conf,
+        realScale,
+        (event) => {
+          if (job.token !== roiInferenceIdRef.current) return;
+          
+          console.log("[Wall Seg Stream Event]:", event);
 
-      const result = data;
-      const isCacheHit = !!(result && result.cache_hit);
-
-      if (result && result.walls) {
-        let detectedWalls = result.walls.map(w => {
-          let wall_type = "int";
-          let thickness = 70;
-          if (w.class_name === "exterior_wall") {
-            wall_type = "ext";
-            thickness = 90;
-          } else if (w.class_name === "partition_wall") {
-            wall_type = "part";
-            thickness = 70;
-          } else if (w.class_name === "interior_wall") {
-            wall_type = "int";
-            thickness = 70;
+          if (event.message) {
+            setCacheStatus(event.message);
           }
-          return {
-            ...w,
-            wall_type,
-            thickness,
-            review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
-          };
-        });
 
-        // Filter out false positive walls (walls that are almost entirely on top of doors)
-        const doors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
-        let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
-        cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], result.width, result.height);
+          if (event.status === "started") {
+            setRoiProgress(15);
+          } else if (event.status === "yolo_started") {
+            setRoiProgress(35);
+          } else if (event.status === "raw_detected") {
+            setRoiProgress(65);
+          } else if (event.status === "final") {
+            setRoiProgress(100);
+          }
 
-        setWallsByPage(prev => {
-          const allWalls = [...(prev[currentPage] || []), ...cleanWalls];
-          return {
-            ...prev,
-            [currentPage]: _cutWallsByDoors(allWalls, doors)
-          };
-        });
+          if (event.walls) {
+            let detectedWalls = event.walls.map(w => {
+              let wall_type = "int";
+              let thickness = 70;
+              if (w.class_name === "exterior_wall") {
+                wall_type = "ext";
+                thickness = 90;
+              } else if (w.class_name === "partition_wall") {
+                wall_type = "part";
+                thickness = 70;
+              } else if (w.class_name === "interior_wall") {
+                wall_type = "int";
+                thickness = 70;
+              }
+              return {
+                ...w,
+                wall_type,
+                thickness,
+                review_state: "AI_GENERATED"
+              };
+            });
 
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
-      } else {
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
-      }
+            // Filter out false positive walls (overlaps with doors)
+            const doors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
+            let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
+            cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], event.width || 1280, event.height || 960);
+
+            setWallsByPage(prev => {
+              const allWalls = [...existingWallsSnapshot, ...cleanWalls];
+              return {
+                ...prev,
+                [currentPage]: _cutWallsByDoors(allWalls, doors)
+              };
+            });
+          }
+
+          if (event.status === "final") {
+            isCacheHit = !!event.cache_hit;
+            finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
+          }
+        },
+        job.controller.signal
+      );
     } catch (err) {
       if (err.name === "AbortError") {
         console.log("[Wall AI] Request canceled.");
@@ -860,8 +882,8 @@ export const useAIController = (
 
       let detectedWalls = [];
       try {
-        const wallConf = String(useAIConfigStore.getState().config?.walls ?? '0.01');
-        const wallData = await ApiService.detectWallSeg(blob, wallConf);
+        const wallConf = String(useAIConfigStore.getState().config?.walls ?? '0.001');
+        const wallData = await ApiService.detectWallSeg(blob, wallConf, realScale);
 
         if (abortController.signal.aborted) return;
 
