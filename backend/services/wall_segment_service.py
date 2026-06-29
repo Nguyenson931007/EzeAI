@@ -492,6 +492,13 @@ def _remove_short_overlapping_walls(walls: List[dict], min_length: float = 80.0,
             continue
             
         w_short = walls[i]
+        c_short = w_short.get("centerline")
+        if not c_short or len(c_short) != 2:
+            continue
+        dx_s = c_short[1][0] - c_short[0][0]
+        dy_s = c_short[1][1] - c_short[0][1]
+        is_vert_s = abs(dy_s) > abs(dx_s)
+
         try:
             poly_short = ShapelyPolygon(w_short["polygon"])
             if not poly_short.is_valid:
@@ -509,6 +516,17 @@ def _remove_short_overlapping_walls(walls: List[dict], min_length: float = 80.0,
                 continue
                 
             w_long = walls[j]
+            c_long = w_long.get("centerline")
+            if not c_long or len(c_long) != 2:
+                continue
+            dx_l = c_long[1][0] - c_long[0][0]
+            dy_l = c_long[1][1] - c_long[0][1]
+            is_vert_l = abs(dy_l) > abs(dx_l)
+
+            # If they are perpendicular (different orientations), they cannot be redundant!
+            if is_vert_s != is_vert_l:
+                continue
+
             try:
                 poly_long = ShapelyPolygon(w_long["polygon"])
                 if not poly_long.is_valid:
@@ -1645,7 +1663,7 @@ def _filter_walls_by_doors(walls: List[dict], image_bytes: bytes) -> List[dict]:
         door_service = DoorSegmentService()
         door_result = door_service.predict(
             image_bytes=image_bytes,
-            confidence=0.02,  # Low confidence to catch sliding doors
+            confidence=0.15,  # Increased from 0.02 to avoid fake doors from deleting correct walls
             imgsz=1280
         )
         
