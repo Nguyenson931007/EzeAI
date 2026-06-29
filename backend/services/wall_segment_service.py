@@ -593,14 +593,18 @@ class WallSegmentService:
                     class_name = model.names.get(class_id, f"wall_{class_id}")
 
                     # Class-specific confidence filtering (Idea 9)
+                    part_thresh = 0.08 if confidence >= 0.01 else confidence
+                    int_thresh = 0.05 if confidence >= 0.01 else confidence
+                    ext_thresh = 0.03 if confidence >= 0.01 else confidence
+
                     if class_name == "partition_wall":
-                        if conf < max(confidence, 0.08):
+                        if conf < part_thresh:
                             continue
                     elif class_name == "interior_wall":
-                        if conf < max(confidence, 0.05):
+                        if conf < int_thresh:
                             continue
                     elif class_name == "exterior_wall":
-                        if conf < max(confidence, 0.03):
+                        if conf < ext_thresh:
                             continue
                     else:
                         if conf < confidence:
@@ -659,7 +663,7 @@ class WallSegmentService:
                             continue
 
                         # OpenCV parallel edge validation (filters out furniture, text, etc.)
-                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px):
+                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
                             continue
 
                         wall_obj = {
@@ -894,14 +898,18 @@ class WallSegmentService:
                     class_name = model.names.get(class_id, f"wall_{class_id}")
 
                     # Class-specific confidence filtering
+                    part_thresh = 0.08 if confidence >= 0.01 else confidence
+                    int_thresh = 0.05 if confidence >= 0.01 else confidence
+                    ext_thresh = 0.03 if confidence >= 0.01 else confidence
+
                     if class_name == "partition_wall":
-                        if conf < max(confidence, 0.08):
+                        if conf < part_thresh:
                             continue
                     elif class_name == "interior_wall":
-                        if conf < max(confidence, 0.05):
+                        if conf < int_thresh:
                             continue
                     elif class_name == "exterior_wall":
-                        if conf < max(confidence, 0.03):
+                        if conf < ext_thresh:
                             continue
                     else:
                         if conf < confidence:
@@ -955,7 +963,7 @@ class WallSegmentService:
                         if raw_thickness_px > 0 and (length / raw_thickness_px) < 2.0:
                             continue
 
-                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px):
+                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
                             continue
 
                         wall_obj = {
@@ -1468,7 +1476,7 @@ def _point_to_segment_distance_helper(pt, seg_p1, seg_p2):
     return math.hypot(x0 - proj_x, y0 - proj_y)
 
 
-def _validate_wall_by_edges(img_np, p1, p2, thickness_px) -> bool:
+def _validate_wall_by_edges(img_np, p1, p2, thickness_px, confidence: float = 0.10) -> bool:
     """
     Validates if the wall centerline matches actual parallel edges or solid fill in the original image.
     Uses cross-section profiling to filter out fake walls detected on furniture, text, or blank space.
@@ -1571,8 +1579,9 @@ def _validate_wall_by_edges(img_np, p1, p2, thickness_px) -> bool:
     if valid_checks == 0:
         return True
 
+    threshold = 0.20 if confidence < 0.01 else 0.50
     match_ratio = passed_checks / valid_checks
-    return match_ratio >= 0.50
+    return match_ratio >= threshold
 
 
 def _filter_walls_by_doors(walls: List[dict], image_bytes: bytes) -> List[dict]:
