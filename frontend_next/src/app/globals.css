@@ -1323,6 +1323,13 @@ svg {
   fill: #6366f1;
 }
 
+.vertex-handle.dragging {
+  r: 3.5 !important;
+  stroke-width: 1.5 !important;
+  fill: #6366f1 !important;
+  opacity: 0.8;
+}
+
 /* Glassmorphism utility */
 .glass-panel {
   background: rgba(30, 41, 59, 0.7);

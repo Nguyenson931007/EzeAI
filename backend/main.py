@@ -114,6 +114,7 @@ app.add_middleware(
     allow_credentials=True,  # Bắt buộc bằng True để cookie phiên (session_token) có thể truyền tải
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"https://.*\.ngrok-free\.dev",
 )
 
 # Thêm middleware giới hạn kích thước tệp upload

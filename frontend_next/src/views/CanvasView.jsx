@@ -100,6 +100,7 @@ const RoomPolygonLayer = React.memo(({
   setSelectedId,
   setSelectedType,
   startDrag,
+  dragging,
   pushHistory,
   drawing,
   isMeasuring,
@@ -117,6 +118,7 @@ const RoomPolygonLayer = React.memo(({
         const isText = r.id && String(r.id).startsWith("text-");
         const isSelected = r.id === selectedId;
         const isHovered = r.id === hoverId;
+        const isDraggingThis = dragging && dragging.id === r.id;
         const style = getRoomStyle(r);
 
         // Determine confidence/review color overlay
@@ -125,19 +127,19 @@ const RoomPolygonLayer = React.memo(({
         const revStyle = REVIEW_COLORS[reviewState];
 
         let stroke = isSelected ? "#f59e0b" : (isHovered ? "#fbbf24" : style.stroke);
-        let strokeWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.2);
+        let strokeWidth = isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 3 : 1.2));
         let opacity = isSelected ? 0.8 : (isHovered ? 0.7 : 1);
         let fill = isSelected ? "rgba(245,158,11,0.15)" : style.fill;
 
         // If verified or corrected, boost stroke outline (Requirement 8)
-        if (revStyle && !isSelected && !isHovered) {
+        if (revStyle && !isSelected && !isHovered && !isDraggingThis) {
           stroke = revStyle.stroke;
           strokeWidth = 1.5;
           fill = revStyle.fill;
         }
 
         // Apply visual heatmap outlining for low confidence rooms
-        if (heatmapMode && isLowConfidence && !isSelected && !isHovered) {
+        if (heatmapMode && isLowConfidence && !isSelected && !isHovered && !isDraggingThis) {
           stroke = "#fbbf24"; // bright glowing yellow
           strokeWidth = 2.5;
           fill = "rgba(251, 191, 36, 0.22)"; // translucent pulsing gold
@@ -146,7 +148,7 @@ const RoomPolygonLayer = React.memo(({
         // Specific override for detected text bounding boxes
         if (isText) {
           stroke = isSelected ? "#3b82f6" : (isHovered ? "#60a5fa" : "#a855f7"); // sleek blue/purple outline
-          strokeWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.5);
+          strokeWidth = isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 3 : 1.5));
           fill = isSelected ? "rgba(59,130,246,0.15)" : (isHovered ? "rgba(168,85,247,0.1)" : "rgba(168,85,247,0.05)");
           opacity = 0.95;
         }
@@ -171,35 +173,38 @@ const RoomPolygonLayer = React.memo(({
               }}
             />
             {/* Polygon vertex handles - SKIP entirely for text rooms! */}
-            {!isText && r.polygon.map((p, i) => (
-              <g key={`vertex-${r.id}-${i}`}>
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r={4.5}
-                  fill="white"
-                  stroke={revStyle ? revStyle.stroke : "#6366f1"}
-                  strokeWidth={1.5}
-                  style={{ cursor: 'move', transition: 'r 0.2s' }}
-                  className="vertex-handle"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    startDrag(r.id, i);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    if (r.polygon.length <= 3) return;
-                    const newPoly = r.polygon.filter((_, idx) => idx !== i);
-                    pushHistory(
-                      rooms.map(room =>
-                        room.id === r.id ? { ...room, polygon: newPoly } : room
-                      )
-                    );
-                  }}
-                />
-                <circle cx={p.x} cy={p.y} r={1.5} fill={revStyle ? revStyle.stroke : "#6366f1"} pointerEvents="none" />
-              </g>
-            ))}
+            {!isText && r.polygon.map((p, i) => {
+              const isDraggingThisVertex = dragging && dragging.id === r.id && dragging.index === i;
+              return (
+                <g key={`vertex-${r.id}-${i}`}>
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={isDraggingThisVertex ? 3.5 : 4.5}
+                    fill="white"
+                    stroke={revStyle ? revStyle.stroke : "#6366f1"}
+                    strokeWidth={1.5}
+                    style={{ cursor: 'move', transition: 'r 0.2s' }}
+                    className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      startDrag(r.id, i);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      if (r.polygon.length <= 3) return;
+                      const newPoly = r.polygon.filter((_, idx) => idx !== i);
+                      pushHistory(
+                        rooms.map(room =>
+                          room.id === r.id ? { ...room, polygon: newPoly } : room
+                        )
+                      );
+                    }}
+                  />
+                  <circle cx={p.x} cy={p.y} r={isDraggingThisVertex ? 1 : 1.5} fill={revStyle ? revStyle.stroke : "#6366f1"} pointerEvents="none" />
+                </g>
+              );
+            })}
           </g>
         );
       })}
@@ -218,7 +223,8 @@ const RoomPolygonLayer = React.memo(({
     prev.isDistancing === next.isDistancing &&
     prev.isAddingPoint === next.isAddingPoint &&
     prev.heatmapMode === next.heatmapMode &&
-    prev.config === next.config
+    prev.config === next.config &&
+    prev.dragging === next.dragging
   );
 });
 
@@ -235,6 +241,9 @@ const WallLayer = React.memo(({
   selectedWallIds = [],
   selectWall,
   startDrag,
+  dragging,
+  hoverId,
+  setHoverId,
   interactionMode
 }) => {
   if (showLayer !== 'all' && showLayer !== 'wall') return null;
@@ -244,6 +253,8 @@ const WallLayer = React.memo(({
       {/* 1. Render all wall polygons first */}
       {(walls || []).map(w => {
         const isSelected = selectedWallIds.includes(w.id);
+        const isHovered = w.id === hoverId;
+        const isDraggingThis = dragging && dragging.id === w.id;
         const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
         
         const cls = (w.class_name || "").toLowerCase();
@@ -272,8 +283,10 @@ const WallLayer = React.memo(({
             points={pointsStr}
             fill={fillColor}
             stroke={strokeColor}
-            strokeWidth={isSelected ? 3 : 1.5}
+            strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : (isHovered ? 2.5 : 1.5))}
             style={{ cursor: 'pointer' }}
+            onMouseEnter={() => setHoverId(w.id)}
+            onMouseLeave={() => setHoverId(null)}
             onClick={(e) => {
               if (interactionMode === "cut-wall") {
                 // Let the click propagate to the SVG so handleClick handles it!
@@ -304,24 +317,28 @@ const WallLayer = React.memo(({
 
         return (
           <g key={`handles-${w.id}`}>
-            {w.centerline.map((pt, i) => (
-              <circle
-                key={i}
-                cx={pt[0]}
-                cy={pt[1]}
-                r={6}
-                fill="white"
-                stroke="#0284c7"
-                strokeWidth={2}
-                style={{ cursor: 'move' }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  if (startDrag) {
-                    startDrag(w.id, i, 'wall-vertex');
-                  }
-                }}
-              />
-            ))}
+            {w.centerline.map((pt, i) => {
+              const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
+              return (
+                <circle
+                  key={i}
+                  cx={pt[0]}
+                  cy={pt[1]}
+                  r={isDraggingThisVertex ? 3.5 : 6}
+                  fill="white"
+                  stroke="#0284c7"
+                  strokeWidth={isDraggingThisVertex ? 1.5 : 2}
+                  style={{ cursor: 'move' }}
+                  className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    if (startDrag) {
+                      startDrag(w.id, i, 'wall-vertex');
+                    }
+                  }}
+                />
+              );
+            })}
           </g>
         );
       })}
@@ -335,6 +352,8 @@ const WallLayer = React.memo(({
   prev.selectedWallIds === next.selectedWallIds &&
   prev.selectWall === next.selectWall &&
   prev.startDrag === next.startDrag &&
+  prev.dragging === next.dragging &&
+  prev.hoverId === next.hoverId &&
   prev.interactionMode === next.interactionMode
 ));
 
@@ -354,7 +373,10 @@ const DoorLayer = React.memo(({
   setSelectedId,
   setSelectedType,
   startDrag,
-  updateDoor
+  updateDoor,
+  dragging,
+  hoverId,
+  setHoverId
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
 
@@ -363,6 +385,8 @@ const DoorLayer = React.memo(({
       {(doors || []).map(d => {
         try {
           const isSelected = selectedId === d.id && selectedType === "door";
+          const isHovered = d.id === hoverId;
+          const isDraggingThis = dragging && dragging.id === d.id;
           const isAIDoor = !!((d.polygon && d.polygon.length >= 3) || (d.mask_polygon && d.mask_polygon.length >= 3));
           const p1 = d.points?.[0];
           const p2 = d.points?.[1];
@@ -408,6 +432,8 @@ const DoorLayer = React.memo(({
                 key={d.id}
                 door={d}
                 isSelected={isSelected}
+                isHovered={isHovered}
+                dragging={dragging}
                 color={color}
                 startDrag={startDrag}
                 updateDoor={updateDoor}
@@ -447,12 +473,12 @@ const DoorLayer = React.memo(({
 
             return (
               <g>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
                 <path 
                   d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
-                  fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1.5} strokeDasharray="3,2"
+                  fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1.5} strokeDasharray="3,2"
                 />
-                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isSelected ? 4 : 2.5} />
+                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2.5)} />
                 
                 {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
                 {isSelected && (
@@ -498,11 +524,11 @@ const DoorLayer = React.memo(({
 
             return (
               <g>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isSelected ? 4 : 2} opacity={0.3} />
-                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1} strokeDasharray="3,2" />
-                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isSelected ? 3 : 2} />
-                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1} strokeDasharray="3,2" />
-                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isSelected ? 3 : 2} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} strokeDasharray="3,2" />
+                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} strokeDasharray="3,2" />
+                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
               </g>
             );
           };
@@ -512,8 +538,8 @@ const DoorLayer = React.memo(({
             const offsetY = Math.cos(angle) * 3;
             return (
               <g>
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isSelected ? 6 : 4} />
-                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={1} opacity={0.5} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
+                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
               </g>
             );
           };
@@ -527,14 +553,16 @@ const DoorLayer = React.memo(({
                  setSelectedType("door");
                }}
                style={{ cursor: 'pointer' }}
+               onMouseEnter={() => setHoverId(d.id)}
+               onMouseLeave={() => setHoverId(null)}
             >
               {/* Bounding Box overlay (Rotated Polygon) */}
               {hasDisplayPoly && (
                 <polygon
                   points={displayPoly.map(p => `${p.x},${p.y}`).join(" ")}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.08)" : "rgba(0, 188, 212, 0.04)"}
-                  stroke={isSelected ? "#FF5722" : "#00BCD4"}
-                  strokeWidth={isSelected ? 2.5 : 1.5}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.08)" : (isHovered ? "rgba(0, 188, 212, 0.08)" : "rgba(0, 188, 212, 0.04)")}
+                  stroke={isSelected ? "#FF5722" : (isHovered ? "#00e5ff" : "#00BCD4")}
+                  strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 2.0 : 1.5))}
                   strokeDasharray={isSelected ? "none" : "6,3"}
                   opacity={0.85}
                   onMouseDown={(e) => {
@@ -596,26 +624,30 @@ const DoorLayer = React.memo(({
               ))}
 
               {/* Bounding Box Corner Handles */}
-              {isSelected && hasBBox && bboxPoly.map((p, i) => (
-                <g key={`door-handle-${d.id}-${i}`}>
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r={5.5}
-                    fill="#ffffff"
-                    stroke="#FF5722"
-                    strokeWidth={2}
-                    style={{ cursor: 'move' }}
-                    onMouseDown={(e) => {
-                      if (startDrag) {
-                        e.stopPropagation();
-                        startDrag(d.id, i, 'door-polygon');
-                      }
-                    }}
-                  />
-                  <circle cx={p.x} cy={p.y} r={2.0} fill="#FF5722" pointerEvents="none" />
-                </g>
-              ))}
+              {isSelected && hasBBox && bboxPoly.map((p, i) => {
+                const isDraggingThisVertex = dragging && dragging.id === d.id && dragging.index === i && dragging.type === 'door-polygon';
+                return (
+                  <g key={`door-handle-${d.id}-${i}`}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={isDraggingThisVertex ? 3.5 : 5.5}
+                      fill="#ffffff"
+                      stroke="#FF5722"
+                      strokeWidth={isDraggingThisVertex ? 1.5 : 2}
+                      style={{ cursor: 'move' }}
+                      className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
+                      onMouseDown={(e) => {
+                        if (startDrag) {
+                          e.stopPropagation();
+                          startDrag(d.id, i, 'door-polygon');
+                        }
+                      }}
+                    />
+                    <circle cx={p.x} cy={p.y} r={isDraggingThisVertex ? 1 : 2.0} fill="#FF5722" pointerEvents="none" />
+                  </g>
+                );
+              })}
 
               {/* Floating interactive flip control panel (manual doors only) */}
               {isSelected && hasBBox && (
@@ -741,7 +773,9 @@ const DoorLayer = React.memo(({
     prev.setSelectedId === next.setSelectedId &&
     prev.setSelectedType === next.setSelectedType &&
     prev.startDrag === next.startDrag &&
-    prev.updateDoor === next.updateDoor
+    prev.updateDoor === next.updateDoor &&
+    prev.dragging === next.dragging &&
+    prev.hoverId === next.hoverId
   );
 });
 
@@ -1300,7 +1334,8 @@ export default function CanvasView({
   searchResults = [],
   searchResultsVisible = true,
   hoveredSearchResultId = null,
-  zoomToBbox
+  zoomToBbox,
+  dragging
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -1822,6 +1857,7 @@ export default function CanvasView({
               setSelectedId={setSelectedId}
               setSelectedType={setSelectedType}
               startDrag={startDrag}
+              dragging={dragging}
               pushHistory={pushHistory}
               drawing={drawing}
               isMeasuring={isMeasuring}
@@ -1843,6 +1879,9 @@ export default function CanvasView({
               selectedWallIds={selectedWallIds}
               selectWall={selectWall}
               startDrag={startDrag}
+              dragging={dragging}
+              hoverId={hoverId}
+              setHoverId={setHoverId}
               interactionMode={interactionMode}
             />
 
@@ -1861,6 +1900,9 @@ export default function CanvasView({
               setSelectedType={setSelectedType}
               startDrag={startDrag}
               updateDoor={updateDoor}
+              dragging={dragging}
+              hoverId={hoverId}
+              setHoverId={setHoverId}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}

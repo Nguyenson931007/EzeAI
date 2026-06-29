@@ -129,6 +129,60 @@ export function calculateWallPolygon(points, thicknessPx, isClosed) {
   }
 }
 
+export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWallId, allWalls) {
+  if (!points || points.length < 2) return null;
+
+  const p1 = { x: points[0].x, y: points[0].y };
+  const p2 = { x: points[points.length - 1].x, y: points[points.length - 1].y };
+
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const length = Math.hypot(dx, dy);
+
+  if (length > 0) {
+    const ux = dx / length;
+    const uy = dy / length;
+    const d = thicknessPx / 2;
+    const extFactor = 1.4;
+
+    let p1Ext = { ...p1 };
+    let p2Ext = { ...p2 };
+
+    const isJunction = (pt) => {
+      if (!allWalls) return false;
+      for (const otherW of allWalls) {
+        if (otherW.id === currentWallId) continue;
+        const otherC = otherW.centerline;
+        if (!otherC || otherC.length !== 2) continue;
+        const otherP1 = { x: otherC[0][0], y: otherC[0][1] };
+        const otherP2 = { x: otherC[1][0], y: otherC[1][1] };
+        const proj = distancePointToSegment(pt, otherP1, otherP2);
+        if (proj.dist < 8.0) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (isJunction(p1)) {
+      p1Ext.x -= d * ux * extFactor;
+      p1Ext.y -= d * uy * extFactor;
+    }
+    if (isJunction(p2)) {
+      p2Ext.x += d * ux * extFactor;
+      p2Ext.y += d * uy * extFactor;
+    }
+
+    const extendedPoints = [...points];
+    extendedPoints[0] = p1Ext;
+    extendedPoints[extendedPoints.length - 1] = p2Ext;
+
+    return calculateWallPolygon(extendedPoints, thicknessPx, false);
+  }
+
+  return calculateWallPolygon(points, thicknessPx, false);
+}
+
 export function doorLength(door) {
   if (!door) return 0;
   const pts = door.points;
@@ -239,6 +293,8 @@ export function cutWallsByDoors(walls, doors) {
       continue;
     }
 
+    const wThickness = w.thickness_px || (w.thickness === 70 ? 15 : w.thickness === 90 ? 20 : 20);
+    const tolerance = wThickness / 2 + 2;
     let activeSegments = [[{ x: c[0][0], y: c[0][1] }, { x: c[1][0], y: c[1][1] }]];
 
     for (const d of doors) {
@@ -300,8 +356,8 @@ export function cutWallsByDoors(walls, doors) {
           const projY = A.y + t_clamped * uy;
           const dist = Math.hypot(pt.x - projX, pt.y - projY);
 
-          // We count it as overlapping if it's within the wall's thickness (10px + 2px tolerance)
-          if (dist < 12.0) {
+          // We count it as overlapping if it's within the wall's thickness tolerance
+          if (dist < tolerance) {
             overlapCount++;
             overlappingT.push(t_clamped);
           }
@@ -345,7 +401,7 @@ export function cutWallsByDoors(walls, doors) {
       const uy = dy / length;
       const nx = -uy;
       const ny = ux;
-      const halfThickness = 10.0; // wall thickness is 20px
+      const halfThickness = wThickness / 2;
 
       const c1 = [Math.round((A.x + halfThickness * nx) * 10) / 10, Math.round((A.y + halfThickness * ny) * 10) / 10];
       const c2 = [Math.round((B.x + halfThickness * nx) * 10) / 10, Math.round((B.y + halfThickness * ny) * 10) / 10];
@@ -359,8 +415,8 @@ export function cutWallsByDoors(walls, doors) {
           [Math.round(B.x * 10) / 10, Math.round(B.y * 10) / 10]
         ],
         polygon: [c1, c2, c3, c4],
-        area_px: Math.round(length * 20.0 * 10) / 10,
-        perimeter_px: Math.round(2.0 * (length + 20.0) * 10) / 10
+        area_px: Math.round(length * wThickness * 10) / 10,
+        perimeter_px: Math.round(2.0 * (length + wThickness) * 10) / 10
       });
     }
   }

@@ -3,6 +3,8 @@ import React from 'react';
 export default function AIDoor({
   door: d,
   isSelected,
+  isHovered,
+  dragging,
   color,
   startDrag,
   updateDoor,
@@ -398,6 +400,8 @@ export default function AIDoor({
     }
   }
 
+  const isDraggingThis = dragging && dragging.id === d.id;
+
   return (
     <g
       onClick={(e) => {
@@ -427,7 +431,7 @@ export default function AIDoor({
         points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
         fill="rgba(168, 85, 247, 0.08)"
         stroke="rgba(168, 85, 247, 0.35)"
-        strokeWidth={1.5}
+        strokeWidth={isDraggingThis ? 0.8 : 1.5}
         strokeDasharray="2,2"
         style={{ pointerEvents: 'none' }}
       />
@@ -436,9 +440,9 @@ export default function AIDoor({
       {isSliding && (
         <polygon
           points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-          fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
-          stroke={isSelected ? "#FF5722" : "#a855f7"}
-          strokeWidth={isSelected ? 3.5 : 2}
+          fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
+          stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+          strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
           style={{ pointerEvents: 'none' }}
         />
       )}
@@ -452,7 +456,7 @@ export default function AIDoor({
               {sectorPath1 && (
                 <path 
                   d={sectorPath1} 
-                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
                   stroke="transparent"
                   style={{ pointerEvents: 'none' }}
                 />
@@ -460,7 +464,7 @@ export default function AIDoor({
               {sectorPath2 && (
                 <path 
                   d={sectorPath2} 
-                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
                   stroke="transparent"
                   style={{ pointerEvents: 'none' }}
                 />
@@ -470,7 +474,7 @@ export default function AIDoor({
             sectorPath && (
               <path 
                 d={sectorPath} 
-                fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(168, 85, 247, 0.15)"}
+                fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
                 stroke="transparent"
                 style={{ pointerEvents: 'none' }}
               />
@@ -485,7 +489,7 @@ export default function AIDoor({
                   d={arcPath1} 
                   fill="none" 
                   stroke={isSelected ? "#FF5722" : "purple"} 
-                  strokeWidth={1.5} 
+                  strokeWidth={isDraggingThis ? 0.8 : 1.5} 
                   strokeDasharray="3,2" 
                   style={{ pointerEvents: 'none' }}
                 />
@@ -495,7 +499,7 @@ export default function AIDoor({
                   d={arcPath2} 
                   fill="none" 
                   stroke={isSelected ? "#FF5722" : "purple"} 
-                  strokeWidth={1.5} 
+                  strokeWidth={isDraggingThis ? 0.8 : 1.5} 
                   strokeDasharray="3,2" 
                   style={{ pointerEvents: 'none' }}
                 />
@@ -507,7 +511,7 @@ export default function AIDoor({
                 d={arcPath} 
                 fill="none" 
                 stroke={isSelected ? "#FF5722" : "purple"} 
-                strokeWidth={1.5} 
+                strokeWidth={isDraggingThis ? 0.8 : 1.5} 
                 strokeDasharray="3,2" 
                 style={{ pointerEvents: 'none' }}
               />
@@ -524,7 +528,7 @@ export default function AIDoor({
                 x2={edge.p2.x}
                 y2={edge.p2.y}
                 stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "purple")}
-                strokeWidth={isSelected ? 3.5 : 2}
+                strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
                 strokeLinecap="round"
                 style={{ pointerEvents: 'none' }}
               />
@@ -538,7 +542,7 @@ export default function AIDoor({
                 x2={edge.p2.x}
                 y2={edge.p2.y}
                 stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "purple")}
-                strokeWidth={isSelected ? 3.5 : 2}
+                strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
                 strokeLinecap="round"
                 style={{ pointerEvents: 'none' }}
               />

@@ -3,12 +3,12 @@ import React, { useState } from 'react';
 const PRESETS = [
   {
     name: 'Balanced Mode',
-    config: { rooms: 0.55, doors: 0.20, walls: 0.10, ocr: 0.45, symbols: 0.60 },
+    config: { rooms: 0.55, doors: 0.20, walls: 0.01, ocr: 0.45, symbols: 0.60 },
     description: 'Standard optimal CAD defaults.'
   },
   {
     name: 'Fast Detection',
-    config: { rooms: 0.35, doors: 0.10, walls: 0.05, ocr: 0.25, symbols: 0.40 },
+    config: { rooms: 0.35, doors: 0.10, walls: 0.01, ocr: 0.25, symbols: 0.40 },
     description: 'Maximum recall, lowest confidence thresholds.'
   },
   {
@@ -23,7 +23,7 @@ const PRESETS = [
   },
   {
     name: 'Door Focus',
-    config: { rooms: 0.55, doors: 0.10, walls: 0.10, ocr: 0.45, symbols: 0.60 },
+    config: { rooms: 0.55, doors: 0.10, walls: 0.01, ocr: 0.45, symbols: 0.60 },
     description: 'Optimized specifically for detailed door annotations.'
   }
 ];

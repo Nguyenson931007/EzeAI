@@ -3,7 +3,7 @@ import { create } from 'zustand';
 const DEFAULT_CONFIDENCE = {
   rooms: 0.55,
   doors: 0.20,
-  walls: 0.10,
+  walls: 0.01,
   ocr: 0.45,
   symbols: 0.60
 };

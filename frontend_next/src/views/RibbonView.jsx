@@ -50,7 +50,8 @@ export default function RibbonView({
     pages, setPages,
     currentPage, setCurrentPage,
     setCurrentProjectName,
-    roomsByPage, setRoomsByPage
+    roomsByPage, setRoomsByPage,
+    doorsByPage, wallsByPage
   } = useAppModel();
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
 
@@ -147,12 +148,18 @@ export default function RibbonView({
                   className="ribbon-btn danger"
                   onClick={() => {
                     const hasRooms = (roomsByPage[currentPage] || []).length > 0;
-                    if (!hasRooms) return;
-                    if (!window.confirm("Delete ALL rooms on this page?")) return;
+                    const hasWalls = (wallsByPage[currentPage] || []).length > 0;
+                    const hasDoors = (doorsByPage[currentPage] || []).length > 0;
+                    if (!hasRooms && !hasWalls && !hasDoors) return;
+                    if (!window.confirm("Delete ALL rooms, walls, and doors on this page?")) return;
                     deleteAllRooms(true);
                   }}
-                  disabled={!((roomsByPage[currentPage] || []).length > 0)}
-                  title="Delete ALL rooms on this page"
+                  disabled={
+                    !((roomsByPage[currentPage] || []).length > 0 ||
+                      (wallsByPage[currentPage] || []).length > 0 ||
+                      (doorsByPage[currentPage] || []).length > 0)
+                  }
+                  title="Delete ALL rooms, walls, and doors on this page"
                 >
                   <span className="icon">❌</span><span className="label">Delete All</span>
                 </button>

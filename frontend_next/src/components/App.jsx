@@ -139,7 +139,7 @@ export default function App() {
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
     handleClick, finishPolygon, finishDoor,
-    startDrag, onMouseMove, onMouseDown, onMouseUp, onWheel
+    startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel
   } = useInteractionController(svgRef);
 
   useEffect(() => {
@@ -391,6 +391,7 @@ export default function App() {
     // Clear ALL previous data when opening new file
     setRoomsByPage({});
     setDoorsByPage({});
+    setWallsByPage({});
 
     setPages(selectedData);
     setCurrentPage(0);
@@ -606,6 +607,7 @@ export default function App() {
               onMouseUp={onMouseUp}
               onWheel={onWheel}
               startDrag={startDrag}
+              dragging={dragging}
               pushHistory={pushHistory}
               updateDoor={updateDoor}
               searchResults={searchResults}

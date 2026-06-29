@@ -524,7 +524,7 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.10");
+      const conf = String(useAIConfigStore.getState().config?.walls ?? "0.01");
       const data = await ApiService.detectWallSeg(blob, conf);
       console.log("[Wall Seg AI] Data:", data);
 
@@ -860,7 +860,7 @@ export const useAIController = (
 
       let detectedWalls = [];
       try {
-        const wallConf = String(useAIConfigStore.getState().config?.walls ?? '0.10');
+        const wallConf = String(useAIConfigStore.getState().config?.walls ?? '0.01');
         const wallData = await ApiService.detectWallSeg(blob, wallConf);
 
         if (abortController.signal.aborted) return;

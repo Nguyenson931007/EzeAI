@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 
 export function useInteractionController(svgRef) {
@@ -346,7 +346,7 @@ export function useInteractionController(svgRef) {
           
           if (w.centerline && w.centerline.length === 2) {
             const pts = w.centerline.map(pt => ({ x: pt[0], y: pt[1] }));
-            const newPoly = calculateWallPolygon(pts, thicknessPx, false);
+            const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, pageWalls);
             if (newPoly) {
               newWall.polygon = newPoly.map(pt => [pt.x, pt.y]);
             }
@@ -359,7 +359,7 @@ export function useInteractionController(svgRef) {
           
           if (w.centerline && w.centerline.length === 2) {
             const pts = w.centerline.map(pt => ({ x: pt[0], y: pt[1] }));
-            const newPoly = calculateWallPolygon(pts, thicknessPx, false);
+            const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, pageWalls);
             if (newPoly) {
               newWall.polygon = newPoly.map(pt => [pt.x, pt.y]);
             }
@@ -395,9 +395,14 @@ export function useInteractionController(svgRef) {
   }
 
   function deleteAllRooms(skipConfirm = false) {
-    if (!rooms.length) return;
-    if (!skipConfirm && !window.confirm("Delete all rooms on this page?")) return;
+    const hasRooms = rooms.length > 0;
+    const hasWalls = (wallsByPage[currentPage] || []).length > 0;
+    const hasDoors = (doorsByPage[currentPage] || []).length > 0;
+    if (!hasRooms && !hasWalls && !hasDoors) return;
+    if (!skipConfirm && !window.confirm("Delete all rooms, walls, and doors on this page?")) return;
     pushHistory([]);
+    setWallsByPage(prev => ({ ...prev, [currentPage]: [] }));
+    setDoorsByPage(prev => ({ ...prev, [currentPage]: [] }));
     setSelectedId(null);
   }
 
@@ -594,8 +599,8 @@ export function useInteractionController(svgRef) {
           const pts1 = [{ x: p1Arr[0], y: p1Arr[1] }, { x: proj.x, y: proj.y }];
           const pts2 = [{ x: proj.x, y: proj.y }, { x: p2Arr[0], y: p2Arr[1] }];
           
-          const poly1 = calculateWallPolygon(pts1, thickness, false);
-          const poly2 = calculateWallPolygon(pts2, thickness, false);
+          const poly1 = calculateWallPolygonWithJunctions(pts1, thickness, wId1, pageWalls);
+          const poly2 = calculateWallPolygonWithJunctions(pts2, thickness, wId2, pageWalls);
           
           const wall1 = {
             ...selectedWall,
@@ -804,7 +809,7 @@ export function useInteractionController(svgRef) {
                 
                 const thickness = w.thickness_px || 20;
                 const points = centerline.map(pt => ({ x: pt[0], y: pt[1] }));
-                const newPoly = calculateWallPolygon(points, thickness, false);
+                const newPoly = calculateWallPolygonWithJunctions(points, thickness, w.id, pageWalls);
                 const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
 
                 return {
@@ -831,7 +836,7 @@ export function useInteractionController(svgRef) {
                 const newP1 = [startWall.centerline[0][0] + dx, startWall.centerline[0][1] + dy];
                 const newP2 = [startWall.centerline[1][0] + dx, startWall.centerline[1][1] + dy];
                 const pts = [ { x: newP1[0], y: newP1[1] }, { x: newP2[0], y: newP2[1] } ];
-                const newPoly = calculateWallPolygon(pts, w.thickness_px || 20, false);
+                const newPoly = calculateWallPolygonWithJunctions(pts, w.thickness_px || 20, w.id, pageWalls);
                 const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
                 return {
                   ...w,
@@ -1066,7 +1071,7 @@ export function useInteractionController(svgRef) {
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
     handleClick, finishPolygon, finishDoor, makeCurve,
-    startDrag, onMouseMove, onMouseDown, onMouseUp, onWheel,
+    startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     selectWall, deleteWalls, updateWallsProperty, pxToMm, mmToPx
   };
 }
