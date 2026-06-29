@@ -696,3 +696,83 @@ function polygonAreaRaw(polygon) {
   }
   return area / 2;
 }
+
+/**
+ * Snap room polygon vertices to nearby wall centerlines.
+ * For each vertex in the room polygon, find the nearest wall centerline
+ * and project the vertex onto it if within tolerance.
+ * Only snaps along H/V axes to maintain orthogonal room shapes.
+ * 
+ * @param {Array<{x,y}>} roomPolygon - Room polygon vertices
+ * @param {Array} walls - Wall objects with centerline [[x1,y1],[x2,y2]]
+ * @param {number} tolerance - Max distance (px) to snap (default: 15)
+ * @returns {Array<{x,y}>} Snapped polygon
+ */
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
+  if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
+    return roomPolygon;
+  }
+
+  // Collect all wall centerline segments
+  const segments = [];
+  for (const w of walls) {
+    const c = w.centerline;
+    if (!c || c.length !== 2) continue;
+    const p1 = { x: c[0][0], y: c[0][1] };
+    const p2 = { x: c[1][0], y: c[1][1] };
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) continue;
+
+    // Classify segment as horizontal or vertical
+    const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
+    let orientation = null;
+    if (angle < 15) orientation = 'H';
+    else if (angle > 75) orientation = 'V';
+    
+    if (orientation) {
+      segments.push({ p1, p2, orientation, len });
+    }
+  }
+
+  if (segments.length === 0) return roomPolygon;
+
+  // For each room vertex, try to snap to the nearest wall segment
+  return roomPolygon.map(pt => {
+    let bestDist = tolerance;
+    let snappedPt = { ...pt };
+
+    for (const seg of segments) {
+      if (seg.orientation === 'H') {
+        // Horizontal wall — snap vertex Y to wall's Y coordinate
+        const wallY = (seg.p1.y + seg.p2.y) / 2;
+        const dy = Math.abs(pt.y - wallY);
+        
+        // Check if vertex X falls within the wall's X range (with some margin)
+        const minX = Math.min(seg.p1.x, seg.p2.x) - tolerance;
+        const maxX = Math.max(seg.p1.x, seg.p2.x) + tolerance;
+        
+        if (dy < bestDist && pt.x >= minX && pt.x <= maxX) {
+          bestDist = dy;
+          snappedPt = { x: pt.x, y: wallY };
+        }
+      } else if (seg.orientation === 'V') {
+        // Vertical wall — snap vertex X to wall's X coordinate
+        const wallX = (seg.p1.x + seg.p2.x) / 2;
+        const dx = Math.abs(pt.x - wallX);
+        
+        // Check if vertex Y falls within the wall's Y range (with some margin)
+        const minY = Math.min(seg.p1.y, seg.p2.y) - tolerance;
+        const maxY = Math.max(seg.p1.y, seg.p2.y) + tolerance;
+        
+        if (dx < bestDist && pt.y >= minY && pt.y <= maxY) {
+          bestDist = dx;
+          snappedPt = { x: wallX, y: pt.y };
+        }
+      }
+    }
+
+    return snappedPt;
+  });
+}

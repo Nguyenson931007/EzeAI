@@ -1210,7 +1210,9 @@ def _smooth_polygon(polygon_pts: list, img_w: int, img_h: int) -> list:
     1. Fill holes
     2. Simplify (Douglas-Peucker) with tolerance proportional to image size
     3. Safe orthogonal snapping (only near-axis edges, validated after each snap)
-    4. Remove degenerate micro-edges
+    4. Corner rectification (force 90° at near-right-angle vertices)
+    5. Merge collinear edges
+    6. Remove degenerate micro-edges
     """
     import math
     if len(polygon_pts) < 3:
@@ -1237,11 +1239,11 @@ def _smooth_polygon(polygon_pts: list, img_w: int, img_h: int) -> list:
         # buffer(10) then buffer(-10) closes small gaps and connects broken parts
         poly = poly.buffer(10).buffer(-10)
         
-        # 2. Simplify — tolerance proportional to image size
-        #    For a 2000px image: tol = 2000 * 0.005 = 10px
-        #    For a 4000px image: tol = 4000 * 0.005 = 20px
-        tol = max(img_w, img_h) * 0.005
-        tol = max(tol, 3.0)  # minimum 3px
+        # 2. Simplify — tolerance proportional to image size (increased for cleaner edges)
+        #    For a 2000px image: tol = 2000 * 0.008 = 16px
+        #    For a 4000px image: tol = 4000 * 0.008 = 32px
+        tol = max(img_w, img_h) * 0.008
+        tol = max(tol, 5.0)  # minimum 5px
         poly = poly.simplify(tol, preserve_topology=True)
         
         if not poly.is_valid:
@@ -1255,9 +1257,9 @@ def _smooth_polygon(polygon_pts: list, img_w: int, img_h: int) -> list:
         pts = list(poly.exterior.coords[:-1])
         
         # 3. Safe orthogonal snapping
-        #    For each edge nearly aligned to H/V axis (within 7°), snap it.
+        #    For each edge nearly aligned to H/V axis (within 10°), snap it.
         #    Validate polygon after each snap to avoid self-intersections.
-        SNAP_ANGLE_DEG = 7.0
+        SNAP_ANGLE_DEG = 10.0
         snapped = list(pts)
         original_area = poly.area
         
@@ -1293,7 +1295,96 @@ def _smooth_polygon(polygon_pts: list, img_w: int, img_h: int) -> list:
                 except Exception:
                     pass  # Skip this snap if it causes issues
         
-        # 4. Remove degenerate micro-edges (< 5px)
+        # 4. Corner rectification — force 90° at near-right-angle vertices
+        #    For each vertex, check the angle between the two adjacent edges.
+        #    If the angle is within ±15° of 90° (or 270°), snap it to exactly 90°.
+        CORNER_TOLERANCE_DEG = 15.0
+        for _pass in range(2):  # Two passes for convergence
+            rectified = list(snapped)
+            n = len(rectified)
+            for i in range(n):
+                prev_i = (i - 1) % n
+                next_i = (i + 1) % n
+                
+                # Vectors from current vertex to neighbors
+                v1x = rectified[prev_i][0] - rectified[i][0]
+                v1y = rectified[prev_i][1] - rectified[i][1]
+                v2x = rectified[next_i][0] - rectified[i][0]
+                v2y = rectified[next_i][1] - rectified[i][1]
+                
+                len1 = math.hypot(v1x, v1y)
+                len2 = math.hypot(v2x, v2y)
+                if len1 < 3 or len2 < 3:
+                    continue
+                
+                # Compute angle between the two edges at this vertex
+                dot = v1x * v2x + v1y * v2y
+                cos_angle = max(-1.0, min(1.0, dot / (len1 * len2)))
+                angle_deg = math.degrees(math.acos(cos_angle))
+                
+                # Check if close to 90° or 270°
+                deviation_from_90 = abs(angle_deg - 90.0)
+                if deviation_from_90 > CORNER_TOLERANCE_DEG:
+                    continue
+                
+                # Determine which edge is more H/V aligned → move the current vertex
+                # to create an exact 90° corner
+                angle1 = math.degrees(math.atan2(abs(v1y), abs(v1x)))
+                angle2 = math.degrees(math.atan2(abs(v2y), abs(v2x)))
+                
+                candidate = list(rectified)
+                if angle1 < 20:  # edge to prev is ~horizontal
+                    # Snap current vertex Y to match prev's Y, keep X from next edge direction
+                    candidate[i] = (rectified[i][0], rectified[prev_i][1])
+                elif angle1 > 70:  # edge to prev is ~vertical
+                    # Snap current vertex X to match prev's X
+                    candidate[i] = (rectified[prev_i][0], rectified[i][1])
+                elif angle2 < 20:  # edge to next is ~horizontal
+                    candidate[i] = (rectified[i][0], rectified[next_i][1])
+                elif angle2 > 70:  # edge to next is ~vertical
+                    candidate[i] = (rectified[next_i][0], rectified[i][1])
+                else:
+                    continue  # Neither edge is clearly H/V, skip
+                
+                try:
+                    test_poly = ShapelyPolygon(candidate)
+                    if test_poly.is_valid and test_poly.area > original_area * 0.75:
+                        rectified = candidate
+                except Exception:
+                    pass
+            
+            snapped = rectified
+        
+        # 5. Merge collinear edges — if consecutive edges share the same direction
+        #    (both horizontal or both vertical), merge them into one edge
+        def _merge_collinear(pts_list):
+            if len(pts_list) < 3:
+                return pts_list
+            merged = [pts_list[0]]
+            n = len(pts_list)
+            for i in range(1, n):
+                prev = merged[-1]
+                curr = pts_list[i]
+                nxt = pts_list[(i + 1) % n]
+                
+                dx1 = curr[0] - prev[0]
+                dy1 = curr[1] - prev[1]
+                dx2 = nxt[0] - curr[0]
+                dy2 = nxt[1] - curr[1]
+                
+                # Both edges horizontal (dy ≈ 0)
+                if abs(dy1) < 2 and abs(dy2) < 2:
+                    continue  # Skip this vertex, it's redundant
+                # Both edges vertical (dx ≈ 0)
+                if abs(dx1) < 2 and abs(dx2) < 2:
+                    continue  # Skip this vertex, it's redundant
+                
+                merged.append(curr)
+            return merged
+        
+        snapped = _merge_collinear(snapped)
+        
+        # 6. Remove degenerate micro-edges (< 5px)
         cleaned = [snapped[0]]
         for i in range(1, len(snapped)):
             dx = snapped[i][0] - cleaned[-1][0]
@@ -1328,7 +1419,10 @@ def _resolve_overlaps(rooms: list) -> list:
             poly = _clean_poly(poly)
         except Exception:
             continue
-        if poly is None or poly.area < _MIN_AREA_PX:
+        # Filter out very small polygons or low-confidence noise
+        conf = r.get("conf", 1.0)
+        min_area_for_conf = 6000 if conf < 0.20 else 800
+        if poly is None or poly.area < min_area_for_conf:
             continue
         r["_poly"] = poly
         prepared.append(r)
@@ -1352,7 +1446,9 @@ def _resolve_overlaps(rooms: list) -> list:
             if poly is None or poly.is_empty:
                 break
 
-        if poly is None or poly.is_empty or poly.area < _MIN_AREA_PX:
+        conf = room.get("conf", 1.0)
+        min_area_for_conf = 6000 if conf < 0.20 else 800
+        if poly is None or poly.is_empty or poly.area < min_area_for_conf:
             continue
 
         room["_poly"] = poly

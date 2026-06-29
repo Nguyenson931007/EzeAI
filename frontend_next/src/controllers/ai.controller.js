@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 
 /**
@@ -440,6 +440,17 @@ export const useAIController = (
             }
 
             setRoomsByPage(prev => {
+              const currentWalls = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+              const snappedRooms = currentRooms.map(r => {
+                if (r.polygon) {
+                  return {
+                    ...r,
+                    polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                  };
+                }
+                return r;
+              });
+
               if (roiRect) {
                 // ★ Always merge against the SNAPSHOT, not the evolving state.
                 // This ensures each streaming event replaces only the crop-detected rooms
@@ -448,7 +459,7 @@ export const useAIController = (
                   ...prev,
                   [currentPage]: applyROIResults(
                     snapshotRooms,
-                    currentRooms.map(r => ({
+                    snappedRooms.map(r => ({
                       ...r,
                       correction_source: "AI_GENERATED"
                     })),
@@ -460,7 +471,7 @@ export const useAIController = (
               // Full detect (no ROI): replace all rooms with new detections
               return {
                 ...prev,
-                [currentPage]: currentRooms.map(r => ({
+                [currentPage]: snappedRooms.map(r => ({
                   ...r,
                   correction_source: "AI_GENERATED"
                 }))
@@ -474,13 +485,24 @@ export const useAIController = (
             isCacheHit = !!event.cache_hit;
 
             setRoomsByPage(prev => {
+              const currentWalls = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+              const snappedRooms = finalRooms.map(r => {
+                if (r.polygon) {
+                  return {
+                    ...r,
+                    polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                  };
+                }
+                return r;
+              });
+
               if (roiRect) {
                 // ★ Final merge also against snapshot to get clean result
                 return {
                   ...prev,
                   [currentPage]: applyROIResults(
                     snapshotRooms,
-                    finalRooms.map(r => ({
+                    snappedRooms.map(r => ({
                       ...r,
                       correction_source: isCacheHit ? "ai_corrected" : "AI_GENERATED"
                     })),
@@ -491,7 +513,7 @@ export const useAIController = (
               }
               return {
                 ...prev,
-                [currentPage]: finalRooms.map(r => ({
+                [currentPage]: snappedRooms.map(r => ({
                   ...r,
                   correction_source: "AI_GENERATED"
                 }))
@@ -987,9 +1009,19 @@ export const useAIController = (
             // Apply room results as they stream in
             if (event.rooms) {
               yoloRooms = event.rooms;
+              const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPage ? (wallsByPage[currentPage] || []) : []);
+              const snappedRooms = event.rooms.map(r => {
+                if (r.polygon) {
+                  return {
+                    ...r,
+                    polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                  };
+                }
+                return r;
+              });
               setRoomsByPage(prev => ({
                 ...prev,
-                [currentPage]: event.rooms.map(r => ({
+                [currentPage]: snappedRooms.map(r => ({
                   ...r,
                   correction_source: 'AI_GENERATED'
                 }))
@@ -1028,11 +1060,21 @@ export const useAIController = (
 
               if (newTopoRooms.length > 0) {
                 console.log(`[Smart AI] Adding ${newTopoRooms.length} topology rooms not covered by YOLO`);
+                const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPage ? (wallsByPage[currentPage] || []) : []);
+                const snappedRooms = newTopoRooms.map(r => {
+                  if (r.polygon) {
+                    return {
+                      ...r,
+                      polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                    };
+                  }
+                  return r;
+                });
                 setRoomsByPage(prev => ({
                   ...prev,
                   [currentPage]: [
                     ...(prev[currentPage] || []),
-                    ...newTopoRooms.map(r => ({
+                    ...snappedRooms.map(r => ({
                       ...r,
                       correction_source: 'WALL_TOPOLOGY'
                     }))
