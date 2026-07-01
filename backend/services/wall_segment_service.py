@@ -101,9 +101,10 @@ def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
     return None, 0.0
 
 
-def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 25.0, angle_threshold: float = 0.95, gap_threshold: float = 60.0) -> List[dict]:
+def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 250.0) -> List[dict]:
     """
-    Merges collinear/parallel wall segments of the same class that overlap or are very close.
+    Merges collinear/parallel wall segments that overlap or are very close.
+    Automatically resolves to the dominant class (exterior > interior > partition).
     """
     import math
     current_walls = [dict(w) for w in walls]
@@ -127,8 +128,6 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 25.0,
             
             for j in range(i + 1, n):
                 w2 = current_walls[j]
-                if w1.get("class_name") != w2.get("class_name"):
-                    continue
                 c2 = w2.get("centerline")
                 if not c2 or len(c2) != 2:
                     continue
@@ -171,6 +170,14 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 25.0,
                 if not is_close:
                     continue
                 
+                # Determine merged class based on which segment is longer
+                class_w1 = w1.get("class_name", "interior_wall")
+                class_w2 = w2.get("class_name", "interior_wall")
+                if len1 >= len2:
+                    merged_class = class_w1
+                else:
+                    merged_class = class_w2
+
                 # Merge! Project all to L1
                 t_coords = [0.0, len1, t_p2, t_q2]
                 t_min = min(t_coords)
@@ -179,11 +186,10 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 25.0,
                 new_p = [p1[0] + t_min*u1[0], p1[1] + t_min*u1[1]]
                 new_q = [p1[0] + t_max*u1[0], p1[1] + t_max*u1[1]]
                 
-                # Ensure the merged line does not become skewed (remains close to horizontal/vertical)
+                # Ensure the merged line does not deviate significantly in angle
                 candidate_pts = [p1, q1, p2, q2]
                 candidate_ts = [0.0, len1, t_p2, t_q2]
                 
-                # Zip and sort by t parameter to find the furthest unprojected endpoints
                 pts_with_ts = sorted(zip(candidate_ts, candidate_pts), key=lambda x: x[0])
                 actual_p = pts_with_ts[0][1]
                 actual_q = pts_with_ts[-1][1]
@@ -195,17 +201,15 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 25.0,
                     u_mx = dx_m / len_m
                     u_my = dy_m / len_m
                     
-                    # 1. Must be close to orthogonal (horizontal/vertical within ~2.5 degrees)
-                    is_ortho = (abs(u_mx) >= 0.999) or (abs(u_my) >= 0.999)
-                    
-                    # 2. Must not deviate significantly from the original direction u1 (within ~2.5 degrees)
+                    # Must not deviate significantly from the original direction u1 (within ~8 degrees)
                     dot_prod_m = abs(u1[0] * u_mx + u1[1] * u_my)
                     
-                    if not is_ortho or dot_prod_m < 0.999:
+                    if dot_prod_m < 0.99:
                         continue
 
                 # Update w1 in-place
                 w1["centerline"] = [new_p, new_q]
+                w1["class_name"] = merged_class
                 w1["confidence"] = max(w1["confidence"], w2["confidence"])
                 
                 # Remove w2 from current_walls, and restart pass
@@ -703,7 +707,7 @@ class WallSegmentService:
         detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=12.0)
+        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)
@@ -1068,7 +1072,7 @@ class WallSegmentService:
         processed_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=12.0)
+        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)

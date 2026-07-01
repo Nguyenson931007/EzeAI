@@ -3,18 +3,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { cutWallsByDoors } from "@/utils/geometry";
 
 export default function ThreeDView({
   rooms = [],
   walls = [],
   doors = [],
   onClose,
-  realScale = 1.0
+  realScale = 1.0,
+  image = null,
+  imgSize = { w: 800, h: 600 }
 }) {
   const containerRef = useRef(null);
   const [wallHeight, setWallHeight] = useState(150);
   const [showFloors, setShowFloors] = useState(true);
   const [showDoors, setShowDoors] = useState(true);
+  const [showPDF, setShowPDF] = useState(true);
   const [enableShadows, setEnableShadows] = useState(true);
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
@@ -60,6 +64,20 @@ export default function ThreeDView({
 
   // Utility to extract door properties
   const getDoorProps = (door) => {
+    const points = door.points || [];
+    let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
+    let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
+
+    if (p1 && p2) {
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+      const cx = (p1.x + p2.x) / 2;
+      const cy = (p1.y + p2.y) / 2;
+      return { cx, cy, length, angle, thickness: 15 };
+    }
+
     const poly = door.polygon;
     if (!poly || poly.length < 3) {
       const [x1, y1, x2, y2] = door.bbox || [0, 0, 100, 20];
@@ -133,10 +151,10 @@ export default function ThreeDView({
     rendererRef.current = renderer;
 
     // 4. LIGHTS
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Increased ambient light from 0.55
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.75);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.1); // Increased directional light from 0.75
     dirLight.position.set(center.x + 400, 800, center.z - 300);
     dirLight.castShadow = enableShadows;
     dirLight.shadow.mapSize.width = 2048;
@@ -151,6 +169,11 @@ export default function ThreeDView({
     dirLight.shadow.camera.bottom = -d;
     dirLight.shadow.bias = -0.0005;
     scene.add(dirLight);
+
+    // Opposite directional fill light to soften dark areas and shadows
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.45);
+    fillLight.position.set(center.x - 400, 600, center.z + 300);
+    scene.add(fillLight);
 
     const pointLight = new THREE.PointLight(0x3b82f6, 0.4, 1000); // Aesthetic blue point light
     pointLight.position.set(center.x, 300, center.z);
@@ -324,8 +347,33 @@ export default function ThreeDView({
       });
     }
 
+    // --- 1b. RENDER PDF UNDERLAY ---
+    if (showPDF && image) {
+      const loader = new THREE.TextureLoader();
+      const texture = loader.load(image);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.LinearFilter;
+      texture.flipY = false; // Disable default vertical flip to match SVG canvas coordinates exactly
+      
+      const planeGeo = new THREE.PlaneGeometry(imgSize.w, imgSize.h);
+      const planeMat = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.65
+      });
+      
+      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+      planeMesh.rotation.x = Math.PI / 2;
+      planeMesh.position.set(imgSize.w / 2, -1.5, imgSize.h / 2);
+      
+      scene.add(planeMesh);
+      floorMeshesRef.current.push(planeMesh);
+    }
+
     // --- 2. RENDER WALLS ---
-    walls.forEach(wall => {
+    const cutWalls = cutWallsByDoors(walls, doors, realScale);
+    cutWalls.forEach(wall => {
       const centerline = wall.centerline;
       if (!centerline || centerline.length !== 2) return;
 
@@ -360,110 +408,543 @@ export default function ThreeDView({
       wallMeshesRef.current.push(mesh);
     });
 
-    // --- 3. RENDER DOORS ---
     if (showDoors) {
       doors.forEach(door => {
         const { cx, cy, length, angle, thickness } = getDoorProps(door);
         
+        let wallThickness = thickness;
+        let hostWallAngle = angle;
+        let hostWallCx = cx;
+        let hostWallCy = cy;
+        let hostWallClass = "interior_wall";
+
+        // Find closest wall for thickness, class_name (to match color/material) and cut endpoints
+        const points = door.points || [];
+        let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
+        let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
+        
+        const jambOffsetMm = 150;
+        const halfJamb = (realScale && realScale > 0) ? (jambOffsetMm / realScale) : 10.0;
+        let leftJambMesh = null;
+        let rightJambMesh = null;
+
+        if (p1 && p2) {
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const dLen = Math.sqrt(dx * dx + dy * dy);
+          if (dLen > 0) {
+            const ux = dx / dLen;
+            const uy = dy / dLen;
+
+            if (walls && walls.length > 0) {
+              walls.forEach(w => {
+                if (!w.centerline || w.centerline.length < 2) return;
+                const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+                const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+                
+                const cxSeg = (p1.x + p2.x) / 2;
+                const cySeg = (p1.y + p2.y) / 2;
+                const wdx = wp2.x - wp1.x;
+                const wdy = wp2.y - wp1.y;
+                const L2 = wdx * wdx + wdy * wdy;
+                if (L2 < 0.1) return;
+
+                const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
+                const tVal = ((cxSeg - wp1.x) * wdx + (cySeg - wp1.y) * wdy) / L2;
+
+                if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
+                  wallThickness = w.thickness_px || thickness;
+                  hostWallClass = w.class_name || "interior_wall";
+
+                  // Align rotation to host wall centerline orientation
+                  const wLen = Math.hypot(wdx, wdy);
+                  if (wLen > 0.1) {
+                    const wAngle = Math.atan2(wdy, wdx);
+                    // Use the wall angle directly; pick the direction closest to the door angle
+                    const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
+                    hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
+
+                    const uxW = wdx / wLen;
+                    const uyW = wdy / wLen;
+                    const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
+                    hostWallCx = wp1.x + tProj * uxW;
+                    hostWallCy = wp1.y + tProj * uyW;
+
+                    // Project door points to find gap lengths and create aligned jamb meshes
+                    const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+                    const fillerMat = new THREE.MeshStandardMaterial({
+                      color: wallColor,
+                      roughness: 0.75,
+                      metalness: 0.15
+                    });
+
+                    [wp1, wp2].forEach(pt => {
+                      // Left side (p1)
+                      const dxPt1 = pt.x - p1.x;
+                      const dyPt1 = pt.y - p1.y;
+                      const t1 = dxPt1 * ux + dyPt1 * uy;
+                      const projX1 = p1.x + t1 * ux;
+                      const projY1 = p1.y + t1 * uy;
+                      const distToP1 = Math.hypot(pt.x - projX1, pt.y - projY1);
+
+                      if (distToP1 < 12.0 && t1 < 0 && t1 >= -halfJamb * 3) {
+                        const tGap = (p1.x - pt.x) * uxW + (p1.y - pt.y) * uyW;
+                        const gapLen = Math.abs(tGap);
+                        if (gapLen > 0.1) {
+                          const fillerGeo = new THREE.BoxGeometry(gapLen, wallHeight, wallThickness);
+                          leftJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
+                          leftJambMesh.position.set(pt.x + (tGap / 2) * uxW, wallHeight / 2, pt.y + (tGap / 2) * uyW);
+                          leftJambMesh.rotation.y = -wAngle;
+                          leftJambMesh.castShadow = enableShadows;
+                          leftJambMesh.receiveShadow = enableShadows;
+                        }
+                      }
+
+                      // Right side (p2)
+                      const dxPt2 = pt.x - p2.x;
+                      const dyPt2 = pt.y - p2.y;
+                      const t2 = dxPt2 * ux + dyPt2 * uy;
+                      const projX2 = p2.x + t2 * ux;
+                      const projY2 = p2.y + t2 * uy;
+                      const distToP2 = Math.hypot(pt.x - projX2, pt.y - projY2);
+
+                      if (distToP2 < 12.0 && t2 > 0 && t2 <= halfJamb * 3) {
+                        const tGap = (p2.x - pt.x) * uxW + (p2.y - pt.y) * uyW;
+                        const gapLen = Math.abs(tGap);
+                        if (gapLen > 0.1) {
+                          const fillerGeo = new THREE.BoxGeometry(gapLen, wallHeight, wallThickness);
+                          rightJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
+                          rightJambMesh.position.set(pt.x + (tGap / 2) * uxW, wallHeight / 2, pt.y + (tGap / 2) * uyW);
+                          rightJambMesh.rotation.y = -wAngle;
+                          rightJambMesh.castShadow = enableShadows;
+                          rightJambMesh.receiveShadow = enableShadows;
+                        }
+                      }
+                    });
+                  }
+                }
+              });
+            }
+          }
+        }
+
         // Group to manage the frame and slab together
         const doorGroup = new THREE.Group();
-        doorGroup.position.set(cx, 0, cy);
-        doorGroup.rotation.y = -angle;
-
         const frameHeight = wallHeight * 0.85; // Doors are slightly shorter than walls
+        const frameDepth = wallThickness + 4; // Frame depth matches wall thickness + 4px for lintel/trim
 
         // Frame post materials (wood style)
         const frameMat = new THREE.MeshStandardMaterial({
-          color: 0x451a03,
-          roughness: 0.65,
+          color: 0x27160c, // Dark chocolate brown frame
+          roughness: 0.7,
           metalness: 0.1
         });
+        
+        const slabMat = new THREE.MeshStandardMaterial({
+          color: 0x5c3a21, // Warm teak brown door panel
+          roughness: 0.5,
+          metalness: 0.05
+        });
 
+        const glassMat = new THREE.MeshStandardMaterial({
+          color: 0xa5f3fc, // Cyan/sky tint
+          roughness: 0.1,
+          metalness: 0.9,
+          opacity: 0.35,
+          transparent: true
+        });
+
+        const handleMat = new THREE.MeshStandardMaterial({
+          color: 0xd4af37, // Gold brass handles
+          roughness: 0.2,
+          metalness: 0.8
+        });
+
+        // Frame posts (Left, Right, Top)
+        const postThickness = 5;
+        
         // Left Frame Post
-        const leftPostGeo = new THREE.BoxGeometry(6, frameHeight, thickness + 4);
+        const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
         const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
-        leftPost.position.set(-length / 2 + 3, frameHeight / 2, 0);
+        leftPost.position.set(-length / 2 + postThickness / 2, frameHeight / 2, 0);
         leftPost.castShadow = enableShadows;
         leftPost.receiveShadow = enableShadows;
         doorGroup.add(leftPost);
 
         // Right Frame Post
-        const rightPostGeo = new THREE.BoxGeometry(6, frameHeight, thickness + 4);
+        const rightPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
         const rightPost = new THREE.Mesh(rightPostGeo, frameMat);
-        rightPost.position.set(length / 2 - 3, frameHeight / 2, 0);
+        rightPost.position.set(length / 2 - postThickness / 2, frameHeight / 2, 0);
         rightPost.castShadow = enableShadows;
         rightPost.receiveShadow = enableShadows;
         doorGroup.add(rightPost);
 
         // Top Frame Header
-        const headerGeo = new THREE.BoxGeometry(length, 6, thickness + 4);
+        const headerGeo = new THREE.BoxGeometry(length, postThickness, frameDepth);
         const header = new THREE.Mesh(headerGeo, frameMat);
-        header.position.set(0, frameHeight - 3, 0);
+        header.position.set(0, frameHeight - postThickness / 2, 0);
         header.castShadow = enableShadows;
         header.receiveShadow = enableShadows;
         doorGroup.add(header);
 
-        const isDouble = (door.class && door.class.includes("double_door")) || (door.door_name && door.door_name.toLowerCase().includes("2x"));
+        // Door Classes:
+        const dClass = door.class || "";
+        const isSliding = dClass.includes("sliding") || dClass.includes("slider");
+        const isBifold = dClass.includes("bifold");
+        const isDouble = dClass.includes("double") || (door.door_name && door.door_name.toLowerCase().includes("2x"));
+        const isGarage = dClass.includes("garage");
 
-        // Door Slab(s) Pivot Group (for opening rotation)
-        const slabHeight = frameHeight - 8;
-        const slabMat = new THREE.MeshStandardMaterial({
-          color: 0x78350f,
-          roughness: 0.55,
-          metalness: 0.05
-        });
+        // Helper to add handles
+        const addHandleToPanel = (group, posX, posY, posZ, isLever = true) => {
+          const handleGroup = new THREE.Group();
+          handleGroup.position.set(posX, posY, posZ);
 
-        if (isDouble) {
-          const halfWidth = (length - 12) / 2;
+          // Handle base plate
+          const plateGeo = new THREE.BoxGeometry(1.2, 5, 0.4);
+          const plate = new THREE.Mesh(plateGeo, handleMat);
+          handleGroup.add(plate);
+
+          if (isLever) {
+            // Latch cylinder sticking out in Z
+            const neckGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 8);
+            const neck = new THREE.Mesh(neckGeo, handleMat);
+            neck.rotation.x = Math.PI / 2;
+            neck.position.set(0, 0, 0.7);
+            handleGroup.add(neck);
+
+            // Handle bar pointing horizontally
+            const barGeo = new THREE.BoxGeometry(3.5, 0.6, 0.4);
+            const bar = new THREE.Mesh(barGeo, handleMat);
+            bar.position.set(1.5, 0, 1.4);
+            handleGroup.add(bar);
+          } else {
+            // Pull knob
+            const knobGeo = new THREE.CylinderGeometry(1, 1, 1.2, 12);
+            const knob = new THREE.Mesh(knobGeo, handleMat);
+            knob.rotation.x = Math.PI / 2;
+            knob.position.set(0, 0, 0.8);
+            handleGroup.add(knob);
+          }
+          group.add(handleGroup);
+        };
+
+        const slabHeight = frameHeight - postThickness - 2;
+
+        if (isGarage) {
+          // Render Garage Door Panel: Large sectional panel with horizontal slots
+          const pWidth = length - postThickness * 2 - 2;
+          const sectionGroup = new THREE.Group();
+          sectionGroup.position.set(0, slabHeight / 2, 0);
+
+          const mainPanelGeo = new THREE.BoxGeometry(pWidth, slabHeight, 4);
+          const mainPanel = new THREE.Mesh(mainPanelGeo, slabMat);
+          mainPanel.castShadow = enableShadows;
+          mainPanel.receiveShadow = enableShadows;
+          sectionGroup.add(mainPanel);
+
+          // Horizontal grid grooves
+          const grooveColor = 0x1a0f0a;
+          const grooveMat = new THREE.MeshStandardMaterial({ color: grooveColor, roughness: 0.8 });
+          for (let yOffset = -slabHeight/2 + slabHeight/4; yOffset < slabHeight/2; yOffset += slabHeight/4) {
+            const grooveGeo = new THREE.BoxGeometry(pWidth - 10, 1, 4.2);
+            const groove = new THREE.Mesh(grooveGeo, grooveMat);
+            groove.position.set(0, yOffset, 0);
+            sectionGroup.add(groove);
+          }
+          doorGroup.add(sectionGroup);
+
+        } else if (isSliding) {
+          // Sliding Door: Two panels overlapping
+          const pWidth = (length - postThickness * 2) / 2 + 5;
+          const slabThick = 3;
+
+          // Panel 1 (Fixed) - offset back in Z, aligned to right
+          const fixedGroup = new THREE.Group();
+          fixedGroup.position.set(length/4 - postThickness/2, slabHeight / 2, -2);
           
-          // Left Slab Hinge Pivot
+          // Framed glass structure
+          const borderThick = 6;
+          // Left border
+          const b1 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
+          b1.position.set(-pWidth/2 + borderThick/2, 0, 0);
+          fixedGroup.add(b1);
+          // Right border
+          const b2 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
+          b2.position.set(pWidth/2 - borderThick/2, 0, 0);
+          fixedGroup.add(b2);
+          // Top border
+          const b3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
+          b3.position.set(0, slabHeight/2 - borderThick/2, 0);
+          fixedGroup.add(b3);
+          // Bottom border
+          const b4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
+          b4.position.set(0, -slabHeight/2 + borderThick/2, 0);
+          fixedGroup.add(b4);
+          // Center glass
+          const glassGeo = new THREE.BoxGeometry(pWidth - borderThick*2, slabHeight - borderThick*2, 1);
+          const glass = new THREE.Mesh(glassGeo, glassMat);
+          fixedGroup.add(glass);
+          doorGroup.add(fixedGroup);
+
+          // Panel 2 (Slidable - offset forward in Z, slid open slightly)
+          const activeGroup = new THREE.Group();
+          // Slid open by 30% of panel width
+          const slideOffset = pWidth * 0.4;
+          activeGroup.position.set(-length/4 + postThickness/2 + slideOffset, slabHeight / 2, 2);
+
+          // Left border
+          const ab1 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
+          ab1.position.set(-pWidth/2 + borderThick/2, 0, 0);
+          activeGroup.add(ab1);
+          // Right border
+          const ab2 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
+          ab2.position.set(pWidth/2 - borderThick/2, 0, 0);
+          activeGroup.add(ab2);
+          // Top border
+          const ab3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
+          ab3.position.set(0, slabHeight/2 - borderThick/2, 0);
+          activeGroup.add(ab3);
+          // Bottom border
+          const ab4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
+          ab4.position.set(0, -slabHeight/2 + borderThick/2, 0);
+          activeGroup.add(ab4);
+          // Center glass
+          const aglass = new THREE.Mesh(glassGeo, glassMat);
+          activeGroup.add(aglass);
+
+          // Add a sliding handle (pull knob style) on active panel
+          addHandleToPanel(activeGroup, pWidth/2 - borderThick - 4, 0, slabThick/2, false);
+          addHandleToPanel(activeGroup, pWidth/2 - borderThick - 4, 0, -slabThick/2, false);
+
+          doorGroup.add(activeGroup);
+
+        } else if (isBifold) {
+          // Bifold Door: 4 folding panels
+          const panelCount = 4;
+          const pWidth = (length - postThickness * 2 - 4) / panelCount;
+          const slabThick = 3;
+          const borderThick = 5;
+
+          // Pivot Group for accordion folding
+          const bifoldContainer = new THREE.Group();
+          bifoldContainer.position.set(-length/2 + postThickness + 1, slabHeight/2, 0);
+
+          // We model a V-shape fold for 4 panels
+          // Fold Angle: e.g. 45 degrees
+          const foldAngle = Math.PI / 4; 
+
+          // Panel 1: Swings from left hinge
+          const p1Group = new THREE.Group();
+          p1Group.rotation.y = foldAngle;
+          
+          const p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          p1Mesh.position.set(pWidth/2, 0, 0);
+          p1Group.add(p1Mesh);
+
+          // Panel 2: Hinged on panel 1 tip, folds back
+          const p2Group = new THREE.Group();
+          p2Group.position.set(pWidth, 0, 0);
+          p2Group.rotation.y = -foldAngle * 2;
+
+          const p2Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          p2Mesh.position.set(pWidth/2, 0, 0);
+          p2Group.add(p2Mesh);
+          p1Group.add(p2Group);
+
+          // Panel 3: Hinged on panel 2 tip, folds forward
+          const p3Group = new THREE.Group();
+          p3Group.position.set(pWidth, 0, 0);
+          p3Group.rotation.y = foldAngle * 2;
+
+          const p3Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          p3Mesh.position.set(pWidth/2, 0, 0);
+          p3Group.add(p3Mesh);
+          p2Group.add(p3Group);
+
+          // Panel 4: Hinged on panel 3 tip, folds back
+          const p4Group = new THREE.Group();
+          p4Group.position.set(pWidth, 0, 0);
+          p4Group.rotation.y = -foldAngle * 2;
+
+          const p4Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          p4Mesh.position.set(pWidth/2, 0, 0);
+          p4Group.add(p4Mesh);
+          p3Group.add(p4Group);
+
+          bifoldContainer.add(p1Group);
+          doorGroup.add(bifoldContainer);
+
+        } else if (isDouble) {
+          // Double Door: Two symmetrically opening panels
+          const pWidth = (length - postThickness * 2 - 4) / 2;
+          const slabThick = 4;
+          
+          // Left Pivot Group
           const leftPivot = new THREE.Group();
-          leftPivot.position.set(-length / 2 + 6, slabHeight / 2, 0);
+          leftPivot.position.set(-length/2 + postThickness, slabHeight / 2, 0);
           
-          const leftSlabGeo = new THREE.BoxGeometry(halfWidth, slabHeight, 4);
-          const leftSlab = new THREE.Mesh(leftSlabGeo, slabMat);
-          leftSlab.position.set(halfWidth / 2, 0, 0);
-          leftSlab.castShadow = enableShadows;
-          leftSlab.receiveShadow = enableShadows;
-          leftPivot.add(leftSlab);
-          leftPivot.rotation.y = Math.PI / 4;
+          const leftPanelGroup = new THREE.Group();
+          // Frame + recessed panels
+          const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          leftSlab.position.set(pWidth/2, 0, 0);
+          leftPanelGroup.add(leftSlab);
+
+          // Recessed panels detailing (2 rectangular border frames)
+          const detailMat = new THREE.MeshStandardMaterial({ color: 0x482d19, roughness: 0.6 });
+          const detailGeo = new THREE.BoxGeometry(pWidth - 10, slabHeight/2 - 10, 0.6);
+          const topDetail = new THREE.Mesh(detailGeo, detailMat);
+          topDetail.position.set(pWidth/2, slabHeight/4, slabThick/2 + 0.1);
+          const bottomDetail = new THREE.Mesh(detailGeo, detailMat);
+          bottomDetail.position.set(pWidth/2, -slabHeight/4, slabThick/2 + 0.1);
+          leftPanelGroup.add(topDetail);
+          leftPanelGroup.add(bottomDetail);
+
+          // Mirror on the back
+          const topDetailB = new THREE.Mesh(detailGeo, detailMat);
+          topDetailB.position.set(pWidth/2, slabHeight/4, -slabThick/2 - 0.1);
+          const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
+          bottomDetailB.position.set(pWidth/2, -slabHeight/4, -slabThick/2 - 0.1);
+          leftPanelGroup.add(topDetailB);
+          leftPanelGroup.add(bottomDetailB);
+
+          // Handle (lever style)
+          addHandleToPanel(leftPanelGroup, pWidth - 6, 0, slabThick/2, true);
+          addHandleToPanel(leftPanelGroup, pWidth - 6, 0, -slabThick/2, true);
+
+          leftPivot.add(leftPanelGroup);
+          leftPivot.rotation.y = Math.PI / 4; // Open at 45°
           doorGroup.add(leftPivot);
 
-          // Right Slab Hinge Pivot
+          // Right Pivot Group
           const rightPivot = new THREE.Group();
-          rightPivot.position.set(length / 2 - 6, slabHeight / 2, 0);
+          rightPivot.position.set(length/2 - postThickness, slabHeight / 2, 0);
           
-          const rightSlabGeo = new THREE.BoxGeometry(halfWidth, slabHeight, 4);
-          const rightSlab = new THREE.Mesh(rightSlabGeo, slabMat);
-          rightSlab.position.set(-halfWidth / 2, 0, 0);
-          rightSlab.castShadow = enableShadows;
-          rightSlab.receiveShadow = enableShadows;
-          rightPivot.add(rightSlab);
-          rightPivot.rotation.y = -Math.PI / 4;
+          const rightPanelGroup = new THREE.Group();
+          const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          rightSlab.position.set(-pWidth/2, 0, 0);
+          rightPanelGroup.add(rightSlab);
+
+          // Recessed panels detailing
+          const topDetailR = new THREE.Mesh(detailGeo, detailMat);
+          topDetailR.position.set(-pWidth/2, slabHeight/4, slabThick/2 + 0.1);
+          const bottomDetailR = new THREE.Mesh(detailGeo, detailMat);
+          bottomDetailR.position.set(-pWidth/2, -slabHeight/4, slabThick/2 + 0.1);
+          rightPanelGroup.add(topDetailR);
+          rightPanelGroup.add(bottomDetailR);
+
+          const topDetailRB = new THREE.Mesh(detailGeo, detailMat);
+          topDetailRB.position.set(-pWidth/2, slabHeight/4, -slabThick/2 - 0.1);
+          const bottomDetailRB = new THREE.Mesh(detailGeo, detailMat);
+          bottomDetailRB.position.set(-pWidth/2, -slabHeight/4, -slabThick/2 - 0.1);
+          rightPanelGroup.add(topDetailRB);
+          rightPanelGroup.add(bottomDetailRB);
+
+          // Handle (lever style)
+          addHandleToPanel(rightPanelGroup, -pWidth + 6, 0, slabThick/2, true);
+          addHandleToPanel(rightPanelGroup, -pWidth + 6, 0, -slabThick/2, true);
+
+          rightPivot.add(rightPanelGroup);
+          rightPivot.rotation.y = -Math.PI / 4; // Open at 45°
           doorGroup.add(rightPivot);
+
         } else {
-          const slabWidth = length - 12;
+          // Single Swing Door
+          const hingeSide = door.hingeSide || door.hinge_side || "left";
+          const swing = door.swing || door.swing_direction || "inward";
+          const angleVal = door.angle || door.opening_angle || 35; // default 35 for visualization
+
+          const isRightHinge = hingeSide === "right";
+          const isInward = swing === "inward";
+          const hingeFactor = isRightHinge ? -1 : 1;
+          const sideFactor = isInward ? 1 : -1;
+          const openAngleRad = (angleVal * Math.PI) / 180;
+
+          const pWidth = length - postThickness * 2 - 2;
+          const slabThick = 4;
+
           const pivotGroup = new THREE.Group();
-          pivotGroup.position.set(-length / 2 + 6, slabHeight / 2, 0);
-          
-          const slabGeo = new THREE.BoxGeometry(slabWidth, slabHeight, 4);
-          const slab = new THREE.Mesh(slabGeo, slabMat);
-          slab.position.set(slabWidth / 2, 0, 0);
+          if (isRightHinge) {
+            pivotGroup.position.set(length / 2 - postThickness, slabHeight / 2, 0);
+          } else {
+            pivotGroup.position.set(-length / 2 + postThickness, slabHeight / 2, 0);
+          }
+
+          const dxSlab = isRightHinge ? -pWidth / 2 : pWidth / 2;
+          const dxHandle = isRightHinge ? -pWidth + 8 : pWidth - 8;
+
+          const panelGroup = new THREE.Group();
+          const slab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+          slab.position.set(dxSlab, 0, 0);
           slab.castShadow = enableShadows;
           slab.receiveShadow = enableShadows;
-          pivotGroup.add(slab);
+          panelGroup.add(slab);
 
-          // Open door 45 degrees for visualization
-          pivotGroup.rotation.y = Math.PI / 4; 
+          // Recessed detail panels
+          const detailMat = new THREE.MeshStandardMaterial({ color: 0x482d19, roughness: 0.6 });
+          const detailGeo = new THREE.BoxGeometry(pWidth - 12, slabHeight/2 - 12, 0.6);
+          const topDetail = new THREE.Mesh(detailGeo, detailMat);
+          topDetail.position.set(dxSlab, slabHeight/4, slabThick/2 + 0.1);
+          const bottomDetail = new THREE.Mesh(detailGeo, detailMat);
+          bottomDetail.position.set(dxSlab, -slabHeight/4, slabThick/2 + 0.1);
+          panelGroup.add(topDetail);
+          panelGroup.add(bottomDetail);
+
+          const topDetailB = new THREE.Mesh(detailGeo, detailMat);
+          topDetailB.position.set(dxSlab, slabHeight/4, -slabThick/2 - 0.1);
+          const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
+          bottomDetailB.position.set(dxSlab, -slabHeight/4, -slabThick/2 - 0.1);
+          panelGroup.add(topDetailB);
+          panelGroup.add(bottomDetailB);
+
+          // Handle (lever style)
+          addHandleToPanel(panelGroup, dxHandle, 0, slabThick/2, true);
+          addHandleToPanel(panelGroup, dxHandle, 0, -slabThick/2, true);
+
+          pivotGroup.add(panelGroup);
+
+          // Swing open dynamically based on 2D properties
+          pivotGroup.rotation.y = hingeFactor * sideFactor * openAngleRad;
           doorGroup.add(pivotGroup);
         }
+
+        // --- 3D WALL FILLER BLOCK (Header above the door) ---
+        const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+        const fillerMat = new THREE.MeshStandardMaterial({
+          color: wallColor,
+          roughness: 0.75,
+          metalness: 0.15
+        });
+
+        // 1. Header filler block (above the door frame)
+        const headerHeight = Math.max(0, wallHeight - frameHeight);
+        if (headerHeight > 0.1) {
+          const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
+          const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
+          headerMesh.position.set(0, frameHeight + headerHeight / 2, 0);
+          headerMesh.castShadow = enableShadows;
+          headerMesh.receiveShadow = enableShadows;
+          doorGroup.add(headerMesh);
+        }
+
+        // Add side jambs directly to scene
+        if (leftJambMesh) {
+          scene.add(leftJambMesh);
+          doorMeshesRef.current.push(leftJambMesh);
+        }
+        if (rightJambMesh) {
+          scene.add(rightJambMesh);
+          doorMeshesRef.current.push(rightJambMesh);
+        }
+
+        doorGroup.position.set(hostWallCx, 0, hostWallCy);
+        doorGroup.rotation.y = -hostWallAngle;
 
         scene.add(doorGroup);
         doorMeshesRef.current.push(doorGroup);
       });
     }
 
-  }, [rooms, walls, doors, wallHeight, showFloors, showDoors, enableShadows]);
+  }, [rooms, walls, doors, wallHeight, showFloors, showDoors, showPDF, enableShadows, realScale, image, imgSize]);
 
   // Reset Camera View
   const handleResetCamera = () => {
@@ -581,6 +1062,21 @@ export default function ThreeDView({
               type="checkbox" 
               checked={showFloors} 
               onChange={() => setShowFloors(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span>Show PDF Underlay</span>
+            <input 
+              type="checkbox" 
+              checked={showPDF} 
+              onChange={() => setShowPDF(v => !v)}
               style={{
                 width: "16px",
                 height: "16px",

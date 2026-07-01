@@ -11,6 +11,8 @@
  */
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import AIDoor from "../components/AIDoor";
+import DoorContextMenu from "../components/DoorContextMenu";
+import DoorEditDialog from "../components/DoorEditDialog";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { 
   distancePointToSegment, 
@@ -72,7 +74,7 @@ const getDoorBoundingBox = (d) => {
 // ==========================================
 // 1. FloorImageLayer (Memoized)
 // ==========================================
-const FloorImageLayer = React.memo(({ image, w, h }) => {
+const FloorImageLayer = React.memo(({ image, w, h, showPDF }) => {
   if (!image) return null;
   return (
     <image
@@ -81,10 +83,15 @@ const FloorImageLayer = React.memo(({ image, w, h }) => {
       y={0}
       width={w}
       height={h}
-      style={{ pointerEvents: 'none', userSelect: 'none' }}
+      style={{
+        pointerEvents: 'none',
+        userSelect: 'none',
+        opacity: showPDF ? 1 : 0,
+        transition: 'opacity 0.25s ease-in-out'
+      }}
     />
   );
-}, (prev, next) => prev.image === next.image && prev.w === next.w && prev.h === next.h);
+}, (prev, next) => prev.image === next.image && prev.w === next.w && prev.h === next.h && prev.showPDF === next.showPDF);
 
 // ==========================================
 // 2. RoomPolygonLayer (Memoized)
@@ -376,7 +383,9 @@ const DoorLayer = React.memo(({
   updateDoor,
   dragging,
   hoverId,
-  setHoverId
+  setHoverId,
+  walls = [],
+  onDoorContextMenu
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
 
@@ -442,6 +451,9 @@ const DoorLayer = React.memo(({
                 isDistancing={isDistancing}
                 setSelectedId={setSelectedId}
                 setSelectedType={setSelectedType}
+                walls={walls}
+                onDoorContextMenu={onDoorContextMenu}
+                realScale={realScale}
               />
             );
           }
@@ -544,6 +556,111 @@ const DoorLayer = React.memo(({
             );
           };
 
+          const renderManualJambs = () => {
+            if (!p1 || !p2 || len <= 0) return null;
+            const ux = dx / len;
+            const uy = dy / len;
+            const jambOffsetMm = 150; // default 150mm fallback
+            const halfJamb = (realScale && realScale > 0) ? (jambOffsetMm / realScale) : 10.0;
+
+            // Find wall thickness and closest collinear cut endpoints
+            let thickness = 20;
+            let bestT1 = -halfJamb; // default
+            let bestT2 = halfJamb;  // default
+
+            if (walls && walls.length > 0) {
+              walls.forEach(w => {
+                if (!w.centerline || w.centerline.length < 2) return;
+                const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+                const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+                
+                // thickness calculation
+                const wdx = wp2.x - wp1.x;
+                const wdy = wp2.y - wp1.y;
+                const L2 = wdx * wdx + wdy * wdy;
+                const cx = (p1.x + p2.x)/2;
+                const cy = (p1.y + p2.y)/2;
+                
+                let tVal = L2 < 0.1 ? 0 : ((cx - wp1.x) * wdx + (cy - wp1.y) * wdy) / L2;
+                tVal = Math.max(0, Math.min(1, tVal));
+                const dist = Math.hypot(cx - (wp1.x + tVal * wdx), cy - (wp1.y + tVal * wdy));
+
+                if (dist < 80) {
+                  thickness = w.thickness_px || 20;
+
+                  // Check endpoints projection
+                  [wp1, wp2].forEach(pt => {
+                    const dxPt = pt.x - p1.x;
+                    const dyPt = pt.y - p1.y;
+                    const t = dxPt * ux + dyPt * uy; // projection along door centerline
+                    
+                    const projX = p1.x + t * ux;
+                    const projY = p1.y + t * uy;
+                    const perpDist = Math.hypot(pt.x - projX, pt.y - projY);
+
+                    if (perpDist < 12.0) { // Collinear wall endpoint
+                      if (t < 0) {
+                        if (t > bestT1 && t >= -halfJamb * 3) {
+                          bestT1 = t;
+                        }
+                      }
+                      const tRelativeP2 = t - len;
+                      if (tRelativeP2 > 0) {
+                        if (tRelativeP2 < bestT2 && tRelativeP2 <= halfJamb * 3) {
+                          bestT2 = tRelativeP2;
+                        }
+                      }
+                    }
+                  });
+                }
+              });
+            }
+
+            const L1 = Math.abs(bestT1);
+            const L2 = Math.abs(bestT2);
+
+            const cx1 = p1.x + (bestT1 / 2) * ux;
+            const cy1 = p1.y + (bestT1 / 2) * uy;
+
+            const cx2 = p2.x + (bestT2 / 2) * ux;
+            const cy2 = p2.y + (bestT2 / 2) * uy;
+
+            const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+
+            return (
+              <g id={`jambs-${d.id}`} style={{ pointerEvents: 'none' }}>
+                {/* Hinge Side Jamb */}
+                {L1 > 0.1 && (
+                  <rect
+                    x={-L1 / 2}
+                    y={-thickness / 2}
+                    width={L1}
+                    height={thickness}
+                    transform={`translate(${cx1}, ${cy1}) rotate(${angleDeg})`}
+                    fill="#94a3b8" // slate-400
+                    stroke="#475569" // slate-600
+                    strokeWidth={1}
+                    opacity={0.8}
+                  />
+                )}
+                {/* Latch Side Jamb */}
+                {L2 > 0.1 && (
+                  <rect
+                    x={-L2 / 2}
+                    y={-thickness / 2}
+                    width={L2}
+                    height={thickness}
+                    transform={`translate(${cx2}, ${cy2}) rotate(${angleDeg})`}
+                    fill="#94a3b8"
+                    stroke="#475569"
+                    strokeWidth={1}
+                    opacity={0.8}
+                  />
+                )}
+              </g>
+            );
+          };
+
           return (
             <g key={d.id} 
                onClick={(e) => {
@@ -553,9 +670,13 @@ const DoorLayer = React.memo(({
                  setSelectedType("door");
                }}
                style={{ cursor: 'pointer' }}
+               onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
                onMouseEnter={() => setHoverId(d.id)}
                onMouseLeave={() => setHoverId(null)}
             >
+              {/* Door Jamb Rectangles */}
+              {renderManualJambs()}
+
               {/* Bounding Box overlay (Rotated Polygon) */}
               {hasDisplayPoly && (
                 <polygon
@@ -761,6 +882,7 @@ const DoorLayer = React.memo(({
   );
 }, (prev, next) => {
   return (
+    prev.walls === next.walls &&
     prev.doors === next.doors &&
     prev.showLayer === next.showLayer &&
     prev.selectedId === next.selectedId &&
@@ -1332,11 +1454,14 @@ export default function CanvasView({
   pushHistory,
   showLayer,
   updateDoor,
+  deleteDoor,
   searchResults = [],
   searchResultsVisible = true,
   hoveredSearchResultId = null,
   zoomToBbox,
-  dragging
+  dragging,
+  showPDF,
+  setShowPDF
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -1344,6 +1469,104 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
+
+  // Door context menu state
+  const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
+  const [doorEditDialog, setDoorEditDialog] = useState({ visible: false, door: null });
+
+  const handleDoorContextMenu = (e, door) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDoorContextMenu({ visible: true, x: e.clientX, y: e.clientY, door });
+  };
+
+  const closeDoorContextMenu = () => {
+    setDoorContextMenu({ visible: false, x: 0, y: 0, door: null });
+  };
+
+  const handleDoorRotateLeft = () => {
+    const d = doorContextMenu.door;
+    if (d && updateDoor) {
+      const newRotation = ((d.rotation || 0) - 90 + 360) % 360;
+      updateDoor({ ...d, rotation: newRotation });
+    }
+  };
+
+  const handleDoorRotateRight = () => {
+    const d = doorContextMenu.door;
+    if (d && updateDoor) {
+      const newRotation = ((d.rotation || 0) + 90) % 360;
+      updateDoor({ ...d, rotation: newRotation });
+    }
+  };
+
+  const handleDoorFlipSwing = () => {
+    const d = doorContextMenu.door;
+    if (d && updateDoor) {
+      const newSwing = (d.swing || d.swing_direction || 'inward') === 'inward' ? 'outward' : 'inward';
+      updateDoor({ ...d, swing: newSwing, swing_direction: newSwing });
+    }
+  };
+
+  const handleDoorFlipHinge = () => {
+    const d = doorContextMenu.door;
+    if (d && updateDoor) {
+      const newHinge = (d.hingeSide || d.hinge_side || 'left') === 'left' ? 'right' : 'left';
+      updateDoor({ ...d, hingeSide: newHinge, hinge_side: newHinge });
+    }
+  };
+
+  const handleDoorSwapFrameLeaf = () => {
+    const d = doorContextMenu.door;
+    if (d && updateDoor) {
+      const currentIdx = d.frameEdgeIndex !== undefined ? d.frameEdgeIndex : 0;
+      updateDoor({ ...d, frameEdgeIndex: 1 - currentIdx });
+    }
+  };
+
+  const handleDoorChangeType = (newClass) => {
+    const d = doorContextMenu.door;
+    if (d && updateDoor) {
+      updateDoor({ ...d, class: newClass });
+    }
+  };
+
+  const handleDoorEdit = () => {
+    setDoorEditDialog({ visible: true, door: doorContextMenu.door });
+  };
+
+  const handleDoorDelete = () => {
+    const d = doorContextMenu.door;
+    if (d && deleteDoor) {
+      deleteDoor(d.id);
+      if (selectedId === d.id) {
+        setSelectedId(null);
+        setSelectedType(null);
+      }
+    }
+  };
+
+  const handleDoorEditSave = (updatedDoor, applyToAll) => {
+    if (!updateDoor) return;
+    if (applyToAll) {
+      // Apply to all doors of same type
+      const originalType = doorEditDialog.door?.class || 'single_door';
+      (doors || []).forEach(d => {
+        if ((d.class || 'single_door') === originalType) {
+          updateDoor({
+            ...d,
+            penetration_type: updatedDoor.penetration_type,
+            hardware_type: updatedDoor.hardware_type,
+            height_mm: updatedDoor.height_mm,
+            width_mm: updatedDoor.width_mm,
+            width_source: 'manual'
+          });
+        }
+      });
+    } else {
+      updateDoor(updatedDoor);
+    }
+  };
 
   // For dynamic Minimap viewport tracking
   const containerRef = useRef(null);
@@ -1626,6 +1849,54 @@ export default function CanvasView({
         onMouseUp={onMouseUp}
       >
         <style>{scanStyles}</style>
+        
+        {/* Floating Glassmorphic PDF Toggle Button */}
+        {image && (
+          <div 
+            className="glassmorphic"
+            style={{
+              position: "absolute",
+              top: "20px",
+              right: "20px",
+              zIndex: 100,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "6px 12px",
+              borderRadius: "8px",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              background: "rgba(15, 23, 42, 0.65)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.3)",
+              userSelect: "none"
+            }}
+          >
+            <span style={{ fontSize: "10px", fontWeight: "800", color: "rgba(255, 255, 255, 0.8)", fontFamily: "Inter, sans-serif", letterSpacing: "0.8px" }}>
+              PDF BACKGROUND
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPDF(!showPDF);
+              }}
+              style={{
+                background: showPDF ? "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)" : "rgba(255, 255, 255, 0.1)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                color: "#ffffff",
+                padding: "4px 10px",
+                borderRadius: "6px",
+                fontSize: "11px",
+                fontWeight: "800",
+                cursor: "pointer",
+                transition: "all 0.2s ease-in-out",
+                boxShadow: showPDF ? "0 0 10px rgba(59, 130, 246, 0.4)" : "none"
+              }}
+            >
+              {showPDF ? "ON" : "OFF"}
+            </button>
+          </div>
+        )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
         
         {/* Floating Dynamic Diagnostic ROI Panel (Requirement 10) */}
@@ -1800,7 +2071,7 @@ export default function CanvasView({
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
             
             {/* Memoized Layer 1: Base Floor Image */}
-            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} />
+            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} />
             
             {/* Snap Guides */}
             {(isShiftDown || isSnapMode) && currentMouse && (() => {
@@ -1938,6 +2209,7 @@ export default function CanvasView({
 
             {/* Memoized Layer 4: Doors */}
             <DoorLayer
+              walls={walls}
               doors={doors}
               showLayer={showLayer}
               selectedId={selectedId}
@@ -1954,6 +2226,7 @@ export default function CanvasView({
               dragging={dragging}
               hoverId={hoverId}
               setHoverId={setHoverId}
+              onDoorContextMenu={handleDoorContextMenu}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}
@@ -2452,6 +2725,33 @@ export default function CanvasView({
           </div>
         </div>
       </div>
+
+      {/* ===== DOOR CONTEXT MENU OVERLAY ===== */}
+      <DoorContextMenu
+        visible={doorContextMenu.visible}
+        x={doorContextMenu.x}
+        y={doorContextMenu.y}
+        door={doorContextMenu.door}
+        onClose={closeDoorContextMenu}
+        onRotateLeft={handleDoorRotateLeft}
+        onRotateRight={handleDoorRotateRight}
+        onFlipSwing={handleDoorFlipSwing}
+        onFlipHinge={handleDoorFlipHinge}
+        onEdit={handleDoorEdit}
+        onDelete={handleDoorDelete}
+        onSwapFrameLeaf={handleDoorSwapFrameLeaf}
+        onChangeType={handleDoorChangeType}
+      />
+
+      {/* ===== DOOR EDIT DIALOG OVERLAY ===== */}
+      <DoorEditDialog
+        visible={doorEditDialog.visible}
+        door={doorEditDialog.door}
+        walls={walls}
+        realScale={realScale}
+        onSave={handleDoorEditSave}
+        onClose={() => setDoorEditDialog({ visible: false, door: null })}
+      />
     </div>
   );
 }

@@ -136,7 +136,8 @@ function DryWetSummary({
 export default function RightPropertyPaneView({
   selectedRoom, selectedWall, selectedType, selectedPointIndex, updateRoom, scaleValue, realScale, rooms,
   highlightType, setHighlightType,
-  selectedWallIds = [], updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm
+  selectedWallIds = [], updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm,
+  autoMergeCollinearWalls
 }) {
   const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
 
@@ -319,6 +320,30 @@ export default function RightPropertyPaneView({
                 </button>
               </div>
             )}
+
+            <div style={{ marginTop: 4 }}>
+              <button
+                className="panel-action-btn"
+                style={{
+                  width: "100%",
+                  padding: "6px 12px",
+                  background: "#10b981",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  marginBottom: "4px"
+                }}
+                onClick={() => {
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : (selectedWall ? [selectedWall.id] : []);
+                  autoMergeCollinearWalls && autoMergeCollinearWalls(targetIds);
+                }}
+              >
+                🔗 Merge Aligned Walls
+              </button>
+            </div>
 
             <div style={{ marginTop: 4 }}>
               <button

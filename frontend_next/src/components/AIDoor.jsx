@@ -13,7 +13,10 @@ export default function AIDoor({
   isMeasuring,
   isDistancing,
   setSelectedId,
-  setSelectedType
+  setSelectedType,
+  walls = [],
+  onDoorContextMenu,
+  realScale
 }) {
   const maskPoly = d.polygon || d.mask_polygon || [];
   if (maskPoly.length < 3) return null;
@@ -37,7 +40,7 @@ export default function AIDoor({
   let arcPath = null;
   let sectorPath = null;
   let topEdges = [];
-  let frameEdgeIndex = 0;
+  let frameEdgeIndex = d.frameEdgeIndex !== undefined ? d.frameEdgeIndex : 0;
 
   // Double door calculations
   let arcPath1 = null;
@@ -380,19 +383,70 @@ export default function AIDoor({
             { p1: { x: hingeX, y: hingeY }, p2: o2_proj }
           ];
 
-          if (d.points && d.points.length >= 2) {
-            const pts = d.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
-            const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
-            const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
-            const frame_end_target = d0 > d1 ? pts[0] : pts[1];
+          let wallDetectedFrameIndex = -1;
+          if (walls && walls.length > 0) {
+            let bestScore0 = -1;
+            let bestScore1 = -1;
 
-            const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
-            const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
+            const m0 = { x: (hingeX + o1_proj.x) / 2, y: (hingeY + o1_proj.y) / 2 };
+            const m1 = { x: (hingeX + o2_proj.x) / 2, y: (hingeY + o2_proj.y) / 2 };
 
-            if (dist1 < dist2) {
-              frameEdgeIndex = 0;
-            } else {
-              frameEdgeIndex = 1;
+            const u0 = { x: dx1 / r, y: dy1 / r };
+            const u1 = { x: dx2 / r, y: dy2 / r };
+
+            for (const w of walls) {
+              if (!w.centerline || w.centerline.length !== 2) continue;
+              const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
+              const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+              const dxW = D.x - C.x;
+              const dyW = D.y - C.y;
+              const lenW = Math.hypot(dxW, dyW);
+              if (lenW < 1.0) continue;
+              const uW = { x: dxW / lenW, y: dyW / lenW };
+
+              const distToLine0 = Math.abs(dxW * (m0.y - C.y) - dyW * (m0.x - C.x)) / lenW;
+              const distToLine1 = Math.abs(dxW * (m1.y - C.y) - dyW * (m1.x - C.x)) / lenW;
+
+              const dot0 = Math.abs(u0.x * uW.x + u0.y * uW.y);
+              const dot1 = Math.abs(u1.x * uW.x + u1.y * uW.y);
+
+              if (dot0 > 0.85) {
+                const score0 = 1.0 / (distToLine0 + 1.0);
+                if (score0 > bestScore0) bestScore0 = score0;
+              }
+              if (dot1 > 0.85) {
+                const score1 = 1.0 / (distToLine1 + 1.0);
+                if (score1 > bestScore1) bestScore1 = score1;
+              }
+            }
+
+            if (bestScore0 > 0.024 || bestScore1 > 0.024) {
+              if (bestScore0 > bestScore1) {
+                wallDetectedFrameIndex = 0;
+              } else {
+                wallDetectedFrameIndex = 1;
+              }
+            }
+          }
+
+          if (d.frameEdgeIndex === undefined) {
+            if (wallDetectedFrameIndex !== -1) {
+              frameEdgeIndex = wallDetectedFrameIndex;
+            } else if (d.points && d.points.length >= 2) {
+              const pts = d.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+              const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
+              const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
+              const frame_end_target = d0 > d1 ? pts[0] : pts[1];
+
+              const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
+              const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
+
+              if (dist1 < dist2) {
+                frameEdgeIndex = 0;
+              } else {
+                frameEdgeIndex = 1;
+              }
             }
           }
         }
@@ -402,6 +456,210 @@ export default function AIDoor({
 
   const isDraggingThis = dragging && dragging.id === d.id;
 
+  React.useEffect(() => {
+    if (!isSliding && topEdges && topEdges.length === 2 && updateDoor) {
+      const activeFrameSeg = topEdges[frameEdgeIndex];
+      const needsPointsUpdate = !d.points || 
+        Math.hypot(d.points[0].x - activeFrameSeg.p1.x, d.points[0].y - activeFrameSeg.p1.y) > 0.1 ||
+        Math.hypot(d.points[1].x - activeFrameSeg.p2.x, d.points[1].y - activeFrameSeg.p2.y) > 0.1;
+
+      if (d.frameEdgeIndex === undefined || needsPointsUpdate) {
+        updateDoor({
+          ...d,
+          frameEdgeIndex: frameEdgeIndex,
+          points: [activeFrameSeg.p1, activeFrameSeg.p2]
+        });
+      }
+    }
+  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, d.points]);
+
+  const renderJambs = () => {
+    let p1, p2;
+
+    const getFrameSegment = () => {
+      if (d.points && d.points.length >= 2) {
+        const pt0 = d.points[0];
+        const pt1 = d.points[1];
+        return {
+          p1: Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0,
+          p2: Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1
+        };
+      }
+
+      const dPoly = d.polygon || d.mask_polygon || [];
+      if (dPoly.length < 3) return null;
+      const polyPoints = dPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+
+      const edges = polyPoints.map((p, i) => {
+        const next = polyPoints[(i + 1) % polyPoints.length];
+        return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
+      });
+
+      const maxLen = Math.max(...edges.map(e => e.len));
+      const candidates = edges.filter(e => e.len >= 0.5 * maxLen);
+
+      let bestEdge = null;
+      let bestScore = -1;
+
+      for (const edge of candidates) {
+        const m = { x: (edge.p1.x + edge.p2.x) / 2, y: (edge.p1.y + edge.p2.y) / 2 };
+        const dxE = edge.p2.x - edge.p1.x;
+        const dyE = edge.p2.y - edge.p1.y;
+        const lenE = edge.len;
+        if (lenE < 1.0) continue;
+        const uE = { x: dxE / lenE, y: dyE / lenE };
+
+        for (const w of walls) {
+          if (!w.centerline || w.centerline.length !== 2) continue;
+          const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
+          const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+          const dxW = D.x - C.x;
+          const dyW = D.y - C.y;
+          const lenW = Math.hypot(dxW, dyW);
+          if (lenW < 1.0) continue;
+          const uW = { x: dxW / lenW, y: dyW / lenW };
+
+          const distToLine = Math.abs(dxW * (m.y - C.y) - dyW * (m.x - C.x)) / lenW;
+          const dot = Math.abs(uE.x * uW.x + uE.y * uW.y);
+
+          if (dot > 0.80) {
+            const score = 1.0 / (distToLine + 1.0);
+            if (score > bestScore) {
+              bestScore = score;
+              bestEdge = edge;
+            }
+          }
+        }
+      }
+
+      if (bestEdge && bestScore > 0.01) {
+        return { p1: bestEdge.p1, p2: bestEdge.p2 };
+      }
+
+      edges.sort((a, b) => b.len - a.len);
+      return { p1: edges[0].p1, p2: edges[0].p2 };
+    };
+
+    if (topEdges && topEdges[frameEdgeIndex]) {
+      p1 = topEdges[frameEdgeIndex].p1;
+      p2 = topEdges[frameEdgeIndex].p2;
+    } else {
+      const frameSeg = getFrameSegment();
+      if (!frameSeg) return null;
+      p1 = frameSeg.p1;
+      p2 = frameSeg.p2;
+    }
+
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dLen = Math.hypot(dx, dy);
+    if (dLen <= 0) return null;
+
+    const ux = dx / dLen;
+    const uy = dy / dLen;
+
+    const jambOffsetMm = 150; // default 150mm fallback
+    const halfJamb = (realScale && realScale > 0) ? (jambOffsetMm / realScale) : 10.0;
+
+    // Find wall thickness and closest collinear cut endpoints
+    let thickness = 20;
+    let bestT1 = -halfJamb; // default
+    let bestT2 = halfJamb;  // default
+
+    if (walls && walls.length > 0) {
+      walls.forEach(w => {
+        if (!w.centerline || w.centerline.length < 2) return;
+        const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+        
+        // thickness calculation
+        const wdx = wp2.x - wp1.x;
+        const wdy = wp2.y - wp1.y;
+        const L2 = wdx * wdx + wdy * wdy;
+        const cx = (p1.x + p2.x)/2;
+        const cy = (p1.y + p2.y)/2;
+        
+        let tVal = L2 < 0.1 ? 0 : ((cx - wp1.x) * wdx + (cy - wp1.y) * wdy) / L2;
+        tVal = Math.max(0, Math.min(1, tVal));
+        const dist = Math.hypot(cx - (wp1.x + tVal * wdx), cy - (wp1.y + tVal * wdy));
+
+        if (dist < 80) {
+          thickness = w.thickness_px || 20;
+
+          // Check endpoints projection
+          [wp1, wp2].forEach(pt => {
+            const dxPt = pt.x - p1.x;
+            const dyPt = pt.y - p1.y;
+            const t = dxPt * ux + dyPt * uy; // projection along door centerline
+            
+            const projX = p1.x + t * ux;
+            const projY = p1.y + t * uy;
+            const perpDist = Math.hypot(pt.x - projX, pt.y - projY);
+
+            if (perpDist < 12.0) { // Collinear wall endpoint
+              if (t < 0) {
+                if (t > bestT1 && t >= -halfJamb * 3) {
+                  bestT1 = t;
+                }
+              }
+              const tRelativeP2 = t - dLen;
+              if (tRelativeP2 > 0) {
+                if (tRelativeP2 < bestT2 && tRelativeP2 <= halfJamb * 3) {
+                  bestT2 = tRelativeP2;
+                }
+              }
+            }
+          });
+        }
+      });
+    }
+
+    const L1 = Math.abs(bestT1);
+    const L2 = Math.abs(bestT2);
+
+    const cx1 = p1.x + (bestT1 / 2) * ux;
+    const cy1 = p1.y + (bestT1 / 2) * uy;
+
+    const cx2 = p2.x + (bestT2 / 2) * ux;
+    const cy2 = p2.y + (bestT2 / 2) * uy;
+
+    const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+
+    return (
+      <g id={`jambs-${d.id}`} style={{ pointerEvents: 'none' }}>
+        {/* Hinge Side Jamb */}
+        {L1 > 0.1 && (
+          <rect
+            x={-L1 / 2}
+            y={-thickness / 2}
+            width={L1}
+            height={thickness}
+            transform={`translate(${cx1}, ${cy1}) rotate(${angleDeg})`}
+            fill="#94a3b8" // slate-400
+            stroke="#475569" // slate-600
+            strokeWidth={1}
+            opacity={0.8}
+          />
+        )}
+        {/* Latch Side Jamb */}
+        {L2 > 0.1 && (
+          <rect
+            x={-L2 / 2}
+            y={-thickness / 2}
+            width={L2}
+            height={thickness}
+            transform={`translate(${cx2}, ${cy2}) rotate(${angleDeg})`}
+            fill="#94a3b8"
+            stroke="#475569"
+            strokeWidth={1}
+            opacity={0.8}
+          />
+        )}
+      </g>
+    );
+  };
+
   return (
     <g
       onClick={(e) => {
@@ -410,8 +668,12 @@ export default function AIDoor({
         setSelectedId(d.id);
         setSelectedType("door");
       }}
+      onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
       style={{ cursor: 'pointer' }}
     >
+      {/* Door Jamb Rectangles */}
+      {renderJambs()}
+
       {/* Clickable Overlay (Raw mask polygon with transparent styling for click/drag) */}
       <polygon
         points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
@@ -527,10 +789,20 @@ export default function AIDoor({
                 y1={edge.p1.y}
                 x2={edge.p2.x}
                 y2={edge.p2.y}
-                stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "purple")}
+                stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "#22c55e")}
                 strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
                 strokeLinecap="round"
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (updateDoor) {
+                    // Toggle double door frames if clicked
+                    const nextType = edge.type === 'frame' ? 'leaf' : 'frame';
+                    const newDoubleEdges = doubleEdges.map((ed, idx) => idx === i ? { ...ed, type: nextType } : ed);
+                    // Just update visual type
+                    updateDoor({ ...d, frame_edge_type: nextType });
+                  }
+                }}
               />
             ))
           ) : (
@@ -541,10 +813,16 @@ export default function AIDoor({
                 y1={edge.p1.y}
                 x2={edge.p2.x}
                 y2={edge.p2.y}
-                stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "purple")}
-                strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
+                stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "#22c55e")}
+                strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.5 : (isHovered ? 3.5 : 2.5))}
                 strokeLinecap="round"
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (updateDoor) {
+                    updateDoor({ ...d, frameEdgeIndex: i });
+                  }
+                }}
               />
             ))
           )}

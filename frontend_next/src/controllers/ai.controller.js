@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 
 /**
@@ -364,6 +364,10 @@ export const useAIController = (
   };
 
   const autoDetect = async (roiRect, roiMode, roiUpscale) => {
+    if (!realScale || realScale === 1.0) {
+      alert("bạn phải scale trước khi chạy AI");
+      return;
+    }
     if (!image) return alert("No image to detect");
 
     const job = startROIJob();
@@ -541,6 +545,10 @@ export const useAIController = (
 
 
   const detectWallFromFloorAI = async () => {
+    if (!realScale || realScale === 1.0) {
+      alert("bạn phải scale trước khi chạy AI");
+      return;
+    }
     if (!image) return alert("No image to detect");
     if (!setWallsByPage) return;
 
@@ -601,13 +609,22 @@ export const useAIController = (
             let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], event.width || 1280, event.height || 960);
 
-            setWallsByPage(prev => {
-              const allWalls = [...existingWallsSnapshot, ...cleanWalls];
-              return {
+            const allWalls = [...existingWallsSnapshot, ...cleanWalls];
+            const mergedWalls = mergeCollinearWalls(allWalls);
+
+            // Snap existing doors to the newly detected merged walls!
+            const snappedDoors = doors.map(d => snapDoorToWalls(d, mergedWalls, 80));
+            if (setDoorsByPage) {
+              setDoorsByPage(prev => ({
                 ...prev,
-                [currentPage]: _cutWallsByDoors(allWalls, doors)
-              };
-            });
+                [currentPage]: snappedDoors
+              }));
+            }
+
+            setWallsByPage(prev => ({
+              ...prev,
+              [currentPage]: _cutWallsByDoors(mergedWalls, snappedDoors, realScale)
+            }));
           }
 
           if (event.status === "final") {
@@ -629,6 +646,10 @@ export const useAIController = (
   };
 
   const detectText = async () => {
+    if (!realScale || realScale === 1.0) {
+      alert("bạn phải scale trước khi chạy AI");
+      return;
+    }
     if (!image) return alert("No image to detect");
 
     setIsDetecting(true);
@@ -683,6 +704,10 @@ export const useAIController = (
 
 
   const detectTemplate = async () => {
+    if (!realScale || realScale === 1.0) {
+      alert("bạn phải scale trước khi chạy AI");
+      return;
+    }
     if (!image) return alert("No image to detect");
     setIsDetecting(true);
     setCacheStatus("processing");
@@ -717,6 +742,10 @@ export const useAIController = (
   };
 
   const detectDoorSeg = async (roiRect, roiMode) => {
+    if (!realScale || realScale === 1.0) {
+      alert("bạn phải scale trước khi chạy AI");
+      return;
+    }
     if (!image) return alert("No image to detect");
 
     const job = startROIJob();
@@ -752,7 +781,16 @@ export const useAIController = (
           review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
         }));
 
-        const mergedDoors = _mergeOverlappingDoors(doorsByPage[currentPage] || [], detectedDoors);
+        // Snap detected doors to existing walls!
+        // Merge cut walls back into continuous segments so snap can find walls
+        // even when the door midpoint sits in the gap between two cut segments.
+        const currentWalls = wallsByPage[currentPage] || [];
+        const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls]) : [];
+        const snappedDoors = uncutWalls.length > 0
+          ? detectedDoors.map(d => snapDoorToWalls(d, uncutWalls, 80))
+          : detectedDoors;
+
+        const mergedDoors = _mergeOverlappingDoors(doorsByPage[currentPage] || [], snappedDoors);
 
         if (setDoorsByPage) {
           setDoorsByPage(prev => ({
@@ -763,11 +801,10 @@ export const useAIController = (
 
         // Cut existing walls at the new doors
         if (setWallsByPage && wallsByPage) {
-          const currentWalls = wallsByPage[currentPage] || [];
           if (currentWalls.length > 0) {
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: _cutWallsByDoors(currentWalls, mergedDoors)
+              [currentPage]: _cutWallsByDoors(currentWalls, mergedDoors, realScale)
             }));
           }
         }
@@ -804,6 +841,10 @@ export const useAIController = (
   };
 
   const smartDetect = async () => {
+    if (!realScale || realScale === 1.0) {
+      alert("bạn phải scale trước khi chạy AI");
+      return;
+    }
     if (!image) return alert("No image loaded. Please open a floor plan first.");
 
     // ── Confirm dialog: clear or merge ──
@@ -944,9 +985,20 @@ export const useAIController = (
           // Merge with existing walls if not clearing
           const existingWalls = clearExisting ? [] : (wallsByPage[currentPage] || []);
           const allWalls = [...existingWalls, ...cleanWalls];
+          const mergedWalls = mergeCollinearWalls(allWalls);
 
-          // Cut walls at door positions
-          detectedWalls = _cutWallsByDoors(allWalls, currentDoors);
+          // Snap doors to the newly detected merged walls!
+          const snappedDoors = currentDoors.map(d => snapDoorToWalls(d, mergedWalls, 80));
+          detectedDoors = snappedDoors;
+
+          // Update doors state with snapped doors
+          setDoorsByPage(prev => ({
+            ...prev,
+            [currentPage]: snappedDoors
+          }));
+
+          // Cut walls at door positions using snapped doors
+          detectedWalls = _cutWallsByDoors(mergedWalls, snappedDoors, realScale);
 
           setWallsByPage(prev => ({
             ...prev,

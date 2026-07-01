@@ -224,8 +224,6 @@ export default function BOQTable({
           wetness: primaryRoom.wetness
         },
         label,
-        swing,
-        hinge, // ✅ NEW
         floor_name: page.floor_name,
         width: Number(width.toFixed(2)),
         height: Number(height.toFixed(2)),
@@ -762,7 +760,10 @@ export default function BOQTable({
               </td>
               <td style={{ ...styles.td, ...styles.tdCenter }}>{buildDoorCode(r)}</td>
               <td style={{ ...styles.td, ...styles.tdCenter }}>
-                Lockwood Satin Chrome Symmetry Entry Lever Set - 4020475
+                {r.hardware_type === "privacy" ? "Lockwood Satin Chrome Symmetry Privacy Lever Set - 4020485" :
+                 r.hardware_type === "dummy" ? "Lockwood Satin Chrome Symmetry Dummy Lever Set - 4020505" :
+                 r.hardware_type === "entrance" ? "Lockwood Satin Chrome Symmetry Entry Lever Set - 4020475" :
+                 "Lockwood Satin Chrome Symmetry Passage Lever Set - 4020495"}
               </td>
             </tr>
           ))}

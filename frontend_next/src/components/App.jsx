@@ -18,16 +18,133 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import dynamic from "next/dynamic";
-import { polygonAreaM2 as polygonAreaM2Util, centroid } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon } from "@/utils/geometry";
 import LoginView from "@/views/LoginView";
 import RibbonView from "@/views/RibbonView";
 import RightPropertyPaneView from "@/views/RightPropertyPaneView";
 import CanvasView from "@/views/CanvasView";
 import SearchSidebarView from "@/views/SearchSidebarView";
 import ThumbnailSidebarView from "@/views/ThumbnailSidebarView";
+import DoorTypePanel from "@/components/DoorTypePanel";
 import TrainButton from "@/components/TrainButton";
 import AIConfidenceBar from "@/features/ai/AIConfidenceBar";
 import { ApiService } from "@/models/api.service";
+
+// Helper function to resolve the default hardware type based on room adjacency, walls, and door geometry.
+function getHardwareType(door, pageRooms, pageWalls, realScale) {
+  const dType = door.type || "single";
+  const dClass = (door.class || "").toLowerCase();
+  const dName = (door.door_name || "").toLowerCase();
+
+  // 1. Dummy:
+  // - Double doors, triple doors, or doors that contain "robe", "linen", "pantry", "cupboard", "closet"
+  const isDouble = dType === "double" || dClass.includes("double") || dClass.includes("2x") || dName.includes("2x");
+  const isTriple = dClass.includes("triple") || dClass.includes("3x") || dName.includes("3x");
+  const isDummyName = dName.includes("robe") || dName.includes("linen") || dName.includes("pantry") || dName.includes("cupboard") || dName.includes("closet");
+  
+  if (isDouble || isTriple || isDummyName) {
+    return "dummy";
+  }
+
+  // Calculate door midpoint to find closest room and wall
+  const points = door.points || [];
+  let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
+  let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
+
+  if (!p1 || !p2) {
+    const poly = door.polygon || door.mask_polygon || [];
+    if (poly.length >= 3) {
+      const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+      p1 = pts[0];
+      p2 = pts[1];
+    }
+  }
+
+  if (p1 && p2) {
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+
+    // 2. Entrance:
+    // - Closest wall is external (class_name === "exterior_wall")
+    // - Or door name/room label contains "entry", "entrance", "porch", "verandah", "garage", "external", "alfresco"
+    let closestWall = null;
+    let minDistWall = Infinity;
+    if (pageWalls && pageWalls.length > 0) {
+      pageWalls.forEach(w => {
+        if (!w.centerline || w.centerline.length < 2) return;
+        const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+        
+        const dx = wp2.x - wp1.x;
+        const dy = wp2.y - wp1.y;
+        const L2 = dx * dx + dy * dy;
+        let t = L2 < 0.1 ? 0 : ((cx - wp1.x) * dx + (cy - wp1.y) * dy) / L2;
+        t = Math.max(0, Math.min(1, t));
+        const dist = Math.hypot(cx - (wp1.x + t * dx), cy - (wp1.y + t * dy));
+
+        if (dist < minDistWall) {
+          minDistWall = dist;
+          closestWall = w;
+        }
+      });
+    }
+
+    if (closestWall && closestWall.class_name === "exterior_wall") {
+      return "entrance";
+    }
+
+    // Find nearest room
+    let nearestRoom = null;
+    let minDistRoom = Infinity;
+    if (pageRooms && pageRooms.length > 0) {
+      pageRooms.forEach(r => {
+        if (!r.polygon || r.polygon.length === 0) return;
+        
+        // Check if inside room
+        if (pointInPolygon({ x: cx, y: cy }, r.polygon)) {
+          minDistRoom = 0;
+          nearestRoom = r;
+          return;
+        }
+
+        const polyPoints = r.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+        for (let i = 0; i < polyPoints.length; i++) {
+          const pA = polyPoints[i];
+          const pB = polyPoints[(i + 1) % polyPoints.length];
+          const proj = distancePointToSegment({ x: cx, y: cy }, pA, pB);
+          if (proj.dist < minDistRoom) {
+            minDistRoom = proj.dist;
+            nearestRoom = r;
+          }
+        }
+      });
+    }
+
+    if (nearestRoom) {
+      const rName = (nearestRoom.name || nearestRoom.label || nearestRoom.room_name || "").toLowerCase();
+      
+      if (rName.includes("entry") || rName.includes("entrance") || rName.includes("porch") || rName.includes("verandah") || rName.includes("garage") || rName.includes("external") || rName.includes("alfresco")) {
+        return "entrance";
+      }
+
+      // 3. Privacy:
+      // - Bath, Ensuite, WC, Toilet, Powder room
+      if (rName.includes("bath") || rName.includes("ens") || rName.includes("wc") || rName.includes("toilet") || rName.includes("powder") || rName.includes("pwd")) {
+        return "privacy";
+      }
+
+      // 4. Dummy:
+      // - Robe, Linen, Pantry, Cupboard, Closet, Cabinet
+      if (rName.includes("robe") || rName.includes("linen") || rName.includes("pantry") || rName.includes("cupboard") || rName.includes("closet") || rName.includes("cabinet")) {
+        return "dummy";
+      }
+    }
+  }
+
+  // 5. Pass (Passage):
+  // - Default for other rooms (opposite of privacy)
+  return "passage";
+}
 
 // Dynamic imports for heavy components (code-splitting)
 const BOQTable = dynamic(() => import("@/components/BOQTable"), { ssr: false });
@@ -74,6 +191,7 @@ export default function App() {
 
   // === LOCAL UI STATE (View-specific) ===
   const [image, setImage] = useState(null);
+  const [showPDF, setShowPDF] = useState(true);
 
   // === SEARCH STATE (Smart Search & Auto Count) ===
   const [searchResults, setSearchResults] = useState([]);
@@ -112,6 +230,7 @@ export default function App() {
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
     currentMouse,
+    doorPreset, setDoorPreset,
     history, future,
     pushHistory, undo, redo,
     deleteItem, deleteAllRooms,
@@ -138,8 +257,10 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishDoor,
-    startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel
+    handleClick, finishPolygon, finishDoor, updateDoor,
+    startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
+    autoMergeCollinearWalls,
+    snapAllDoorsToWalls
   } = useInteractionController(svgRef);
 
   useEffect(() => {
@@ -171,23 +292,33 @@ export default function App() {
 
   const rooms = roomsByPage[currentPage] || [];
 
-  const updateDoor = (newDoor) => {
+
+  const deleteDoor = (doorId) => {
     const doors = doorsByPage[currentPage] || [];
-    pushHistory(null, null, doors.map(d => d.id === newDoor.id ? newDoor : d));
+    pushHistory(null, null, doors.filter(d => d.id !== doorId));
   };
 
   // Thêm door_name (D-1, D-2) và page_index tự động cho các cửa để hiển thị đồng nhất và liên kết với tầng chính xác
   const processedDoorsByPage = useMemo(() => {
     const newObj = {};
     Object.keys(doorsByPage).forEach(page => {
-      newObj[page] = (doorsByPage[page] || []).map((d, i) => ({
-        ...d,
-        door_name: d.door_name || `D-${i + 1}`,
-        page_index: parseInt(page, 10)
-      }));
+      const pageIdx = parseInt(page, 10);
+      const pageRooms = roomsByPage[pageIdx] || [];
+      const pageWalls = wallsByPage[pageIdx] || [];
+
+      newObj[page] = (doorsByPage[page] || []).map((d, i) => {
+        const doorName = d.door_name || `D-${i + 1}`;
+        const autoHardware = getHardwareType({ ...d, door_name: doorName }, pageRooms, pageWalls, realScale);
+        return {
+          ...d,
+          door_name: doorName,
+          hardware_type: d.hardware_type || autoHardware,
+          page_index: pageIdx
+        };
+      });
     });
     return newObj;
-  }, [doorsByPage]);
+  }, [doorsByPage, roomsByPage, wallsByPage, realScale]);
 
   const boqPages = useMemo(() => 
     pages.map((p, idx) => ({
@@ -197,6 +328,10 @@ export default function App() {
     })), 
     [pages, roomsByPage, processedDoorsByPage]
   );
+
+  const allDoors = useMemo(() => {
+    return Object.values(processedDoorsByPage).flat();
+  }, [processedDoorsByPage]);
 
   // === CONTROLLERS (Business Logic) ===
   const {
@@ -474,6 +609,7 @@ export default function App() {
       <RibbonView
         currentPage={currentPage}
         drawing={drawing} setDrawing={setDrawing}
+        isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -493,6 +629,8 @@ export default function App() {
         handleSaveJob={handleSaveJob}
         undo={undo} redo={redo}
         deleteItem={deleteItem} deleteAllRooms={deleteAllRooms}
+        autoMergeCollinearWalls={autoMergeCollinearWalls}
+        snapAllDoorsToWalls={snapAllDoorsToWalls}
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
         autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
         smartDetect={smartDetect} cancelSmartDetect={cancelSmartDetect} isSmartDetecting={isSmartDetecting} smartProgress={smartProgress}
@@ -517,6 +655,8 @@ export default function App() {
         setSearchResultsVisible={setSearchResultsVisible}
         clearSearch={clearSearch}
         runROISearch={runROISearch}
+        showPDF={showPDF}
+        setShowPDF={setShowPDF}
       />
 
       {activeTab === "Admin" ? (
@@ -538,12 +678,23 @@ export default function App() {
             />
           )}
 
+          {isDrawingDoor && !show3D && (
+            <DoorTypePanel
+              onSelectPreset={(preset) => {
+                setDoorPreset(preset);
+              }}
+              activePreset={doorPreset}
+            />
+          )}
+
           {show3D ? (
             <ThreeDView
               rooms={rooms}
               walls={wallsByPage[currentPage] || []}
               doors={processedDoorsByPage[currentPage] || []}
               realScale={realScale}
+              image={image}
+              imgSize={imgSize}
               onClose={() => setShow3D(false)}
             />
           ) : (
@@ -611,10 +762,13 @@ export default function App() {
               dragging={dragging}
               pushHistory={pushHistory}
               updateDoor={updateDoor}
+              deleteDoor={deleteDoor}
               searchResults={searchResults}
               searchResultsVisible={searchResultsVisible}
               hoveredSearchResultId={hoveredSearchResultId}
               zoomToBbox={zoomToBbox}
+              showPDF={showPDF}
+              setShowPDF={setShowPDF}
             />
           )}
 
@@ -663,6 +817,7 @@ export default function App() {
                 interactionMode={interactionMode}
                 setInteractionMode={setInteractionMode}
                 pxToMm={pxToMm}
+                autoMergeCollinearWalls={autoMergeCollinearWalls}
               />
             )
           )}
@@ -681,6 +836,7 @@ export default function App() {
             {scaleValue ? (
               <BOQTable
                 pages={boqPages}
+                doors={allDoors}
                 scaleValue={scaleValue}
                 wasteInternal={wasteByPage[currentPage]?.internal ?? 10}
                 wasteExternal={wasteByPage[currentPage]?.external ?? 15}

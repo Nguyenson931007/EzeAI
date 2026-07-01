@@ -5,6 +5,7 @@ import { useAppModel } from "@/models/app.context";
 export default function RibbonView({
   // State from App.jsx not in context yet
   drawing, setDrawing,
+  isDrawingDoor, setIsDrawingDoor,
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
   isSnapMode, setIsSnapMode,
@@ -25,6 +26,8 @@ export default function RibbonView({
   handleSaveJob,
   undo, redo,
   deleteItem, deleteAllRooms,
+  autoMergeCollinearWalls,
+  snapAllDoorsToWalls,
   finishPolygon, setCurrentPoly,
   autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg,
   // Smart AI pipeline
@@ -42,7 +45,8 @@ export default function RibbonView({
   loadPDF, setImage, setImgSize,
   // Add new search props
   searchResultsVisible, setSearchResultsVisible,
-  clearSearch, runROISearch
+  clearSearch, runROISearch,
+  showPDF, setShowPDF
 }) {
   const {
     activeTab, setActiveTab,
@@ -138,6 +142,13 @@ export default function RibbonView({
                   <span className="icon">🗑</span><span className="label">Delete</span>
                 </button>
                 <button
+                  className="ribbon-btn"
+                  onClick={() => autoMergeCollinearWalls && autoMergeCollinearWalls()}
+                  title="Tự động nối các đoạn tường thẳng hàng thành 1 tường (Merge Aligned)"
+                >
+                  <span className="icon">🔗</span><span className="label">Merge Aligned</span>
+                </button>
+                <button
                   className={`ribbon-btn ${interactionMode === "marquee" ? "active" : ""}`}
                   onClick={() => setInteractionMode && setInteractionMode(prev => prev === "marquee" ? "select" : "marquee")}
                   title="Marquee Select Walls (Ctrl + Drag)"
@@ -171,8 +182,23 @@ export default function RibbonView({
             {/* DRAW */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) setCurrentPoly([]); }}>
+                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
+                </button>
+                <button 
+                  className={`ribbon-btn ${isDrawingDoor ? "active" : ""}`} 
+                  onClick={() => { 
+                    setIsDrawingDoor(v => !v); 
+                    if (!isDrawingDoor) { 
+                      setDrawing(false); 
+                      setIsMeasuring(false); 
+                      setIsDistancing(false); 
+                      setCurrentPoly([]); 
+                    } 
+                  }}
+                  title="Draw Door and select Preset Sizes"
+                >
+                  <span className="icon">🚪</span><span className="label">Door</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); }}>
                   <span className="icon">✓</span><span className="label">Finish</span>
@@ -182,6 +208,9 @@ export default function RibbonView({
                 </button>
                 <button className={`ribbon-btn ${isSnapMode ? "active" : ""}`} onClick={() => setIsSnapMode(v => !v)} title="Snap to 90/45 degrees (Ortho Mode)">
                   <span className="icon">📐</span><span className="label">Snap</span>
+                </button>
+                <button className="ribbon-btn" onClick={() => snapAllDoorsToWalls()} title="Căn thẳng tất cả các cửa theo tường gần nhất">
+                  <span className="icon">🔧</span><span className="label">Snap Doors</span>
                 </button>
               </div>
               <span className="ribbon-group-title">DRAW</span>
@@ -451,6 +480,10 @@ export default function RibbonView({
                 </button>
                 <button className={`ribbon-btn ${show3D ? "active" : ""}`} onClick={() => setShow3D(v => !v)}>
                   <span className="icon">🧱🏠</span><span className="label">3D View</span>
+                </button>
+                <button className={`ribbon-btn ${!showPDF ? "active" : ""}`} onClick={() => setShowPDF(v => !v)} title="Bật/Tắt PDF Nền (Toggle PDF Background)">
+                  <span className="icon">{showPDF ? "📄" : "👁‍🗨"}</span>
+                  <span className="label">{showPDF ? "Hide PDF" : "Show PDF"}</span>
                 </button>
               </div>
               <span className="ribbon-group-title">NAVIGATE</span>

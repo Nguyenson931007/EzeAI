@@ -12,8 +12,9 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls, snapDoorToWalls } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
+import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
 
 export function useInteractionController(svgRef) {
   const {
@@ -48,6 +49,7 @@ export function useInteractionController(svgRef) {
   const [isDrawingDoor, setIsDrawingDoor] = useState(false);
   const [currentDoor, setCurrentDoor] = useState([]);
   const [currentMouse, setCurrentMouse] = useState(null);
+  const [doorPreset, setDoorPreset] = useState(null);
 
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
@@ -372,6 +374,30 @@ export function useInteractionController(svgRef) {
     pushHistory(null, updated);
   }
 
+  function autoMergeCollinearWalls(targetWallIds = null) {
+    const pageWalls = wallsByPage[currentPage] || [];
+    if (pageWalls.length < 2) return;
+
+    let wallsToProcess = pageWalls;
+    let otherWalls = [];
+
+    if (targetWallIds && targetWallIds.length > 0) {
+      wallsToProcess = pageWalls.filter(w => targetWallIds.includes(w.id));
+      otherWalls = pageWalls.filter(w => !targetWallIds.includes(w.id));
+    }
+
+    const merged = mergeCollinearWalls(wallsToProcess);
+    const finalWalls = [...otherWalls, ...merged];
+    
+    const currentPageDoors = doorsByPage[currentPage] || [];
+    const cutWalls = cutWallsByDoors(finalWalls, currentPageDoors, realScale);
+
+    pushHistory(null, cutWalls);
+    setSelectedWallIds([]);
+    setSelectedId(null);
+    setSelectedType(null);
+  }
+
   function deleteItem() {
     if (selectedType === 'door') {
       if (selectedId) {
@@ -680,26 +706,289 @@ export function useInteractionController(svgRef) {
       return;
     }
     const [p1, p2] = points;
+    
+    // If we have a preset with specific width, let's adjust finalP2 to exactly match that width in pixels
+    let finalP2 = { x: p2.x, y: p2.y };
+    if (doorPreset && doorPreset.width && realScale) {
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0.1) {
+        const desiredPx = doorPreset.width / realScale;
+        finalP2.x = p1.x + (dx / len) * desiredPx;
+        finalP2.y = p1.y + (dy / len) * desiredPx;
+      }
+    }
+
     const newDoor = {
       id: "door_" + Date.now(),
       points: [
         { x: p1.x, y: p1.y },
-        { x: p2.x, y: p2.y }
+        finalP2
       ],
-      type: "single",
+      type: doorPreset ? (doorPreset.class.includes("double") ? "double" : (doorPreset.class.includes("sliding") || doorPreset.class.includes("slider") ? "sliding" : "single")) : "single",
+      class: doorPreset ? doorPreset.class : "single_door",
+      door_name: doorPreset ? doorPreset.name : "D-Custom",
+      width_mm: doorPreset ? doorPreset.width : undefined,
+      height_mm: doorPreset ? doorPreset.height : 1980,
       review_state: "human_verified",
       hingeSide: "left",
       swing: "inward",
       angle: 90
     };
     const currentPageDoors = doorsByPage[currentPage] || [];
-    const newDoors = [...currentPageDoors, newDoor];
     const currentWalls = wallsByPage[currentPage] || [];
-    const cutWalls = cutWallsByDoors(currentWalls, newDoors);
+    
+    // Snap the new door to the nearest wall centerline (if any within 40px)
+    const snappedDoor = snapDoorToWalls(newDoor, currentWalls, 40);
+    const newDoors = [...currentPageDoors, snappedDoor];
+    
+    // Heal existing walls before cutting them by the new set of doors
+    const healedWalls = mergeCollinearWalls(currentWalls);
+    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
 
     pushHistory(null, cutWalls, newDoors);
     setCurrentDoor([]);
     setIsDrawingDoor(false);
+  }
+
+  function rotateDoorGeometry(door, angleDeg) {
+    const angleRad = (angleDeg * Math.PI) / 180;
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+
+    let cx = 0, cy = 0;
+    let pts = [];
+    if (door.points && door.points.length >= 2) {
+      pts = door.points;
+      cx = (pts[0].x + pts[1].x) / 2;
+      cy = (pts[0].y + pts[1].y) / 2;
+    } else if (door.polygon && door.polygon.length > 0) {
+      const polyPts = door.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+      cx = polyPts.reduce((s, p) => s + p.x, 0) / polyPts.length;
+      cy = polyPts.reduce((s, p) => s + p.y, 0) / polyPts.length;
+    } else {
+      return door;
+    }
+
+    const rotatePt = (p) => {
+      const isArr = Array.isArray(p);
+      const px = isArr ? p[0] : p.x;
+      const py = isArr ? p[1] : p.y;
+      const dx = px - cx;
+      const dy = py - cy;
+      const rx = dx * cosA - dy * sinA;
+      const ry = dx * sinA + dy * cosA;
+      return isArr ? [cx + rx, cy + ry] : { x: cx + rx, y: cy + ry };
+    };
+
+    const newPoints = door.points ? door.points.map(rotatePt) : undefined;
+    const newPoly = door.polygon ? door.polygon.map(rotatePt) : undefined;
+    const newMaskPoly = door.mask_polygon ? door.mask_polygon.map(rotatePt) : undefined;
+
+    let newBbox = door.bbox;
+    if (newPoly && newPoly.length > 0) {
+      const xs = newPoly.map(p => Array.isArray(p) ? p[0] : p.x);
+      const ys = newPoly.map(p => Array.isArray(p) ? p[1] : p.y);
+      newBbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+
+    return {
+      ...door,
+      points: newPoints,
+      polygon: newPoly,
+      mask_polygon: newMaskPoly,
+      bbox: newBbox
+    };
+  }
+
+  function scaleDoorWidthGeometry(door, oldDoor, scaleVal) {
+    if (!scaleVal) return door;
+    const oldWidthMm = oldDoor.width_mm || 760;
+    const newWidthMm = door.width_mm;
+    const ratio = newWidthMm / oldWidthMm;
+
+    let pts = door.points;
+    if (!pts || pts.length < 2) return door;
+
+    const p1 = pts[0];
+    const p2 = pts[1];
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+
+    const scalePt = (p) => {
+      const isArr = Array.isArray(p);
+      const px = isArr ? p[0] : p.x;
+      const py = isArr ? p[1] : p.y;
+      const dx = px - cx;
+      const dy = py - cy;
+      const rx = dx * ratio;
+      const ry = dy * ratio;
+      return isArr ? [cx + rx, cy + ry] : { x: cx + rx, y: cy + ry };
+    };
+
+    const newPoints = door.points ? door.points.map(scalePt) : undefined;
+    const newPoly = door.polygon ? door.polygon.map(scalePt) : undefined;
+    const newMaskPoly = door.mask_polygon ? door.mask_polygon.map(scalePt) : undefined;
+
+    let newBbox = door.bbox;
+    if (newPoly && newPoly.length > 0) {
+      const xs = newPoly.map(p => Array.isArray(p) ? p[0] : p.x);
+      const ys = newPoly.map(p => Array.isArray(p) ? p[1] : p.y);
+      newBbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+
+    return {
+      ...door,
+      points: newPoints,
+      polygon: newPoly,
+      mask_polygon: newMaskPoly,
+      bbox: newBbox
+    };
+  }
+
+  function moveDoorAlongWallByDistance(door, walls, scaleVal) {
+    if (!scaleVal || !walls || walls.length === 0) return door;
+    let pts = door.points;
+    if (!pts || pts.length < 2) return door;
+
+    const p1 = pts[0];
+    const p2 = pts[1];
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+
+    let closestWall = null;
+    let minDist = Infinity;
+    walls.forEach(w => {
+      if (!w.centerline || w.centerline.length < 2) return;
+      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+      const dist = distancePointToSegment(cx, cy, wp1.x, wp1.y, wp2.x, wp2.y);
+      if (dist < minDist) {
+        minDist = dist;
+        closestWall = w;
+      }
+    });
+
+    if (!closestWall || minDist > 80) return door;
+
+    const w1 = { x: closestWall.centerline[0][0], y: closestWall.centerline[0][1] };
+    const w2 = { x: closestWall.centerline[1][0], y: closestWall.centerline[1][1] };
+    
+    const wdx = w2.x - w1.x;
+    const wdy = w2.y - w1.y;
+    const wLen = Math.hypot(wdx, wdy);
+    if (wLen < 0.1) return door;
+
+    const doorDx = p2.x - p1.x;
+    const doorDy = p2.y - p1.y;
+    const dot = doorDx * wdx + doorDy * wdy;
+    const alignedW1 = dot >= 0 ? w1 : w2;
+    const alignedW2 = dot >= 0 ? w2 : w1;
+
+    const ux = (alignedW2.x - alignedW1.x) / wLen;
+    const uy = (alignedW2.y - alignedW1.y) / wLen;
+
+    const doorWidthPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const targetDistPx = door.distance_from.value / scaleVal;
+
+    let targetCx, targetCy;
+    if (door.distance_from.side === 'left') {
+      const distAlongWall = targetDistPx + doorWidthPx / 2;
+      targetCx = alignedW1.x + ux * distAlongWall;
+      targetCy = alignedW1.y + uy * distAlongWall;
+    } else {
+      const distAlongWall = wLen - targetDistPx - doorWidthPx / 2;
+      targetCx = alignedW1.x + ux * distAlongWall;
+      targetCy = alignedW1.y + uy * distAlongWall;
+    }
+
+    const tx = targetCx - cx;
+    const ty = targetCy - cy;
+
+    const translatePt = (p) => {
+      const isArr = Array.isArray(p);
+      const px = isArr ? p[0] : p.x;
+      const py = isArr ? p[1] : p.y;
+      return isArr ? [px + tx, py + ty] : { x: px + tx, y: py + ty };
+    };
+
+    const newPoints = door.points ? door.points.map(translatePt) : undefined;
+    const newPoly = door.polygon ? door.polygon.map(translatePt) : undefined;
+    const newMaskPoly = door.mask_polygon ? door.mask_polygon.map(translatePt) : undefined;
+
+    let newBbox = door.bbox;
+    if (newPoly && newPoly.length > 0) {
+      const xs = newPoly.map(p => Array.isArray(p) ? p[0] : p.x);
+      const ys = newPoly.map(p => Array.isArray(p) ? p[1] : p.y);
+      newBbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+
+    return {
+      ...door,
+      points: newPoints,
+      polygon: newPoly,
+      mask_polygon: newMaskPoly,
+      bbox: newBbox
+    };
+  }
+
+  function updateDoor(newDoor) {
+    const currentDoors = doorsByPage[currentPage] || [];
+    const currentWalls = wallsByPage[currentPage] || [];
+    const oldDoor = currentDoors.find(d => d.id === newDoor.id);
+    if (!oldDoor) return;
+
+    let updatedDoor = { ...newDoor };
+
+    // 1. Rotation change
+    if (updatedDoor.rotation !== undefined && updatedDoor.rotation !== (oldDoor.rotation || 0)) {
+      const diffRot = updatedDoor.rotation - (oldDoor.rotation || 0);
+      updatedDoor = rotateDoorGeometry(updatedDoor, diffRot);
+    }
+
+    // 2. Width change
+    if (updatedDoor.width_mm && updatedDoor.width_mm !== oldDoor.width_mm) {
+      updatedDoor = scaleDoorWidthGeometry(updatedDoor, oldDoor, realScale);
+    }
+
+    // 3. Distance change
+    if (updatedDoor.distance_from && 
+        (updatedDoor.distance_from.value !== oldDoor.distance_from?.value || 
+         updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
+      updatedDoor = moveDoorAlongWallByDistance(updatedDoor, currentWalls, realScale);
+    }
+
+    // 4. Frame edge index change (Swap Frame & Leaf)
+    if (updatedDoor.frameEdgeIndex !== undefined && updatedDoor.frameEdgeIndex !== (oldDoor.frameEdgeIndex || 0)) {
+      const pts = oldDoor.points || [];
+      let p1 = pts[0] ? (Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0]) : null;
+      let p2 = pts[1] ? (Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1]) : null;
+
+      if (p1 && p2) {
+        const geom = calculateDoorGeometry({
+          p1,
+          p2,
+          type: oldDoor.class?.includes("double") ? "double" : "single",
+          hingeSide: oldDoor.hingeSide || oldDoor.hinge_side || "left",
+          swing: oldDoor.swing || oldDoor.swing_direction || "inward",
+          angle: oldDoor.angle || oldDoor.opening_angle || 90
+        });
+
+        if (geom && geom.arcCenter && geom.arcEnd) {
+          updatedDoor.points = [
+            { x: geom.arcCenter.x, y: geom.arcCenter.y },
+            { x: geom.arcEnd.x, y: geom.arcEnd.y }
+          ];
+        }
+      }
+    }
+
+    const updatedDoors = currentDoors.map(d => d.id === newDoor.id ? updatedDoor : d);
+    const healedWalls = mergeCollinearWalls(currentWalls);
+    const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
+
+    pushHistory(null, cutWalls, updatedDoors);
   }
 
   function startDrag(id, index, type = 'room') {
@@ -782,9 +1071,24 @@ export function useInteractionController(svgRef) {
               if (door.id === dragging.id) {
                 const startDoor = dragging.startDoors?.find(sd => sd.id === door.id);
                 if (!startDoor) return door;
+                
+                const updatedPoints = startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
+                const updatedPoly = startDoor.polygon ? startDoor.polygon.map(pt => {
+                  const px = Array.isArray(pt) ? pt[0] : pt.x;
+                  const py = Array.isArray(pt) ? pt[1] : pt.y;
+                  return Array.isArray(pt) ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
+                }) : null;
+                const updatedMaskPoly = startDoor.mask_polygon ? startDoor.mask_polygon.map(pt => {
+                  const px = Array.isArray(pt) ? pt[0] : pt.x;
+                  const py = Array.isArray(pt) ? pt[1] : pt.y;
+                  return Array.isArray(pt) ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
+                }) : null;
+
                 return {
                   ...door,
-                  points: startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }))
+                  points: updatedPoints,
+                  polygon: updatedPoly,
+                  mask_polygon: updatedMaskPoly
                 };
               }
               return door;
@@ -968,6 +1272,23 @@ export function useInteractionController(svgRef) {
 
   function onMouseUp() {
     if (dragging) {
+      if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
+        const pageWalls = wallsByPage[currentPage] || [];
+        const pageDoors = doorsByPage[currentPage] || [];
+        const targetDoor = pageDoors.find(d => d.id === dragging.id);
+        if (targetDoor) {
+          const snappedDoor = snapDoorToWalls(targetDoor, pageWalls, 40);
+          const updatedDoors = pageDoors.map(d => d.id === dragging.id ? snappedDoor : d);
+
+          // Heal all walls by merging collinear ones (this heals the old door cuts)
+          const healedWalls = mergeCollinearWalls(pageWalls);
+          // Cut the healed walls by the updated doors list
+          const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
+
+          // Update state and history
+          pushHistory(null, cutWalls, updatedDoors);
+        }
+      }
       setDragging(null);
     }
     panStart.current = null;
@@ -1039,6 +1360,24 @@ export function useInteractionController(svgRef) {
     setScale(newScale);
   }
 
+  function snapAllDoorsToWalls() {
+    const currentDoors = doorsByPage[currentPage] || [];
+    const currentWalls = wallsByPage[currentPage] || [];
+    if (currentDoors.length === 0 || currentWalls.length === 0) return;
+
+    // Merge cut walls back to uncut walls for snapping
+    const uncutWalls = mergeCollinearWalls([...currentWalls]);
+
+    // Snap all doors to these uncut walls
+    const snappedDoors = currentDoors.map(d => snapDoorToWalls(d, uncutWalls, 80));
+
+    // Cut the walls using the snapped doors
+    const newWalls = cutWallsByDoors(uncutWalls, snappedDoors, realScale);
+
+    // Save history and update states
+    pushHistory(rooms, newWalls, snappedDoors);
+  }
+
   return {
     scale, setScale,
     offset, setOffset,
@@ -1048,6 +1387,7 @@ export function useInteractionController(svgRef) {
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
     currentMouse,
+    doorPreset, setDoorPreset,
     history, future,
     pushHistory, undo, redo,
     deleteItem, deleteAllRooms,
@@ -1070,8 +1410,9 @@ export function useInteractionController(svgRef) {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishDoor, makeCurve,
+    handleClick, finishPolygon, finishDoor, updateDoor, makeCurve,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
-    selectWall, deleteWalls, updateWallsProperty, pxToMm, mmToPx
+    selectWall, deleteWalls, updateWallsProperty, pxToMm, mmToPx, autoMergeCollinearWalls,
+    snapAllDoorsToWalls
   };
 }
