@@ -102,13 +102,7 @@ def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
 
 
 def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 250.0) -> List[dict]:
-    """
-    Merges collinear/parallel wall segments that overlap or are very close.
-    Automatically resolves to the dominant class (exterior > interior > partition).
-    """
-    import math
-    current_walls = [dict(w) for w in walls]
-    merged_any = True
+    return list(walls)
     
     while merged_any:
         merged_any = False
@@ -374,8 +368,8 @@ def _snap_t_junctions(walls: List[dict], max_dist_to_segment: float = 60.0) -> L
 
 def _split_walls_at_t_junctions(walls: List[dict], min_dist_from_end: float = 15.0) -> List[dict]:
     """
-    Splits wall segments that have perpendicular walls ending on their centerline.
-    Only splits if the intersection is at least min_dist_from_end away from both endpoints of the wall segment.
+    Splits wall segments that are intersected/crossed by other walls, or have
+    perpendicular walls ending near their centerline.
     """
     import math
 
@@ -398,7 +392,6 @@ def _split_walls_at_t_junctions(walls: List[dict], min_dist_from_end: float = 15
         ux = vx / length
         uy = vy / length
 
-        # Find all perpendicular wall endpoints that lie on this wall's centerline
         intersection_ts = []
         for other_w in walls:
             if other_w is w:
@@ -407,9 +400,24 @@ def _split_walls_at_t_junctions(walls: List[dict], min_dist_from_end: float = 15
             if not other_c or len(other_c) != 2:
                 continue
 
-            # Check if other_w is approximately perpendicular to w
-            other_vx = other_c[1][0] - other_c[0][0]
-            other_vy = other_c[1][1] - other_c[0][1]
+            # Check segment-segment intersection (cross intersections)
+            p3, p4 = other_c[0], other_c[1]
+            dx1, dy1 = p2[0] - p1[0], p2[1] - p1[1]
+            dx2, dy2 = p4[0] - p3[0], p4[1] - p3[1]
+            denom = dx1 * dy2 - dy1 * dx2
+            if abs(denom) > 1e-6:
+                t = ((p3[0] - p1[0]) * dy2 - (p3[1] - p1[1]) * dx2) / denom
+                u = ((p3[0] - p1[0]) * dy1 - (p3[1] - p1[1]) * dx1) / denom
+                # Only split if the intersection is well within both segment endpoints
+                if 0.0 < t < 1.0 and 0.0 < u < 1.0:
+                    t_px = t * length
+                    if min_dist_from_end <= t_px <= length - min_dist_from_end:
+                        intersection_ts.append(t_px)
+                        continue
+
+            # Check if either endpoint of other_w lies close to w's centerline (T-junctions)
+            other_vx = dx2
+            other_vy = dy2
             other_len = math.hypot(other_vx, other_vy)
             if other_len == 0:
                 continue
@@ -417,48 +425,47 @@ def _split_walls_at_t_junctions(walls: List[dict], min_dist_from_end: float = 15
             other_uy = other_vy / other_len
 
             dot_prod = abs(ux * other_ux + uy * other_uy)
-            if dot_prod > 0.25:  # Not perpendicular (deviation > ~15 degrees)
+            if dot_prod > 0.3:  # Deviation check for perpendicular/near-perpendicular
                 continue
 
-            # Check if either endpoint of other_w lies on w's centerline
             for pt in other_c:
                 # Project pt onto line of w
                 dx = pt[0] - p1[0]
                 dy = pt[1] - p1[1]
-                t = dx * ux + dy * uy
+                t_val = dx * ux + dy * uy
 
                 # Project point coordinate
-                proj_x = p1[0] + t * ux
-                proj_y = p1[1] + t * uy
+                proj_x = p1[0] + t_val * ux
+                proj_y = p1[1] + t_val * uy
                 dist = math.hypot(pt[0] - proj_x, pt[1] - proj_y)
 
-                # If the point is extremely close to the line (< 2.0px) and well within endpoints
-                if dist < 2.0 and min_dist_from_end <= t <= length - min_dist_from_end:
-                    intersection_ts.append(t)
+                # Split if perpendicular endpoint is within 12.0px of the centerline
+                if dist < 12.0 and min_dist_from_end <= t_val <= length - min_dist_from_end:
+                    intersection_ts.append(t_val)
 
         if not intersection_ts:
             split_walls.append(w)
             continue
 
-        # Sort and deduplicate parameters. Group close cuts (within 5px) to avoid thin fragments.
+        # Sort and deduplicate parameters. Group close cuts (within 10px) to avoid thin fragments.
         intersection_ts = sorted(list(set(intersection_ts)))
         unique_ts = []
-        for t in intersection_ts:
-            if not unique_ts or (t - unique_ts[-1] > 5.0):
-                unique_ts.append(t)
+        for t_val in intersection_ts:
+            if not unique_ts or (t_val - unique_ts[-1] > 10.0):
+                unique_ts.append(t_val)
 
         # Split the wall segment
         last_t = 0.0
-        for t in unique_ts:
+        for t_val in unique_ts:
             seg_p1 = [round(p1[0] + last_t * ux, 1), round(p1[1] + last_t * uy, 1)]
-            seg_p2 = [round(p1[0] + t * ux, 1), round(p1[1] + t * uy, 1)]
+            seg_p2 = [round(p1[0] + t_val * ux, 1), round(p1[1] + t_val * uy, 1)]
 
             if math.hypot(seg_p2[0] - seg_p1[0], seg_p2[1] - seg_p1[1]) >= 15.0:
                 split_walls.append({
                     **w,
                     "centerline": [seg_p1, seg_p2]
                 })
-                last_t = t
+                last_t = t_val
 
         # Last segment from last_t to length (B)
         seg_p1 = [round(p1[0] + last_t * ux, 1), round(p1[1] + last_t * uy, 1)]
@@ -553,6 +560,112 @@ def _remove_short_overlapping_walls(walls: List[dict], min_length: float = 80.0,
     return [walls[i] for i in range(n) if keep[i]]
 
 
+def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
+    """
+    Option 1: Discard any interior/partition walls that lie outside the boundary
+    enclosed by the exterior walls.
+    
+    Algorithm:
+        1. Find all exterior walls.
+        2. Create LineStrings of their centerlines.
+        3. Attempt to polygonize these LineStrings to find the enclosed region.
+        4. If we find closed polygons, use their union as the boundary.
+        5. If no closed polygons are found (or area is tiny), fall back to the Convex Hull of exterior walls.
+        6. Buffer the boundary by a small margin (e.g., 50px) to prevent borderline discards.
+        7. Filter out interior/partition walls whose midpoints lie outside this boundary.
+    """
+    from shapely.geometry import LineString, MultiPoint, Point
+    from shapely.ops import polygonize, unary_union
+
+    if len(walls) < 3:
+        return walls
+
+    # 1. Get exterior walls and interior/partition walls
+    ext_lines = []
+    other_walls = []
+    
+    for w in walls:
+        c = w.get("centerline")
+        if not c or len(c) != 2:
+            continue
+        
+        class_name = w.get("class_name", "exterior_wall")
+        p1, p2 = c[0], c[1]
+        line = LineString([p1, p2])
+        
+        if class_name == "exterior_wall":
+            ext_lines.append(line)
+        else:
+            other_walls.append(w)
+
+    if not ext_lines:
+        return walls  # No exterior walls to define a boundary
+
+    # 2. Try polygonization
+    boundary_geom = None
+    try:
+        polys = list(polygonize(ext_lines))
+        if polys:
+            # Union of all closed loops
+            boundary_geom = unary_union(polys)
+    except Exception:
+        pass
+
+    # 3. Fallback to Convex Hull of exterior wall endpoints if no closed loops are found
+    if boundary_geom is None or boundary_geom.is_empty or boundary_geom.area < 1000.0:
+        ext_points = []
+        for line in ext_lines:
+            ext_points.extend(line.coords)
+        if len(ext_points) >= 3:
+            try:
+                boundary_geom = MultiPoint(ext_points).convex_hull
+            except Exception:
+                pass
+
+    if boundary_geom is None or boundary_geom.is_empty:
+        return walls
+
+    # 4. Buffer the boundary polygon slightly (e.g. 50 pixels) to avoid cutting off walls touching the boundaries
+    try:
+        boundary_buffered = boundary_geom.buffer(50.0)
+    except Exception:
+        boundary_buffered = boundary_geom
+
+    # 5. Filter interior/partition walls
+    keep_walls = []
+    # Always keep exterior walls
+    for w in walls:
+        class_name = w.get("class_name", "exterior_wall")
+        if class_name == "exterior_wall":
+            keep_walls.append(w)
+            continue
+            
+        c = w.get("centerline")
+        if not c or len(c) != 2:
+            keep_walls.append(w)
+            continue
+            
+        p1, p2 = c[0], c[1]
+        midpoint = Point([(p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0])
+        
+        # Check if the midpoint is inside the buffered boundary
+        try:
+            if boundary_buffered.contains(midpoint):
+                keep_walls.append(w)
+            else:
+                logger.info(
+                    f"[wall_segment_service] Option 1 Filter: Removed interior/partition wall at midpoint "
+                    f"({midpoint.x:.0f}, {midpoint.y:.0f}) — outside exterior boundary"
+                )
+        except Exception:
+            keep_walls.append(w)  # Safe default on geometry error
+
+    logger.info(
+        f"[wall_segment_service] Option 1 Boundary filter: kept {len(keep_walls)}/{len(walls)} walls"
+    )
+    return keep_walls
+
+
 class WallSegmentService:
     """Service to run wall segmentation and extract raw coordinates using YOLO Segmentation."""
 
@@ -562,7 +675,8 @@ class WallSegmentService:
         confidence: float = 0.10,
         imgsz: int = 1280,
         real_scale: float = 1.0,
-        filename: str = "plan.png"
+        filename: str = "plan.png",
+        wall_thicknesses: Dict[str, int] = None
     ) -> dict:
         """
         Runs wall segmentation inference on a single image.
@@ -614,10 +728,10 @@ class WallSegmentService:
                     class_id = int(box.cls[0].item())
                     class_name = model.names.get(class_id, f"wall_{class_id}")
 
-                    # Class-specific confidence filtering (Idea 9)
-                    part_thresh = 0.08 if confidence >= 0.01 else confidence
-                    int_thresh = 0.05 if confidence >= 0.01 else confidence
-                    ext_thresh = 0.03 if confidence >= 0.01 else confidence
+                    # Class-specific confidence filtering
+                    part_thresh = confidence
+                    int_thresh = confidence
+                    ext_thresh = confidence
 
                     if class_name == "partition_wall":
                         if conf < part_thresh:
@@ -770,12 +884,15 @@ class WallSegmentService:
                 ux = dx / length
                 uy = dy / length
                 
-                # Determine thickness based on wall class
+                # Determine thickness based on wall class (user-configurable)
                 class_name = w.get("class_name", "exterior_wall")
+                wt = wall_thicknesses or {}
                 if class_name == "exterior_wall":
-                    thickness_mm = 90
+                    thickness_mm = wt.get("ext", 90)
+                elif class_name == "partition_wall":
+                    thickness_mm = wt.get("part", 70)
                 else:
-                    thickness_mm = 70
+                    thickness_mm = wt.get("int", 70)
 
                 if real_scale and real_scale != 1.0:
                     thickness_val = float(thickness_mm) / real_scale
@@ -818,6 +935,9 @@ class WallSegmentService:
         else:
             overlap_min_len = 80.0
         cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls, min_length=overlap_min_len)
+
+        # Step 4.5: Remove walls outside the house boundary (convex hull filter)
+        cleaned_walls = _filter_walls_outside_boundary(cleaned_walls)
 
         # Helper to compute centerline length of a wall object
         def _get_wall_len(w):
@@ -888,7 +1008,8 @@ class WallSegmentService:
         confidence: float = 0.001,
         imgsz: int = 1280,
         real_scale: float = 1.0,
-        filename: str = "plan.png"
+        filename: str = "plan.png",
+        wall_thicknesses: Dict[str, int] = None
     ):
         """
         Runs wall segmentation inference and yields events progressively:
@@ -945,9 +1066,9 @@ class WallSegmentService:
                     class_name = model.names.get(class_id, f"wall_{class_id}")
 
                     # Class-specific confidence filtering
-                    part_thresh = 0.08 if confidence >= 0.01 else confidence
-                    int_thresh = 0.05 if confidence >= 0.01 else confidence
-                    ext_thresh = 0.03 if confidence >= 0.01 else confidence
+                    part_thresh = confidence
+                    int_thresh = confidence
+                    ext_thresh = confidence
 
                     if class_name == "partition_wall":
                         if conf < part_thresh:
@@ -1040,7 +1161,13 @@ class WallSegmentService:
                 ux = dx / length
                 uy = dy / length
                 class_name = w.get("class_name", "exterior_wall")
-                thickness_mm = 90 if class_name == "exterior_wall" else 70
+                wt = wall_thicknesses or {}
+                if class_name == "exterior_wall":
+                    thickness_mm = wt.get("ext", 90)
+                elif class_name == "partition_wall":
+                    thickness_mm = wt.get("part", 70)
+                else:
+                    thickness_mm = wt.get("int", 70)
                 if real_scale and real_scale != 1.0:
                     thickness_val = float(thickness_mm) / real_scale
                 else:
@@ -1058,7 +1185,7 @@ class WallSegmentService:
                     "id": f"wall_raw_{idx+1:03d}",
                     "class_name": class_name,
                     "confidence": w["confidence"],
-                    "centerline": centerline,
+                    "centerline": c,
                     "polygon": [c1, c2, c3, c4],
                     "thickness_px": thickness_val,
                     "thickness": thickness_mm,
@@ -1131,7 +1258,13 @@ class WallSegmentService:
                 uy = dy / length
                 
                 class_name = w.get("class_name", "exterior_wall")
-                thickness_mm = 90 if class_name == "exterior_wall" else 70
+                wt = wall_thicknesses or {}
+                if class_name == "exterior_wall":
+                    thickness_mm = wt.get("ext", 90)
+                elif class_name == "partition_wall":
+                    thickness_mm = wt.get("part", 70)
+                else:
+                    thickness_mm = wt.get("int", 70)
 
                 if real_scale and real_scale != 1.0:
                     thickness_val = float(thickness_mm) / real_scale
@@ -1172,6 +1305,9 @@ class WallSegmentService:
         else:
             overlap_min_len = 80.0
         cleaned_walls = _remove_short_overlapping_walls(reconstructed_walls, min_length=overlap_min_len)
+
+        # Step 4.5: Remove walls outside the house boundary (convex hull filter)
+        cleaned_walls = _filter_walls_outside_boundary(cleaned_walls)
 
         # Helper
         def _get_wall_len(w):

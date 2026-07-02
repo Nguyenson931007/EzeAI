@@ -791,6 +791,9 @@ async def predict_wall_stream(
     file: UploadFile = File(...),
     confidence: float = Form(0.001),
     real_scale: Optional[float] = Form(1.0),
+    ext_thickness: Optional[int] = Form(90),
+    int_thickness: Optional[int] = Form(70),
+    part_thickness: Optional[int] = Form(70),
     username: str = Depends(validate_session)
 ):
     """
@@ -802,6 +805,11 @@ async def predict_wall_stream(
     from fastapi.responses import StreamingResponse
 
     content = await file.read()
+    wall_thicknesses = {
+        "ext": ext_thickness or 90,
+        "int": int_thickness or 70,
+        "part": part_thickness or 70
+    }
 
     async def event_generator():
         try:
@@ -809,7 +817,8 @@ async def predict_wall_stream(
                 image_bytes=content,
                 confidence=confidence,
                 real_scale=real_scale or 1.0,
-                filename=file.filename or "plan.png"
+                filename=file.filename or "plan.png",
+                wall_thicknesses=wall_thicknesses
             )
             
             while True:

@@ -253,35 +253,175 @@ const WallLayer = React.memo(({
   setHoverId,
   interactionMode
 }) => {
-  if (showLayer !== 'all' && showLayer !== 'wall') return null;
+  // Group walls into chains by class_name (ext, int, part) and thickness
+  const chains = [];
+  const validWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
+  const visited = new Set();
+
+  while (visited.size < validWalls.length) {
+    const startWall = validWalls.find(w => !visited.has(w.id));
+    if (!startWall) break;
+
+    visited.add(startWall.id);
+    let pts = [
+      { x: startWall.centerline[0][0], y: startWall.centerline[0][1] },
+      { x: startWall.centerline[1][0], y: startWall.centerline[1][1] }
+    ];
+    let thickness = startWall.thickness_px || 20;
+    let className = startWall.class_name || "exterior_wall";
+    let wallIds = [startWall.id];
+
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      const tail = pts[pts.length - 1];
+      const head = pts[0];
+
+      for (const w of validWalls) {
+        if (visited.has(w.id)) continue;
+        if ((w.class_name || "exterior_wall") !== className) continue;
+        const wThick = w.thickness_px || 20;
+        if (Math.abs(wThick - thickness) > 5) continue;
+
+        const p1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const p2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+        // Connect to tail
+        if (Math.hypot(p1.x - tail.x, p1.y - tail.y) < 8.0) {
+          pts.push(p2);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        } else if (Math.hypot(p2.x - tail.x, p2.y - tail.y) < 8.0) {
+          pts.push(p1);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        }
+        // Connect to head
+        else if (Math.hypot(p1.x - head.x, p1.y - head.y) < 8.0) {
+          pts.unshift(p2);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        } else if (Math.hypot(p2.x - head.x, p2.y - head.y) < 8.0) {
+          pts.unshift(p1);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        }
+      }
+    }
+
+    chains.push({
+      points: pts,
+      thickness,
+      className,
+      wallIds
+    });
+  }
 
   return (
     <g id="WallLayer">
-      {/* 1. Render all wall polygons first */}
+      {/* 1. First Pass: Render all outline borders for all chains */}
+      {chains.map((chain, chainIdx) => {
+        const isClosed = chain.points.length > 2 && Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x, chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+        let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+        if (isClosed) pathData += " Z";
+
+        const cls = (chain.className || "").toLowerCase();
+        let strokeColor = "#a855f7"; // purple default
+        if (cls.includes("ext") || cls.includes("external")) {
+          strokeColor = "#a855f7";
+        } else if (cls.includes("int") || cls.includes("internal")) {
+          strokeColor = "#b45309";
+        } else if (cls.includes("part") || cls.includes("partition")) {
+          strokeColor = "#eab308";
+        }
+
+        return (
+          <path
+            key={`outline-${chainIdx}`}
+            d={pathData}
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth={chain.thickness}
+            strokeLinecap="butt"
+            strokeLinejoin="miter"
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
+      {/* 2. Second Pass: Render all white masking paths for all chains to cover inner overlaps */}
+      {chains.map((chain, chainIdx) => {
+        const isClosed = chain.points.length > 2 && Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x, chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+        let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+        if (isClosed) pathData += " Z";
+
+        return (
+          <path
+            key={`mask-${chainIdx}`}
+            d={pathData}
+            fill="none"
+            stroke="white"
+            strokeWidth={chain.thickness - 2.0}
+            strokeLinecap="butt"
+            strokeLinejoin="miter"
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
+      {/* 3. Third Pass: Render all semi-transparent body fills for all chains */}
+      {chains.map((chain, chainIdx) => {
+        const isClosed = chain.points.length > 2 && Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x, chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+        let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+        if (isClosed) pathData += " Z";
+
+        const cls = (chain.className || "").toLowerCase();
+        let fillColor = "rgba(168, 85, 247, 0.15)";
+        if (cls.includes("ext") || cls.includes("external")) {
+          fillColor = "rgba(168, 85, 247, 0.15)";
+        } else if (cls.includes("int") || cls.includes("internal")) {
+          fillColor = "rgba(180, 83, 9, 0.15)";
+        } else if (cls.includes("part") || cls.includes("partition")) {
+          fillColor = "rgba(234, 179, 8, 0.15)";
+        }
+
+        return (
+          <path
+            key={`fill-${chainIdx}`}
+            d={pathData}
+            fill="none"
+            stroke={fillColor}
+            strokeWidth={chain.thickness - 2.0}
+            strokeLinecap="butt"
+            strokeLinejoin="miter"
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
+      {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
       {(walls || []).map(w => {
         const isSelected = selectedWallIds.includes(w.id);
         const isHovered = w.id === hoverId;
         const isDraggingThis = dragging && dragging.id === w.id;
         const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
-        
-        const cls = (w.class_name || "").toLowerCase();
-        let strokeColor = "#a855f7"; // purple default
-        let fillColor = "rgba(168, 85, 247, 0.15)";
 
-        if (cls.includes("ext") || cls.includes("external")) {
-          strokeColor = "#a855f7"; // purple
-          fillColor = "rgba(168, 85, 247, 0.15)";
-        } else if (cls.includes("int") || cls.includes("internal")) {
-          strokeColor = "#b45309"; // brown
-          fillColor = "rgba(180, 83, 9, 0.15)";
-        } else if (cls.includes("part") || cls.includes("partition")) {
-          strokeColor = "#eab308"; // yellow
-          fillColor = "rgba(234, 179, 8, 0.15)";
-        }
+        let fillColor = "rgba(0, 0, 0, 0)"; // fully transparent for hit test
+        let strokeColor = "none";
 
         if (isSelected) {
-          strokeColor = "#38bdf8";
+          strokeColor = "#38bdf8"; // highlight selected wall in blue
           fillColor = "rgba(56, 189, 248, 0.25)";
+        } else if (isHovered) {
+          fillColor = "rgba(168, 85, 247, 0.05)";
         }
 
         return (
@@ -290,15 +430,12 @@ const WallLayer = React.memo(({
             points={pointsStr}
             fill={fillColor}
             stroke={strokeColor}
-            strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : (isHovered ? 2.5 : 1.5))}
+            strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
             style={{ cursor: 'pointer' }}
             onMouseEnter={() => setHoverId(w.id)}
             onMouseLeave={() => setHoverId(null)}
             onClick={(e) => {
-              if (interactionMode === "cut-wall") {
-                // Let the click propagate to the SVG so handleClick handles it!
-                return;
-              }
+              if (interactionMode === "cut-wall") return;
               e.stopPropagation();
               if (selectWall) {
                 selectWall(w.id, e.ctrlKey || e.shiftKey);

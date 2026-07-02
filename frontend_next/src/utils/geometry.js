@@ -266,248 +266,143 @@ export function doorBbox(door) {
 }
 
 export function overlapsWithAnyDoor(wall, doors) {
-  if (!doors || doors.length === 0) return false;
-  const wallBbox = doorBbox(wall);
-  const wallW = wallBbox[2] - wallBbox[0];
-  const wallH = wallBbox[3] - wallBbox[1];
-  const wallArea = wallW * wallH;
-  if (wallArea <= 0) return false;
-  
-  for (const door of doors) {
-    const dBbox = doorBbox(door);
-    const doorW = dBbox[2] - dBbox[0];
-    const doorH = dBbox[3] - dBbox[1];
-    const doorArea = doorW * doorH;
-    if (doorArea <= 0) continue;
-    
-    // Intersection
-    const ix1 = Math.max(wallBbox[0], dBbox[0]);
-    const iy1 = Math.max(wallBbox[1], dBbox[1]);
-    const ix2 = Math.min(wallBbox[2], dBbox[2]);
-    const iy2 = Math.min(wallBbox[3], dBbox[3]);
-    const iw = Math.max(0, ix2 - ix1);
-    const ih = Math.max(0, iy2 - iy1);
-    const interArea = iw * ih;
-    
-    if (interArea > 0) {
-      const overlapRatioWall = interArea / wallArea;
-      if (overlapRatioWall > 0.75) {
-        return true;
-      }
-    }
-  }
   return false;
 }
 
 export function cutWallsByDoors(walls, doors, realScale = null) {
-  if (!doors || doors.length === 0 || !walls || walls.length === 0) {
-    return walls;
-  }
+  if (!walls || walls.length === 0) return [];
+  if (!doors || doors.length === 0) return walls;
 
-  const result = [];
+  let currentWalls = [...walls];
 
-  for (const w of walls) {
-    const c = w.centerline;
-    if (!c || c.length !== 2) {
-      result.push(w);
-      continue;
+  // Process only swing doors (single/double swing doors)
+  // Sliding doors are skipped: "Sliding door không cần dựng khung theo tường"
+  const swingDoors = doors.filter(d => {
+    const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
+    return !isSliding;
+  });
+
+  for (const door of swingDoors) {
+    // Get frame line endpoints p1 and p2 of the door
+    let dp1 = null;
+    let dp2 = null;
+    if (door.points && door.points.length >= 2) {
+      const pt0 = door.points[0];
+      const pt1 = door.points[1];
+      dp1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
+      dp2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
+    } else {
+      const centerline = getDoorCenterline(door, walls);
+      dp1 = centerline.p1;
+      dp2 = centerline.p2;
     }
 
-    const wThickness = w.thickness_px || (w.thickness === 70 ? 15 : w.thickness === 90 ? 20 : 20);
-    const tolerance = wThickness / 2 + 5.0; // Increased tolerance to be more robust
-    let activeSegments = [[{ x: c[0][0], y: c[0][1] }, { x: c[1][0], y: c[1][1] }]];
+    if (!dp1 || !dp2) continue;
 
-    for (const d of doors) {
-      let p1, p2;
-      if (d.points && d.points.length >= 2) {
-        const pt0 = d.points[0];
-        const pt1 = d.points[1];
-        p1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
-        p2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
-      } else {
-        const dPoly = d.polygon || d.points || [];
-        if (dPoly.length === 0) continue;
-        const polyPoints = dPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
-        if (polyPoints.length >= 3) {
-          const edges = polyPoints.map((p, i) => {
-            const next = polyPoints[(i + 1) % polyPoints.length];
-            return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
+    const nextWalls = [];
+
+    for (const w of currentWalls) {
+      if (!w.centerline || w.centerline.length !== 2) {
+        nextWalls.push(w);
+        continue;
+      }
+
+      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+      const wallDx = wp2.x - wp1.x;
+      const wallDy = wp2.y - wp1.y;
+      const wallLen = Math.hypot(wallDx, wallDy);
+      if (wallLen < 1.0) {
+        nextWalls.push(w);
+        continue;
+      }
+      const ux = wallDx / wallLen;
+      const uy = wallDy / wallLen;
+
+      // Project dp1 and dp2 onto the wall centerline infinite line
+      const t1 = (dp1.x - wp1.x) * ux + (dp1.y - wp1.y) * uy;
+      const t2 = (dp2.x - wp1.x) * ux + (dp2.y - wp1.y) * uy;
+
+      // Perpendicular distances
+      const dist1 = Math.abs(-uy * (dp1.x - wp1.x) + ux * (dp1.y - wp1.y));
+      const dist2 = Math.abs(-uy * (dp2.x - wp1.x) + ux * (dp2.y - wp1.y));
+
+      const isNearWallLine = dist1 < 40.0 && dist2 < 40.0;
+      if (!isNearWallLine) {
+        nextWalls.push(w);
+        continue;
+      }
+
+      // Check overlap in 1D projections along the wall line:
+      // Wall segment is [0, wallLen].
+      // Door frame segment is [minT, maxT] where minT = Math.min(t1, t2), maxT = Math.max(t1, t2).
+      const minT = Math.min(t1, t2);
+      const maxT = Math.max(t1, t2);
+
+      // We only split if the door frame overlaps with the interior of the wall segment
+      const overlapStart = Math.max(0, minT);
+      const overlapEnd = Math.min(wallLen, maxT);
+
+      if (overlapEnd - overlapStart > 5.0) {
+        // Project near and far jamb positions onto the wall centerline to keep walls perfectly straight
+        const nearProj = { x: wp1.x + minT * ux, y: wp1.y + minT * uy };
+        const farProj = { x: wp1.x + maxT * ux, y: wp1.y + maxT * uy };
+
+        // Segment A: from wp1 to nearProj
+        const lenA = Math.hypot(nearProj.x - wp1.x, nearProj.y - wp1.y);
+        if (lenA > 10.0) {
+          nextWalls.push({
+            ...w,
+            id: `${w.id}-A-${door.id}`,
+            centerline: [
+              [wp1.x, wp1.y],
+              [nearProj.x, nearProj.y]
+            ]
           });
-          
-          // Find candidates that are close to the maximum edge length (frame and leaf candidates)
-          const maxLen = Math.max(...edges.map(e => e.len));
-          const candidates = edges.filter(e => e.len >= 0.6 * maxLen);
-          
-          let bestEdge = null;
-          let bestScore = -1;
-          
-          for (const edge of candidates) {
-            const m = { x: (edge.p1.x + edge.p2.x) / 2, y: (edge.p1.y + edge.p2.y) / 2 };
-            const dx = edge.p2.x - edge.p1.x;
-            const dy = edge.p2.y - edge.p1.y;
-            const len = Math.hypot(dx, dy);
-            const u = len > 0 ? { x: dx / len, y: dy / len } : { x: 0, y: 0 };
-            
-            let bestWallScore = -1;
-            for (const w of walls) {
-              if (!w.centerline || w.centerline.length !== 2) continue;
-              const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
-              const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
-              
-              const dxW = D.x - C.x;
-              const dyW = D.y - C.y;
-              const lenW = Math.hypot(dxW, dyW);
-              if (lenW < 1.0) continue;
-              const uW = { x: dxW / lenW, y: dyW / lenW };
-              
-              // Distance to infinite line of wall
-              const distToLine = Math.abs(dxW * (m.y - C.y) - dyW * (m.x - C.x)) / lenW;
-              const dot = Math.abs(u.x * uW.x + u.y * uW.y);
-              
-              if (dot > 0.8) { // nearly parallel
-                const score = 1.0 / (distToLine + 1.0);
-                if (score > bestWallScore) {
-                  bestWallScore = score;
-                }
-              }
-            }
-            if (bestWallScore > bestScore) {
-              bestScore = bestWallScore;
-              bestEdge = edge;
-            }
-          }
-          
-          if (bestEdge && bestScore > 0.01) { // within 99px of some parallel wall
-            p1 = bestEdge.p1;
-            p2 = bestEdge.p2;
-          } else {
-            edges.sort((a, b) => b.len - a.len);
-            p1 = edges[0].p1;
-            p2 = edges[0].p2;
-          }
-        } else if (polyPoints.length === 2) {
-          p1 = polyPoints[0];
-          p2 = polyPoints[1];
-        } else {
-          continue;
         }
+
+        // Segment B: from farProj to wp2
+        const lenB = Math.hypot(wp2.x - farProj.x, wp2.y - farProj.y);
+        if (lenB > 10.0) {
+          nextWalls.push({
+            ...w,
+            id: `${w.id}-B-${door.id}`,
+            centerline: [
+              [farProj.x, farProj.y],
+              [wp2.x, wp2.y]
+            ]
+          });
+        }
+      } else {
+        nextWalls.push(w);
       }
-
-      const dWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      if (dWidth <= 0) continue;
-
-      const nextSegments = [];
-
-      // No door jamb offset (cut exactly to door width)
-      const jambOffsetMm = 0;
-      const jambOffsetPx = 0.0;
-      const halfJamb = 0.0;
-
-      for (const seg of activeSegments) {
-        const [A, B] = seg;
-        const dx = B.x - A.x;
-        const dy = B.y - A.y;
-        const L = Math.hypot(dx, dy);
-        if (L < 1.0) {
-          nextSegments.push(seg);
-          continue;
-        }
-
-        const ux = dx / L;
-        const uy = dy / L;
-
-        // Sample points along the door opening segment and check overlap with the wall segment
-        const N = 10;
-        let overlapCount = 0;
-        const overlappingT = [];
-
-        for (let i = 0; i < N; i++) {
-          const t_door = i / (N - 1);
-          const pt = {
-            x: p1.x + t_door * (p2.x - p1.x),
-            y: p1.y + t_door * (p2.y - p1.y)
-          };
-
-          // Project pt onto segment line
-          const t_wall = (pt.x - A.x) * ux + (pt.y - A.y) * uy;
-          const t_clamped = Math.max(0.0, Math.min(L, t_wall));
-          const projX = A.x + t_clamped * ux;
-          const projY = A.y + t_clamped * uy;
-          const dist = Math.hypot(pt.x - projX, pt.y - projY);
-
-          // We count it as overlapping if it's within the wall's thickness tolerance
-          if (dist < tolerance) {
-            overlapCount++;
-            overlappingT.push(t_clamped);
-          }
-        }
-
-        const overlapRatio = overlapCount / N;
-
-        // Only cut if at least 40% of the door opening touches the wall segment
-        if (overlapRatio >= 0.40 && overlappingT.length > 0) {
-          const tStart = Math.min(...overlappingT);
-          const tEnd = Math.max(...overlappingT);
-
-          // Calculate cut boundaries with jamb offset
-          const cutStart = Math.max(0.0, tStart - halfJamb);
-          const cutEnd = Math.min(L, tEnd + halfJamb);
-
-          if (cutStart > 15.0) {
-            nextSegments.push([
-              A,
-              { x: A.x + cutStart * ux, y: A.y + cutStart * uy }
-            ]);
-          }
-          if (L - cutEnd > 15.0) {
-            nextSegments.push([
-              { x: A.x + cutEnd * ux, y: A.y + cutEnd * uy },
-              B
-            ]);
-          }
-        } else {
-          nextSegments.push(seg);
-        }
-      }
-
-      activeSegments = nextSegments;
     }
 
-    for (const seg of activeSegments) {
-      const [A, B] = seg;
-      const dx = B.x - A.x;
-      const dy = B.y - A.y;
-      const length = Math.hypot(dx, dy);
-      if (length < 15.0) continue;
-
-      const ux = dx / length;
-      const uy = dy / length;
-      const nx = -uy;
-      const ny = ux;
-      const halfThickness = wThickness / 2;
-
-      const c1 = [Math.round((A.x + halfThickness * nx) * 10) / 10, Math.round((A.y + halfThickness * ny) * 10) / 10];
-      const c2 = [Math.round((B.x + halfThickness * nx) * 10) / 10, Math.round((B.y + halfThickness * ny) * 10) / 10];
-      const c3 = [Math.round((B.x - halfThickness * nx) * 10) / 10, Math.round((B.y - halfThickness * ny) * 10) / 10];
-      const c4 = [Math.round((A.x - halfThickness * nx) * 10) / 10, Math.round((A.y - halfThickness * ny) * 10) / 10];
-
-      result.push({
-        ...w,
-        centerline: [
-          [Math.round(A.x * 10) / 10, Math.round(A.y * 10) / 10],
-          [Math.round(B.x * 10) / 10, Math.round(B.y * 10) / 10]
-        ],
-        polygon: [c1, c2, c3, c4],
-        area_px: Math.round(length * wThickness * 10) / 10,
-        perimeter_px: Math.round(2.0 * (length + wThickness) * 10) / 10
-      });
-    }
+    currentWalls = nextWalls;
   }
 
-  return result.map((w, idx) => ({
-    ...w,
-    id: `wall_${String(idx + 1).padStart(3, '0')}`
-  }));
+  return recalculateAllWallsPolygons(currentWalls);
+}
+
+export function recalculateAllWallsPolygons(walls) {
+  if (!walls || walls.length === 0) return walls;
+  
+  return walls.map(w => {
+    const c = w.centerline;
+    if (!c || c.length !== 2) return w;
+    const pts = [{ x: c[0][0], y: c[0][1] }, { x: c[1][0], y: c[1][1] }];
+    const thicknessPx = w.thickness_px || 20;
+    
+    const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, walls);
+    if (newPoly) {
+      return {
+        ...w,
+        polygon: newPoly.map(pt => [pt.x, pt.y])
+      };
+    }
+    return w;
+  });
 }
 
 
@@ -841,333 +736,174 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 35, angleThresh = 0.95, gapThresh = 400) {
-  if (!walls || walls.length === 0) return walls;
+  return walls;
+}
 
-  let currentWalls = JSON.parse(JSON.stringify(walls));
+export function getDoorCenterline(door, walls = []) {
+  // If the door already has valid points, use them
+  if (door.points && door.points.length >= 2) {
+    const p1 = Array.isArray(door.points[0]) ? { x: door.points[0][0], y: door.points[0][1] } : door.points[0];
+    const p2 = Array.isArray(door.points[1]) ? { x: door.points[1][0], y: door.points[1][1] } : door.points[1];
+    return { p1, p2 };
+  }
 
-  // 1. Straighten/orthogonalize all walls to nearest 90-degree axis if within 5 degrees
-  currentWalls = currentWalls.map(w => {
-    const c = w.centerline;
-    if (!c || c.length !== 2) return w;
-    const x1 = c[0][0], y1 = c[0][1];
-    const x2 = c[1][0], y2 = c[1][1];
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.hypot(dx, dy);
-    if (len < 5.0) return w;
+  // Otherwise, extract centerline from polygon
+  const dPoly = door.polygon || door.mask_polygon || [];
+  if (dPoly.length < 3) {
+    // Fallback to bbox
+    const [x1, y1, x2, y2] = door.bbox || [0, 0, 100, 20];
+    return { p1: { x: x1, y: y1 }, p2: { x: x2, y: y2 } };
+  }
 
-    const angle = Math.atan2(dy, dx);
-    const nearestAngle = Math.round(angle / (Math.PI / 2)) * (Math.PI / 2);
-    let diff = nearestAngle - angle;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    while (diff > Math.PI) diff -= Math.PI * 2;
+  const polyPoints = dPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+  const n = polyPoints.length;
+  const straightSegments = [];
 
-    if (Math.abs(diff) < 0.087) { // within 5 degrees
-      const cx = (x1 + x2) / 2;
-      const cy = (y1 + y2) / 2;
-      const halfLen = len / 2;
-      const nx1 = cx - halfLen * Math.cos(nearestAngle);
-      const ny1 = cy - halfLen * Math.sin(nearestAngle);
-      const nx2 = cx + halfLen * Math.cos(nearestAngle);
-      const ny2 = cy + halfLen * Math.sin(nearestAngle);
+  // Extract straight lines by scanning consecutive collinear vertices
+  for (let i = 0; i < n; i++) {
+    let bestJ = (i + 1) % n;
+    let maxLen = Math.hypot(polyPoints[bestJ].x - polyPoints[i].x, polyPoints[bestJ].y - polyPoints[i].y);
 
-      const updated = { ...w };
-      updated.centerline = [
-        [Math.round(nx1 * 10) / 10, Math.round(ny1 * 10) / 10],
-        [Math.round(nx2 * 10) / 10, Math.round(ny2 * 10) / 10]
-      ];
+    for (let step = 2; step < n; step++) {
+      const j = (i + step) % n;
+      const pA = polyPoints[i];
+      const pB = polyPoints[j];
+      const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+      if (len < 5.0) break;
 
-      // Recalculate polygon
-      const pts = [{ x: nx1, y: ny1 }, { x: nx2, y: ny2 }];
-      const thicknessPx = w.thickness_px || (w.class_name === "exterior_wall" ? 20 : 15);
-      const simplePoly = calculateWallPolygon(pts, thicknessPx, false);
-      if (simplePoly) {
-        updated.polygon = simplePoly.map(pt => [pt.x, pt.y]);
+      let isCollinear = true;
+      const dx = pB.x - pA.x;
+      const dy = pB.y - pA.y;
+
+      for (let k = 1; k < step; k++) {
+        const idx = (i + k) % n;
+        const pC = polyPoints[idx];
+        const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
+        const dist = Math.abs(cross) / len;
+        if (dist > 4.0) { // 4px collinear tolerance
+          isCollinear = false;
+          break;
+        }
       }
-      return updated;
-    }
-    return w;
-  });
 
-  if (currentWalls.length < 2) return currentWalls;
-  let mergedAny = true;
-
-  while (mergedAny) {
-    mergedAny = false;
-    const n = currentWalls.length;
-
-    for (let i = 0; i < n; i++) {
-      const w1 = currentWalls[i];
-      const c1 = w1.centerline;
-      if (!c1 || c1.length !== 2) continue;
-
-      const p1 = { x: c1[0][0], y: c1[0][1] };
-      const q1 = { x: c1[1][0], y: c1[1][1] };
-
-      const dx1 = q1.x - p1.x;
-      const dy1 = q1.y - p1.y;
-      const len1 = Math.hypot(dx1, dy1);
-      if (len1 === 0) continue;
-
-      const u1 = { x: dx1 / len1, y: dy1 / len1 };
-
-      for (let j = i + 1; j < n; j++) {
-        const w2 = currentWalls[j];
-        const c2 = w2.centerline;
-        if (!c2 || c2.length !== 2) continue;
-
-        const p2 = { x: c2[0][0], y: c2[0][1] };
-        const q2 = { x: c2[1][0], y: c2[1][1] };
-
-        const dx2 = q2.x - p2.x;
-        const dy2 = q2.y - p2.y;
-        const len2 = Math.hypot(dx2, dy2);
-        if (len2 === 0) continue;
-
-        const u2 = { x: dx2 / len2, y: dy2 / len2 };
-
-        // 1. Check if parallel
-        const dotProd = Math.abs(u1.x * u2.x + u1.y * u2.y);
-        if (dotProd < angleThresh) continue;
-
-        // 2. Check collinear distance (perpendicular distance of w2 endpoints to w1 line)
-        const perpDist = (P) => {
-          const t = (P.x - p1.x) * u1.x + (P.y - p1.y) * u1.y;
-          const proj = { x: p1.x + t * u1.x, y: p1.y + t * u1.y };
-          return Math.hypot(P.x - proj.x, P.y - proj.y);
-        };
-
-        if (perpDist(p2) > perpDistThresh || perpDist(q2) > perpDistThresh) {
-          continue;
-        }
-
-        // 3. Check overlap or proximity along direction
-        const t_p2 = (p2.x - p1.x) * u1.x + (p2.y - p1.y) * u1.y;
-        const t_q2 = (q2.x - p1.x) * u1.x + (q2.y - p1.y) * u1.y;
-
-        const min1 = 0.0;
-        const max1 = len1;
-        const min2 = Math.min(t_p2, t_q2);
-        const max2 = Math.max(t_p2, t_q2);
-
-        const range_min = Math.max(min1, min2);
-        const range_max = Math.min(max1, max2);
-        let isClose = false;
-        if (range_max >= range_min) {
-          isClose = true;
-        } else {
-          const gap = min2 > max1 ? min2 - max1 : min1 - max2;
-          isClose = gap < gapThresh;
-        }
-
-        if (!isClose) continue;
-
-        // Ensure the merged line does not deviate significantly in angle
-        const candidatePts = [p1, q1, p2, q2];
-        const candidateTs = [0.0, len1, t_p2, t_q2];
-        
-        // Sort candidates by t to find furthest endpoints
-        const candidates = candidateTs.map((t, idx) => ({ t, pt: candidatePts[idx] }));
-        candidates.sort((a, b) => a.t - b.t);
-        
-        const actual_p = candidates[0].pt;
-        const actual_q = candidates[candidates.length - 1].pt;
-        
-        const dx_m = actual_q.x - actual_p.x;
-        const dy_m = actual_q.y - actual_p.y;
-        const len_m = Math.hypot(dx_m, dy_m);
-        if (len_m > 0) {
-          const u_mx = dx_m / len_m;
-          const u_my = dy_m / len_m;
-          
-          const dotProdM = Math.abs(u1.x * u_mx + u1.y * u_my);
-          if (dotProdM < 0.99) {
-            continue;
-          }
-        }
-
-        // Determine merged class based on which segment is longer
-        const class_w1 = w1.class_name || "interior_wall";
-        const class_w2 = w2.class_name || "interior_wall";
-        const mergedClass = len1 >= len2 ? class_w1 : class_w2;
-
-        // Determine merged thickness
-        let mergedThickness = 70;
-        let mergedThicknessPx = Math.max(w1.thickness_px || 0, w2.thickness_px || 0);
-        if (mergedClass === "exterior_wall") {
-          mergedThickness = 90;
-          if (mergedThicknessPx < 20) mergedThicknessPx = 20;
-        } else {
-          mergedThickness = 70;
-          if (mergedThicknessPx < 15) mergedThicknessPx = 15;
-        }
-
-        // Merge! Project all to L1
-        const tCoords = [0.0, len1, t_p2, t_q2];
-        const tMin = Math.min(...tCoords);
-        const tMax = Math.max(...tCoords);
-
-        const new_p = [p1.x + tMin * u1.x, p1.y + tMin * u1.y];
-        const new_q = [p1.x + tMax * u1.x, p1.y + tMax * u1.y];
-
-        // Update w1
-        w1.centerline = [
-          [Math.round(new_p[0] * 10) / 10, Math.round(new_p[1] * 10) / 10],
-          [Math.round(new_q[0] * 10) / 10, Math.round(new_q[1] * 10) / 10]
-        ];
-        w1.class_name = mergedClass;
-        w1.wall_type = mergedClass === "exterior_wall" ? "ext" : (mergedClass === "partition_wall" ? "part" : "int");
-        w1.thickness = mergedThickness;
-        w1.thickness_px = mergedThicknessPx;
-        w1.confidence = Math.max(w1.confidence || 0, w2.confidence || 0);
-        w1.review_state = "human_corrected"; // Mark that it was processed/corrected
-
-        // Recalculate polygon
-        const pts = [{ x: new_p[0], y: new_p[1] }, { x: new_q[0], y: new_q[1] }];
-        // filter out w2 from currentWalls to pass to calculateWallPolygonWithJunctions
-        const remainingWalls = currentWalls.filter((_, idx) => idx !== j);
-        const newPoly = calculateWallPolygonWithJunctions(pts, mergedThicknessPx, w1.id, remainingWalls);
-        if (newPoly) {
-          w1.polygon = newPoly.map(pt => [pt.x, pt.y]);
-        } else {
-          const simplePoly = calculateWallPolygon(pts, mergedThicknessPx, false);
-          if (simplePoly) {
-            w1.polygon = simplePoly.map(pt => [pt.x, pt.y]);
-          }
-        }
-
-        // Remove w2 and reset loop
-        currentWalls.splice(j, 1);
-        mergedAny = true;
+      if (isCollinear) {
+        bestJ = j;
+        maxLen = len;
+      } else {
         break;
       }
-      if (mergedAny) break;
+    }
+
+    straightSegments.push({
+      p1: polyPoints[i],
+      p2: polyPoints[bestJ],
+      len: maxLen
+    });
+  }
+
+  // Find the two longest non-overlapping straight segments
+  straightSegments.sort((a, b) => b.len - a.len);
+  
+  const selected = [];
+  for (const seg of straightSegments) {
+    if (selected.length >= 2) break;
+    
+    // Check if it overlaps with already selected segment
+    let overlaps = false;
+    for (const sel of selected) {
+      const dx1 = sel.p2.x - sel.p1.x;
+      const dy1 = sel.p2.y - sel.p1.y;
+      const len1 = sel.len;
+      const u1 = { x: dx1 / len1, y: dy1 / len1 };
+
+      const dx2 = seg.p2.x - seg.p1.x;
+      const dy2 = seg.p2.y - seg.p1.y;
+      const len2 = seg.len;
+      const u2 = { x: dx2 / len2, y: dy2 / len2 };
+
+      const dot = Math.abs(u1.x * u2.x + u1.y * u2.y);
+      if (dot > 0.9) {
+        const midX = (seg.p1.x + seg.p2.x) / 2;
+        const midY = (seg.p1.y + seg.p2.y) / 2;
+        const dist = Math.abs((sel.p2.x - sel.p1.x) * (midY - sel.p1.y) - (sel.p2.y - sel.p1.y) * (midX - sel.p1.x)) / sel.len;
+        if (dist < 15.0) {
+          overlaps = true;
+          break;
+        }
+      }
+    }
+    if (!overlaps) {
+      selected.push(seg);
     }
   }
 
-  return currentWalls;
+  // If we couldn't find 2 distinct straight lines, fallback to raw edges
+  if (selected.length < 2) {
+    const rawEdges = polyPoints.map((p, i) => {
+      const next = polyPoints[(i + 1) % polyPoints.length];
+      return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
+    });
+    rawEdges.sort((a, b) => b.len - a.len);
+    for (const seg of rawEdges) {
+      if (selected.length >= 2) break;
+      if (!selected.some(sel => Math.hypot(sel.p1.x - seg.p1.x, sel.p1.y - seg.p1.y) < 5.0 && Math.hypot(sel.p2.x - seg.p2.x, sel.p2.y - seg.p2.y) < 5.0)) {
+        selected.push(seg);
+      }
+    }
+  }
+
+  // Of the two longest segments, pick the one that is most parallel/closest to a wall
+  let bestEdge = null;
+  let bestScore = -1;
+
+  for (const edge of selected) {
+    const m = { x: (edge.p1.x + edge.p2.x) / 2, y: (edge.p1.y + edge.p2.y) / 2 };
+    const dx = edge.p2.x - edge.p1.x;
+    const dy = edge.p2.y - edge.p1.y;
+    const len = edge.len;
+    if (len === 0) continue;
+    const u = { x: dx / len, y: dy / len };
+
+    let bestWallScore = -1;
+    for (const w of walls) {
+      if (!w.centerline || w.centerline.length !== 2) continue;
+      const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
+      const dxW = D.x - C.x;
+      const dyW = D.y - C.y;
+      const lenW = Math.hypot(dxW, dyW);
+      if (lenW < 1.0) continue;
+      const uW = { x: dxW / lenW, y: dyW / lenW };
+
+      const distToLine = Math.abs(dxW * (m.y - C.y) - dyW * (m.x - C.x)) / lenW;
+      const dot = Math.abs(u.x * uW.x + u.y * uW.y);
+
+      if (dot > 0.8) {
+        const score = 1.0 / (distToLine + 1.0);
+        if (score > bestWallScore) {
+          bestWallScore = score;
+        }
+      }
+    }
+
+    if (bestWallScore > bestScore) {
+      bestScore = bestWallScore;
+      bestEdge = edge;
+    }
+  }
+
+  if (bestEdge && bestScore > 0.01) {
+    return { p1: bestEdge.p1, p2: bestEdge.p2 };
+  }
+
+  // Fallback to the longest of the selected segments
+  if (selected.length > 0) {
+    return { p1: selected[0].p1, p2: selected[0].p2 };
+  }
+
+  return { p1: polyPoints[0], p2: polyPoints[1 % n] };
 }
 
 export function snapDoorToWalls(door, walls, maxDist = 40) {
-  if (!door || !door.points || door.points.length < 2 || !walls || walls.length === 0) {
-    return door;
-  }
-
-  const p1 = {
-    x: Array.isArray(door.points[0]) ? door.points[0][0] : door.points[0].x,
-    y: Array.isArray(door.points[0]) ? door.points[0][1] : door.points[0].y
-  };
-  const p2 = {
-    x: Array.isArray(door.points[1]) ? door.points[1][0] : door.points[1].x,
-    y: Array.isArray(door.points[1]) ? door.points[1][1] : door.points[1].y
-  };
-
-  const mOld = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-  const dxDoor = p2.x - p1.x;
-  const dyDoor = p2.y - p1.y;
-  const lenDoor = Math.hypot(dxDoor, dyDoor);
-  if (lenDoor === 0) return door;
-
-  let nearestWall = null;
-  let minDist = maxDist;
-  let nearestProjPt = null;
-
-  for (const w of walls) {
-    const c = w.centerline;
-    if (!c || c.length !== 2) continue;
-    const wp1 = { x: c[0][0], y: c[0][1] };
-    const wp2 = { x: c[1][0], y: c[1][1] };
-
-    // Use perpendicular distance to the INFINITE LINE (not clamped segment)
-    // so that cut wall segments still match doors sitting in the gap between them.
-    const wdx = wp2.x - wp1.x;
-    const wdy = wp2.y - wp1.y;
-    const wLenSq = wdx * wdx + wdy * wdy;
-    if (wLenSq < 0.1) continue;
-    const wLen = Math.sqrt(wLenSq);
-
-    // Perpendicular distance from door midpoint to infinite wall line
-    const perpDist = Math.abs(wdx * (mOld.y - wp1.y) - wdy * (mOld.x - wp1.x)) / wLen;
-
-    // Also check angle compatibility: wall and door should be roughly parallel
-    const doorAngle = Math.atan2(dyDoor, dxDoor);
-    const wallAngle = Math.atan2(wdy, wdx);
-    let angleDiff = Math.abs(doorAngle - wallAngle) % Math.PI;
-    if (angleDiff > Math.PI / 2) angleDiff = Math.PI - angleDiff;
-
-    if (perpDist < minDist && angleDiff < Math.PI / 6) {
-      // Unclamped projection of mOld onto the wall line
-      const t = ((mOld.x - wp1.x) * wdx + (mOld.y - wp1.y) * wdy) / wLenSq;
-      const projPt = { x: wp1.x + t * wdx, y: wp1.y + t * wdy };
-
-      minDist = perpDist;
-      nearestWall = w;
-      nearestProjPt = projPt;
-    }
-  }
-
-  if (!nearestWall || !nearestProjPt) {
-    return door; // No near wall found within maxDist
-  }
-
-  // Snapping target: nearestProjPt on the wall centerline
-  const wc = nearestWall.centerline;
-  const wdx = wc[1][0] - wc[0][0];
-  const wdy = wc[1][1] - wc[0][1];
-  const wlen = Math.hypot(wdx, wdy);
-  if (wlen === 0) return door;
-
-  const wu = { x: wdx / wlen, y: wdy / wlen };
-
-  // Calculate new points aligned to the wall centerline and direction
-  // The door length is preserved, but we center it at nearestProjPt
-  const newP1 = {
-    x: nearestProjPt.x - (lenDoor / 2) * wu.x,
-    y: nearestProjPt.y - (lenDoor / 2) * wu.y
-  };
-  const newP2 = {
-    x: nearestProjPt.x + (lenDoor / 2) * wu.x,
-    y: nearestProjPt.y + (lenDoor / 2) * wu.y
-  };
-
-  const updatedDoor = { ...door };
-  updatedDoor.points = [newP1, newP2];
-
-  // Reconstruct a perfectly aligned clean rectangular polygon of the door frame
-  // matching the snapped centerline and wall thickness.
-  const wThick = nearestWall.thickness_px || 20;
-  const halfThick = wThick / 2;
-  const perp = { x: -wu.y, y: wu.x }; // perpendicular unit vector
-
-  const isArrayFormat = door.polygon && door.polygon[0] && Array.isArray(door.polygon[0]);
-  const formatPt = (x, y) => isArrayFormat ? [x, y] : { x, y };
-
-  const c1 = formatPt(newP1.x + halfThick * perp.x, newP1.y + halfThick * perp.y);
-  const c2 = formatPt(newP2.x + halfThick * perp.x, newP2.y + halfThick * perp.y);
-  const c3 = formatPt(newP2.x - halfThick * perp.x, newP2.y - halfThick * perp.y);
-  const c4 = formatPt(newP1.x - halfThick * perp.x, newP1.y - halfThick * perp.y);
-
-  const newPoly = [c1, c2, c3, c4];
-  updatedDoor.polygon = newPoly;
-  updatedDoor.mask_polygon = newPoly;
-
-  if (door.centroid) {
-    updatedDoor.centroid = [nearestProjPt.x, nearestProjPt.y];
-  }
-
-  // Update bounding box if present
-  if (door.bbox) {
-    const xs = updatedDoor.points.map(pt => pt.x);
-    const ys = updatedDoor.points.map(pt => pt.y);
-    if (updatedDoor.polygon) {
-      updatedDoor.polygon.forEach(pt => {
-        xs.push(Array.isArray(pt) ? pt[0] : pt.x);
-        ys.push(Array.isArray(pt) ? pt[1] : pt.y);
-      });
-    }
-    updatedDoor.bbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-  }
-
-  return updatedDoor;
+  return door;
 }
-

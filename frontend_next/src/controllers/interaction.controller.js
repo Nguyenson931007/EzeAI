@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls, snapDoorToWalls } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
 
@@ -366,12 +366,14 @@ export function useInteractionController(svgRef) {
               newWall.polygon = newPoly.map(pt => [pt.x, pt.y]);
             }
           }
+        } else if (field === "height") {
+          newWall.height = Number(value);
         }
         return newWall;
       }
-      return w;
     });
-    pushHistory(null, updated);
+    const finalized = recalculateAllWallsPolygons(updated);
+    pushHistory(null, finalized);
   }
 
   function autoMergeCollinearWalls(targetWallIds = null) {
@@ -1288,6 +1290,19 @@ export function useInteractionController(svgRef) {
           // Update state and history
           pushHistory(null, cutWalls, updatedDoors);
         }
+      } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
+        const pageWalls = wallsByPage[currentPage] || [];
+        const pageDoors = doorsByPage[currentPage] || [];
+        // Automatically merge collinear/overlapping walls
+        const merged = mergeCollinearWalls(pageWalls);
+        // Cut the merged walls by the current doors list
+        const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
+        setWallsByPage(prev => ({
+          ...prev,
+          [currentPage]: cutWalls
+        }));
+        // Update history with the merged and cut walls
+        pushHistory(null, cutWalls);
       }
       setDragging(null);
     }

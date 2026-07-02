@@ -1,4 +1,5 @@
 import React from 'react';
+import { getDoorCenterline } from '@/utils/geometry';
 
 export default function AIDoor({
   door: d,
@@ -33,6 +34,43 @@ export default function AIDoor({
   const widthSource = d.width_source || "geometry";
 
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
+
+  // Sliding Door Box Calculations
+  let slidingWidth = 0;
+  let slidingHeight = 15; // default fallback thickness
+  let slidingAngle = 0;
+  let slidingCx = cxAvg;
+  let slidingCy = cyAvg;
+
+  if (isSliding) {
+    const centerline = getDoorCenterline(d, walls);
+    const p1 = centerline.p1;
+    const p2 = centerline.p2;
+    slidingWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    slidingAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    slidingCx = (p1.x + p2.x) / 2;
+    slidingCy = (p1.y + p2.y) / 2;
+
+    let minDist = Infinity;
+    let nearestWall = null;
+    for (const w of walls) {
+      if (!w.centerline || w.centerline.length !== 2) continue;
+      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+      const wdx = wp2.x - wp1.x;
+      const wdy = wp2.y - wp1.y;
+      const wLen = Math.hypot(wdx, wdy);
+      if (wLen === 0) continue;
+      const dist = Math.abs(wdx * (slidingCy - wp1.y) - wdy * (slidingCx - wp1.x)) / wLen;
+      if (dist < minDist) {
+        minDist = dist;
+        nearestWall = w;
+      }
+    }
+    if (nearestWall) {
+      slidingHeight = nearestWall.thickness_px || 15;
+    }
+  }
 
   // --- Arc and Sector Calculation from Hinge Angle Detection ---
   let isDouble = (d.class && d.class.includes("double_door")) || (d.door_name && d.door_name.toLowerCase().includes("2x"));
@@ -82,7 +120,7 @@ export default function AIDoor({
           const pC = hingeSourcePoints[next];
           const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
           const dist = Math.abs(cross) / len;
-          if (dist > 3.0) { // Max 3px alignment tolerance
+          if (dist > 1.0) { // Max 1.0px alignment tolerance
             isCollinear = false;
             break;
           }
@@ -214,7 +252,7 @@ export default function AIDoor({
             const pC = polyPoints[idx];
             const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
             const dist = Math.abs(cross) / len;
-            if (dist > 3.0) { // 3px tolerance
+            if (dist > 1.0) { // 1.0px tolerance
               isCollinear = false;
               break;
             }
@@ -235,96 +273,129 @@ export default function AIDoor({
         });
       }
 
-      // Find the pair of segments that are longest and most perpendicular to each other
-      let bestPair = null;
-      let maxScore = -Infinity;
+      // 1. Sort all straight segments by length descending
+      const sortedSegs = [...straightSegments].sort((a, b) => b.len - a.len);
 
-      for (let i = 0; i < straightSegments.length; i++) {
-        for (let j = i + 1; j < straightSegments.length; j++) {
-          const e1 = straightSegments[i];
-          const e2 = straightSegments[j];
+      // 2. Select the two longest distinct (non-overlapping) straight segments
+      let e1 = null;
+      let e2 = null;
 
-          // Calculate unit direction vectors
-          const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-          const v2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
-          const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
-
-          // Skip if they are nearly parallel and close to each other (same physical edge)
-          if (dot > 0.9) {
-            const midX = (e2.p1.x + e2.p2.x) / 2;
-            const midY = (e2.p1.y + e2.p2.y) / 2;
-            const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
-            if (dist < 15.0) {
-              continue;
-            }
-          }
-
-          // Score is: len1 * len2 * (1.0 - dot)
-          // This prioritizes pairs that are long and perpendicular (dot product close to 0)
-          const score = e1.len * e2.len * (1.0 - dot);
-          if (score > maxScore) {
-            maxScore = score;
-            bestPair = [e1, e2];
-          }
-        }
+      if (sortedSegs.length > 0) {
+        e1 = sortedSegs[0];
       }
 
-      const selected = [];
-      if (bestPair) {
-        selected.push(bestPair[0], bestPair[1]);
-      }
-
-      // Fallback if we couldn't find 2 distinct straight segments
-      if (selected.length < 2) {
-        // Sort candidate segments by length descending as fallback
-        straightSegments.sort((a, b) => b.len - a.len);
-        if (straightSegments.length > 0 && selected.length === 0) {
-          selected.push(straightSegments[0]);
+      for (let i = 1; i < sortedSegs.length; i++) {
+        const candidate = sortedSegs[i];
+        if (!e1) {
+          e1 = candidate;
+          continue;
         }
-        for (let i = 0; i < straightSegments.length; i++) {
-          if (selected.length >= 2) break;
-          const raw = straightSegments[i];
-          if (selected.length === 1) {
-            const first = selected[0];
-            const v1 = { x: (first.p2.x - first.p1.x) / first.len, y: (first.p2.y - first.p1.y) / first.len };
-            const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
-            const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
-            if (dot > 0.9) {
-              const midX = (raw.p1.x + raw.p2.x) / 2;
-              const midY = (raw.p1.y + raw.p2.y) / 2;
-              const dist = Math.abs((first.p2.x - first.p1.x) * (midY - first.p1.y) - (first.p2.y - first.p1.y) * (midX - first.p1.x)) / first.len;
-              if (dist < 15.0) continue;
-            }
-          }
-          if (!selected.includes(raw)) {
-            selected.push(raw);
+        // Check if candidate overlaps or is parallel/collinear and close to e1
+        const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+        const v2 = { x: (candidate.p2.x - candidate.p1.x) / candidate.len, y: (candidate.p2.y - candidate.p1.y) / candidate.len };
+        const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+
+        if (dot > 0.9) {
+          const midX = (candidate.p1.x + candidate.p2.x) / 2;
+          const midY = (candidate.p1.y + candidate.p2.y) / 2;
+          const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
+          if (dist < 15.0) {
+            continue; // Overlaps with e1
           }
         }
+        e2 = candidate;
+        break;
       }
 
-      // Final fallback to raw simple edges if still not enough
-      if (selected.length < 2) {
+      // If we couldn't find two distinct segments, fill with raw simple edges fallback
+      if (!e1 || !e2) {
         const rawEdges = polyPoints.map((p, i) => {
           const next = polyPoints[(i + 1) % polyPoints.length];
           return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
         });
         rawEdges.sort((a, b) => b.len - a.len);
-        while (selected.length < 2 && rawEdges.length > 0) {
+        if (!e1 && rawEdges.length > 0) {
+          e1 = rawEdges.shift();
+        }
+        while (rawEdges.length > 0) {
           const raw = rawEdges.shift();
-          if (selected.length === 1) {
-            const first = selected[0];
-            const v1 = { x: (first.p2.x - first.p1.x) / first.len, y: (first.p2.y - first.p1.y) / first.len };
+          if (e1) {
+            const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
             const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
             const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
             if (dot > 0.9) {
               const midX = (raw.p1.x + raw.p2.x) / 2;
               const midY = (raw.p1.y + raw.p2.y) / 2;
-              const dist = Math.abs((first.p2.x - first.p1.x) * (midY - first.p1.y) - (first.p2.y - first.p1.y) * (midX - first.p1.x)) / first.len;
+              const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
               if (dist < 15.0) continue;
             }
           }
-          selected.push(raw);
+          e2 = raw;
+          break;
         }
+      }
+
+      let selected = [];
+      if (e1 && e2) {
+        // We have our 2 longest straight segments e1 and e2. Now identify Frame vs Leaf.
+        let nearestWall = null;
+        let minDist = Infinity;
+        const mCenter = { x: cxAvg, y: cyAvg };
+
+        if (walls && walls.length > 0) {
+          for (const w of walls) {
+            if (!w.centerline || w.centerline.length !== 2) continue;
+            const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
+            const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
+            const dxW = D.x - C.x;
+            const dyW = D.y - C.y;
+            const lenW = Math.hypot(dxW, dyW);
+            if (lenW < 1.0) continue;
+            const dist = Math.abs(dxW * (mCenter.y - C.y) - dyW * (mCenter.x - C.x)) / lenW;
+            if (dist < minDist) {
+              minDist = dist;
+              nearestWall = w;
+            }
+          }
+        }
+
+        let frameEdge = null;
+        let leafEdge = null;
+
+        if (nearestWall && minDist < 60.0) {
+          // If door lies near a wall: Frame is the one most parallel to the wall centerline
+          const C = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
+          const D = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
+          const dxW = D.x - C.x;
+          const dyW = D.y - C.y;
+          const lenW = Math.hypot(dxW, dyW);
+          const uW = { x: dxW / lenW, y: dyW / lenW };
+
+          const u1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+          const u2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
+
+          const dot1 = Math.abs(u1.x * uW.x + u1.y * uW.y);
+          const dot2 = Math.abs(u2.x * uW.x + u2.y * uW.y);
+
+          if (dot1 > dot2) {
+            frameEdge = e1;
+            leafEdge = e2;
+          } else {
+            frameEdge = e2;
+            leafEdge = e1;
+          }
+        } else {
+          // If no walls: longer is Frame, shorter is Leaf
+          if (e1.len >= e2.len) {
+            frameEdge = e1;
+            leafEdge = e2;
+          } else {
+            frameEdge = e2;
+            leafEdge = e1;
+          }
+        }
+
+        selected = [frameEdge, leafEdge];
       }
 
       const topTwoEdges = selected;
@@ -671,9 +742,6 @@ export default function AIDoor({
       onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
       style={{ cursor: 'pointer' }}
     >
-      {/* Door Jamb Rectangles */}
-      {renderJambs()}
-
       {/* Clickable Overlay (Raw mask polygon with transparent styling for click/drag) */}
       <polygon
         points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
@@ -688,20 +756,25 @@ export default function AIDoor({
         }}
       />
 
-      {/* Raw Mask Polygon from YOLO detection model (for visual validation) */}
+      {/* Render raw model-detected polygon area (translucent fill and dashed border) */}
       <polygon
         points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-        fill="rgba(168, 85, 247, 0.08)"
-        stroke="rgba(168, 85, 247, 0.35)"
-        strokeWidth={isDraggingThis ? 0.8 : 1.5}
-        strokeDasharray="2,2"
+        fill={isSelected ? "rgba(255, 87, 34, 0.12)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(168, 85, 247, 0.06)")}
+        stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+        strokeWidth={1}
+        strokeDasharray="3,3"
+        opacity={0.65}
         style={{ pointerEvents: 'none' }}
       />
 
-      {/* For Sliding Doors: Render filled raw polygon (no arc) */}
+      {/* For Sliding Doors: Render 1 rectangular box with length following model and width following nearest wall */}
       {isSliding && (
-        <polygon
-          points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
+        <rect
+          x={-slidingWidth / 2}
+          y={-slidingHeight / 2}
+          width={slidingWidth}
+          height={slidingHeight}
+          transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`}
           fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
           stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
           strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
@@ -709,12 +782,16 @@ export default function AIDoor({
         />
       )}
 
-      {/* For Swing Doors: Render exact circle sector fill, arc line, and straight edges */}
+      {/* For Swing Doors (Single and Double) */}
       {!isSliding && (
         <>
-          {/* Sector Fill (Màu không vượt qua line cửa) */}
+          {/* Jambs */}
+          {renderJambs()}
+
+          {/* Sectors / Arcs / Edges */}
           {isDouble ? (
             <>
+              {/* Double Door Sector Fills */}
               {sectorPath1 && (
                 <path 
                   d={sectorPath1} 
@@ -731,21 +808,8 @@ export default function AIDoor({
                   style={{ pointerEvents: 'none' }}
                 />
               )}
-            </>
-          ) : (
-            sectorPath && (
-              <path 
-                d={sectorPath} 
-                fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
-                stroke="transparent"
-                style={{ pointerEvents: 'none' }}
-              />
-            )
-          )}
 
-          {/* Hinge Arc Swing line */}
-          {isDouble ? (
-            <>
+              {/* Double Door Swing Arcs */}
               {arcPath1 && (
                 <path 
                   d={arcPath1} 
@@ -766,65 +830,61 @@ export default function AIDoor({
                   style={{ pointerEvents: 'none' }}
                 />
               )}
+
+              {/* Double Door Frame & Leaves lines */}
+              {doubleEdges.map((edge, i) => (
+                <line
+                  key={i}
+                  x1={edge.p1.x}
+                  y1={edge.p1.y}
+                  x2={edge.p2.x}
+                  y2={edge.p2.y}
+                  stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "#22c55e")}
+                  strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
+                  strokeLinecap="round"
+                  style={{ pointerEvents: 'none' }}
+                />
+              ))}
             </>
           ) : (
-            arcPath && (
-              <path 
-                d={arcPath} 
-                fill="none" 
-                stroke={isSelected ? "#FF5722" : "purple"} 
-                strokeWidth={isDraggingThis ? 0.8 : 1.5} 
-                strokeDasharray="3,2" 
-                style={{ pointerEvents: 'none' }}
-              />
-            )
-          )}
+            <>
+              {/* Single Door Sector Fill */}
+              {sectorPath && (
+                <path 
+                  d={sectorPath} 
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
+                  stroke="transparent"
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
 
-          {/* Highlight the straight lines (Door Leaf and Frame edge) */}
-          {isDouble ? (
-            doubleEdges.map((edge, i) => (
-              <line
-                key={i}
-                x1={edge.p1.x}
-                y1={edge.p1.y}
-                x2={edge.p2.x}
-                y2={edge.p2.y}
-                stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "#22c55e")}
-                strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
-                strokeLinecap="round"
-                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (updateDoor) {
-                    // Toggle double door frames if clicked
-                    const nextType = edge.type === 'frame' ? 'leaf' : 'frame';
-                    const newDoubleEdges = doubleEdges.map((ed, idx) => idx === i ? { ...ed, type: nextType } : ed);
-                    // Just update visual type
-                    updateDoor({ ...d, frame_edge_type: nextType });
-                  }
-                }}
-              />
-            ))
-          ) : (
-            topEdges.map((edge, i) => (
-              <line
-                key={i}
-                x1={edge.p1.x}
-                y1={edge.p1.y}
-                x2={edge.p2.x}
-                y2={edge.p2.y}
-                stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "#22c55e")}
-                strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.5 : (isHovered ? 3.5 : 2.5))}
-                strokeLinecap="round"
-                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (updateDoor) {
-                    updateDoor({ ...d, frameEdgeIndex: i });
-                  }
-                }}
-              />
-            ))
+              {/* Single Door Swing Arc */}
+              {arcPath && (
+                <path 
+                  d={arcPath} 
+                  fill="none" 
+                  stroke={isSelected ? "#FF5722" : "purple"} 
+                  strokeWidth={isDraggingThis ? 0.8 : 1.5} 
+                  strokeDasharray="3,2" 
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+
+              {/* Single Door Frame & Leaf lines */}
+              {topEdges.map((edge, i) => (
+                <line
+                  key={i}
+                  x1={edge.p1.x}
+                  y1={edge.p1.y}
+                  x2={edge.p2.x}
+                  y2={edge.p2.y}
+                  stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "#22c55e")}
+                  strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.5 : (isHovered ? 3.5 : 2.5))}
+                  strokeLinecap="round"
+                  style={{ pointerEvents: 'none' }}
+                />
+              ))}
+            </>
           )}
         </>
       )}

@@ -275,14 +275,14 @@ export default function RightPropertyPaneView({
               </select>
             </div>
 
-            <div className="panel-field">
+             <div className="panel-field">
               <span className="panel-label">Wall Thickness</span>
               <select
                 className="panel-select"
                 value={
                   selectedWallIds.length > 1
                     ? "multiple"
-                    : (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : 90)
+                    : (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : (selectedWall?.thickness || 90))
                 }
                 onChange={e => {
                   if (e.target.value === "multiple") return;
@@ -293,6 +293,34 @@ export default function RightPropertyPaneView({
                 {selectedWallIds.length > 1 && <option value="multiple" disabled>— Multiple Thicknesses —</option>}
                 <option value={70}>70 mm</option>
                 <option value={90}>90 mm</option>
+                <option value={140}>140 mm</option>
+                <option value={180}>180 mm</option>
+                <option value={200}>200 mm</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Wall Height</span>
+              <select
+                className="panel-select"
+                value={
+                  selectedWallIds.length > 1
+                    ? "multiple"
+                    : (selectedWall?.height || 2400)
+                }
+                onChange={e => {
+                  if (e.target.value === "multiple") return;
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  updateWallsProperty && updateWallsProperty(targetIds, "height", Number(e.target.value));
+                }}
+              >
+                {selectedWallIds.length > 1 && <option value="multiple" disabled>— Multiple Heights —</option>}
+                <option value={2100}>2100 mm</option>
+                <option value={2400}>2400 mm</option>
+                <option value={2700}>2700 mm</option>
+                <option value={3000}>3000 mm</option>
+                <option value={3300}>3300 mm</option>
+                <option value={3600}>3600 mm</option>
               </select>
             </div>
 

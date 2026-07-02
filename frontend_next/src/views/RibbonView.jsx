@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import TrainButton from "@/components/TrainButton";
 import { useAppModel } from "@/models/app.context";
+import WallThicknessDialog from "@/components/WallThicknessDialog";
 
 export default function RibbonView({
   // State from App.jsx not in context yet
@@ -55,9 +56,11 @@ export default function RibbonView({
     currentPage, setCurrentPage,
     setCurrentProjectName,
     roomsByPage, setRoomsByPage,
-    doorsByPage, wallsByPage
+    doorsByPage, wallsByPage,
+    realScale
   } = useAppModel();
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
+  const [showWallConfig, setShowWallConfig] = useState(false);
 
   return (
     <div className="cad-header">
@@ -185,21 +188,6 @@ export default function RibbonView({
                 <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button>
-                <button 
-                  className={`ribbon-btn ${isDrawingDoor ? "active" : ""}`} 
-                  onClick={() => { 
-                    setIsDrawingDoor(v => !v); 
-                    if (!isDrawingDoor) { 
-                      setDrawing(false); 
-                      setIsMeasuring(false); 
-                      setIsDistancing(false); 
-                      setCurrentPoly([]); 
-                    } 
-                  }}
-                  title="Draw Door and select Preset Sizes"
-                >
-                  <span className="icon">🚪</span><span className="label">Door</span>
-                </button>
                 <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); }}>
                   <span className="icon">✓</span><span className="label">Finish</span>
                 </button>
@@ -208,9 +196,6 @@ export default function RibbonView({
                 </button>
                 <button className={`ribbon-btn ${isSnapMode ? "active" : ""}`} onClick={() => setIsSnapMode(v => !v)} title="Snap to 90/45 degrees (Ortho Mode)">
                   <span className="icon">📐</span><span className="label">Snap</span>
-                </button>
-                <button className="ribbon-btn" onClick={() => snapAllDoorsToWalls()} title="Căn thẳng tất cả các cửa theo tường gần nhất">
-                  <span className="icon">🔧</span><span className="label">Snap Doors</span>
                 </button>
               </div>
               <span className="ribbon-group-title">DRAW</span>
@@ -249,7 +234,18 @@ export default function RibbonView({
                 </button>
 
 
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectWallFromFloorAI()} disabled={isDetecting} title="Dùng AI tự động vẽ tường">
+                <button 
+                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} 
+                  onClick={() => {
+                    if (!realScale || realScale === 1.0) {
+                      alert("bạn phải scale trước khi chạy AI");
+                      return;
+                    }
+                    setShowWallConfig(true);
+                  }} 
+                  disabled={isDetecting} 
+                  title="Dùng AI tự động vẽ tường"
+                >
                   <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
                 </button>
 
@@ -526,7 +522,13 @@ export default function RibbonView({
 
             <button 
               className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
-              onClick={() => detectWallFromFloorAI()} 
+              onClick={() => {
+                if (!realScale || realScale === 1.0) {
+                  alert("bạn phải scale trước khi chạy AI");
+                  return;
+                }
+                setShowWallConfig(true);
+              }} 
               disabled={isDetecting}
               title="Nhận diện tường trong vùng cắt (ROI)"
             >
@@ -733,6 +735,14 @@ export default function RibbonView({
           </div>
         </>
       )}
+      <WallThicknessDialog
+        visible={showWallConfig}
+        onConfirm={(config) => {
+          setShowWallConfig(false);
+          detectWallFromFloorAI(config);
+        }}
+        onClose={() => setShowWallConfig(false)}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline } from "@/utils/geometry";
 
 export default function ThreeDView({
   rooms = [],
@@ -58,56 +58,24 @@ export default function ThreeDView({
       }
     });
 
-    if (minX === Infinity) return new THREE.Vector3(400, 0, 300);
-    return new THREE.Vector3((minX + maxX) / 2, 0, (minY + maxY) / 2);
-  }, [walls, rooms]);
+    if (minX === Infinity) return new THREE.Vector3(0, 0, 0);
+    const midX = (minX + maxX) / 2;
+    const midZ = (minY + maxY) / 2;
+    return new THREE.Vector3(midX - imgSize.w / 2, 0, midZ - imgSize.h / 2);
+  }, [walls, rooms, imgSize]);
 
-  // Utility to extract door properties
+  // Utility to extract door properties using getDoorCenterline
   const getDoorProps = (door) => {
-    const points = door.points || [];
-    let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
-    let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
+    const centerline = getDoorCenterline(door, walls);
+    const p1 = centerline.p1;
+    const p2 = centerline.p2;
 
-    if (p1 && p2) {
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx);
-      const cx = (p1.x + p2.x) / 2;
-      const cy = (p1.y + p2.y) / 2;
-      return { cx, cy, length, angle, thickness: 15 };
-    }
-
-    const poly = door.polygon;
-    if (!poly || poly.length < 3) {
-      const [x1, y1, x2, y2] = door.bbox || [0, 0, 100, 20];
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx);
-      const cx = (x1 + x2) / 2;
-      const cy = (y1 + y2) / 2;
-      return { cx, cy, length, angle, thickness: 15 };
-    }
-    
-    let maxDist = 0;
-    let pA = poly[0], pB = poly[1];
-    for (let i = 0; i < poly.length; i++) {
-      for (let j = i + 1; j < poly.length; j++) {
-        const dx = poly[i][0] - poly[j][0];
-        const dy = poly[i][1] - poly[j][1];
-        const d = dx * dx + dy * dy;
-        if (d > maxDist) {
-          maxDist = d;
-          pA = poly[i];
-          pB = poly[j];
-        }
-      }
-    }
-    const length = Math.sqrt(maxDist);
-    const cx = door.centroid ? door.centroid[0] : (pA[0] + pB[0]) / 2;
-    const cy = door.centroid ? door.centroid[1] : (pA[1] + pB[1]) / 2;
-    const angle = Math.atan2(pB[1] - pA[1], pB[0] - pA[0]);
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
     return { cx, cy, length, angle, thickness: 15 };
   };
 
@@ -288,6 +256,11 @@ export default function ThreeDView({
     const scene = sceneRef.current;
     if (!scene) return;
 
+    // Read default height from localStorage or project config
+    const storedDefaultHeight = (typeof window !== "undefined") ? (localStorage.getItem("ezefloor_default_height") || "2400") : "2400";
+    const defaultHeightMm = Number(storedDefaultHeight);
+    const defaultHeightPx = (realScale && realScale > 0) ? (defaultHeightMm / realScale) : 150;
+
     // Clear previous meshes and dispose their GPU resources
     wallMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
     wallMeshesRef.current = [];
@@ -340,7 +313,7 @@ export default function ThreeDView({
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.rotation.x = Math.PI / 2; // Lie flat on X-Z plane
-        mesh.position.y = -0.5; // Avoid Z-fighting with grid helper
+        mesh.position.set(-imgSize.w / 2, -0.5, -imgSize.h / 2); // Center floors on grid helper
         mesh.receiveShadow = enableShadows;
         scene.add(mesh);
         floorMeshesRef.current.push(mesh);
@@ -365,7 +338,7 @@ export default function ThreeDView({
       
       const planeMesh = new THREE.Mesh(planeGeo, planeMat);
       planeMesh.rotation.x = Math.PI / 2;
-      planeMesh.position.set(imgSize.w / 2, -1.5, imgSize.h / 2);
+      planeMesh.position.set(0, -1.5, 0); // Center PDF on the grid
       
       scene.add(planeMesh);
       floorMeshesRef.current.push(planeMesh);
@@ -388,7 +361,13 @@ export default function ThreeDView({
       const angle = Math.atan2(dy, dx);
       const thickness = wall.thickness_px || 20;
 
-      const geometry = new THREE.BoxGeometry(length, wallHeight, thickness);
+      // Convert mm to pixels. Fallback to default height.
+      let activeWallHeight = defaultHeightPx;
+      if (wall.height && realScale) {
+        activeWallHeight = wall.height / realScale;
+      }
+
+      const geometry = new THREE.BoxGeometry(length, activeWallHeight, thickness);
       
       // Material: concrete texture simulation
       const color = wall.class_name === "exterior_wall" ? 0x64748b : 0x94a3b8;
@@ -399,7 +378,7 @@ export default function ThreeDView({
       });
 
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set((x1 + x2) / 2, wallHeight / 2, (y1 + y2) / 2);
+      mesh.position.set((x1 + x2) / 2 - imgSize.w / 2, activeWallHeight / 2, (y1 + y2) / 2 - imgSize.h / 2); // Center walls on grid
       mesh.rotation.y = -angle;
       mesh.castShadow = enableShadows;
       mesh.receiveShadow = enableShadows;
@@ -417,6 +396,7 @@ export default function ThreeDView({
         let hostWallCx = cx;
         let hostWallCy = cy;
         let hostWallClass = "interior_wall";
+        let hostWallHeightPx = defaultHeightPx;
 
         // Find closest wall for thickness, class_name (to match color/material) and cut endpoints
         const points = door.points || [];
@@ -452,9 +432,13 @@ export default function ThreeDView({
                 const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
                 const tVal = ((cxSeg - wp1.x) * wdx + (cySeg - wp1.y) * wdy) / L2;
 
-                if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
+                 if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
                   wallThickness = w.thickness_px || thickness;
                   hostWallClass = w.class_name || "interior_wall";
+                  const wHeight = w.height || defaultHeightMm;
+                  if (realScale) {
+                    hostWallHeightPx = wHeight / realScale;
+                  }
 
                   // Align rotation to host wall centerline orientation
                   const wLen = Math.hypot(wdx, wdy);
@@ -491,9 +475,9 @@ export default function ThreeDView({
                         const tGap = (p1.x - pt.x) * uxW + (p1.y - pt.y) * uyW;
                         const gapLen = Math.abs(tGap);
                         if (gapLen > 0.1) {
-                          const fillerGeo = new THREE.BoxGeometry(gapLen, wallHeight, wallThickness);
+                          const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
                           leftJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
-                          leftJambMesh.position.set(pt.x + (tGap / 2) * uxW, wallHeight / 2, pt.y + (tGap / 2) * uyW);
+                          leftJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
                           leftJambMesh.rotation.y = -wAngle;
                           leftJambMesh.castShadow = enableShadows;
                           leftJambMesh.receiveShadow = enableShadows;
@@ -512,9 +496,9 @@ export default function ThreeDView({
                         const tGap = (p2.x - pt.x) * uxW + (p2.y - pt.y) * uyW;
                         const gapLen = Math.abs(tGap);
                         if (gapLen > 0.1) {
-                          const fillerGeo = new THREE.BoxGeometry(gapLen, wallHeight, wallThickness);
+                          const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
                           rightJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
-                          rightJambMesh.position.set(pt.x + (tGap / 2) * uxW, wallHeight / 2, pt.y + (tGap / 2) * uyW);
+                          rightJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
                           rightJambMesh.rotation.y = -wAngle;
                           rightJambMesh.castShadow = enableShadows;
                           rightJambMesh.receiveShadow = enableShadows;
@@ -530,7 +514,7 @@ export default function ThreeDView({
 
         // Group to manage the frame and slab together
         const doorGroup = new THREE.Group();
-        const frameHeight = wallHeight * 0.85; // Doors are slightly shorter than walls
+        const frameHeight = hostWallHeightPx * 0.85; // Doors are slightly shorter than walls
         const frameDepth = wallThickness + 4; // Frame depth matches wall thickness + 4px for lintel/trim
 
         // Frame post materials (wood style)
@@ -916,7 +900,7 @@ export default function ThreeDView({
         });
 
         // 1. Header filler block (above the door frame)
-        const headerHeight = Math.max(0, wallHeight - frameHeight);
+        const headerHeight = Math.max(0, hostWallHeightPx - frameHeight);
         if (headerHeight > 0.1) {
           const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
           const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
@@ -936,7 +920,7 @@ export default function ThreeDView({
           doorMeshesRef.current.push(rightJambMesh);
         }
 
-        doorGroup.position.set(hostWallCx, 0, hostWallCy);
+        doorGroup.position.set(hostWallCx - imgSize.w / 2, 0, hostWallCy - imgSize.h / 2);
         doorGroup.rotation.y = -hostWallAngle;
 
         scene.add(doorGroup);

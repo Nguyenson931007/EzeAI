@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 
 /**
@@ -36,6 +36,7 @@ const _overlapsWithAnyDoor = overlapsWithAnyDoor;
 const _cutWallsByDoors = cutWallsByDoors;
 
 function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
+  return walls;
   const EDGE_MARGIN = 20;
   
   // Calculate room bounding box if rooms exist
@@ -57,7 +58,7 @@ function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
     });
   }
   
-  const ROOM_PADDING = 350; // generous padding around rooms
+  const ROOM_PADDING = 150; // tighter padding around rooms (150px instead of 350px)
   
   return walls.filter(w => {
     if (!w.centerline || w.centerline.length !== 2) return true;
@@ -84,6 +85,26 @@ function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
           wMaxY < minRoomY - ROOM_PADDING || 
           wMinY > maxRoomY + ROOM_PADDING) {
         return false;
+      }
+    }
+
+    // 3. Isolated low-confidence wall filter
+    if (w.confidence < 0.3) {
+      const otherWalls = walls.filter(o => o.id !== w.id);
+      let connects = false;
+      for (const ow of otherWalls) {
+        if (!ow.centerline || ow.centerline.length !== 2) continue;
+        const [o1, o2] = ow.centerline;
+        // distance from p1 or p2 to ow's centerline segment
+        const d1 = distancePointToSegment({ x: p1[0], y: p1[1] }, { x: o1[0], y: o1[1] }, { x: o2[0], y: o2[1] });
+        const d2 = distancePointToSegment({ x: p2[0], y: p2[1] }, { x: o1[0], y: o1[1] }, { x: o2[0], y: o2[1] });
+        if (d1 < 15 || d2 < 15) {
+          connects = true;
+          break;
+        }
+      }
+      if (!connects) {
+        return false; // Discard isolated low-confidence wall
       }
     }
     
@@ -544,13 +565,22 @@ export const useAIController = (
   };
 
 
-  const detectWallFromFloorAI = async () => {
+  const detectWallFromFloorAI = async (wallThicknesses = null) => {
     if (!realScale || realScale === 1.0) {
       alert("bạn phải scale trước khi chạy AI");
       return;
     }
     if (!image) return alert("No image to detect");
     if (!setWallsByPage) return;
+
+    let activeThicknesses = wallThicknesses;
+    if (!activeThicknesses) {
+      try {
+        const saved = localStorage.getItem('ezefloor_wall_thickness_config');
+        if (saved) activeThicknesses = JSON.parse(saved);
+      } catch (e) {}
+    }
+    const { ext = 90, int = 70, part = 70, defaultHeight = 2400 } = activeThicknesses || {};
 
     const job = startROIJob();
     try {
@@ -563,6 +593,7 @@ export const useAIController = (
         blob,
         conf,
         realScale,
+        activeThicknesses,
         (event) => {
           if (job.token !== roiInferenceIdRef.current) return;
           
@@ -585,21 +616,19 @@ export const useAIController = (
           if (event.walls) {
             let detectedWalls = event.walls.map(w => {
               let wall_type = "int";
-              let thickness = 70;
+              let thickness = w.thickness || 70;
               if (w.class_name === "exterior_wall") {
                 wall_type = "ext";
-                thickness = 90;
               } else if (w.class_name === "partition_wall") {
                 wall_type = "part";
-                thickness = 70;
               } else if (w.class_name === "interior_wall") {
                 wall_type = "int";
-                thickness = 70;
               }
               return {
                 ...w,
                 wall_type,
                 thickness,
+                height: defaultHeight, // Per-wall height property
                 review_state: "AI_GENERATED"
               };
             });
