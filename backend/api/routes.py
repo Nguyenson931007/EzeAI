@@ -1287,32 +1287,52 @@ def api_generate_rooms_from_walls(
         # Filter out extremely small polygons (noise, area < 5000px^2)
         polys = [p for p in polys if p.area >= 5000.0]
         
-        # Name rooms using texts
+        # Name rooms using Auto AI's full filtering & matching logic
+        rooms_detected = []
         for idx, poly in enumerate(polys):
             poly_simplified = poly.simplify(2.0, preserve_topology=True)
             coords = [{"x": float(x), "y": float(y)} for x, y in poly_simplified.exterior.coords]
             
-            room_name = f"ROOM {idx + 1}"
-            
-            if texts:
-                for t in texts:
-                    tx = t.get("x")
-                    ty = t.get("y")
-                    t_val = t.get("text", "")
-                    if tx is not None and ty is not None and t_val:
-                        pt = Point(tx, ty)
-                        if poly.contains(pt):
-                            room_name = t_val.upper()
-                            break
-                            
             rooms_detected.append({
                 "id": f"gen_room_{int(time.time()*1000)}_{idx}",
                 "polygon": coords,
-                "room_name": room_name,
-                "class_name": room_name,
+                "room_name": f"ROOM {idx + 1}",
+                "class_name": f"ROOM {idx + 1}",
                 "conf": 1.0,
                 "source": "generated_from_walls"
             })
+        
+        # Apply Auto AI's _match_text_to_rooms: filters dimensions, junk, applies
+        # fuzzy matching, OCR corrections, and validates against VALID_ROOM_WORDS
+        if texts:
+            try:
+                from services.floor_ai_detect import _match_text_to_rooms
+                # Convert texts to the bbox format expected by _match_text_to_rooms
+                formatted_texts = []
+                for t in texts:
+                    bbox = t.get("bbox")
+                    if bbox:
+                        formatted_texts.append({
+                            "text": t.get("text", ""),
+                            "conf": t.get("conf", 0.5),
+                            "bbox": bbox
+                        })
+                    else:
+                        # Fallback: create a small synthetic bbox from centroid
+                        tx = t.get("x", 0)
+                        ty = t.get("y", 0)
+                        formatted_texts.append({
+                            "text": t.get("text", ""),
+                            "conf": t.get("conf", 0.5),
+                            "bbox": {"x": tx - 20, "y": ty - 10, "w": 40, "h": 20}
+                        })
+                
+                rooms_detected = _match_text_to_rooms(rooms_detected, formatted_texts)
+                print(f"[api_generate_rooms_from_walls] _match_text_to_rooms applied with {len(formatted_texts)} texts")
+            except Exception as match_err:
+                print(f"[api_generate_rooms_from_walls] _match_text_to_rooms failed: {match_err}, using fallback")
+                import traceback
+                traceback.print_exc()
             
         print(f"[api_generate_rooms_from_walls] Input walls: {len(walls)}, Input doors: {len(doors)}, Polygons found: {len(polys)}, Rooms returned: {len(rooms_detected)}")
         return {

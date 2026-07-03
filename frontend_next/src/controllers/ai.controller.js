@@ -1230,14 +1230,13 @@ export const useAIController = (
         const blob = await fetch(image).then(r => r.blob());
         const detectedTexts = await ApiService.autoDetectText(blob, String(OCR_CONF));
         if (Array.isArray(detectedTexts)) {
-          texts = detectedTexts.map(t => {
-            const { x, y, w, h } = t.bbox;
-            return {
-              text: t.text,
-              x: x + w / 2,
-              y: y + h / 2
-            };
-          });
+          texts = detectedTexts.map(t => ({
+            text: t.text,
+            conf: t.conf || 0.5,
+            bbox: t.bbox,
+            x: t.bbox.x + t.bbox.w / 2,
+            y: t.bbox.y + t.bbox.h / 2
+          }));
         }
       } catch (ocrErr) {
         console.error("[generateRoomsFromWalls] OCR text detection failed, falling back to existing room names:", ocrErr);
