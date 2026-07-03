@@ -824,8 +824,8 @@ class WallSegmentService:
                         }
                         detected_walls.append(wall_obj)
 
-        # Step 0.5: Cross-filter walls against door detections to remove misidentified doors
-        detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
+        # Step 0.5: Skip backend door cross-filter (frontend handles door gaps correctly)
+        # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
         # Step 1: Merge collinear overlapping walls of the same class
         merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
@@ -1209,8 +1209,10 @@ class WallSegmentService:
 
         yield {"status": "raw_detected", "walls": raw_yield_walls, "width": img_w, "height": img_h, "message": f"YOLO found {len(raw_yield_walls)} walls. Post-processing..."}
 
-        # Step 0.5: Cross-filter walls against door detections to remove misidentified doors
-        processed_walls = _filter_walls_by_doors(detected_walls, image_bytes)
+        # Step 0.5: Skip backend door cross-filter — the frontend cutWallsByDoors
+        # already handles door gaps by splitting walls into segments, not deleting them.
+        # _filter_walls_by_doors was too aggressive (removed entire walls near doors).
+        processed_walls = detected_walls
 
         # Step 1: Merge collinear overlapping walls of the same class
         merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
