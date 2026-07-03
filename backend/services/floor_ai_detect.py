@@ -363,7 +363,7 @@ VALID_ROOM_WORDS = [
     "PANTRY", "ENTRY", "ALFRESCO", "PORCH", "RUMPUS", "LOUNGE", 
     "THEATRE", "FAMILY", "MEALS", "STORE", "BALCONY", "PLAY", 
     "OFFICE", "GUEST", "LDRY", "SITTING", "RETREAT", "BAR", 
-    "GYM", "CELLAR", "WORKSHOP", "BATHROOM", "GARDEN"
+    "GYM", "CELLAR", "WORKSHOP", "BATHROOM", "GARDEN", "LINEN"
 ]
 
 COMMON_CORRECTIONS = {
@@ -681,14 +681,22 @@ def _score_semantic_text(text, conf, bbox, room_polygon, rooms_context, current_
     # Calculate Total including global context boost
     total = (fuzzy_score * 0.40) + ((geo_boost + global_boost) * 0.20) + (center_score * 0.20) + (font_score * 0.15) + (conf * 100 * 0.05)
     
-    print(f"[OCR Correction] original={text} | norm={norm_text} | fuzzy_match={matched_word}({fuzzy_score:.1f}) | geo_boost={geo_boost} | global_boost={global_boost} | final={matched_word} | score={total:.1f}")
+    # Append digit now for the final output (e.g. BED 2, ENS 1)
+    final_word = matched_word
+    digit_match = re.search(r"\d+", norm_text)
+    if not digit_match:
+        digit_match = re.search(r"\d+", text)
+    if digit_match:
+        final_word = f"{matched_word} {digit_match.group(0)}"
+        
+    print(f"[OCR Correction] original={text} | norm={norm_text} | fuzzy_match={matched_word}({fuzzy_score:.1f}) | geo_boost={geo_boost} | global_boost={global_boost} | final={final_word} | score={total:.1f}")
     
     # If the text matches a valid room word, we have high confidence so we lower the threshold to 30
     min_threshold = 30 if matched_word in VALID_ROOM_WORDS else 50
     if total < min_threshold:
         return total, "UNKNOWN", text_type
         
-    return total, matched_word, text_type
+    return total, final_word, text_type
 
 
 def _detect_rooms_text_roi(
@@ -1737,6 +1745,14 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
                         room_token = _extract_valid_room_token(t["text"])
                         
                     if room_token and room_token != "UNKNOWN":
+                        # If a number exists in the norm_text or raw text, preserve it
+                        matched_name = room_token
+                        digit_match = re.search(r"\d+", norm_text)
+                        if not digit_match:
+                            digit_match = re.search(r"\d+", t["text"])
+                        if digit_match:
+                            matched_name = f"{room_token} {digit_match.group(0)}"
+                            
                         dist = poly.centroid.distance(pt)
                         max_dist = max(1, poly.length / 2)
                         center_score = max(0, 100 - (dist / max_dist) * 100)
@@ -1745,7 +1761,7 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
                         
                         if score > best_score:
                             best_score = score
-                            best_text = room_token
+                            best_text = matched_name
             
             if best_text:
                 room["room_name"] = best_text.upper()
@@ -3153,14 +3169,14 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
     if not text_boxes:
         return []
     
-    # Stage 2: Crop + OCR (Optimized Batch OCR)
+    # Stage 2: Crop + OCR (Optimized Batch OCR with padding=15, is_vertical threshold=0.9)
     all_results = []
     
     batch_images = []
     batch_map = []  # stores (box_idx, angle)
     
     for box_idx, box in enumerate(text_boxes):
-        pad = 5
+        pad = 15
         cx1 = max(0, box["x1"] - pad)
         cy1 = max(0, box["y1"] - pad)
         cx2 = min(img_w, box["x2"] + pad)
@@ -3172,7 +3188,7 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
             
         pil_crop = Image.fromarray(crop)
         crop_h, crop_w = crop.shape[:2]
-        is_vertical = crop_h > crop_w * 1.1
+        is_vertical = crop_h > crop_w * 0.9
         
         # 0 degree orientation
         batch_images.append(pil_crop)
