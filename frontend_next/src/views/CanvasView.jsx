@@ -695,6 +695,9 @@ const DoorLayer = React.memo(({
 
           const renderManualJambs = () => {
             if (!p1 || !p2 || len <= 0) return null;
+            if (type === "sliding" || (d.class && (d.class.includes("sliding") || d.class.includes("slider")))) {
+              return null;
+            }
             const ux = dx / len;
             const uy = dy / len;
             const jambOffsetMm = 150; // default 150mm fallback

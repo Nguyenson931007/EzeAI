@@ -1137,6 +1137,17 @@ def api_generate_rooms_from_walls(
             if c and len(c) == 2:
                 lines.append(LineString([c[0], c[1]]))
                 
+        # Add door centerlines directly to lines so doors act as room boundary cuts (delimiters)
+        for d in doors:
+            pts = d.get("points") or d.get("polygon")
+            if pts and len(pts) >= 2:
+                p1 = pts[0]
+                p2 = pts[1]
+                if isinstance(p1, dict) and isinstance(p2, dict):
+                    lines.append(LineString([(p1.get("x", 0), p1.get("y", 0)), (p2.get("x", 0), p2.get("y", 0))]))
+                elif isinstance(p1, (list, tuple)) and isinstance(p2, (list, tuple)) and len(p1) >= 2 and len(p2) >= 2:
+                    lines.append(LineString([p1[:2], p2[:2]]))
+                
         # 2. Bridge door gaps specifically if doors are provided
         if doors:
             for d in doors:
