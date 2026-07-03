@@ -625,9 +625,9 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
     if boundary_geom is None or boundary_geom.is_empty:
         return walls
 
-    # 4. Buffer the boundary polygon slightly (e.g. 50 pixels) to avoid cutting off walls touching the boundaries
+    # 4. Buffer the boundary polygon slightly (e.g. 150 pixels) to avoid cutting off walls touching the boundaries
     try:
-        boundary_buffered = boundary_geom.buffer(50.0)
+        boundary_buffered = boundary_geom.buffer(150.0)
     except Exception:
         boundary_buffered = boundary_geom
 
@@ -684,6 +684,13 @@ class WallSegmentService:
         and duplicate cleanup, structured as perfect 30px-wide rectangles.
         """
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        if device == "cpu" and torch.get_num_threads() > 4:
+            torch.set_num_threads(4)
+        if device == "cpu" and imgsz > 1280:
+            imgsz = 1280
+            
+        # Scale confidence down by 0.5 to increase sensitivity for wall detection
+        confidence = float(confidence * 0.5)
         model = _get_model()
 
         # Load image
@@ -1019,6 +1026,13 @@ class WallSegmentService:
         yield {"status": "started", "message": "Initializing Wall AI..."}
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        if device == "cpu" and torch.get_num_threads() > 4:
+            torch.set_num_threads(4)
+        if device == "cpu" and imgsz > 1280:
+            imgsz = 1280
+            
+        # Scale confidence down by 0.5 to increase sensitivity for wall detection
+        confidence = float(confidence * 0.5)
         model = _get_model()
 
         # Load image

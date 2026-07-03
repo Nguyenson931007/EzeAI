@@ -290,11 +290,11 @@ export default function App() {
     }
   };
 
-  const rooms = roomsByPage[currentPage] || [];
+  const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
 
   const deleteDoor = (doorId) => {
-    const doors = doorsByPage[currentPage] || [];
+    const doors = Array.isArray(doorsByPage[currentPage]) ? doorsByPage[currentPage] : [];
     pushHistory(null, null, doors.filter(d => d.id !== doorId));
   };
 
@@ -303,10 +303,10 @@ export default function App() {
     const newObj = {};
     Object.keys(doorsByPage).forEach(page => {
       const pageIdx = parseInt(page, 10);
-      const pageRooms = roomsByPage[pageIdx] || [];
-      const pageWalls = wallsByPage[pageIdx] || [];
+      const pageRooms = Array.isArray(roomsByPage[pageIdx]) ? roomsByPage[pageIdx] : [];
+      const pageWalls = Array.isArray(wallsByPage[pageIdx]) ? wallsByPage[pageIdx] : [];
 
-      newObj[page] = (doorsByPage[page] || []).map((d, i) => {
+      newObj[page] = (Array.isArray(doorsByPage[page]) ? doorsByPage[page] : []).map((d, i) => {
         const doorName = d.door_name || `D-${i + 1}`;
         const autoHardware = getHardwareType({ ...d, door_name: doorName }, pageRooms, pageWalls, realScale);
         return {
@@ -323,8 +323,8 @@ export default function App() {
   const boqPages = useMemo(() => 
     pages.map((p, idx) => ({
       ...p,
-      objects: roomsByPage[idx] || [],
-      doors: processedDoorsByPage[idx] || []
+      objects: Array.isArray(roomsByPage[idx]) ? roomsByPage[idx] : [],
+      doors: Array.isArray(processedDoorsByPage[idx]) ? processedDoorsByPage[idx] : []
     })), 
     [pages, roomsByPage, processedDoorsByPage]
   );
@@ -346,11 +346,11 @@ export default function App() {
     detectTemplate,
     detectDoorSeg,
     activeScanRoom,
-    // Smart AI pipeline
     smartDetect,
     cancelSmartDetect,
     isSmartDetecting,
-    smartProgress
+    smartProgress,
+    generateRoomsFromWalls
   } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage, setWallsByPage, doorsByPage, wallsByPage, pushHistory);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
@@ -634,6 +634,7 @@ export default function App() {
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
         autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
         smartDetect={smartDetect} cancelSmartDetect={cancelSmartDetect} isSmartDetecting={isSmartDetecting} smartProgress={smartProgress}
+        generateRoomsFromWalls={generateRoomsFromWalls}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
         exportPDF={exportPDF}
         addTrain={addTrain}

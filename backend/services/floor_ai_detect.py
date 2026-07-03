@@ -711,6 +711,37 @@ def _detect_rooms_text_roi(
         xs = [p["x"] for p in pts]
         ys = [p["y"] for p in pts]
         
+        # Check if we can inherit from existing rooms first to skip OCR completely
+        if existing_rooms:
+            best_existing = None
+            max_overlap = 0.0
+            from shapely.geometry import Polygon
+            try:
+                poly = Polygon([(p["x"], p["y"]) for p in pts])
+                if poly.is_valid:
+                    for er in existing_rooms:
+                        er_pts = er.get("polygon")
+                        if er_pts and len(er_pts) >= 3:
+                            er_poly = Polygon([(p["x"], p["y"]) for p in er_pts])
+                            if er_poly.is_valid:
+                                intersection = poly.intersection(er_poly).area
+                                union = poly.union(er_poly).area
+                                iou = intersection / union if union > 0 else 0
+                                if iou > 0.6 and iou > max_overlap:
+                                    max_overlap = iou
+                                    best_existing = er
+            except Exception:
+                pass
+            
+            if best_existing and best_existing.get("room_name") and best_existing["room_name"].upper() not in ["ROOM", "UNKNOWN"]:
+                print(f"[floor_ai_detect] Room {idx} inherits name '{best_existing['room_name']}' from existing room (IoU={max_overlap:.2f}). Skipping OCR!")
+                return idx, {
+                    "text": best_existing["room_name"],
+                    "score": 100.0,
+                    "conf": 1.0,
+                    "candidates": [{"text": best_existing["room_name"], "score": 100.0, "conf": 1.0, "source": "inherited"}]
+                }
+        
         def attempt_ocr(pad, upscale):
             x1, y1 = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
             x2, y2 = min(img_w, int(max(xs)) + pad), min(img_h, int(max(ys)) + pad)
@@ -750,9 +781,9 @@ def _detect_rooms_text_roi(
             
             is_vertical = roi_h > roi_w * 1.5
             if is_vertical:
-                orientations = [(90, pil_crop.transpose(Image.ROTATE_270)), (270, pil_crop.transpose(Image.ROTATE_90))]
+                orientations = [(90, pil_crop.transpose(Image.ROTATE_270))]
             else:
-                orientations = [(0, pil_crop), (180, pil_crop.transpose(Image.ROTATE_180))]
+                orientations = [(0, pil_crop)]
                 
             best_text = ""
             best_overall_score = -9999
@@ -841,7 +872,8 @@ def _detect_rooms_text_roi(
         score, text, conf, cands = attempt_ocr(pad=15, upscale=1.0)
         
         # Attempt 2: OCR Retry for low-confidence polygons (Requirement 2C)
-        if score < 50 or conf < 0.4:
+        # Only retry if standard run found some text candidates to improve (cands list is not empty), otherwise avoid useless CPU load.
+        if (score < 50 or conf < 0.4) and len(cands) > 0:
             # Only upscale if the crop size is small (max dimension < 80px) to keep CPU load low and fast
             retry_upscale = 2.0 if (max(xs) - min(xs)) < 80 else 1.0
             score2, text2, conf2, cands2 = attempt_ocr(pad=45, upscale=retry_upscale)
@@ -1760,6 +1792,8 @@ def predict_rooms_from_bytes(image_bytes: bytes,
     t_yolo = time.time()
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu" and torch.get_num_threads() > 4:
+        torch.set_num_threads(4)
     
     if model_path:
         print(f"[floor_ai_detect] Using override model: {model_path}")
@@ -1768,9 +1802,10 @@ def predict_rooms_from_bytes(image_bytes: bytes,
         model = _get_model("room")
     
     # Speed Optimization: 
-    # - imgsz=1280 (balanced: fast inference while retaining small room detection)
+    # - imgsz=1280 on GPU, fallback to 1024 on CPU for speed
     # - half=True (only on GPU to double speed)
-    yolo_results = model(img_np, conf=confidence, device=device, imgsz=1280, half=(device == "cuda"))
+    inference_imgsz = 1280 if device == "cuda" else 1024
+    yolo_results = model(img_np, conf=confidence, device=device, imgsz=inference_imgsz, half=(device == "cuda"))
 
     rooms = []
     
@@ -1977,16 +2012,25 @@ def predict_rooms_from_bytes_roi(
         print(f"[ROI] Crop too small: {crop_w}x{crop_h}, skipping")
         return {"filename": filename, "pages": [{"page_index": 0, "width": img_w, "height": img_h, "objects": []}]}
 
-    crop = img_np[cy1:cy2, cx1:cx2]
-    print(f"[ROI] Crop: ({cx1},{cy1})-({cx2},{cy2}) = {crop_w}x{crop_h}px | padding={pad} | upscale={actual_upscale}")
+    # Crop the ROI region
+    roi_crop = pil_image.crop((cx1, cy1, cx2, cy2))
 
-    # ── Optional upscale ──
-    if actual_upscale > 1.0:
-        actual_upscale = min(actual_upscale, 3.0)  # Cap at 3x to prevent OOM
-        new_w = int(crop.shape[1] * actual_upscale)
-        new_h = int(crop.shape[0] * actual_upscale)
-        crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
-        print(f"[ROI] Upscaled to {new_w}x{new_h}px (factor={actual_upscale})")
+    # Create solid white canvas of original image size
+    masked_img = Image.new("RGB", (img_w, img_h), (255, 255, 255))
+
+    # Paste the ROI crop back at its original position
+    masked_img.paste(roi_crop, (cx1, cy1))
+
+    # Convert to numpy array for inference
+    crop = np.array(masked_img)
+    actual_upscale = 1.0
+    
+    # Store cx1, cy1 for OCR semantic inheritance logic, but set shift offset for mapping to 0
+    ocr_shift_x = cx1
+    ocr_shift_y = cy1
+    cx1 = 0
+    cy1 = 0
+    print(f"[ROI] Masked Room AI ROI: ({ocr_shift_x},{ocr_shift_y})-({cx2},{cy2}) on full-size canvas")
 
     # ── Run YOLO on the cropped region ──
     import torch
@@ -2054,6 +2098,19 @@ def predict_rooms_from_bytes_roi(
             # Undo upscale, then add crop offset
             pt["x"] = pt["x"] / actual_upscale + cx1
             pt["y"] = pt["y"] / actual_upscale + cy1
+
+    # Filter rooms to only those that overlap with the user's selected ROI box (roi_x, roi_y, roi_w, roi_h)
+    filtered_rooms = []
+    for room in rooms:
+        xs = [pt["x"] for pt in room["polygon"]]
+        ys = [pt["y"] for pt in room["polygon"]]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        overlap_x = max(0, min(roi_x + roi_w, max_x) - max(roi_x, min_x))
+        overlap_y = max(0, min(roi_y + roi_h, max_y) - max(roi_y, min_y))
+        if overlap_x > 0 and overlap_y > 0:
+            filtered_rooms.append(room)
+    rooms = filtered_rooms
 
     # ── Clipping Protection ──
     for room in rooms:
@@ -2138,7 +2195,6 @@ def predict_doors_from_bytes_roi(
 
     pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img_w, img_h = pil_image.width, pil_image.height
-    img_np = np.array(pil_image)
 
     pad = int(actual_padding)
     cx1 = max(0, int(roi_x) - pad)
@@ -2146,27 +2202,36 @@ def predict_doors_from_bytes_roi(
     cx2 = min(img_w, int(roi_x + roi_w) + pad)
     cy2 = min(img_h, int(roi_y + roi_h) + pad)
 
-    crop = img_np[cy1:cy2, cx1:cx2]
     crop_w = cx2 - cx1
     crop_h = cy2 - cy1
-    print(f"[ROI-Door] Crop: ({cx1},{cy1})-({cx2},{cy2}) = {crop_w}x{crop_h}px")
+    if crop_w < 50 or crop_h < 50:
+        print(f"[ROI-Door] Crop too small: {crop_w}x{crop_h}, skipping")
+        return {"filename": filename, "pages": [{"page_index": 0, "width": img_w, "height": img_h, "doors": []}]}
 
-    # Re-encode crop as bytes for the existing door pipeline
-    crop_pil = Image.fromarray(crop)
+    # Crop the ROI region
+    roi_crop = pil_image.crop((cx1, cy1, cx2, cy2))
+
+    # Create solid white canvas of original image size
+    masked_img = Image.new("RGB", (img_w, img_h), (255, 255, 255))
+
+    # Paste the ROI crop back at its original position
+    masked_img.paste(roi_crop, (cx1, cy1))
+
+    # Save this masked full-size image to bytes
     buf = io.BytesIO()
-    crop_pil.save(buf, format="PNG")
+    masked_img.save(buf, format="PNG")
     crop_bytes = buf.getvalue()
 
-    # Calculate target imgsz to maintain scale
     # Full image is run at imgsz=2048
-    full_scale = 2048.0 / max(img_w, img_h) if max(img_w, img_h) > 0 else 2.0
-    target_imgsz = int(max(crop_w, crop_h) * full_scale)
-    # Round to nearest multiple of 32, minimum 128, maximum 2048
-    target_imgsz = max(128, min(2048, ((target_imgsz + 15) // 32) * 32))
-    print(f"[ROI-Door] Calculated target imgsz: {target_imgsz} (full scale: {full_scale:.3f})")
+    target_imgsz = 2048
+    print(f"[ROI-Door] Running on masked full-size canvas with target imgsz: {target_imgsz}")
 
-    # Run existing door pipeline on the crop
+    # Run existing door pipeline on the crop_bytes
     result = predict_doors_from_bytes(crop_bytes, filename, confidence, real_scale, imgsz=target_imgsz)
+
+    # Set coordinate offsets to 0 since coordinates are already in original coordinate space!
+    cx1 = 0
+    cy1 = 0
 
     # Remap door coordinates
     if result and result.get("pages"):
@@ -2183,6 +2248,25 @@ def predict_doors_from_bytes_roi(
                     for pt in door["mask_polygon"]:
                         pt["x"] = pt["x"] + cx1
                         pt["y"] = pt["y"] + cy1
+            
+            # Filter doors to only those that overlap with the user's selected ROI box (roi_x, roi_y, roi_w, roi_h)
+            filtered_doors = []
+            for door in page.get("doors", []):
+                pts = door.get("points", [])
+                if not pts:
+                    pts = door.get("polygon", [])
+                if pts:
+                    xs = [pt["x"] for pt in pts]
+                    ys = [pt["y"] for pt in pts]
+                    min_x, max_x = min(xs), max(xs)
+                    min_y, max_y = min(ys), max(ys)
+                    overlap_x = max(0, min(roi_x + roi_w, max_x) - max(roi_x, min_x))
+                    overlap_y = max(0, min(roi_y + roi_h, max_y) - max(roi_y, min_y))
+                    if overlap_x > 0 and overlap_y > 0:
+                        filtered_doors.append(door)
+                else:
+                    filtered_doors.append(door)
+            page["doors"] = filtered_doors
             page["roi"] = roi_bounds
 
     # Heatmap event tracking
@@ -2428,6 +2512,11 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
     from services.ocr import run_ocr
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu" and torch.get_num_threads() > 4:
+        torch.set_num_threads(4)
+    if device == "cpu" and imgsz > 1024:
+        imgsz = 1024
+        
     model = _get_model("door")
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img_np = np.array(img)
@@ -3037,8 +3126,15 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
     
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Use higher imgsz and augment=True to catch small/thin text like 'BIR'
-    yolo_results = text_model(img_np, conf=confidence, device=device, imgsz=1824, agnostic_nms=True, augment=True)
+    
+    if device == "cpu" and torch.get_num_threads() > 4:
+        torch.set_num_threads(4)
+        
+    inference_imgsz = 1824 if device == "cuda" else 1024
+    use_augment = True if device == "cuda" else False
+    
+    # Use higher imgsz and augment=True to catch small/thin text like 'BIR' on GPU, fallback on CPU for speed
+    yolo_results = text_model(img_np, conf=confidence, device=device, imgsz=inference_imgsz, agnostic_nms=True, augment=use_augment)
     
     text_boxes = []
     for res in yolo_results:

@@ -794,17 +794,69 @@ async def predict_wall_stream(
     ext_thickness: Optional[int] = Form(90),
     int_thickness: Optional[int] = Form(70),
     part_thickness: Optional[int] = Form(70),
+    roi_x: Optional[float] = Form(None),
+    roi_y: Optional[float] = Form(None),
+    roi_w: Optional[float] = Form(None),
+    roi_h: Optional[float] = Form(None),
+    roi_padding: float = Form(48),
     username: str = Depends(validate_session)
 ):
     """
     Tuyến API truyền luồng sự kiện (NDJSON Streaming) nhận diện tường:
     Khi phát hiện được tường thô từ YOLO, sẽ trả về ngay lập tức để frontend hiển thị.
     Sau khi hậu xử lý xong, sẽ trả về kết quả tường hoàn chỉnh.
+    Hỗ trợ khoanh vùng ROI quét cục bộ (predict_wall_stream_roi).
     """
     from services.wall_segment_service import WallSegmentService
     from fastapi.responses import StreamingResponse
+    from PIL import Image
+    import io
+    import numpy as np
 
     content = await file.read()
+    
+    # Check if we should process only in ROI
+    if roi_x is not None and roi_y is not None and roi_w is not None and roi_h is not None:
+        try:
+            img = Image.open(io.BytesIO(content)).convert("RGB")
+            img_w, img_h = img.size
+            
+            # ROI with padding
+            pad = int(roi_padding)
+            cx1 = max(0, int(roi_x) - pad)
+            cy1 = max(0, int(roi_y) - pad)
+            cx2 = min(img_w, int(roi_x + roi_w) + pad)
+            cy2 = min(img_h, int(roi_y + roi_h) + pad)
+            
+            # Crop the ROI region
+            crop_pil = img.crop((cx1, cy1, cx2, cy2))
+            
+            # Create a solid white background of the original image size
+            masked_img = Image.new("RGB", (img_w, img_h), (255, 255, 255))
+            
+            # Paste the ROI crop back at its original position
+            masked_img.paste(crop_pil, (cx1, cy1))
+            
+            buf = io.BytesIO()
+            masked_img.save(buf, format="PNG")
+            content_for_inference = buf.getvalue()
+            
+            shift_x = 0
+            shift_y = 0
+            original_img_size = (img_w, img_h)
+            print(f"[predict_wall_stream] Masked Wall AI ROI: ({cx1},{cy1})-({cx2},{cy2}) on full-size canvas")
+        except Exception as crop_err:
+            print(f"[predict_wall_stream] Failed to mask ROI: {crop_err}, falling back to full image")
+            content_for_inference = content
+            shift_x = 0
+            shift_y = 0
+            original_img_size = None
+    else:
+        content_for_inference = content
+        shift_x = 0
+        shift_y = 0
+        original_img_size = None
+
     wall_thicknesses = {
         "ext": ext_thickness or 90,
         "int": int_thickness or 70,
@@ -814,7 +866,7 @@ async def predict_wall_stream(
     async def event_generator():
         try:
             generator = WallSegmentService.predict_stream(
-                image_bytes=content,
+                image_bytes=content_for_inference,
                 confidence=confidence,
                 real_scale=real_scale or 1.0,
                 filename=file.filename or "plan.png",
@@ -831,6 +883,40 @@ async def predict_wall_stream(
                 event = await run_in_threadpool(get_next)
                 if event is None:
                     break
+                
+                # Filter to keep only walls that overlap with the original user-selected ROI box
+                if roi_x is not None and roi_y is not None and roi_w is not None and roi_h is not None:
+                    if "walls" in event:
+                        filtered_walls = []
+                        for w in event["walls"]:
+                            if "centerline" in w:
+                                w["centerline"] = [
+                                    [pt[0] + shift_x, pt[1] + shift_y] for pt in w["centerline"]
+                                ]
+                            if "polygon" in w:
+                                w["polygon"] = [
+                                    [pt[0] + shift_x, pt[1] + shift_y] for pt in w["polygon"]
+                                ]
+                            
+                            # Filter to keep only walls that overlap with the original user-selected ROI box
+                            pts = w.get("polygon")
+                            if not pts:
+                                pts = w.get("centerline")
+                            if pts:
+                                xs = [pt[0] for pt in pts]
+                                ys = [pt[1] for pt in pts]
+                                min_x, max_x = min(xs), max(xs)
+                                min_y, max_y = min(ys), max(ys)
+                                overlap_x = max(0, min(roi_x + roi_w, max_x) - max(roi_x, min_x))
+                                overlap_y = max(0, min(roi_y + roi_h, max_y) - max(roi_y, min_y))
+                                if overlap_x > 0 and overlap_y > 0:
+                                    filtered_walls.append(w)
+                            else:
+                                filtered_walls.append(w)
+                        event["walls"] = filtered_walls
+                    if event.get("status") == "final" and original_img_size:
+                        event["width"] = original_img_size[0]
+                        event["height"] = original_img_size[1]
                 
                 yield json.dumps(event) + "\n"
                 await asyncio.sleep(0.05)
@@ -1014,6 +1100,228 @@ def api_get_search_history(project_id: int, username: str = Depends(validate_ses
                 conn.close()
             except Exception as close_err:
                 logger.error(f"[api_get_search_history] Error closing connection for project {project_id}: {close_err}")
+
+
+from typing import List, Dict, Any, Optional
+
+class GenerateRoomsRequest(BaseModel):
+    walls: List[Dict[str, Any]]
+    doors: Optional[List[Dict[str, Any]]] = None
+    texts: Optional[List[Dict[str, Any]]] = None
+    gap_threshold: Optional[float] = 120.0
+
+
+@router.post("/api/generate-rooms-from-walls")
+def api_generate_rooms_from_walls(
+    req: GenerateRoomsRequest,
+    username: str = Depends(validate_session)
+):
+    """
+    Generate room polygons from wall centerlines using Shapely polygonization.
+    """
+    try:
+        from shapely.geometry import LineString, Point, Polygon
+        from shapely.ops import polygonize, unary_union
+        import numpy as np
+        import time
+        
+        walls = req.walls
+        doors = req.doors or []
+        texts = req.texts or []
+        gap_threshold = req.gap_threshold or 120.0
+        
+        # 1. Gather all line segments from wall centerlines
+        lines = []
+        for w in walls:
+            c = w.get("centerline")
+            if c and len(c) == 2:
+                lines.append(LineString([c[0], c[1]]))
+                
+        # 2. Bridge door gaps specifically if doors are provided
+        if doors:
+            for d in doors:
+                pts = d.get("points") or d.get("polygon")
+                if pts and len(pts) >= 2:
+                    xs = []
+                    ys = []
+                    for p in pts:
+                        if isinstance(p, dict):
+                            xs.append(float(p.get("x", 0)))
+                            ys.append(float(p.get("y", 0)))
+                        elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                            xs.append(float(p[0]))
+                            ys.append(float(p[1]))
+                    
+                    if len(xs) >= 2:
+                        cx = sum(xs) / len(xs)
+                        cy = sum(ys) / len(ys)
+                        
+                        endpoints = []
+                        for line in lines:
+                            endpoints.append(Point(line.coords[0]))
+                            endpoints.append(Point(line.coords[-1]))
+                            
+                        if endpoints:
+                            door_center = Point(cx, cy)
+                            endpoints.sort(key=lambda p: p.distance(door_center))
+                            
+                            # Connect the 2 closest distinct endpoints within 250px
+                            close_pts = []
+                            for p in endpoints:
+                                if p.distance(door_center) < 250.0:
+                                    if not any(p.distance(x) < 5.0 for x in close_pts):
+                                        close_pts.append(p)
+                                    if len(close_pts) == 2:
+                                        break
+                                        
+                            if len(close_pts) == 2:
+                                lines.append(LineString([close_pts[0], close_pts[1]]))
+
+        # 3. Connect remaining free endpoints (snapping)
+        # Cluster nearby endpoints within 25px into single nodes to close all geometric gaps
+        snap_distance = 25.0
+        raw_lines_coords = []
+        for line in lines:
+            raw_lines_coords.append((line.coords[0], line.coords[-1]))
+            
+        unique_nodes = []
+        for p1, p2 in raw_lines_coords:
+            for pt in (p1, p2):
+                found = False
+                for node in unique_nodes:
+                    dist = np.hypot(pt[0] - node[0], pt[1] - node[1])
+                    if dist < snap_distance:
+                        found = True
+                        break
+                if not found:
+                    unique_nodes.append(pt)
+                    
+        def get_snapped_node(pt):
+            best_node = pt
+            min_d = snap_distance
+            for node in unique_nodes:
+                d = np.hypot(pt[0] - node[0], pt[1] - node[1])
+                if d < min_d:
+                    min_d = d
+                    best_node = node
+            return best_node
+            
+        snapped_lines = []
+        for p1, p2 in raw_lines_coords:
+            sp1 = get_snapped_node(p1)
+            sp2 = get_snapped_node(p2)
+            if np.hypot(sp1[0] - sp2[0], sp1[1] - sp2[1]) > 5.0:  # Avoid zero-length lines
+                snapped_lines.append(LineString([sp1, sp2]))
+        lines = snapped_lines
+
+        # 3b. Bridge remaining gaps using gap_threshold
+        if gap_threshold > snap_distance:
+            # Recompute endpoints after snapping
+            endpoints = []
+            for line in lines:
+                endpoints.append(line.coords[0])
+                endpoints.append(line.coords[-1])
+            
+            # Helper to find degree of each endpoint (within small epsilon)
+            def get_node_degree(pt, all_pts, eps=5.0):
+                return sum(1 for p in all_pts if np.hypot(pt[0] - p[0], pt[1] - p[1]) < eps)
+                
+            dangling_pts = []
+            for pt in endpoints:
+                if get_node_degree(pt, endpoints) == 1:
+                    dangling_pts.append(pt)
+            
+            # Greedy matching for dangling-to-dangling connections
+            dangling_pairs = []
+            for i, p1 in enumerate(dangling_pts):
+                for j, p2 in enumerate(dangling_pts):
+                    if i < j:
+                        dist = np.hypot(p1[0] - p2[0], p1[1] - p2[1])
+                        if dist <= gap_threshold and dist > snap_distance:
+                            dangling_pairs.append((dist, p1, p2))
+            
+            dangling_pairs.sort(key=lambda x: x[0])
+            used_pts = set()
+            for dist, p1, p2 in dangling_pairs:
+                pt1_key = (round(p1[0], 2), round(p1[1], 2))
+                pt2_key = (round(p2[0], 2), round(p2[1], 2))
+                if pt1_key not in used_pts and pt2_key not in used_pts:
+                    lines.append(LineString([p1, p2]))
+                    used_pts.add(pt1_key)
+                    used_pts.add(pt2_key)
+            
+            # T-junction connections: project remaining dangling endpoints to closest segments
+            for pt in dangling_pts:
+                pt_key = (round(pt[0], 2), round(pt[1], 2))
+                if pt_key in used_pts:
+                    continue
+                
+                point_obj = Point(pt)
+                best_dist = float('inf')
+                best_proj_point = None
+                
+                for line in lines:
+                    # Skip segments where this point is an endpoint
+                    if np.hypot(pt[0] - line.coords[0][0], pt[1] - line.coords[0][1]) < 5.0 or \
+                       np.hypot(pt[0] - line.coords[-1][0], pt[1] - line.coords[-1][1]) < 5.0:
+                        continue
+                    
+                    dist = line.distance(point_obj)
+                    if dist < best_dist:
+                        proj_dist = line.project(point_obj)
+                        proj_point = line.interpolate(proj_dist)
+                        # Ensure projection point lies strictly within segment
+                        if proj_dist > 0.0 and proj_dist < line.length:
+                            best_dist = dist
+                            best_proj_point = (proj_point.x, proj_point.y)
+                
+                if best_proj_point and best_dist <= gap_threshold and best_dist > snap_distance:
+                    lines.append(LineString([pt, best_proj_point]))
+                    used_pts.add(pt_key)
+
+        # 4. Run Shapely's polygonize with unary_union for node splitting
+        rooms_detected = []
+        merged_lines = unary_union(lines)
+        polys = list(polygonize(merged_lines))
+        
+        # Filter out extremely small polygons (noise, area < 5000px^2)
+        polys = [p for p in polys if p.area >= 5000.0]
+        
+        # Name rooms using texts
+        for idx, poly in enumerate(polys):
+            poly_simplified = poly.simplify(2.0, preserve_topology=True)
+            coords = [{"x": float(x), "y": float(y)} for x, y in poly_simplified.exterior.coords]
+            
+            room_name = f"ROOM {idx + 1}"
+            
+            if texts:
+                for t in texts:
+                    tx = t.get("x")
+                    ty = t.get("y")
+                    t_val = t.get("text", "")
+                    if tx is not None and ty is not None and t_val:
+                        pt = Point(tx, ty)
+                        if poly.contains(pt):
+                            room_name = t_val.upper()
+                            break
+                            
+            rooms_detected.append({
+                "id": f"gen_room_{int(time.time()*1000)}_{idx}",
+                "polygon": coords,
+                "room_name": room_name,
+                "class_name": room_name,
+                "conf": 1.0,
+                "source": "generated_from_walls"
+            })
+            
+        print(f"[api_generate_rooms_from_walls] Input walls: {len(walls)}, Input doors: {len(doors)}, Polygons found: {len(polys)}, Rooms returned: {len(rooms_detected)}")
+        return {
+            "success": True,
+            "rooms": rooms_detected
+        }
+    except Exception as e:
+        logger.error(f"[api_generate_rooms_from_walls] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

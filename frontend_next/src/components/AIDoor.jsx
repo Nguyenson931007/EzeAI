@@ -120,7 +120,7 @@ export default function AIDoor({
           const pC = hingeSourcePoints[next];
           const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
           const dist = Math.abs(cross) / len;
-          if (dist > 1.0) { // Max 1.0px alignment tolerance
+          if (dist > 3.0) { // Max 3px alignment tolerance
             isCollinear = false;
             break;
           }
@@ -252,7 +252,7 @@ export default function AIDoor({
             const pC = polyPoints[idx];
             const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
             const dist = Math.abs(cross) / len;
-            if (dist > 1.0) { // 1.0px tolerance
+            if (dist > 3.0) { // 3px tolerance
               isCollinear = false;
               break;
             }
@@ -273,65 +273,108 @@ export default function AIDoor({
         });
       }
 
-      // 1. Sort all straight segments by length descending
-      const sortedSegs = [...straightSegments].sort((a, b) => b.len - a.len);
+      // Find the pair of straight segments that are perpendicular and meet at a corner (hinge)
+      let bestPair = null;
+      let maxScore = -Infinity;
 
-      // 2. Select the two longest distinct (non-overlapping) straight segments
+      for (let i = 0; i < straightSegments.length; i++) {
+        for (let j = i + 1; j < straightSegments.length; j++) {
+          const s1 = straightSegments[i];
+          const s2 = straightSegments[j];
+
+          // Calculate unit direction vectors
+          const v1 = { x: (s1.p2.x - s1.p1.x) / s1.len, y: (s1.p2.y - s1.p1.y) / s1.len };
+          const v2 = { x: (s2.p2.x - s2.p1.x) / s2.len, y: (s2.p2.y - s2.p1.y) / s2.len };
+          const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+
+          // Must be roughly perpendicular (angles between ~63 and ~117 degrees)
+          if (dot > 0.45) continue;
+
+          // Must share a corner (hinge point) within 30px
+          let shareCorner = false;
+          const pts1 = [s1.p1, s1.p2];
+          const pts2 = [s2.p1, s2.p2];
+          for (const pA of pts1) {
+            for (const pB of pts2) {
+              if (Math.hypot(pA.x - pB.x, pA.y - pB.y) < 30.0) {
+                shareCorner = true;
+                break;
+              }
+            }
+            if (shareCorner) break;
+          }
+          if (!shareCorner) continue;
+
+          // Score is the sum of their lengths
+          const score = s1.len + s2.len;
+          if (score > maxScore) {
+            maxScore = score;
+            bestPair = [s1, s2];
+          }
+        }
+      }
+
       let e1 = null;
       let e2 = null;
 
-      if (sortedSegs.length > 0) {
-        e1 = sortedSegs[0];
-      }
-
-      for (let i = 1; i < sortedSegs.length; i++) {
-        const candidate = sortedSegs[i];
-        if (!e1) {
-          e1 = candidate;
-          continue;
+      if (bestPair) {
+        e1 = bestPair[0];
+        e2 = bestPair[1];
+      } else {
+        // Fallback: select the two longest distinct (non-overlapping) straight segments
+        const sortedSegs = [...straightSegments].sort((a, b) => b.len - a.len);
+        if (sortedSegs.length > 0) {
+          e1 = sortedSegs[0];
         }
-        // Check if candidate overlaps or is parallel/collinear and close to e1
-        const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-        const v2 = { x: (candidate.p2.x - candidate.p1.x) / candidate.len, y: (candidate.p2.y - candidate.p1.y) / candidate.len };
-        const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
 
-        if (dot > 0.9) {
-          const midX = (candidate.p1.x + candidate.p2.x) / 2;
-          const midY = (candidate.p1.y + candidate.p2.y) / 2;
-          const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
-          if (dist < 15.0) {
-            continue; // Overlaps with e1
+        for (let i = 1; i < sortedSegs.length; i++) {
+          const candidate = sortedSegs[i];
+          if (!e1) {
+            e1 = candidate;
+            continue;
           }
-        }
-        e2 = candidate;
-        break;
-      }
+          const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+          const v2 = { x: (candidate.p2.x - candidate.p1.x) / candidate.len, y: (candidate.p2.y - candidate.p1.y) / candidate.len };
+          const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
 
-      // If we couldn't find two distinct segments, fill with raw simple edges fallback
-      if (!e1 || !e2) {
-        const rawEdges = polyPoints.map((p, i) => {
-          const next = polyPoints[(i + 1) % polyPoints.length];
-          return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
-        });
-        rawEdges.sort((a, b) => b.len - a.len);
-        if (!e1 && rawEdges.length > 0) {
-          e1 = rawEdges.shift();
-        }
-        while (rawEdges.length > 0) {
-          const raw = rawEdges.shift();
-          if (e1) {
-            const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-            const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
-            const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
-            if (dot > 0.9) {
-              const midX = (raw.p1.x + raw.p2.x) / 2;
-              const midY = (raw.p1.y + raw.p2.y) / 2;
-              const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
-              if (dist < 15.0) continue;
+          if (dot > 0.9) {
+            const midX = (candidate.p1.x + candidate.p2.x) / 2;
+            const midY = (candidate.p1.y + candidate.p2.y) / 2;
+            const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
+            if (dist < 15.0) {
+              continue;
             }
           }
-          e2 = raw;
+          e2 = candidate;
           break;
+        }
+
+        // If still not found, fallback to raw simple edges
+        if (!e1 || !e2) {
+          const rawEdges = polyPoints.map((p, i) => {
+            const next = polyPoints[(i + 1) % polyPoints.length];
+            return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
+          });
+          rawEdges.sort((a, b) => b.len - a.len);
+          if (!e1 && rawEdges.length > 0) {
+            e1 = rawEdges.shift();
+          }
+          while (rawEdges.length > 0) {
+            const raw = rawEdges.shift();
+            if (e1) {
+              const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+              const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
+              const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+              if (dot > 0.9) {
+                const midX = (raw.p1.x + raw.p2.x) / 2;
+                const midY = (raw.p1.y + raw.p2.y) / 2;
+                const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
+                if (dist < 15.0) continue;
+              }
+            }
+            e2 = raw;
+            break;
+          }
         }
       }
 

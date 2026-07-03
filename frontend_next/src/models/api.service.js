@@ -1,4 +1,14 @@
-export const BASE_URL = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) || "http://localhost:8090";
+const getBaseUrl = () => {
+  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL.trim();
+  }
+  if (typeof window !== "undefined") {
+    return `http://${window.location.hostname}:8090`;
+  }
+  return "http://localhost:8090";
+};
+
+export const BASE_URL = getBaseUrl();
 
 export const getHeaders = (contentType = "application/json") => {
   const userStr = localStorage.getItem("user");
@@ -259,7 +269,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async detectWallSegStream(imageBlob, confidence = "0.25", realScale = 1.0, wallThicknesses = null, onEvent, signal = null) {
+  async detectWallSegStream(imageBlob, confidence = "0.25", realScale = 1.0, wallThicknesses = null, onEvent, signal = null, roiRect = null) {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
@@ -268,6 +278,13 @@ export const ApiService = {
       fd.append("ext_thickness", wallThicknesses.ext || 90);
       fd.append("int_thickness", wallThicknesses.int || 70);
       fd.append("part_thickness", wallThicknesses.part || 70);
+    }
+    if (roiRect) {
+      fd.append("roi_x", roiRect.x);
+      fd.append("roi_y", roiRect.y);
+      fd.append("roi_w", roiRect.w);
+      fd.append("roi_h", roiRect.h);
+      fd.append("roi_padding", 48);
     }
 
     const res = await fetch(`${BASE_URL}/predict_wall_stream`, {
@@ -496,6 +513,21 @@ export const ApiService = {
   async getSearchHistory(projectId) {
     const res = await fetch(`${BASE_URL}/api/search/history/${projectId}`, {
       headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async generateRoomsFromWalls(walls, doors = [], texts = [], gapThreshold = 120) {
+    const res = await fetch(`${BASE_URL}/api/generate-rooms-from-walls`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        walls,
+        doors,
+        texts,
+        gap_threshold: gapThreshold
+      }),
       credentials: "include"
     });
     return handleResponse(res);

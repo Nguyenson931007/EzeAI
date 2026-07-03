@@ -25,7 +25,7 @@ export function useInteractionController(svgRef) {
     activeTab
   } = useAppModel();
 
-  const rooms = roomsByPage[currentPage] || [];
+  const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
   const cancelActiveZoomAnimation = () => {};
 
@@ -1025,7 +1025,8 @@ export function useInteractionController(svgRef) {
       }
 
       if (isShiftDown && dragging.type === 'room') {
-        const poly = (roomsByPage[currentPage] || []).find(r => r.id === dragging.id)?.polygon;
+        const currentRooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+        const poly = currentRooms.find(r => r.id === dragging.id)?.polygon;
         
         if (poly && poly.length > 0) {
           const prevIdx = (dragging.index - 1 + poly.length) % poly.length;

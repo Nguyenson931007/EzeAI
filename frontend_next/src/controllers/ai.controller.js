@@ -394,7 +394,7 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const existingRooms = roomsByPage ? (roomsByPage[currentPage] || []) : [];
+      const existingRooms = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
       // ★ CRITICAL: Snapshot existing rooms BEFORE streaming starts.
       // All streaming events will merge against this frozen snapshot,
@@ -565,7 +565,7 @@ export const useAIController = (
   };
 
 
-  const detectWallFromFloorAI = async (wallThicknesses = null) => {
+  const detectWallFromFloorAI = async (wallThicknesses = null, roiRect = null) => {
     if (!realScale || realScale === 1.0) {
       alert("bạn phải scale trước khi chạy AI");
       return;
@@ -636,7 +636,8 @@ export const useAIController = (
             // Filter out false positive walls (overlaps with doors)
             const doors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
             let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
-            cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], event.width || 1280, event.height || 960);
+            const currentRoomsForFilter = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+            cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
             const allWalls = [...existingWallsSnapshot, ...cleanWalls];
             const mergedWalls = mergeCollinearWalls(allWalls);
@@ -661,7 +662,8 @@ export const useAIController = (
             finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
           }
         },
-        job.controller.signal
+        job.controller.signal,
+        roiRect
       );
     } catch (err) {
       if (err.name === "AbortError") {
@@ -1009,7 +1011,8 @@ export const useAIController = (
 
           // Filter false positive walls that overlap entirely with doors
           let cleanWalls = rawWalls.filter(w => !_overlapsWithAnyDoor(w, currentDoors));
-          cleanWalls = _filterFalsePositiveWalls(cleanWalls, roomsByPage ? (roomsByPage[currentPage] || []) : [], wallData.width, wallData.height);
+          const currentRoomsForSmart = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+          cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForSmart, wallData.width, wallData.height);
 
           // Merge with existing walls if not clearing
           const existingWalls = clearExisting ? [] : (wallsByPage[currentPage] || []);
@@ -1066,7 +1069,7 @@ export const useAIController = (
       let yoloRooms = [];
       try {
         // Step 3a: YOLO Room Detection via streaming
-        const existingRooms = clearExisting ? [] : (roomsByPage[currentPage] || []);
+        const existingRooms = clearExisting ? [] : (roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : []);
 
         const roomsConf = String(useAIConfigStore.getState().config?.rooms ?? ROOMS_CONF);
         await ApiService.floorAIDetectStream(
@@ -1212,6 +1215,80 @@ export const useAIController = (
     }
   };
 
+  const generateRoomsFromWalls = async (gapThreshold = 120) => {
+    if (!setRoomsByPage) return;
+    
+    setIsDetecting(true);
+    setCacheStatus("processing");
+    try {
+      const currentWalls = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+      const currentDoors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
+      
+      let texts = [];
+      try {
+        setCacheStatus("Detecting room labels...");
+        const blob = await fetch(image).then(r => r.blob());
+        const detectedTexts = await ApiService.autoDetectText(blob, String(OCR_CONF));
+        if (Array.isArray(detectedTexts)) {
+          texts = detectedTexts.map(t => {
+            const { x, y, w, h } = t.bbox;
+            return {
+              text: t.text,
+              x: x + w / 2,
+              y: y + h / 2
+            };
+          });
+        }
+      } catch (ocrErr) {
+        console.error("[generateRoomsFromWalls] OCR text detection failed, falling back to existing room names:", ocrErr);
+      }
+
+      if (texts.length === 0) {
+        const currentRoomsForGen = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+        texts = currentRoomsForGen.map(r => {
+          const pts = r.polygon || [];
+          if (pts.length === 0) return null;
+          const xs = pts.map(p => p.x);
+          const ys = pts.map(p => p.y);
+          return {
+            text: r.room_name,
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+          };
+        }).filter(Boolean);
+      }
+
+      console.log("[generateRoomsFromWalls] Request sent. currentWalls:", currentWalls.length, "currentDoors:", currentDoors.length, "texts:", texts.length);
+      const res = await ApiService.generateRoomsFromWalls(currentWalls, currentDoors, texts, gapThreshold);
+      console.log("[generateRoomsFromWalls] Response received:", res);
+      
+      if (res && res.success && res.rooms) {
+        console.log("[generateRoomsFromWalls] Setting rooms count:", res.rooms.length, res.rooms);
+        if (res.rooms.length === 0) {
+          alert("Không tìm thấy đa giác khép kín nào từ tường hiện tại. Hãy kiểm tra các khoảng hở ở cửa hoặc góc tường.");
+        }
+        if (pushHistory) {
+          pushHistory(res.rooms);
+        } else {
+          setRoomsByPage(prev => ({
+            ...prev,
+            [currentPage]: res.rooms
+          }));
+        }
+        setCacheStatus("completed");
+      } else {
+        alert("Không tạo được phòng từ tường. Vui lòng kiểm tra lại thiết lập tường.");
+        setCacheStatus("failed");
+      }
+    } catch (e) {
+      console.error("[generateRoomsFromWalls] Error:", e);
+      alert(`Lỗi tạo phòng: ${e.message}`);
+      setCacheStatus("failed");
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
   return {
     isDetecting,
     roiProgress,
@@ -1228,6 +1305,7 @@ export const useAIController = (
     smartDetect,
     cancelSmartDetect,
     isSmartDetecting,
-    smartProgress
+    smartProgress,
+    generateRoomsFromWalls
   };
 };
