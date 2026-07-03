@@ -3153,9 +3153,13 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
     if not text_boxes:
         return []
     
-    # Stage 2: Crop + OCR
+    # Stage 2: Crop + OCR (Optimized Batch OCR)
     all_results = []
-    for box in text_boxes:
+    
+    batch_images = []
+    batch_map = []  # stores (box_idx, angle)
+    
+    for box_idx, box in enumerate(text_boxes):
         pad = 5
         cx1 = max(0, box["x1"] - pad)
         cy1 = max(0, box["y1"] - pad)
@@ -3165,30 +3169,45 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
         crop = img_np[cy1:cy2, cx1:cx2]
         if crop.size == 0:
             continue
-        
+            
         pil_crop = Image.fromarray(crop)
         crop_h, crop_w = crop.shape[:2]
-        is_vertical = crop_h > crop_w * 1.5
+        is_vertical = crop_h > crop_w * 1.1
         
-        best_text = ""
-        best_conf = 0.0
+        # 0 degree orientation
+        batch_images.append(pil_crop)
+        batch_map.append((box_idx, 0))
         
-        orientations = [(0, pil_crop)]
         if is_vertical:
-            orientations.append((90, pil_crop.transpose(Image.ROTATE_270)))
-            orientations.append((270, pil_crop.transpose(Image.ROTATE_90)))
-        
-        for angle, img in orientations:
-            try:
-                results = run_ocr(img)
-                for r in results:
-                    text = r["text"].strip()
-                    conf = r["conf"]
-                    if text and conf > best_conf:
-                        best_text = text
-                        best_conf = conf
-            except Exception:
-                pass
+            # 90 degrees
+            batch_images.append(pil_crop.transpose(Image.ROTATE_270))
+            batch_map.append((box_idx, 90))
+            # 270 degrees
+            batch_images.append(pil_crop.transpose(Image.ROTATE_90))
+            batch_map.append((box_idx, 270))
+
+    # Run OCR on all crops in one batch
+    from services.ocr import run_ocr_batch
+    batch_results = run_ocr_batch(batch_images)
+    
+    # Process results and find the best text for each text_box
+    best_results_for_box = {}  # box_idx -> {text, conf}
+    
+    for (box_idx, angle), results in zip(batch_map, batch_results):
+        for r in results:
+            text = r["text"].strip()
+            conf = r["conf"]
+            if text:
+                if box_idx not in best_results_for_box or conf > best_results_for_box[box_idx]["conf"]:
+                    best_results_for_box[box_idx] = {
+                        "text": text,
+                        "conf": conf
+                    }
+                    
+    for box_idx, res in best_results_for_box.items():
+        box = text_boxes[box_idx]
+        best_text = res["text"]
+        best_conf = res["conf"]
         
         if best_text and best_conf > 0.1:
             best_text = _collapse_spaces(best_text)
@@ -3202,7 +3221,7 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
                     "w": float(bbox_w), "h": float(bbox_h)
                 }
             })
-    
+            
     return all_results
 
 

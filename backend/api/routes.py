@@ -1344,6 +1344,49 @@ def api_generate_rooms_from_walls(
                 print(f"[api_generate_rooms_from_walls] _match_text_to_rooms failed: {match_err}, using fallback")
                 import traceback
                 traceback.print_exc()
+
+        # Classify rooms using the same logic as Auto AI (floor_ai_detect)
+        try:
+            from services.floor_ai_detect import _classify_room, _outside_contact_ratio
+            # Estimate image size from walls to calculate outside contact ratio
+            img_w, img_h = 2000, 2000 # default fallback
+            if walls:
+                xs_all = []
+                ys_all = []
+                for w in walls:
+                    c = w.get("centerline")
+                    if c:
+                        for pt in c:
+                            xs_all.append(pt[0])
+                            ys_all.append(pt[1])
+                if xs_all and ys_all:
+                    img_w = max(xs_all) + 50
+                    img_h = max(ys_all) + 50
+
+            for idx, room in enumerate(rooms_detected):
+                outside_ratio = _outside_contact_ratio(room["polygon"], img_w, img_h)
+                wetness, room_type, zone, yaml_id = _classify_room(
+                    room["room_name"], outside_ratio,
+                    class_name=room.get("class_name", ""),
+                    yolo_class_id=-1
+                )
+                
+                room["class_id"] = yaml_id
+                room["type"] = room_type
+                room["wetness"] = wetness
+                room["room_type"] = room_type
+                room["zone"] = zone
+                room["location"] = "external" if zone == "outdoor" else "internal"
+                
+                # Update class_name if room name was detected (not the default ROOM 1, etc.)
+                if room.get("room_name") and not room["room_name"].upper().startswith("ROOM "):
+                    room["class_name"] = room["room_name"]
+                
+                print(f"[api_generate_rooms_from_walls] Classified room {idx + 1}: name={room['room_name']}, class={room.get('class_name')}, type={room_type}, wetness={wetness}, zone={zone}")
+        except Exception as class_err:
+            print(f"[api_generate_rooms_from_walls] Room classification failed: {class_err}")
+            import traceback
+            traceback.print_exc()
             
         print(f"[api_generate_rooms_from_walls] Input walls: {len(walls)}, Input doors: {len(doors)}, Polygons found: {len(polys)}, Rooms returned: {len(rooms_detected)}")
         return {
