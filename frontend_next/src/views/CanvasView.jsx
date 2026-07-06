@@ -694,6 +694,12 @@ const DoorLayer = React.memo(({
           };
 
           const renderManualJambs = () => {
+            const doorType = (d.type || "").toLowerCase();
+            const doorClass = (d.class_name || "").toLowerCase();
+            if (doorType.includes("sliding") || doorType.includes("slider") || 
+                doorClass.includes("sliding") || doorClass.includes("slider")) {
+              return null;
+            }
             if (!p1 || !p2 || len <= 0) return null;
             if (type === "sliding" || (d.class && (d.class.includes("sliding") || d.class.includes("slider")))) {
               return null;

@@ -37,11 +37,17 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 MYSQL_DB = os.getenv("MYSQL_DB", "ezefloor")
 
 # ── CORS Configuration ──
-CORS_ORIGINS = [
-    "http://localhost:3010",
-    "http://127.0.0.1:3010",
-    "http://localhost:8090",
-]
+_cors_env = os.getenv("CORS_ORIGINS")
+if _cors_env:
+    CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+else:
+    CORS_ORIGINS = [
+        "http://localhost:3010",
+        "http://127.0.0.1:3010",
+        "http://localhost:8090",
+        "http://117.2.106.202:3010",
+        "http://117.2.106.202:8090",
+    ]
 
 # ── Limit Configuration ──
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB

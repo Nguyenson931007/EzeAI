@@ -1,5 +1,6 @@
 "use client";
 import React, { createContext, useState, useContext, useEffect } from "react";
+import { ApiService } from "@/models/api.service";
 
 const AppContext = createContext();
 
@@ -29,6 +30,33 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem("activeTab", activeTab);
   }, [activeTab]);
+
+  // ── Validate session on app load ──
+  // If the stored token is stale (expired, overridden by another device, or server restarted),
+  // clear it immediately so the user is redirected to login without seeing a flash of old data.
+  useEffect(() => {
+    if (!isLoggedIn || !user) return;
+
+    const checkSession = async () => {
+      try {
+        const res = await ApiService.validateSession();
+        if (!res.ok) {
+          console.warn("[Session] Stored session is invalid, clearing auth state.");
+          setIsLoggedIn(false);
+          setUser(null);
+          localStorage.removeItem("isLoggedIn");
+          localStorage.removeItem("user");
+          localStorage.removeItem("activeTab");
+        }
+      } catch (err) {
+        // Network error (backend unreachable) — don't forcefully log out,
+        // let the user retry when the server comes back.
+        console.warn("[Session] Could not reach server to validate session:", err.message);
+      }
+    };
+
+    checkSession();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = {
     pages, setPages,
