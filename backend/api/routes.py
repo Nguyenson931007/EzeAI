@@ -31,6 +31,7 @@ from services.model_paths import get_model_health
 from utils.helpers import convert_to_yolo
 from api.auth import validate_session
 from app.limiter import limiter
+from exporters.ezplan_exporter import EZPlanExportRequest, EZPlanExporter, EZPlanExportError
 
 logger = logging.getLogger("ezefloor.routes")
 
@@ -1353,6 +1354,30 @@ def api_generate_rooms_from_walls(
     except Exception as e:
         logger.error(f"[api_generate_rooms_from_walls] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/export/ezplan")
+def export_ezplan(req: EZPlanExportRequest, username: str = Depends(validate_session)):
+    """
+    Exports a list of normalized walls into a valid .ezplan (v0.3) JSON model.
+    Performs geometrical and architectural validation.
+    """
+    try:
+        exporter = EZPlanExporter()
+        doc = exporter.export(req)
+        return doc
+    except EZPlanExportError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Export validation failed: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"[export_ezplan] Unexpected error during export: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+
 
 
 

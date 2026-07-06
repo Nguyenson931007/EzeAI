@@ -371,6 +371,8 @@ def _split_walls_at_t_junctions(walls: List[dict], min_dist_from_end: float = 15
     Splits wall segments that are intersected/crossed by other walls, or have
     perpendicular walls ending near their centerline.
     """
+    return walls
+
     import math
 
     split_walls = []

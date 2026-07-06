@@ -200,7 +200,7 @@ function _mergeOverlappingDoors(existingDoors, newDoors) {
 // Edit these confidence threshold values directly in the code:
 // ====================================================
 const ROOMS_CONF = 0.03;      // Room detection confidence threshold
-const OCR_CONF = 0.10;        // OCR Text detection confidence threshold
+const OCR_CONF = 0.20;        // OCR Text detection confidence threshold
 const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
 const DOORS_CONF = 0.20;      // Door detection confidence threshold
 
@@ -1266,12 +1266,37 @@ export const useAIController = (
         if (res.rooms.length === 0) {
           alert("Không tìm thấy đa giác khép kín nào từ tường hiện tại. Hãy kiểm tra các khoảng hở ở cửa hoặc góc tường.");
         }
+
+        // HYBRID OPTIMIZATION: Combine Auto AI (YOLO) and Wall-to-Room topology
+        // Use perfect topology rooms first, and use existing YOLO rooms as fallbacks for unclosed regions
+        const existingRooms = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+        const mergedRooms = [...res.rooms];
+        
+        const IOU_THRESHOLD = 0.3;
+        const fallbackRooms = existingRooms.filter(eRoom => {
+          const ePoly = eRoom.polygon || eRoom.points;
+          if (!ePoly || ePoly.length < 3) return false;
+          
+          for (const tRoom of res.rooms) {
+            const tPoly = tRoom.polygon || tRoom.points;
+            if (tPoly && _bboxIoU(ePoly, tPoly) >= IOU_THRESHOLD) {
+              return false; // Covered by a topology room
+            }
+          }
+          return true; // Not covered by any topology room, keep as fallback
+        });
+
+        if (fallbackRooms.length > 0) {
+          console.log(`[generateRoomsFromWalls] Merging ${fallbackRooms.length} fallback rooms from Auto AI.`);
+          mergedRooms.push(...fallbackRooms);
+        }
+
         if (pushHistory) {
-          pushHistory(res.rooms);
+          pushHistory(mergedRooms);
         } else {
           setRoomsByPage(prev => ({
             ...prev,
-            [currentPage]: res.rooms
+            [currentPage]: mergedRooms
           }));
         }
         setCacheStatus("completed");

@@ -126,23 +126,9 @@ def test_split_walls_at_t_junctions():
     
     result = _split_walls_at_t_junctions(walls)
     
-    # We expect:
-    # - original Wall 2
-    # - original Wall 3
-    # - original Wall 1 split into 3 parts
-    # Total count = 2 + 3 = 5 walls.
-    assert len(result) == 5
-    
-    # Filter for the split horizontal walls
-    horiz_walls = [w for w in result if w["centerline"][0][1] == 100 and w["centerline"][1][1] == 100]
-    assert len(horiz_walls) == 3
-    
-    # Sort them by their x coordinates
-    sorted_horiz = sorted(horiz_walls, key=lambda w: w["centerline"][0][0])
-    
-    assert sorted_horiz[0]["centerline"] == [[0.0, 100.0], [30.0, 100.0]]
-    assert sorted_horiz[1]["centerline"] == [[30.0, 100.0], [70.0, 100.0]]
-    assert sorted_horiz[2]["centerline"] == [[70.0, 100.0], [100.0, 100.0]]
+    # Since the T-junction splitting feature is disabled, the walls should be returned unmodified
+    assert len(result) == 3
+    assert result == walls
 
 
 def test_merge_collinear_walls_skewed_rejection():

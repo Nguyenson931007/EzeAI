@@ -144,7 +144,7 @@ const JobHistory = ({ username, onLoadJob }) => {
 
 
   const filteredJobs = jobs.filter(job => 
-    job.project_name.toLowerCase().includes(searchTerm.toLowerCase())
+    (job.project_name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (

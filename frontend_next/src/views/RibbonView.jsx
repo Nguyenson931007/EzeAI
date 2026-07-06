@@ -6,6 +6,8 @@ import WallThicknessDialog from "@/components/WallThicknessDialog";
 export default function RibbonView({
   // State from App.jsx not in context yet
   drawing, setDrawing,
+  createDefaultExtEnvelope,
+  autoFitExtEnvelope,
   isDrawingDoor, setIsDrawingDoor,
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
@@ -88,6 +90,7 @@ export default function RibbonView({
           {isDistancing && <span className="mb-badge cyan">📐 Distance{(isSnapMode) ? " [90°]" : ""}</span>}
           {isSnapMode && <span className="mb-badge blue">📐 Snap On</span>}
           {isAddingPoint && <span className="mb-badge yellow">➕ Add Point</span>}
+          {interactionMode === "draw-ext-rect" && <span className="mb-badge purple">🧱 Draw Ext Rect</span>}
           {scaleValue && <span className="mb-badge green">Scale ✓</span>}
           <span className="mb-badge gray">Rooms: {rooms.length}</span>
           <span className="mb-badge gray">Pg {currentPage + 1}/{pages.length || 0}</span>
@@ -189,6 +192,28 @@ export default function RibbonView({
                 <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button>
+                <button
+                  className={`ribbon-btn ${interactionMode === "draw-ext-rect" ? "active" : ""}`}
+                  onClick={() => {
+                    if (interactionMode === "draw-ext-rect") {
+                      setInteractionMode && setInteractionMode("select");
+                    } else {
+                      createDefaultExtEnvelope && createDefaultExtEnvelope();
+                    }
+                  }}
+                  title="Tạo khung viền tường Exterior (Khung chữ nhật)"
+                >
+                  <span className="icon">🧱</span><span className="label">Khung Ext</span>
+                </button>
+                {interactionMode === "draw-ext-rect" && (
+                  <button
+                    className="ribbon-btn accent"
+                    onClick={() => autoFitExtEnvelope && autoFitExtEnvelope()}
+                    title="Tự động tạo khung bao lấy toàn bộ bản vẽ ở giữa"
+                  >
+                    <span className="icon">🤖</span><span className="label">Auto Fit</span>
+                  </button>
+                )}
                 <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); }}>
                   <span className="icon">✓</span><span className="label">Finish</span>
                 </button>
@@ -289,15 +314,15 @@ export default function RibbonView({
                   <span className="label">Smart AI</span>
                 </button>
                 */}
-
-                {/*
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectText()} disabled={isDetecting}>
-                  <span className="icon">{isDetecting ? "⏳" : "📝"}</span><span className="label">Detect Text</span>
+                <button
+                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
+                  onClick={() => detectText()}
+                  disabled={isDetecting}
+                  title="Nhận diện kích thước và chữ viết bằng mô hình YOLO Text AI"
+                >
+                  <span className="icon">{isDetecting ? "⏳" : "📝"}</span>
+                  <span className="label">Text AI</span>
                 </button>
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectTemplate()} disabled={isDetecting} title="Dùng AI nhận diện template">
-                  <span className="icon">{isDetecting ? "⏳" : "📐"}</span><span className="label">Template AI</span>
-                </button>
-                */}
               </div>
 
               {/* Smart AI 3-Stage Progress Bar */}

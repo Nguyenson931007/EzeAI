@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import AIDoor from "../components/AIDoor";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
+import WallContextMenu from "../components/WallContextMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { 
   distancePointToSegment, 
@@ -251,7 +252,10 @@ const WallLayer = React.memo(({
   dragging,
   hoverId,
   setHoverId,
-  interactionMode
+  interactionMode,
+  selectedWallVertex,
+  setSelectedWallVertex,
+  onWallContextMenu
 }) => {
   // Group walls into chains by class_name (ext, int, part) and thickness
   const chains = [];
@@ -434,6 +438,11 @@ const WallLayer = React.memo(({
             style={{ cursor: 'pointer' }}
             onMouseEnter={() => setHoverId(w.id)}
             onMouseLeave={() => setHoverId(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (onWallContextMenu) onWallContextMenu(e, w);
+            }}
             onClick={(e) => {
               if (interactionMode === "cut-wall") return;
               e.stopPropagation();
@@ -463,21 +472,25 @@ const WallLayer = React.memo(({
           <g key={`handles-${w.id}`}>
             {w.centerline.map((pt, i) => {
               const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
+              const isSelectedVertex = selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i;
               return (
                 <circle
                   key={i}
                   cx={pt[0]}
                   cy={pt[1]}
-                  r={isDraggingThisVertex ? 3.5 : 6}
-                  fill="white"
-                  stroke="#0284c7"
-                  strokeWidth={isDraggingThisVertex ? 1.5 : 2}
+                  r={isDraggingThisVertex ? 3.5 : (isSelectedVertex ? 8 : 6)}
+                  fill={isSelectedVertex ? "#f59e0b" : "white"}
+                  stroke={isSelectedVertex ? "#d97706" : "#0284c7"}
+                  strokeWidth={isDraggingThisVertex ? 1.5 : 2.5}
                   style={{ cursor: 'move' }}
-                  className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
+                  className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''} ${isSelectedVertex ? 'selected-vertex' : ''}`}
                   onMouseDown={(e) => {
                     e.stopPropagation();
                     if (startDrag) {
                       startDrag(w.id, i, 'wall-vertex');
+                    }
+                    if (setSelectedWallVertex) {
+                      setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
                     }
                   }}
                 />
@@ -498,7 +511,9 @@ const WallLayer = React.memo(({
   prev.startDrag === next.startDrag &&
   prev.dragging === next.dragging &&
   prev.hoverId === next.hoverId &&
-  prev.interactionMode === next.interactionMode
+  prev.interactionMode === next.interactionMode &&
+  prev.selectedWallVertex === next.selectedWallVertex &&
+  prev.onWallContextMenu === next.onWallContextMenu
 ));
 
 // ==========================================
@@ -1601,7 +1616,17 @@ export default function CanvasView({
   zoomToBbox,
   dragging,
   showPDF,
-  setShowPDF
+  setShowPDF,
+  selectedWallVertex,
+  extRectStart,
+  setSelectedWallVertex,
+  drawingWall,
+  drawingWallEnd,
+  deleteWalls,
+  updateWallsProperty,
+  setInteractionMode,
+  pullStepPreview,
+  setPullStepInfo
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -1613,6 +1638,44 @@ export default function CanvasView({
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
   const [doorEditDialog, setDoorEditDialog] = useState({ visible: false, door: null });
+
+  // Wall context menu state
+  const [wallContextMenu, setWallContextMenu] = useState({ visible: false, x: 0, y: 0, wall: null });
+
+  const handleWallContextMenu = (e, wall) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setWallContextMenu({ visible: true, x: e.clientX, y: e.clientY, wall });
+  };
+
+  const closeWallContextMenu = () => {
+    setWallContextMenu({ visible: false, x: 0, y: 0, wall: null });
+  };
+
+  const handleWallDelete = () => {
+    const w = wallContextMenu.wall;
+    if (w && deleteWalls) {
+      deleteWalls([w.id]);
+    }
+  };
+
+  const handleWallChangeClass = (newClass) => {
+    const w = wallContextMenu.wall;
+    if (w && updateWallsProperty) {
+      updateWallsProperty([w.id], "class_name", newClass);
+    }
+  };
+
+  const handleWallStartCut = () => {
+    const w = wallContextMenu.wall;
+    if (w) {
+      setSelectedId(w.id);
+      setSelectedType("wall");
+      if (setInteractionMode) {
+        setInteractionMode("cut-wall");
+      }
+    }
+  };
 
   const handleDoorContextMenu = (e, door) => {
     e.preventDefault();
@@ -2179,7 +2242,8 @@ export default function CanvasView({
                 : isDistancing ? "crosshair"
                   : isMeasuring ? "crosshair"
                     : isAddingPoint ? "crosshair"
-                      : "default"
+                      : interactionMode === "draw-ext-rect" ? "crosshair"
+                        : "default"
           }}
           onClick={(e) => {
             if (editingRoomId) return;
@@ -2219,6 +2283,7 @@ export default function CanvasView({
               if (drawing && currentPoly.length > 0) snapBase = currentPoly[currentPoly.length - 1];
               else if (isMeasuring && measurePoints.length === 1) snapBase = measurePoints[0];
               else if (isDistancing && distancePoints.length === 1) snapBase = distancePoints[0];
+              else if (interactionMode === "draw-wall" && drawingWall) snapBase = { x: drawingWall.startX, y: drawingWall.startY };
 
               if (!snapBase) return null;
               const snapped = snap(snapBase, currentMouse);
@@ -2295,6 +2360,84 @@ export default function CanvasView({
               </g>
             )}
 
+            {/* Wall Drawing Preview */}
+            {interactionMode === "draw-wall" && drawingWall && drawingWallEnd && (
+              <g style={{ pointerEvents: 'none' }}>
+                {/* Centerline preview */}
+                <line
+                  x1={drawingWall.startX}
+                  y1={drawingWall.startY}
+                  x2={drawingWallEnd.x}
+                  y2={drawingWallEnd.y}
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  strokeDasharray="5,3"
+                />
+                {/* Thickness boundary preview */}
+                <line
+                  x1={drawingWall.startX}
+                  y1={drawingWall.startY}
+                  x2={drawingWallEnd.x}
+                  y2={drawingWallEnd.y}
+                  stroke="#ef4444"
+                  strokeWidth={drawingWall.thickness || 20}
+                  opacity={0.3}
+                />
+                {/* Start handle */}
+                <circle
+                  cx={drawingWall.startX}
+                  cy={drawingWall.startY}
+                  r={5}
+                  fill="#ef4444"
+                  stroke="#ffffff"
+                  strokeWidth={1.5}
+                />
+                {/* End handle */}
+                <circle
+                  cx={drawingWallEnd.x}
+                  cy={drawingWallEnd.y}
+                  r={5}
+                  fill="#ef4444"
+                  stroke="#ffffff"
+                  strokeWidth={1.5}
+                />
+              </g>
+            )}
+
+            {/* Wall Step Pulling Preview */}
+            {interactionMode === "pull-wall-step" && pullStepPreview && (
+              <g style={{ pointerEvents: 'none' }}>
+                {/* 1. Centerline previews */}
+                <line x1={pullStepPreview.w1[0][0]} y1={pullStepPreview.w1[0][1]} x2={pullStepPreview.w1[1][0]} y2={pullStepPreview.w1[1][1]} stroke="#ef4444" strokeWidth={2} strokeDasharray="5,3" />
+                <line x1={pullStepPreview.w_conn[0][0]} y1={pullStepPreview.w_conn[0][1]} x2={pullStepPreview.w_conn[1][0]} y2={pullStepPreview.w_conn[1][1]} stroke="#ef4444" strokeWidth={2} strokeDasharray="5,3" />
+                <line x1={pullStepPreview.w2[0][0]} y1={pullStepPreview.w2[0][1]} x2={pullStepPreview.w2[1][0]} y2={pullStepPreview.w2[1][1]} stroke="#ef4444" strokeWidth={2} strokeDasharray="5,3" />
+                
+                {/* 2. Thickness previews */}
+                <line x1={pullStepPreview.w1[0][0]} y1={pullStepPreview.w1[0][1]} x2={pullStepPreview.w1[1][0]} y2={pullStepPreview.w1[1][1]} stroke="#ef4444" strokeWidth={pullStepPreview.thickness} opacity={0.3} />
+                <line x1={pullStepPreview.w_conn[0][0]} y1={pullStepPreview.w_conn[0][1]} x2={pullStepPreview.w_conn[1][0]} y2={pullStepPreview.w_conn[1][1]} stroke="#ef4444" strokeWidth={pullStepPreview.thickness} opacity={0.3} />
+                <line x1={pullStepPreview.w2[0][0]} y1={pullStepPreview.w2[0][1]} x2={pullStepPreview.w2[1][0]} y2={pullStepPreview.w2[1][1]} stroke="#ef4444" strokeWidth={pullStepPreview.thickness} opacity={0.3} />
+                
+                {/* 3. Join handles */}
+                <circle cx={pullStepPreview.splitPt.x} cy={pullStepPreview.splitPt.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+                <circle cx={pullStepPreview.newPt.x} cy={pullStepPreview.newPt.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+              </g>
+            )}
+
+            {/* Draw External Rect Preview */}
+            {interactionMode === "draw-ext-rect" && extRectStart && currentMouse && (
+              <rect
+                x={Math.min(extRectStart.x, currentMouse.x)}
+                y={Math.min(extRectStart.y, currentMouse.y)}
+                width={Math.abs(currentMouse.x - extRectStart.x)}
+                height={Math.abs(currentMouse.y - extRectStart.y)}
+                fill="rgba(168, 85, 247, 0.1)"
+                stroke="#a855f7"
+                strokeWidth={2}
+                strokeDasharray="5,5"
+                style={{ pointerEvents: 'none' }}
+              />
+            )}
+
 
 
             {!drawing && currentPoly.length > 0 && (
@@ -2345,6 +2488,9 @@ export default function CanvasView({
               hoverId={hoverId}
               setHoverId={setHoverId}
               interactionMode={interactionMode}
+              selectedWallVertex={selectedWallVertex}
+              setSelectedWallVertex={setSelectedWallVertex}
+              onWallContextMenu={handleWallContextMenu}
             />
 
             {/* Memoized Layer 4: Doors */}
@@ -2881,6 +3027,36 @@ export default function CanvasView({
         onDelete={handleDoorDelete}
         onSwapFrameLeaf={handleDoorSwapFrameLeaf}
         onChangeType={handleDoorChangeType}
+      />
+
+      {/* ===== WALL CONTEXT MENU OVERLAY ===== */}
+      <WallContextMenu
+        visible={wallContextMenu.visible}
+        x={wallContextMenu.x}
+        y={wallContextMenu.y}
+        wall={wallContextMenu.wall}
+        onClose={closeWallContextMenu}
+        onDelete={handleWallDelete}
+        onChangeClass={handleWallChangeClass}
+        onStartCutMode={handleWallStartCut}
+        onAddStepCorner={() => {
+          const w = wallContextMenu.wall;
+          if (w && currentMouse && w.centerline && w.centerline.length === 2) {
+            const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+            const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+            const proj = distancePointToSegment(currentMouse, a, b);
+            
+            if (setInteractionMode) {
+              setInteractionMode("pull-wall-step");
+            }
+            if (setPullStepInfo) {
+              setPullStepInfo({
+                wallId: w.id,
+                splitPt: { x: proj.x, y: proj.y }
+              });
+            }
+          }
+        }}
       />
 
       {/* ===== DOOR EDIT DIALOG OVERLAY ===== */}

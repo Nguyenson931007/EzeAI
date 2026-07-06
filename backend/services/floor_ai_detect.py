@@ -294,6 +294,67 @@ def _collapse_spaces(text: str) -> str:
     return t
 
 
+GLOBAL_OCR_CORRECTIONS = {
+    "YOUNGE": "LOUNGE", "ENTY": "ENTRY", "KICHEN": "KITCHEN",
+    "MSTER": "MASTER", "BTAH": "BATH", "KITHCEN": "KITCHEN",
+    "PTRY": "PANTRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
+    "8ED": "BED", "8ATH": "BATH", "R0BE": "ROBE", "1INEN": "LINEN",
+    "GUE5T": "GUEST", "MA5TER": "MASTER", "0FFICE": "OFFICE",
+    "HA1L": "HALL", "W1R": "WIR", "8IR": "BIR", "WER" : "WIR","WPB":"WIR",
+    "B1": "BED 1", "B2": "BED 2", "B3": "BED 3", "B4": "BED 4",
+    "E1": "ENS 1", "E2": "ENS 2", "BR1": "BED 1", "BR2": "BED 2", "EN":"ENS","SL":"ENS",
+    "BA1": "BATH 1", "BA2": "BATH 2","ENS1":"ENS 1", "ENSH":"ENS", "FENS":"ENS",
+    "ENS2":"ENS 2", "LDY": "LAUNDRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
+    "ENSULTE":"ENSUITE", "WCI":"WC", "ENSH3" : "ENS 3", "ENSH4":"ENS 4",
+    "NS":"ENS", "BALC0NY" : "BALCONY", "BALC 0 N Y":"BALCONY", "W |R":"WIR", "WLR":"WIR",
+    "BED1": "BED 1", "BED2": "BED 2", "BED3": "BED 3", "BED4": "BED 4",
+    "BATH1": "BATH 1", "BATH2": "BATH 2", "LAUNDRYTEXT": "LAUNDRY", "LDRYTEXT": "LAUNDRY",
+    
+    # Bed corrections
+    "BEO": "BED",
+    "BE0": "BED",
+    "BFD": "BED",
+    "BBD": "BED",
+    "BEU": "BED",
+    "BEDD": "BED",
+    "BEDS": "BED",
+    
+    # Ens corrections
+    "EMS": "ENS",
+    "EINS": "ENS",
+    "FNS": "ENS",
+    "EN5": "ENS",
+    "ENZ": "ENS",
+    "EH5": "ENS",
+    "EIS": "ENS",
+    "EHI5": "ENS",
+    
+    # Linen corrections
+    "L1NEN": "LINEN",
+    "LMEN": "LINEN",
+    "LNEN": "LINEN",
+    
+    # WC corrections
+    "WE": "WC",
+    "VVC": "WC",
+    "WVC": "WC",
+    "VC": "WC"
+}
+
+def _apply_spelling_corrections(text: str) -> str:
+    if not text:
+        return ""
+    s = text.upper().strip()
+    if s in GLOBAL_OCR_CORRECTIONS:
+        return GLOBAL_OCR_CORRECTIONS[s]
+    
+    words = s.split()
+    if len(words) > 1:
+        corrected_words = [GLOBAL_OCR_CORRECTIONS.get(w, w) for w in words]
+        s = " ".join(corrected_words)
+    return s
+
+
 def _clean_text(s: str) -> str:
     if not s:
         return ""
@@ -327,32 +388,7 @@ def _clean_text(s: str) -> str:
         return ""
     
     # Fuzzy corrections for common OCR misreads
-    corrections = {
-        "YOUNGE": "LOUNGE", "ENTY": "ENTRY", "KICHEN": "KITCHEN",
-        "MSTER": "MASTER", "BTAH": "BATH", "KITHCEN": "KITCHEN",
-        "PTRY": "PANTRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
-        "8ED": "BED", "8ATH": "BATH", "R0BE": "ROBE", "1INEN": "LINEN",
-        "GUE5T": "GUEST", "MA5TER": "MASTER", "0FFICE": "OFFICE",
-        "HA1L": "HALL", "W1R": "WIR", "8IR": "BIR", "WER" : "WIR","WPB":"WIR",
-        "B1": "BED 1", "B2": "BED 2", "B3": "BED 3", "B4": "BED 4",
-        "E1": "ENS 1", "E2": "ENS 2", "BR1": "BED 1", "BR2": "BED 2", "EN":"ENS","SL":"ENS",
-        "BA1": "BATH 1", "BA2": "BATH 2","ENS1":"ENS 1", "ENSH":"ENS", "FENS":"ENS",
-        "ENS2":"ENS 2", "LDY": "LAUNDRY", "LDRY": "LAUNDRY", "LAUNORY": "LAUNDRY",
-        "ENSULTE":"ENSUITE", "WCI":"WC", "ENSH3" : "ENS 3", "ENSH4":"ENS 4",
-        "NS":"ENS", "BALC0NY" : "BALCONY", "BALC 0 N Y":"BALCONY", "W |R":"WIR", "WLR":"WIR",
-        "BED1": "BED 1", "BED2": "BED 2", "BED3": "BED 3", "BED4": "BED 4",
-        "BATH1": "BATH 1", "BATH2": "BATH 2", "LAUNDRYTEXT": "LAUNDRY", "LDRYTEXT": "LAUNDRY"
-    }
-    if s in corrections:
-        s = corrections[s]
-    else:
-        # Check words individually for multi-word texts (e.g. "8ED 2")
-        words = s.split()
-        if len(words) > 1:
-            corrected_words = [corrections.get(w, w) for w in words]
-            s = " ".join(corrected_words)
-    
-    return s
+    return _apply_spelling_corrections(s)
 
 from rapidfuzz import fuzz
 
@@ -377,7 +413,30 @@ COMMON_CORRECTIONS = {
     "8ATH": "BATH",
     "K1TCHEN": "KITCHEN",
     "D1N1NG": "DINING",
-    "5TUDY": "STUDY"
+    "5TUDY": "STUDY",
+    "EMS": "ENS",
+    "EINS": "ENS",
+    "FNS": "ENS",
+    "EN5": "ENS",
+    "ENZ": "ENS",
+    "EH5": "ENS",
+    "EIS": "ENS",
+    "EHI5": "ENS",
+    "ENSH": "ENS",
+    "BEO": "BED",
+    "BE0": "BED",
+    "BFD": "BED",
+    "BBD": "BED",
+    "BEU": "BED",
+    "BEDD": "BED",
+    "BEDS": "BED",
+    "L1NEN": "LINEN",
+    "LMEN": "LINEN",
+    "LNEN": "LINEN",
+    "WE": "WC",
+    "VVC": "WC",
+    "WVC": "WC",
+    "VC": "WC"
 }
 
 ROOM_GROUPS = {
@@ -3144,10 +3203,18 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
         conf_arr = res.boxes.conf.cpu().numpy()
         for i in range(len(xyxy_arr)):
             x1, y1, x2, y2 = xyxy_arr[i]
+            box_w = x2 - x1
+            box_h = y2 - y1
+            conf = float(conf_arr[i])
+            
+            # OPTIMIZATION: Filter out tiny noise boxes and extremely low-confidence boxes
+            if box_w < 8 or box_h < 8 or conf < 0.15:
+                continue
+                
             text_boxes.append({
                 "x1": int(x1), "y1": int(y1),
                 "x2": int(x2), "y2": int(y2),
-                "conf": float(conf_arr[i])
+                "conf": conf
             })
     
     if not text_boxes:
@@ -3187,11 +3254,16 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
                     if text and conf > best_conf:
                         best_text = text
                         best_conf = conf
+                
+                # OPTIMIZATION: Early exit if we find a highly confident match
+                if best_conf > 0.85:
+                    break
             except Exception:
                 pass
         
         if best_text and best_conf > 0.1:
             best_text = _collapse_spaces(best_text)
+            best_text = _apply_spelling_corrections(best_text)
             bbox_w = box["x2"] - box["x1"]
             bbox_h = box["y2"] - box["y1"]
             all_results.append({

@@ -32,6 +32,7 @@ frontend/dist/
 frontend/.next/
 node_modules/
 backend/venv/
+venv/
 backend/__pycache__/
 __pycache__/
 *.pyc

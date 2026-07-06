@@ -260,7 +260,17 @@ export default function App() {
     handleClick, finishPolygon, finishDoor, updateDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
-    snapAllDoorsToWalls
+    snapAllDoorsToWalls,
+    selectedWallVertex, setSelectedWallVertex,
+    drawingWall, setDrawingWall,
+    drawingWallEnd, setDrawingWallEnd,
+    createDefaultExtEnvelope,
+    pullStepInfo,
+    setPullStepInfo,
+    pullStepPreview,
+    extRectStart,
+    setExtRectStart,
+    autoFitExtEnvelope
   } = useInteractionController(svgRef);
 
   useEffect(() => {
@@ -609,6 +619,8 @@ export default function App() {
       <RibbonView
         currentPage={currentPage}
         drawing={drawing} setDrawing={setDrawing}
+        createDefaultExtEnvelope={createDefaultExtEnvelope}
+        autoFitExtEnvelope={autoFitExtEnvelope}
         isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
@@ -764,12 +776,24 @@ export default function App() {
               pushHistory={pushHistory}
               updateDoor={updateDoor}
               deleteDoor={deleteDoor}
+              deleteWalls={deleteWalls}
+              updateWallsProperty={updateWallsProperty}
+              pullStepPreview={pullStepPreview}
+              setPullStepInfo={setPullStepInfo}
+              extRectStart={extRectStart}
+              setExtRectStart={setExtRectStart}
               searchResults={searchResults}
               searchResultsVisible={searchResultsVisible}
               hoveredSearchResultId={hoveredSearchResultId}
               zoomToBbox={zoomToBbox}
               showPDF={showPDF}
               setShowPDF={setShowPDF}
+              selectedWallVertex={selectedWallVertex}
+              setSelectedWallVertex={setSelectedWallVertex}
+              drawingWall={drawingWall}
+              setDrawingWall={setDrawingWall}
+              drawingWallEnd={drawingWallEnd}
+              setDrawingWallEnd={setDrawingWallEnd}
             />
           )}
 
