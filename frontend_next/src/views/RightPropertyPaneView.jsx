@@ -2,6 +2,7 @@ import React from "react";
 import * as XLSX from "xlsx";
 import { polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
+import { useDialog } from "@/components/DialogContext";
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -264,7 +265,9 @@ export default function RightPropertyPaneView({
   autoMergeCollinearWalls,
   walls = [],
   doors = [],
+  deleteItem
 }) {
+  const { showConfirm } = useDialog();
   const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
 
   // Collapsible accordion expanded states (all true by default on load)
@@ -757,14 +760,13 @@ export default function RightPropertyPaneView({
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <button
-                  className="rp-action-btn rp-action-btn--danger"
-                  onClick={() => {
-                    if (confirm("Are you sure you want to delete this door?")) {
-                      deleteDoor && deleteDoor(selectedDoor.id);
-                    }
-                  }}
-                >
+                <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
+                  e.stopPropagation();
+                  if (await showConfirm("Are you sure you want to delete this door?")) {
+                    deleteDoor && deleteDoor(selectedDoor.id);
+                  }
+                }}
+              >
                   Delete Selected Door
                 </button>
               </div>

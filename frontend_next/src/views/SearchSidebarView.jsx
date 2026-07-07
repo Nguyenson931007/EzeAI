@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { ApiService } from "@/models/api.service";
+
+import { useAppModel } from "@/models/app.context";
+import { BASE_URL, ApiService } from "@/models/api.service";
+import { useDialog } from "@/components/DialogContext";
 
 export default function SearchSidebarView({
   searchResults = [],
@@ -26,6 +29,7 @@ export default function SearchSidebarView({
   zoomToBbox,
   setHoveredSearchResultId
 }) {
+  const { showAlert } = useDialog();
   const [recentSearches, setRecentSearches] = useState([]);
 
   // Fetch search history on load and when a new search is completed
@@ -52,7 +56,7 @@ export default function SearchSidebarView({
 
   const handleRunTextSearch = async (queryToRun = searchQuery) => {
     if (!currentJobId) {
-      alert("Please save your project first to initialize the search engine!");
+      await showAlert("Please save your project first to initialize the search engine!");
       return;
     }
     if (!queryToRun.trim()) return;
@@ -102,7 +106,7 @@ export default function SearchSidebarView({
       }
     } catch (e) {
       console.error("OCR Search error:", e);
-      alert("Search failed: " + e.message);
+      await showAlert("Search failed: " + e.message);
     } finally {
       setIsSearching(false);
     }
@@ -110,7 +114,7 @@ export default function SearchSidebarView({
 
   const handleRunObjectSearch = async () => {
     if (!currentJobId) {
-      alert("Please save your project first to initialize the search index!");
+      await showAlert("Please save your project first to initialize the search index!");
       return;
     }
     if (!selectedId) return;
@@ -141,7 +145,7 @@ export default function SearchSidebarView({
       }
     } catch (e) {
       console.error("Object Search error:", e);
-      alert("Similarity search failed: " + e.message);
+      await showAlert("Similarity search failed: " + e.message);
     } finally {
       setIsSearching(false);
     }
@@ -149,7 +153,7 @@ export default function SearchSidebarView({
 
   const handleRunROISearch = async () => {
     if (!currentJobId) {
-      alert("Please save your project first to initialize the search index!");
+      await showAlert("Please save your project first to initialize the search index!");
       return;
     }
     if (!roiRect) return;
@@ -210,7 +214,7 @@ export default function SearchSidebarView({
       clearROI();
     } catch (e) {
       console.error("ROI Search error:", e);
-      alert("Region search failed: " + e.message);
+      await showAlert("Region search failed: " + e.message);
     } finally {
       setIsSearching(false);
     }

@@ -4,6 +4,7 @@ import AIConfidenceHeader from './AIConfidenceHeader';
 import ConfidenceRow from './ConfidenceRow';
 import ConfidencePresetBar from './ConfidencePresetBar';
 import ConfidenceFooter from './ConfidenceFooter';
+import { useDialog } from '@/components/DialogContext';
 
 const DEFAULT_DEFAULTS = {
   rooms: 0.03,
@@ -16,7 +17,8 @@ const DEFAULT_DEFAULTS = {
 export default function AIConfidencePanel() {
   return null;
 
-  const [collapsed, setCollapsed] = useState(false);
+  const { config, setConfig, collapsed, toggleCollapsed, heatmapMode, toggleHeatmap, setRoomConfidence, setDoorConfidence, setWallConfidence, setOCRConfidence, setSymbolConfidence, applyConfig, resetDefaults } = useAIConfigStore();
+  const { showAlert, showPrompt } = useDialog();
   const panelRef = useRef(null);
 
   // Position coordinates state
@@ -108,22 +110,25 @@ export default function AIConfidencePanel() {
     if (field === 'symbols') setSymbolConfidence(def);
   };
 
-  const handleExport = () => {
-    const data = exportConfig();
-    navigator.clipboard.writeText(data).then(() => {
-      alert('AI config preset copied to clipboard as JSON!');
-    }).catch(() => {
-      alert('Failed to copy. Config JSON:\n' + data);
-    });
+  const handleExport = async () => {
+    try {
+      const data = JSON.stringify(config);
+      await navigator.clipboard.writeText(data);
+      await showAlert('AI config preset copied to clipboard as JSON!');
+    } catch (e) {
+      await showAlert('Failed to copy. Config JSON:\n' + JSON.stringify(config));
+    }
   };
 
-  const handleImport = () => {
-    const jsonStr = prompt('Paste your AI Confidence configuration JSON string:');
+  const handleImport = async () => {
+    const jsonStr = await showPrompt('Paste your AI Confidence configuration JSON string:');
     if (!jsonStr) return;
-    if (importConfig(jsonStr)) {
-      alert('AI Confidence configuration loaded successfully.');
-    } else {
-      alert('Invalid configuration format. Please verify configuration JSON.');
+    try {
+      const parsed = JSON.parse(jsonStr);
+      setConfig(parsed);
+      await showAlert('AI Confidence configuration loaded successfully.');
+    } catch (e) {
+      await showAlert('Invalid configuration format. Please verify configuration JSON.');
     }
   };
 

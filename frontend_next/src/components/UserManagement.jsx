@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ApiService, BASE_URL } from '@/models/api.service';
+import { useDialog } from '@/components/DialogContext';
 
 const UserManagement = ({ onLoadJob }) => {
+  const { showAlert, showConfirm } = useDialog();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState(null);
@@ -32,7 +34,7 @@ const UserManagement = ({ onLoadJob }) => {
       }
     } catch (err) {
       console.error('Open job error:', err);
-      alert('Failed to load project details');
+      await showAlert('Failed to load project details');
     }
   };
 
@@ -68,7 +70,7 @@ const UserManagement = ({ onLoadJob }) => {
       }
       
       if (res.message || res.status === "success") {
-        alert(editingUser ? 'User updated!' : 'User created!');
+        await showAlert(editingUser ? 'User updated!' : 'User created!');
         setEditingUser(null);
         setFormData({ username: '', email: '', password: '', role: 'user', is_active: 1 });
         fetchUsers();
@@ -90,7 +92,7 @@ const UserManagement = ({ onLoadJob }) => {
   };
 
   const handleDelete = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) return;
+    if (!await showConfirm('Are you sure you want to delete this user?')) return;
     try {
       const userStr = localStorage.getItem("user");
       const headers = {};
@@ -107,11 +109,14 @@ const UserManagement = ({ onLoadJob }) => {
   };
 
   const handleUnlock = async () => {
-    if (!newPassword) return alert("Please enter a new password");
+    if (!newPassword) {
+      await showAlert("Please enter a new password");
+      return;
+    }
     try {
       const res = await ApiService.unlockUser(unlockingUser.id, newPassword);
       if (res.status === 'success') {
-        alert("User unlocked successfully!");
+        await showAlert("User unlocked successfully!");
         setUnlockingUser(null);
         setNewPassword('');
         fetchUsers();
@@ -254,7 +259,7 @@ const UserManagement = ({ onLoadJob }) => {
                         <td>
                           <div className="row-actions">
                             <button onClick={async () => { await fetch(`${BASE_URL}/users/${user.id}/approve`, { method: 'POST', headers: { "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token } }); fetchUsers(); }} className="btn-approve">Approve</button>
-                            <button onClick={async () => { if(window.confirm('Reject?')) { await fetch(`${BASE_URL}/users/${user.id}/reject`, { method: 'POST', headers: { "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token } }); fetchUsers(); } }} className="btn-reject">Reject</button>
+                            <button onClick={async () => { if(await showConfirm('Reject?')) { await fetch(`${BASE_URL}/users/${user.id}/reject`, { method: 'POST', headers: { "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token } }); fetchUsers(); } }} className="btn-reject">Reject</button>
                           </div>
                         </td>
                       </tr>

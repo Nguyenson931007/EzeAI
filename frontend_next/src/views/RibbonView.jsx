@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import TrainButton from "@/components/TrainButton";
 import { useAppModel } from "@/models/app.context";
+import { useDialog } from "@/components/DialogContext";
 import WallThicknessDialog from "@/components/WallThicknessDialog";
 
 export default function RibbonView({
@@ -50,6 +51,7 @@ export default function RibbonView({
   clearSearch, runROISearch,
   showPDF, setShowPDF
 }) {
+  const { showAlert, showConfirm } = useDialog();
   const {
     activeTab, setActiveTab,
     user,
@@ -161,14 +163,7 @@ export default function RibbonView({
                 </button>
                 <button
                   className="ribbon-btn danger"
-                  onClick={() => {
-                    const hasRooms = (roomsByPage[currentPage] || []).length > 0;
-                    const hasWalls = (wallsByPage[currentPage] || []).length > 0;
-                    const hasDoors = (doorsByPage[currentPage] || []).length > 0;
-                    if (!hasRooms && !hasWalls && !hasDoors) return;
-                    if (!window.confirm("Delete ALL rooms, walls, and doors on this page?")) return;
-                    deleteAllRooms(true);
-                  }}
+                  onClick={() => deleteAllRooms()}
                   disabled={
                     !((roomsByPage[currentPage] || []).length > 0 ||
                       (wallsByPage[currentPage] || []).length > 0 ||
@@ -212,7 +207,7 @@ export default function RibbonView({
                 <button className={`ribbon-btn ${isMeasuring ? "active" : ""}`} onClick={() => { setIsMeasuring(true); setMeasurePoints([]); setIsDistancing(false); setDistancePoints([]); }}>
                   <span className="icon">📏</span><span className="label">Scale</span>
                 </button>
-                <button className={`ribbon-btn ${isDistancing ? "active" : ""}`} onClick={() => { if (!scaleValue) { alert("Bạn phải scale trước khi đo kích thước!"); return; } setIsDistancing(v => !v); setDistancePoints([]); setIsMeasuring(false); }}>
+                <button className={`ribbon-btn ${isDistancing ? "active" : ""}`} onClick={() => { if (!scaleValue) { showAlert("Bạn phải scale trước khi đo kích thước!"); return; } setIsDistancing(v => !v); setDistancePoints([]); setIsMeasuring(false); }}>
                   <span className="icon">📏📐</span><span className="label">Dist</span>
                 </button>
 
@@ -239,7 +234,7 @@ export default function RibbonView({
                   className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} 
                   onClick={() => {
                     if (!realScale || realScale === 1.0) {
-                      alert("bạn phải scale trước khi chạy AI");
+                      showAlert("bạn phải scale trước khi chạy AI");
                       return;
                     }
                     setShowWallConfig(true);
@@ -427,7 +422,7 @@ export default function RibbonView({
                     roomCount: (roomsByPage[i] || []).length
                   })).filter(p => p.roomCount > 0);
                   if (pagesWithRooms.length === 0) {
-                    alert("No pages with rooms to export.");
+                    showAlert("No pages with rooms to export.");
                     return;
                   }
                   setExportSelectedPages(pagesWithRooms.map(p => p.idx));
@@ -449,7 +444,7 @@ export default function RibbonView({
             {/* SEARCH ACTIONS */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className="ribbon-btn danger" onClick={() => { if (window.confirm("Clear all search results?")) clearSearch(); }}>
+                <button className="ribbon-btn danger" onClick={async () => { if (await showConfirm("Clear all search results?")) clearSearch(); }}>
                   <span className="icon">🧹</span><span className="label">Clear Search</span>
                 </button>
                 <button className={`ribbon-btn ${searchResultsVisible ? "active" : ""}`} onClick={() => setSearchResultsVisible(v => !v)}>
@@ -534,7 +529,7 @@ export default function RibbonView({
               className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
               onClick={() => {
                 if (!realScale || realScale === 1.0) {
-                  alert("bạn phải scale trước khi chạy AI");
+                  showAlert("bạn phải scale trước khi chạy AI");
                   return;
                 }
                 setShowWallConfig(true);

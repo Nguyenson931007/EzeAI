@@ -15,8 +15,11 @@ import { useAppModel } from "@/models/app.context";
 import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
+import { useDialog } from "@/components/DialogContext";
 
 export function useInteractionController(svgRef) {
+  const { showAlert, showConfirm, showPrompt, showScalePrompt } = useDialog();
+  
   const {
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
@@ -423,12 +426,15 @@ export function useInteractionController(svgRef) {
     }
   }
 
-  function deleteAllRooms(skipConfirm = false) {
+  const deleteAllRooms = async (skipConfirm = false) => {
     const hasRooms = rooms.length > 0;
     const hasWalls = (wallsByPage[currentPage] || []).length > 0;
     const hasDoors = (doorsByPage[currentPage] || []).length > 0;
     if (!hasRooms && !hasWalls && !hasDoors) return;
-    if (!skipConfirm && !window.confirm("Delete all rooms, walls, and doors on this page?")) return;
+    if (!skipConfirm) {
+      const confirmed = await showConfirm("Delete all rooms, walls, and doors on this page?");
+      if (!confirmed) return;
+    }
     pushHistory([]);
     setWallsByPage(prev => ({ ...prev, [currentPage]: [] }));
     setDoorsByPage(prev => ({ ...prev, [currentPage]: [] }));
@@ -461,7 +467,7 @@ export function useInteractionController(svgRef) {
     };
   }
 
-  function handleClick(e) {
+  async function handleClick(e) {
     if (ignoreClickRef.current) {
       ignoreClickRef.current = false;
       return;
@@ -558,13 +564,12 @@ export function useInteractionController(svgRef) {
         const p2 = point;
         const pixelDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         if (pixelDist < 20) {
-          alert("Scale line quá ngắn, chọn lại!");
+          await showAlert("Scale line quá ngắn, chọn lại!", { x: e.clientX, y: e.clientY });
           setMeasurePoints([]);
           return;
         }
-        const real = prompt("Nhập chiều dài thực (mm) - KHÔNG dùng dấu . hay dấu , :");
-        if (real && (real.includes(".") || real.includes(","))) {
-          alert("LỖI: Vui lòng nhập số nguyên (Ví dụ: 4500)!");
+        const real = await showScalePrompt(Math.round(pixelDist), { x: e.clientX, y: e.clientY });
+        if (real === null) {
           setMeasurePoints([]);
           setIsMeasuring(false);
           return;
@@ -572,7 +577,7 @@ export function useInteractionController(svgRef) {
         const realMm = parseFloat(real);
         if (realMm && realMm > 0 && pixelDist > 0) {
           setRealScale(realMm / pixelDist);
-          alert(`Scale set: ${(realMm / pixelDist / 1000).toFixed(6)} m/px`);
+          await showAlert(`Scale set: ${(realMm / pixelDist / 1000).toFixed(6)} m/px`, { x: e.clientX, y: e.clientY });
         }
         setMeasurePoints([]);
         setIsMeasuring(false);
@@ -581,7 +586,7 @@ export function useInteractionController(svgRef) {
     }
     if (isDistancing) {
       if (!scaleValue) {
-        alert("Bạn phải scale trước khi đo kích thước!");
+        await showAlert("Bạn phải scale trước khi đo kích thước!", { x: e.clientX, y: e.clientY });
         return;
       }
       if (distancePoints.length === 0) setDistancePoints([p]);
@@ -613,7 +618,7 @@ export function useInteractionController(svgRef) {
           const distToA = Math.hypot(proj.x - a.x, proj.y - a.y);
           const distToB = Math.hypot(proj.x - b.x, proj.y - b.y);
           if (distToA < 15 || distToB < 15) {
-            alert("Điểm cắt quá gần với đầu mút tường (phải cách ít nhất 15px)!");
+            await showAlert("Điểm cắt quá gần với đầu mút tường (phải cách ít nhất 15px)!", { x: e.clientX, y: e.clientY });
             return;
           }
 

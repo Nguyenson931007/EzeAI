@@ -52,7 +52,7 @@ export default function LoginView({
         <div className="hud-corner top-right"></div>
         <div className="hud-corner bottom-left"></div>
         <div className="hud-corner bottom-right"></div>
-        
+
         {/* Lighting sweeps */}
         <div className="login-light-sweep"></div>
         <div className="card-coord-overlay">SEC.LOC: [45.12, -93.38]</div>
@@ -60,10 +60,10 @@ export default function LoginView({
         <div className="login-header">
           <div className="login-title-badge">BIM/CAD AI SUITE</div>
           <div className="login-logo" style={{ display: "flex", justifyContent: "center", marginBottom: "4px" }}>
-            <img 
-              src="/logo.png" 
-              alt="ezequote" 
-              style={{ height: "46px", width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 10px rgba(255, 255, 255, 0.95)) brightness(1.3)" }} 
+            <img
+              src="/logo.png"
+              alt="ezequote"
+              style={{ height: "46px", width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 10px rgba(255, 255, 255, 0.95)) brightness(1.3)" }}
             />
           </div>
           <p className="login-subtitle">
@@ -120,13 +120,13 @@ export default function LoginView({
           <div className="login-input-group password-group">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px', paddingRight: '4px' }}>
               <label htmlFor="password" style={{ margin: 0 }}>Password</label>
-              <button
+              {/* <button
                 type="button"
                 className="forgot-pass-btn"
                 onClick={() => alert("Please contact administrator to reset your password.")}
               >
                 Forgot?
-              </button>
+              </button> */}
             </div>
             <div className="login-input-wrapper">
               <svg className="login-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -164,9 +164,9 @@ export default function LoginView({
             </div>
           </div>
 
-          <button 
-            type="submit" 
-            className="login-btn" 
+          <button
+            type="submit"
+            className="login-btn"
             disabled={isLocked}
           >
             {isSignup ? "Initialize Account" : "Access Workspace"}

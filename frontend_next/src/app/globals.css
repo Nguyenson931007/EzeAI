@@ -2432,4 +2432,235 @@ svg {
   padding-left: 2px;
 }
 
+/* ===== CUSTOM DIALOG COMPONENT ===== */
+.custom-dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(10, 15, 25, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-dialog-box {
+  width: 320px;
+  max-width: 90vw;
+  animation: hud-flicker-in 0.3s ease-out forwards;
+}
+
+.custom-dialog-header {
+  font-size: 11px;
+  padding: 6px 12px;
+  background-color: rgba(0, 188, 212, 0.1);
+}
+
+.custom-dialog-body {
+  padding: 16px;
+  color: #e2e8f0;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.custom-dialog-message {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.custom-dialog-input {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.custom-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0, 188, 212, 0.15);
+}
+
+.custom-dialog-btn {
+  padding: 6px 16px;
+}
+
+.custom-dialog-btn.cancel {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.custom-dialog-btn.cancel:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+/* --- Redesigned Scale Dialog HUD CSS --- */
+.scale-dialog-box {
+  width: 340px !important;
+  background-color: #121318 !important;
+  border: 1px solid #22242a !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+/* Override default HUD header for scale dialog */
+.scale-dialog-box .custom-dialog-header {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+  padding: 12px 16px;
+  background-color: rgba(9, 11, 16, 0.3) !important;
+  border-bottom: 1px solid #22242a;
+}
+
+.scale-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px; /* 8pt grid */
+}
+
+.scale-description {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scale-context-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background-color: rgba(9, 11, 16, 0.4);
+  border: 1px solid rgba(34, 36, 42, 0.4);
+  border-radius: 4px;
+}
+
+.scale-context-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.scale-context-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.scale-context-value {
+  font-family: 'JetBrains Mono', monospace;
+  color: #06b6d4;
+  font-weight: 500;
+}
+
+.scale-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scale-input-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #06b6d4;
+}
+
+.scale-input-box-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.scale-input {
+  width: 100%;
+  background-color: #0b0c0f !important;
+  border: 1px solid #22242a !important;
+  border-radius: 4px !important;
+  padding: 8px 36px 8px 12px !important;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: #f8fafc !important;
+  outline: none;
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  margin-top: 0 !important;
+}
+
+.scale-input:focus {
+  border-color: #06b6d4 !important;
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2) !important;
+}
+
+.scale-input.error {
+  border-color: rgba(248, 113, 113, 0.8) !important;
+}
+
+.scale-input.error:focus {
+  border-color: #f87171 !important;
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.2) !important;
+}
+
+.scale-input-unit {
+  position: absolute;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  user-select: none;
+  pointer-events: none;
+}
+
+.scale-helper-text {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+.scale-helper-text.error {
+  color: #f87171;
+}
+
+/* Adjust footer styles specifically for scale dialog */
+.scale-dialog-box .custom-dialog-footer {
+  background-color: rgba(9, 11, 16, 0.2);
+  border-top: 1px solid #22242a;
+}
+
+.scale-dialog-box .custom-dialog-btn.confirm {
+  background-color: #06b6d4 !important;
+  color: #0b0c0f !important;
+  border: none !important;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: background-color 150ms ease;
+}
+
+.scale-dialog-box .custom-dialog-btn.confirm:hover:not(:disabled) {
+  background-color: #22d3ee !important;
+}
+
+.scale-dialog-box .custom-dialog-btn.confirm:disabled,
+.scale-dialog-box .custom-dialog-btn.confirm.disabled {
+  background-color: #22242a !important;
+  color: #64748b !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+
+
 
