@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ApiService } from '@/models/api.service';
+import { useDialog } from '@/components/DialogContext';
 
 const JobHistory = ({ username, onLoadJob }) => {
+  const { showAlert, showConfirm, showPrompt } = useDialog();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,7 +63,7 @@ const JobHistory = ({ username, onLoadJob }) => {
 
   const handleDelete = async (e, jobId) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this job?')) return;
+    if (!await showConfirm('Are you sure you want to delete this job?')) return;
     try {
       const res = await ApiService.deleteJob(jobId);
       if (res.status === 'success' || !res.detail) {
@@ -79,25 +81,25 @@ const JobHistory = ({ username, onLoadJob }) => {
       if (job.share_token) {
         const shareLink = `${window.location.origin}/share/${job.share_token}`;
         await navigator.clipboard.writeText(shareLink);
-        alert("Share link copied to clipboard!");
+          await showAlert("Share link copied to clipboard!");
       } else {
         const res = await ApiService.toggleShare(job.id, true);
         if (res.status === 'success') {
           const shareLink = `${window.location.origin}/share/${res.share_token}`;
           await navigator.clipboard.writeText(shareLink);
-          alert("Sharing enabled and link copied to clipboard!");
+          await showAlert("Sharing enabled and link copied to clipboard!");
           fetchJobs();
         }
       }
     } catch (err) {
       console.error('Share error:', err);
-      alert("Failed to handle sharing");
+      await showAlert("Failed to handle sharing");
     }
   };
 
   const handleRename = async (e, jobId, currentName) => {
     e.stopPropagation();
-    const newName = window.prompt('Enter new project name:', currentName);
+    const newName = await showPrompt('Enter new project name:', currentName);
     if (!newName || newName === currentName) return;
     
     try {
@@ -119,7 +121,7 @@ const JobHistory = ({ username, onLoadJob }) => {
       }
     } catch (err) {
       console.error('Load job error:', err);
-      alert(`Load Failed: ${err.message}`);
+      await showAlert(`Load Failed: ${err.message}`);
     }
   };
 

@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { ApiService } from "@/models/api.service";
 import { polygonAreaM2 } from "@/utils/geometry";
+import { useDialog } from "@/components/DialogContext";
 
 export const useProjectController = (
   user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
@@ -15,10 +16,11 @@ export const useProjectController = (
   setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId,
   doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage
 ) => {
+  const { showAlert } = useDialog();
   
   const handleSaveJob = async (projectName, forceNewName = false) => {
-    if (!user) return alert("Please login to save jobs");
-    if (pages.length === 0) return alert("Nothing to save");
+    if (!user) { await showAlert("Please login to save jobs"); return; }
+    if (pages.length === 0) { await showAlert("Nothing to save"); return; }
 
     const scaleValue = realScale ? realScale / 1000 : null;
     const totalArea = Object.values(roomsByPage).reduce((acc, pageRooms) => 
@@ -40,7 +42,7 @@ export const useProjectController = (
 
       const res = await ApiService.saveJob(payload);
       if (res) {
-        alert("Project saved!");
+        await showAlert("Project saved!");
         setCurrentProjectName(projectName);
         if (res.job_id) setCurrentJobId(res.job_id);
       }

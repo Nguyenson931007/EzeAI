@@ -1,11 +1,13 @@
 import React from "react";
+import { useDialog } from "@/components/DialogContext";
 
 export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, roomsByPage, setPages }) {
+  const { showPrompt } = useDialog();
   if (pages.length === 0) return null;
 
-  const handleRenameFloor = (e, index, currentName) => {
+  const handleRenameFloor = async (e, index, currentName) => {
     e.stopPropagation();
-    const newName = prompt("Nhập tên tầng (Floor Name):", currentName || `Floor_${index}`);
+    const newName = await showPrompt("Nhập tên tầng (Floor Name):", currentName || `Floor_${index}`);
     if (newName !== null && setPages) {
       setPages(prev => prev.map((p, i) => 
         i === index ? { ...p, floor_name: newName } : p

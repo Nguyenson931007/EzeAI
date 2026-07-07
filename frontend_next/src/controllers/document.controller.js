@@ -13,6 +13,7 @@ import { jsPDF } from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
 import { centroid, polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
 import { BASE_URL } from "@/models/api.service";
+import { useDialog } from "@/components/DialogContext";
 
 export function useDocumentController({
   image, setImage,
@@ -33,12 +34,14 @@ export function useDocumentController({
   WET_KEYWORDS,
   DRY_KEYWORDS,
   selectedId,
+  setExportSelectedPages,
   setPendingPages,
   setShowImportPageSelector,
   setImportSelectedPages,
   roiRect
 }) {
-  
+  const { showAlert } = useDialog();
+  // --- LOAD PDF --- 
   const rooms = roomsByPage[currentPage] || [];
 
   async function loadPDF(file) {
@@ -177,7 +180,7 @@ export function useDocumentController({
 
   async function addTrain() {
     if (!rooms || rooms.length === 0) {
-      alert("Error: No rooms to export for training.");
+      await showAlert("Error: No rooms to export for training.");
       return;
     }
     if (!validateRooms()) return;
@@ -243,7 +246,7 @@ export function useDocumentController({
         console.error("Mark trained error:", err);
       }
     }
-    alert("Train data + image saved!");
+    await showAlert("Train data + image saved!");
   }
 
   /**
@@ -323,13 +326,13 @@ export function useDocumentController({
       }
     }
 
-    alert(`Exported ${exported} page(s) to training dataset!`);
+    await showAlert(`Exported ${exported} page(s) to training dataset!`);
   }
 
 
 
   async function exportPDF() {
-    if (!image) { alert("No plan to export!"); return; }
+    if (!image) { await showAlert("No plan to export!"); return; }
     const canvas = document.createElement("canvas");
     canvas.width = imgSize.w;
     canvas.height = imgSize.h;

@@ -27,9 +27,9 @@ const handleResponse = async (res) => {
   if (res.status === 401 || res.status === 429) {
     try {
       const data = await res.json();
-      alert(data.detail || "Session expired or locked");
+      if (window.appDialog) { await window.appDialog.showAlert(data.detail || "Session expired or locked"); } else { alert(data.detail || "Session expired or locked"); }
     } catch (e) {
-      alert("Session expired or locked");
+      if (window.appDialog) { await window.appDialog.showAlert("Session expired or locked"); } else { alert("Session expired or locked"); }
     }
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("user");

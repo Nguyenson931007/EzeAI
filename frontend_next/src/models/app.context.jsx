@@ -1,6 +1,7 @@
 "use client";
 import React, { createContext, useState, useContext, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
+import { DialogProvider } from "@/components/DialogContext";
 
 const AppContext = createContext();
 
@@ -74,7 +75,11 @@ export const AppProvider = ({ children }) => {
     currentJobId, setCurrentJobId
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <DialogProvider>
+      <AppContext.Provider value={value}>{children}</AppContext.Provider>
+    </DialogProvider>
+  );
 };
 
 export const useAppModel = () => useContext(AppContext);
