@@ -45,25 +45,25 @@ export const useAIConfigStore = create((set, get) => ({
     set({ config: updated });
     localStorage.setItem('ezefloor_ai_confidence', JSON.stringify(updated));
   },
-  
+
   setDoorConfidence: (val) => {
     const updated = { ...get().config, doors: Math.max(0, Math.min(1, parseFloat(val) || 0)) };
     set({ config: updated });
     localStorage.setItem('ezefloor_ai_confidence', JSON.stringify(updated));
   },
-  
+
   setWallConfidence: (val) => {
     const updated = { ...get().config, walls: Math.max(0, Math.min(1, parseFloat(val) || 0)) };
     set({ config: updated });
     localStorage.setItem('ezefloor_ai_confidence', JSON.stringify(updated));
   },
-  
+
   setOCRConfidence: (val) => {
     const updated = { ...get().config, ocr: Math.max(0, Math.min(1, parseFloat(val) || 0)) };
     set({ config: updated });
     localStorage.setItem('ezefloor_ai_confidence', JSON.stringify(updated));
   },
-  
+
   setSymbolConfidence: (val) => {
     const updated = { ...get().config, symbols: Math.max(0, Math.min(1, parseFloat(val) || 0)) };
     set({ config: updated });

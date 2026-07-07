@@ -1138,56 +1138,51 @@ def api_generate_rooms_from_walls(
             if c and len(c) == 2:
                 lines.append(LineString([c[0], c[1]]))
                 
-        # Add door centerlines directly to lines so doors act as room boundary cuts (delimiters)
-        for d in doors:
-            pts = d.get("points") or d.get("polygon")
-            if pts and len(pts) >= 2:
-                p1 = pts[0]
-                p2 = pts[1]
-                if isinstance(p1, dict) and isinstance(p2, dict):
-                    lines.append(LineString([(p1.get("x", 0), p1.get("y", 0)), (p2.get("x", 0), p2.get("y", 0))]))
-                elif isinstance(p1, (list, tuple)) and isinstance(p2, (list, tuple)) and len(p1) >= 2 and len(p2) >= 2:
-                    lines.append(LineString([p1[:2], p2[:2]]))
-                
-        # 2. Bridge door gaps specifically if doors are provided
+        # 2. Bridge door gaps specifically if doors are provided (acting as wall dividers)
         if doors:
             for d in doors:
-                pts = d.get("points") or d.get("polygon")
-                if pts and len(pts) >= 2:
-                    xs = []
-                    ys = []
-                    for p in pts:
-                        if isinstance(p, dict):
-                            xs.append(float(p.get("x", 0)))
-                            ys.append(float(p.get("y", 0)))
-                        elif isinstance(p, (list, tuple)) and len(p) >= 2:
-                            xs.append(float(p[0]))
-                            ys.append(float(p[1]))
-                    
-                    if len(xs) >= 2:
-                        cx = sum(xs) / len(xs)
-                        cy = sum(ys) / len(ys)
+                p1, p2 = None, None
+                
+                # Try to get centerline directly: [[x1, y1], [x2, y2]] or [{"x": x, "y": y}, ...]
+                dc = d.get("centerline")
+                if dc and len(dc) == 2:
+                    pt1, pt2 = dc[0], dc[1]
+                    if isinstance(pt1, dict):
+                        p1 = (float(pt1.get("x", 0)), float(pt1.get("y", 0)))
+                    elif isinstance(pt1, (list, tuple)) and len(pt1) >= 2:
+                        p1 = (float(pt1[0]), float(pt1[1]))
                         
-                        endpoints = []
-                        for line in lines:
-                            endpoints.append(Point(line.coords[0]))
-                            endpoints.append(Point(line.coords[-1]))
-                            
-                        if endpoints:
-                            door_center = Point(cx, cy)
-                            endpoints.sort(key=lambda p: p.distance(door_center))
-                            
-                            # Connect the 2 closest distinct endpoints within 250px
-                            close_pts = []
-                            for p in endpoints:
-                                if p.distance(door_center) < 250.0:
-                                    if not any(p.distance(x) < 5.0 for x in close_pts):
-                                        close_pts.append(p)
-                                    if len(close_pts) == 2:
-                                        break
-                                        
-                            if len(close_pts) == 2:
-                                lines.append(LineString([close_pts[0], close_pts[1]]))
+                    if isinstance(pt2, dict):
+                        p2 = (float(pt2.get("x", 0)), float(pt2.get("y", 0)))
+                    elif isinstance(pt2, (list, tuple)) and len(pt2) >= 2:
+                        p2 = (float(pt2[0]), float(pt2[1]))
+                
+                # If no centerline, try points/polygon list and find the furthest endpoints
+                if not (p1 and p2):
+                    pts = d.get("points") or d.get("polygon")
+                    if pts and len(pts) >= 2:
+                        parsed_pts = []
+                        for p in pts:
+                            if isinstance(p, dict):
+                                parsed_pts.append((float(p.get("x", 0)), float(p.get("y", 0))))
+                            elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                                parsed_pts.append((float(p[0]), float(p[1])))
+                        
+                        if len(parsed_pts) >= 2:
+                            if len(parsed_pts) == 2:
+                                p1, p2 = parsed_pts[0], parsed_pts[1]
+                            else:
+                                # Find major axis (furthest pair of points) to approximate centerline
+                                max_d = -1
+                                for i in range(len(parsed_pts)):
+                                    for j in range(i + 1, len(parsed_pts)):
+                                        dist = np.hypot(parsed_pts[i][0] - parsed_pts[j][0], parsed_pts[i][1] - parsed_pts[j][1])
+                                        if dist > max_d:
+                                            max_d = dist
+                                            p1, p2 = parsed_pts[i], parsed_pts[j]
+                
+                if p1 and p2:
+                    lines.append(LineString([p1, p2]))
 
         # 3. Connect remaining free endpoints (snapping)
         # Cluster nearby endpoints within 25px into single nodes to close all geometric gaps
@@ -1345,6 +1340,49 @@ def api_generate_rooms_from_walls(
                 print(f"[api_generate_rooms_from_walls] _match_text_to_rooms failed: {match_err}, using fallback")
                 import traceback
                 traceback.print_exc()
+
+        # Classify rooms using the same logic as Auto AI (floor_ai_detect)
+        try:
+            from services.floor_ai_detect import _classify_room, _outside_contact_ratio
+            # Estimate image size from walls to calculate outside contact ratio
+            img_w, img_h = 2000, 2000 # default fallback
+            if walls:
+                xs_all = []
+                ys_all = []
+                for w in walls:
+                    c = w.get("centerline")
+                    if c:
+                        for pt in c:
+                            xs_all.append(pt[0])
+                            ys_all.append(pt[1])
+                if xs_all and ys_all:
+                    img_w = max(xs_all) + 50
+                    img_h = max(ys_all) + 50
+
+            for idx, room in enumerate(rooms_detected):
+                outside_ratio = _outside_contact_ratio(room["polygon"], img_w, img_h)
+                wetness, room_type, zone, yaml_id = _classify_room(
+                    room["room_name"], outside_ratio,
+                    class_name=room.get("class_name", ""),
+                    yolo_class_id=-1
+                )
+                
+                room["class_id"] = yaml_id
+                room["type"] = room_type
+                room["wetness"] = wetness
+                room["room_type"] = room_type
+                room["zone"] = zone
+                room["location"] = "external" if zone == "outdoor" else "internal"
+                
+                # Update class_name if room name was detected (not the default ROOM 1, etc.)
+                if room.get("room_name") and not room["room_name"].upper().startswith("ROOM "):
+                    room["class_name"] = room["room_name"]
+                
+                print(f"[api_generate_rooms_from_walls] Classified room {idx + 1}: name={room['room_name']}, class={room.get('class_name')}, type={room_type}, wetness={wetness}, zone={zone}")
+        except Exception as class_err:
+            print(f"[api_generate_rooms_from_walls] Room classification failed: {class_err}")
+            import traceback
+            traceback.print_exc()
             
         print(f"[api_generate_rooms_from_walls] Input walls: {len(walls)}, Input doors: {len(doors)}, Polygons found: {len(polys)}, Rooms returned: {len(rooms_detected)}")
         return {

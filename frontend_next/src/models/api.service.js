@@ -79,6 +79,14 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async validateSession() {
+    const res = await fetch(`${BASE_URL}/validate-session`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return res;
+  },
+
   // --- User Management (Admin) ---
   async getUsers() {
     const res = await fetch(`${BASE_URL}/users`, {

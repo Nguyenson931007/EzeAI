@@ -627,7 +627,7 @@ export function useInteractionController(svgRef) {
         }
         return newWall;
       }
-      return w;
+      return w; // Fix: Ensure other walls are returned and not deleted!
     });
     const finalized = recalculateAllWallsPolygons(updated);
     pushHistory(null, finalized);
@@ -1367,8 +1367,13 @@ export function useInteractionController(svgRef) {
       updatedDoor = moveDoorAlongWallByDistance(updatedDoor, currentWalls, realScale);
     }
 
-    // 4. Frame edge index change (Swap Frame & Leaf)
-    if (updatedDoor.frameEdgeIndex !== undefined && updatedDoor.frameEdgeIndex !== (oldDoor.frameEdgeIndex || 0)) {
+    // 4. Geometry change (Swing, Hinge, Type/Class, FrameEdgeIndex)
+    if (
+      (updatedDoor.frameEdgeIndex !== undefined && updatedDoor.frameEdgeIndex !== (oldDoor.frameEdgeIndex || 0)) ||
+      (updatedDoor.swing_direction !== oldDoor.swing_direction && updatedDoor.swing_direction !== oldDoor.swing) ||
+      (updatedDoor.hinge_side !== oldDoor.hinge_side && updatedDoor.hinge_side !== oldDoor.hingeSide) ||
+      (updatedDoor.class !== oldDoor.class)
+    ) {
       const pts = oldDoor.points || [];
       let p1 = pts[0] ? (Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0]) : null;
       let p2 = pts[1] ? (Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1]) : null;
@@ -1377,10 +1382,10 @@ export function useInteractionController(svgRef) {
         const geom = calculateDoorGeometry({
           p1,
           p2,
-          type: oldDoor.class?.includes("double") ? "double" : "single",
-          hingeSide: oldDoor.hingeSide || oldDoor.hinge_side || "left",
-          swing: oldDoor.swing || oldDoor.swing_direction || "inward",
-          angle: oldDoor.angle || oldDoor.opening_angle || 90
+          type: updatedDoor.class?.includes("double") ? "double" : "single",
+          hingeSide: updatedDoor.hinge_side || updatedDoor.hingeSide || "left",
+          swing: updatedDoor.swing_direction || updatedDoor.swing || "inward",
+          angle: updatedDoor.angle || updatedDoor.opening_angle || 90
         });
 
         if (geom && geom.arcCenter && geom.arcEnd) {

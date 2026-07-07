@@ -323,6 +323,51 @@ def logout(user: UserLogout):
         conn.close()
 
 
+@router.get("/validate-session")
+def validate_session_endpoint(
+    auth_username: str = Header(..., alias="X-Username"),
+    session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
+    session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
+):
+    """
+    Kiểm tra tính hợp lệ của phiên đăng nhập hiện tại (lightweight, không cập nhật last_active).
+    Frontend gọi endpoint này khi app load để xác minh session còn hiệu lực hay không.
+    """
+    session_token = session_token_cookie or session_token_header
+
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Thiếu session token."
+        )
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        row = cursor.fetchone()
+
+        if not row or row["session_token"] != session_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Phiên đăng nhập không hợp lệ hoặc đã bị thay thế."
+            )
+
+        # Check 30-minute inactivity timeout
+        last_active = datetime.fromisoformat(row["last_active"])
+        if datetime.now() - last_active > timedelta(minutes=30):
+            cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (auth_username,))
+            conn.commit()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Phiên đăng nhập đã hết hạn."
+            )
+
+        return {"status": "valid", "username": auth_username}
+    finally:
+        conn.close()
+
+
 # ── Dependency Xác thực Phiên làm việc (Session Validation) ──
 
 def validate_session(

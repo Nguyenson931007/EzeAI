@@ -828,9 +828,12 @@ export default function App() {
               <RightPropertyPaneView
                 selectedRoom={rooms.find(r => r.id === selectedId)}
                 selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
+                selectedDoor={(processedDoorsByPage[currentPage] || []).find(d => d.id === selectedId)}
                 selectedType={selectedType}
                 selectedPointIndex={selectedPointIndex}
                 updateRoom={updateRoom}
+                updateDoor={updateDoor}
+                deleteDoor={deleteDoor}
                 scaleValue={scaleValue}
                 realScale={realScale}
                 rooms={rooms}
@@ -843,6 +846,8 @@ export default function App() {
                 setInteractionMode={setInteractionMode}
                 pxToMm={pxToMm}
                 autoMergeCollinearWalls={autoMergeCollinearWalls}
+                walls={wallsByPage[currentPage] || []}
+                doors={processedDoorsByPage[currentPage] || []}
               />
             )
           )}
