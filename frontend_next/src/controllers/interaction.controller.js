@@ -19,7 +19,7 @@ import { useDialog } from "@/components/DialogContext";
 
 export function useInteractionController(svgRef) {
   const { showAlert, showConfirm, showPrompt, showScalePrompt } = useDialog();
-  
+
   const {
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
@@ -30,7 +30,7 @@ export function useInteractionController(svgRef) {
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
-  const cancelActiveZoomAnimation = () => {};
+  const cancelActiveZoomAnimation = () => { };
 
   const [scale, setScale] = useState(0.2);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -95,7 +95,7 @@ export function useInteractionController(svgRef) {
     const down = (e) => {
       const activeTag = document.activeElement?.tagName;
       const isInputFocused = activeTag === "INPUT" || activeTag === "TEXTAREA";
-      
+
       if (isInputFocused) return;
 
       if (e.code === "Space") {
@@ -152,7 +152,7 @@ export function useInteractionController(svgRef) {
         redo();
       }
     };
-    
+
     const up = (e) => {
       if (e.code === "Space") setIsSpaceDown(false);
       if (e.key === "Shift") setIsShiftDown(false);
@@ -180,7 +180,7 @@ export function useInteractionController(svgRef) {
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
       const zoom = e.deltaY > 0 ? 0.9 : 1.1;
-      
+
       setOffset(o => ({
         x: mx - (mx - o.x) * zoom,
         y: my - (my - o.y) * zoom
@@ -344,11 +344,11 @@ export function useInteractionController(svgRef) {
           }
           newWall.class_name = class_name;
           newWall.wall_type = wall_type;
-          
+
           const thicknessPx = mmToPx(thicknessMm, realScale);
           newWall.thickness = thicknessMm;
           newWall.thickness_px = thicknessPx;
-          
+
           if (w.centerline && w.centerline.length === 2) {
             const pts = w.centerline.map(pt => ({ x: pt[0], y: pt[1] }));
             const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, pageWalls);
@@ -361,7 +361,7 @@ export function useInteractionController(svgRef) {
           const thicknessPx = mmToPx(thicknessMm, realScale);
           newWall.thickness = thicknessMm;
           newWall.thickness_px = thicknessPx;
-          
+
           if (w.centerline && w.centerline.length === 2) {
             const pts = w.centerline.map(pt => ({ x: pt[0], y: pt[1] }));
             const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, pageWalls);
@@ -394,7 +394,7 @@ export function useInteractionController(svgRef) {
 
     const merged = mergeCollinearWalls(wallsToProcess);
     const finalWalls = [...otherWalls, ...merged];
-    
+
     const currentPageDoors = doorsByPage[currentPage] || [];
     const cutWalls = cutWallsByDoors(finalWalls, currentPageDoors, realScale);
 
@@ -455,12 +455,12 @@ export function useInteractionController(svgRef) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const angle = Math.atan2(dy, dx);
-    
+
     // Snap to increments of 45 degrees (PI/4)
     const step = Math.PI / 4;
     const snappedAngle = Math.round(angle / step) * step;
     const dist = Math.hypot(dx, dy);
-    
+
     return {
       x: p1.x + dist * Math.cos(snappedAngle),
       y: p1.y + dist * Math.sin(snappedAngle)
@@ -577,7 +577,7 @@ export function useInteractionController(svgRef) {
         const realMm = parseFloat(real);
         if (realMm && realMm > 0 && pixelDist > 0) {
           setRealScale(realMm / pixelDist);
-          await showAlert(`Scale set: ${(realMm / pixelDist / 1000).toFixed(6)} m/px`, { x: e.clientX, y: e.clientY });
+          // await showAlert(`Scale set: ${(realMm / pixelDist / 1000).toFixed(6)} m/px`, { x: e.clientX, y: e.clientY });
         }
         setMeasurePoints([]);
         setIsMeasuring(false);
@@ -613,7 +613,7 @@ export function useInteractionController(svgRef) {
         const a = { x: p1Arr[0], y: p1Arr[1] };
         const b = { x: p2Arr[0], y: p2Arr[1] };
         const proj = distancePointToSegment(p, a, b);
-        
+
         if (proj.dist < 20) {
           const distToA = Math.hypot(proj.x - a.x, proj.y - a.y);
           const distToB = Math.hypot(proj.x - b.x, proj.y - b.y);
@@ -624,18 +624,18 @@ export function useInteractionController(svgRef) {
 
           const wId1 = "wall_" + Date.now() + "_1";
           const wId2 = "wall_" + Date.now() + "_2";
-          
+
           const centerline1 = [p1Arr, [proj.x, proj.y]];
           const centerline2 = [[proj.x, proj.y], p2Arr];
-          
+
           const thickness = selectedWall.thickness_px || 20;
-          
+
           const pts1 = [{ x: p1Arr[0], y: p1Arr[1] }, { x: proj.x, y: proj.y }];
           const pts2 = [{ x: proj.x, y: proj.y }, { x: p2Arr[0], y: p2Arr[1] }];
-          
+
           const poly1 = calculateWallPolygonWithJunctions(pts1, thickness, wId1, pageWalls);
           const poly2 = calculateWallPolygonWithJunctions(pts2, thickness, wId2, pageWalls);
-          
+
           const wall1 = {
             ...selectedWall,
             id: wId1,
@@ -648,7 +648,7 @@ export function useInteractionController(svgRef) {
             centerline: centerline2,
             polygon: poly2 ? poly2.map(pt => [pt.x, pt.y]) : selectedWall.polygon
           };
-          
+
           const newWalls = [];
           for (let w of pageWalls) {
             if (w.id === selectedWall.id) {
@@ -657,7 +657,7 @@ export function useInteractionController(svgRef) {
               newWalls.push(w);
             }
           }
-          
+
           pushHistory(null, newWalls);
           setSelectedWallIds([wId1, wId2]);
           setSelectedId(wId1);
@@ -714,7 +714,7 @@ export function useInteractionController(svgRef) {
       return;
     }
     const [p1, p2] = points;
-    
+
     // If we have a preset with specific width, let's adjust finalP2 to exactly match that width in pixels
     let finalP2 = { x: p2.x, y: p2.y };
     if (doorPreset && doorPreset.width && realScale) {
@@ -746,11 +746,11 @@ export function useInteractionController(svgRef) {
     };
     const currentPageDoors = doorsByPage[currentPage] || [];
     const currentWalls = wallsByPage[currentPage] || [];
-    
+
     // Snap the new door to the nearest wall centerline (if any within 40px)
     const snappedDoor = snapDoorToWalls(newDoor, currentWalls, 40);
     const newDoors = [...currentPageDoors, snappedDoor];
-    
+
     // Heal existing walls before cutting them by the new set of doors
     const healedWalls = mergeCollinearWalls(currentWalls);
     const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
@@ -882,7 +882,7 @@ export function useInteractionController(svgRef) {
 
     const w1 = { x: closestWall.centerline[0][0], y: closestWall.centerline[0][1] };
     const w2 = { x: closestWall.centerline[1][0], y: closestWall.centerline[1][1] };
-    
+
     const wdx = w2.x - w1.x;
     const wdy = w2.y - w1.y;
     const wLen = Math.hypot(wdx, wdy);
@@ -961,9 +961,9 @@ export function useInteractionController(svgRef) {
     }
 
     // 3. Distance change
-    if (updatedDoor.distance_from && 
-        (updatedDoor.distance_from.value !== oldDoor.distance_from?.value || 
-         updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
+    if (updatedDoor.distance_from &&
+      (updatedDoor.distance_from.value !== oldDoor.distance_from?.value ||
+        updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
       updatedDoor = moveDoorAlongWallByDistance(updatedDoor, currentWalls, realScale);
     }
 
@@ -1014,7 +1014,7 @@ export function useInteractionController(svgRef) {
     if (dragging) {
       const pRaw = getMouse(e);
       let pSnapped = pRaw; // Always use raw mouse for free drag
-      
+
       // Initialize starting conditions dynamically on the first move event
       if (!dragging.startMouse) {
         dragging.startMouse = pRaw;
@@ -1038,7 +1038,7 @@ export function useInteractionController(svgRef) {
       if (isShiftDown && dragging.type === 'room') {
         const currentRooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
         const poly = currentRooms.find(r => r.id === dragging.id)?.polygon;
-        
+
         if (poly && poly.length > 0) {
           const prevIdx = (dragging.index - 1 + poly.length) % poly.length;
           const nextIdx = (dragging.index + 1) % poly.length;
@@ -1054,7 +1054,7 @@ export function useInteractionController(svgRef) {
 
       if (dragging.type === 'door-polygon') {
         if (!dragging.startBbox || !dragging.startPoints) return;
-        
+
         let newMinX = dragging.startBbox.minX;
         let newMinY = dragging.startBbox.minY;
         let newMaxX = dragging.startBbox.maxX;
@@ -1085,7 +1085,7 @@ export function useInteractionController(svgRef) {
               if (door.id === dragging.id) {
                 const startDoor = dragging.startDoors?.find(sd => sd.id === door.id);
                 if (!startDoor) return door;
-                
+
                 const updatedPoints = startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
                 const updatedPoly = startDoor.polygon ? startDoor.polygon.map(pt => {
                   const px = Array.isArray(pt) ? pt[0] : pt.x;
@@ -1124,7 +1124,7 @@ export function useInteractionController(svgRef) {
                   snapped = snap(otherPt, pRaw);
                 }
                 centerline[dragging.index] = [snapped.x, snapped.y];
-                
+
                 const thickness = w.thickness_px || 20;
                 const points = centerline.map(pt => ({ x: pt[0], y: pt[1] }));
                 const newPoly = calculateWallPolygonWithJunctions(points, thickness, w.id, pageWalls);
@@ -1153,7 +1153,7 @@ export function useInteractionController(svgRef) {
                 if (!startWall) return w;
                 const newP1 = [startWall.centerline[0][0] + dx, startWall.centerline[0][1] + dy];
                 const newP2 = [startWall.centerline[1][0] + dx, startWall.centerline[1][1] + dy];
-                const pts = [ { x: newP1[0], y: newP1[1] }, { x: newP2[0], y: newP2[1] } ];
+                const pts = [{ x: newP1[0], y: newP1[1] }, { x: newP2[0], y: newP2[1] }];
                 const newPoly = calculateWallPolygonWithJunctions(pts, w.thickness_px || 20, w.id, pageWalls);
                 const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
                 return {
@@ -1169,11 +1169,13 @@ export function useInteractionController(svgRef) {
       } else {
         setRoomsByPage(prev => {
           const pageRooms = prev[currentPage] || [];
-          return { ...prev, [currentPage]: pageRooms.map(room =>
-            room.id === dragging.id
-              ? { ...room, polygon: room.polygon.map((pt, i) => i === dragging.index ? pSnapped : pt) }
-              : room
-          )};
+          return {
+            ...prev, [currentPage]: pageRooms.map(room =>
+              room.id === dragging.id
+                ? { ...room, polygon: room.polygon.map((pt, i) => i === dragging.index ? pSnapped : pt) }
+                : room
+            )
+          };
         });
       }
       setCurrentMouse(pRaw);
@@ -1198,7 +1200,7 @@ export function useInteractionController(svgRef) {
     // ===== NORMAL MOUSE TRACKING (drawing tools, cursor preview) =====
     const p = getMouse(e);
     let snappedP = p;
-    
+
     if (isShiftDown || isSnapMode) {
       if (drawing && currentPoly.length > 0) {
         snappedP = snap(currentPoly[currentPoly.length - 1], p);
@@ -1254,7 +1256,7 @@ export function useInteractionController(svgRef) {
       setRect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y, isMarquee: true });
       return;
     }
-    
+
     if (isSpaceDown || e.button === 1) {
       panStart.current = { x: e.clientX, y: e.clientY };
       setIsPanning(true);
@@ -1326,7 +1328,7 @@ export function useInteractionController(svgRef) {
         const maxX = Math.max(rect.x1, rect.x2);
         const minY = Math.min(rect.y1, rect.y2);
         const maxY = Math.max(rect.y1, rect.y2);
-        
+
         const inBox = (x, y) => x >= minX && x <= maxX && y >= minY && y <= maxY;
         const pageWalls = wallsByPage[currentPage] || [];
         const matchedWallIds = pageWalls
@@ -1336,7 +1338,7 @@ export function useInteractionController(svgRef) {
             return inBox(p1[0], p1[1]) && inBox(p2[0], p2[1]);
           })
           .map(w => w.id);
-          
+
         if (matchedWallIds.length > 0) {
           setSelectedWallIds(matchedWallIds);
           setSelectedId(matchedWallIds[matchedWallIds.length - 1]);
