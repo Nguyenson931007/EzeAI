@@ -380,5 +380,62 @@ export function useDocumentController({
     doc.save(`EzeFloor_Plan_Pg${currentPage + 1}.pdf`);
   }
 
-  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF };
+  async function exportWallLabels() {
+    const currentWalls = wallsByPage[currentPage] || [];
+    if (currentWalls.length === 0) {
+      alert("Error: No walls to export.");
+      return;
+    }
+
+    try {
+      let base64Image = image;
+      if (image && !image.startsWith("data:image")) {
+        const blob = await fetch(image).then(r => r.blob());
+        base64Image = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const formattedWalls = currentWalls.map(w => {
+        let wallType = "int";
+        if (w.class_name === "exterior_wall") wallType = "ext";
+        else if (w.class_name === "partition_wall") wallType = "part";
+
+        const centerline = w.centerline || [];
+        return {
+          wall_type: wallType,
+          centerline: centerline
+        };
+      });
+
+      const exportName = `${currentProjectName || "plan"}_page_${currentPage}`;
+
+      const res = await fetch(`${BASE_URL}/api/export-wall-labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_name: exportName,
+          image_data: base64Image,
+          width: Math.round(imgSize.w),
+          height: Math.round(imgSize.h),
+          walls: formattedWalls
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const resData = await res.json();
+      alert(`Label data exported successfully!\nSaved at:\n${resData.export_dir}`);
+    } catch (err) {
+      console.error("Export labels error:", err);
+      alert(`Failed to export labels: ${err.message}`);
+    }
+  }
+
+  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels };
 }

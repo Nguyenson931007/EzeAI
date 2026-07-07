@@ -94,3 +94,11 @@ class OCRCorrectionRequest(BaseModel):
     context: Optional[dict] = None
     source_confidence: Optional[float] = None
     roi: Optional[dict] = None
+
+class ExportWallLabelsRequest(BaseModel):
+    image_name: str
+    image_data: str
+    width: int
+    height: int
+    walls: List[dict]
+

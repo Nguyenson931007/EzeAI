@@ -416,6 +416,9 @@ export default function ThreeDView({
             const ux = dx / dLen;
             const uy = dy / dLen;
 
+            let nearestWall = null;
+            let minPerpDist = Infinity;
+
             if (walls && walls.length > 0) {
               walls.forEach(w => {
                 if (!w.centerline || w.centerline.length < 2) return;
@@ -432,82 +435,89 @@ export default function ThreeDView({
                 const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
                 const tVal = ((cxSeg - wp1.x) * wdx + (cySeg - wp1.y) * wdy) / L2;
 
-                 if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
-                  wallThickness = w.thickness_px || thickness;
-                  hostWallClass = w.class_name || "interior_wall";
-                  const wHeight = w.height || defaultHeightMm;
-                  if (realScale) {
-                    hostWallHeightPx = wHeight / realScale;
-                  }
-
-                  // Align rotation to host wall centerline orientation
-                  const wLen = Math.hypot(wdx, wdy);
-                  if (wLen > 0.1) {
-                    const wAngle = Math.atan2(wdy, wdx);
-                    // Use the wall angle directly; pick the direction closest to the door angle
-                    const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
-                    hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
-
-                    const uxW = wdx / wLen;
-                    const uyW = wdy / wLen;
-                    const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
-                    hostWallCx = wp1.x + tProj * uxW;
-                    hostWallCy = wp1.y + tProj * uyW;
-
-                    // Project door points to find gap lengths and create aligned jamb meshes
-                    const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-                    const fillerMat = new THREE.MeshStandardMaterial({
-                      color: wallColor,
-                      roughness: 0.75,
-                      metalness: 0.15
-                    });
-
-                    [wp1, wp2].forEach(pt => {
-                      // Left side (p1)
-                      const dxPt1 = pt.x - p1.x;
-                      const dyPt1 = pt.y - p1.y;
-                      const t1 = dxPt1 * ux + dyPt1 * uy;
-                      const projX1 = p1.x + t1 * ux;
-                      const projY1 = p1.y + t1 * uy;
-                      const distToP1 = Math.hypot(pt.x - projX1, pt.y - projY1);
-
-                      if (distToP1 < 12.0 && t1 < 0 && t1 >= -halfJamb * 3) {
-                        const tGap = (p1.x - pt.x) * uxW + (p1.y - pt.y) * uyW;
-                        const gapLen = Math.abs(tGap);
-                        if (gapLen > 0.1) {
-                          const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
-                          leftJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
-                          leftJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
-                          leftJambMesh.rotation.y = -wAngle;
-                          leftJambMesh.castShadow = enableShadows;
-                          leftJambMesh.receiveShadow = enableShadows;
-                        }
-                      }
-
-                      // Right side (p2)
-                      const dxPt2 = pt.x - p2.x;
-                      const dyPt2 = pt.y - p2.y;
-                      const t2 = dxPt2 * ux + dyPt2 * uy;
-                      const projX2 = p2.x + t2 * ux;
-                      const projY2 = p2.y + t2 * uy;
-                      const distToP2 = Math.hypot(pt.x - projX2, pt.y - projY2);
-
-                      if (distToP2 < 12.0 && t2 > 0 && t2 <= halfJamb * 3) {
-                        const tGap = (p2.x - pt.x) * uxW + (p2.y - pt.y) * uyW;
-                        const gapLen = Math.abs(tGap);
-                        if (gapLen > 0.1) {
-                          const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
-                          rightJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
-                          rightJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
-                          rightJambMesh.rotation.y = -wAngle;
-                          rightJambMesh.castShadow = enableShadows;
-                          rightJambMesh.receiveShadow = enableShadows;
-                        }
-                      }
-                    });
+                if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
+                  if (perpDist < minPerpDist) {
+                    minPerpDist = perpDist;
+                    nearestWall = w;
                   }
                 }
               });
+            }
+
+            if (nearestWall) {
+              wallThickness = nearestWall.thickness_px || thickness;
+              hostWallClass = nearestWall.class_name || "interior_wall";
+              const wHeight = nearestWall.height || defaultHeightMm;
+              if (realScale) {
+                hostWallHeightPx = wHeight / realScale;
+              }
+
+              const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
+              const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
+              const wdx = wp2.x - wp1.x;
+              const wdy = wp2.y - wp1.y;
+              const wLen = Math.hypot(wdx, wdy);
+
+              if (wLen > 0.1) {
+                const wAngle = Math.atan2(wdy, wdx);
+                const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
+                hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
+
+                const uxW = wdx / wLen;
+                const uyW = wdy / wLen;
+                const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
+                hostWallCx = wp1.x + tProj * uxW;
+                hostWallCy = wp1.y + tProj * uyW;
+
+                const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+                const fillerMat = new THREE.MeshStandardMaterial({
+                  color: wallColor,
+                  roughness: 0.75,
+                  metalness: 0.15
+                });
+
+                [wp1, wp2].forEach(pt => {
+                  const dxPt1 = pt.x - p1.x;
+                  const dyPt1 = pt.y - p1.y;
+                  const t1 = dxPt1 * ux + dyPt1 * uy;
+                  const projX1 = p1.x + t1 * ux;
+                  const projY1 = p1.y + t1 * uy;
+                  const distToP1 = Math.hypot(pt.x - projX1, pt.y - projY1);
+
+                  if (distToP1 < 12.0 && t1 < 0 && t1 >= -halfJamb * 3) {
+                    const tGap = (p1.x - pt.x) * uxW + (p1.y - pt.y) * uyW;
+                    const gapLen = Math.abs(tGap);
+                    if (gapLen > 0.1) {
+                      const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
+                      leftJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
+                      leftJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
+                      leftJambMesh.rotation.y = -wAngle;
+                      leftJambMesh.castShadow = enableShadows;
+                      leftJambMesh.receiveShadow = enableShadows;
+                    }
+                  }
+
+                  const dxPt2 = pt.x - p2.x;
+                  const dyPt2 = pt.y - p2.y;
+                  const t2 = dxPt2 * ux + dyPt2 * uy;
+                  const projX2 = p2.x + t2 * ux;
+                  const projY2 = p2.y + t2 * uy;
+                  const distToP2 = Math.hypot(pt.x - projX2, pt.y - projY2);
+
+                  if (distToP2 < 12.0 && t2 > 0 && t2 <= halfJamb * 3) {
+                    const tGap = (p2.x - pt.x) * uxW + (p2.y - pt.y) * uyW;
+                    const gapLen = Math.abs(tGap);
+                    if (gapLen > 0.1) {
+                      const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
+                      rightJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
+                      rightJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
+                      rightJambMesh.rotation.y = -wAngle;
+                      rightJambMesh.castShadow = enableShadows;
+                      rightJambMesh.receiveShadow = enableShadows;
+                    }
+                  }
+                });
+              }
             }
           }
         }

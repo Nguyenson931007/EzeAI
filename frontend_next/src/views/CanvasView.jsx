@@ -116,7 +116,8 @@ const RoomPolygonLayer = React.memo(({
   isAddingPoint,
   getRoomStyle,
   config,
-  heatmapMode
+  heatmapMode,
+  interactionMode
 }) => {
   if (showLayer !== 'all' && showLayer !== 'floor') return null;
 
@@ -173,6 +174,7 @@ const RoomPolygonLayer = React.memo(({
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={(e) => {
+                if (interactionMode === "draw-wall") return;
                 if (drawing || isMeasuring || isDistancing) return;
                 if (e.shiftKey || isAddingPoint) return;
                 e.stopPropagation();
@@ -261,6 +263,26 @@ const WallLayer = React.memo(({
   const chains = [];
   const validWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
   const visited = new Set();
+
+  // Calculate junctions where int_wall or part_wall touches ext_wall centerline
+  const junctionHighlights = [];
+  const extWalls = validWalls.filter(w => w.class_name === "exterior_wall");
+  const intOrPartWalls = validWalls.filter(w => w.class_name === "interior_wall" || w.class_name === "partition_wall");
+
+  intOrPartWalls.forEach(intWall => {
+    intWall.centerline.forEach(pt => {
+      const p = { x: pt[0], y: pt[1] };
+      for (const extWall of extWalls) {
+        const a = { x: extWall.centerline[0][0], y: extWall.centerline[0][1] };
+        const b = { x: extWall.centerline[1][0], y: extWall.centerline[1][1] };
+        const proj = distancePointToSegment(p, a, b);
+        if (proj.dist < 8.0) {
+          junctionHighlights.push({ x: p.x, y: p.y });
+          break;
+        }
+      }
+    });
+  });
 
   while (visited.size < validWalls.length) {
     const startWall = validWalls.find(w => !visited.has(w.id));
@@ -444,6 +466,7 @@ const WallLayer = React.memo(({
               if (onWallContextMenu) onWallContextMenu(e, w);
             }}
             onClick={(e) => {
+              if (interactionMode === "draw-wall") return;
               if (interactionMode === "cut-wall") return;
               e.stopPropagation();
               if (selectWall) {
@@ -453,7 +476,16 @@ const WallLayer = React.memo(({
                 setSelectedType("wall");
               }
             }}
+            onDoubleClick={(e) => {
+              if (interactionMode === "draw-wall") return;
+              if (interactionMode === "cut-wall") return;
+              e.stopPropagation();
+              if (handleWallDoubleClick) {
+                handleWallDoubleClick(w.id);
+              }
+            }}
             onMouseDown={(e) => {
+              if (interactionMode === "draw-wall") return;
               if (isSelected && startDrag && interactionMode !== "cut-wall") {
                 e.stopPropagation();
                 startDrag(w.id, null, 'wall-move');
@@ -462,6 +494,19 @@ const WallLayer = React.memo(({
           />
         );
       })}
+
+      {/* 1.5. Render green highlight circles at int_wall to ext_wall junctions */}
+      {junctionHighlights.map((jh, idx) => (
+        <circle
+          key={`junction-highlight-${idx}`}
+          cx={jh.x}
+          cy={jh.y}
+          r={20}
+          fill="rgba(34, 197, 94, 0.4)"
+          stroke="none"
+          style={{ pointerEvents: 'none' }}
+        />
+      ))}
 
       {/* 2. Render selected wall vertex handles on top of everything */}
       {interactionMode !== "cut-wall" && (walls || []).map(w => {
@@ -537,7 +582,8 @@ const DoorLayer = React.memo(({
   hoverId,
   setHoverId,
   walls = [],
-  onDoorContextMenu
+  onDoorContextMenu,
+  interactionMode
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
 
@@ -825,6 +871,7 @@ const DoorLayer = React.memo(({
           return (
             <g key={d.id} 
                onClick={(e) => {
+                 if (interactionMode === "draw-wall") return;
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  e.stopPropagation();
                  setSelectedId(d.id);
@@ -848,6 +895,7 @@ const DoorLayer = React.memo(({
                   strokeDasharray={isSelected ? "none" : "6,3"}
                   opacity={0.85}
                   onMouseDown={(e) => {
+                    if (interactionMode === "draw-wall") return;
                     if (isSelected && startDrag) {
                       e.stopPropagation();
                       startDrag(d.id, null, 'door-move');
@@ -1632,7 +1680,13 @@ export default function CanvasView({
   updateWallsProperty,
   setInteractionMode,
   pullStepPreview,
-  setPullStepInfo
+  setPullStepInfo,
+  handleWallDoubleClick,
+  isWallSnapEnabled,
+  setIsWallSnapEnabled,
+  setDrawingWall,
+  setDrawingWallEnd,
+  straightenWall
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -2255,10 +2309,17 @@ export default function CanvasView({
             if (editingRoomId) return;
             if (handleClick) handleClick(e);
           }}
-          onDoubleClick={() => { 
+          onDoubleClick={(e) => { 
             if (editingRoomId) return;
             if (drawing) finishPolygon(); 
             if (isDrawingDoor) finishDoor(); 
+            if (interactionMode === "draw-wall") {
+              e.stopPropagation();
+              if (setDrawingWall) setDrawingWall(null);
+              if (setDrawingWallEnd) setDrawingWallEnd(null);
+              if (setSelectedWallVertex) setSelectedWallVertex(null);
+              if (setInteractionMode) setInteractionMode("select");
+            }
           }}
           onMouseDown={(e) => {
             if (editingRoomId) return;
@@ -2477,6 +2538,7 @@ export default function CanvasView({
               getRoomStyle={getRoomStyle}
               config={config}
               heatmapMode={heatmapMode}
+              interactionMode={interactionMode}
             />
 
             {/* Memoized Layer 3: Wall Polygons */}
@@ -2519,6 +2581,7 @@ export default function CanvasView({
               hoverId={hoverId}
               setHoverId={setHoverId}
               onDoorContextMenu={handleDoorContextMenu}
+              interactionMode={interactionMode}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}
@@ -3045,6 +3108,9 @@ export default function CanvasView({
         onDelete={handleWallDelete}
         onChangeClass={handleWallChangeClass}
         onStartCutMode={handleWallStartCut}
+        isWallSnapEnabled={isWallSnapEnabled}
+        onToggleWallSnap={() => setIsWallSnapEnabled(prev => !prev)}
+        onStraightenWall={straightenWall}
         onAddStepCorner={() => {
           const w = wallContextMenu.wall;
           if (w && currentMouse && w.centerline && w.centerline.length === 2) {

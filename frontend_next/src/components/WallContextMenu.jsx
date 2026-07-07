@@ -21,7 +21,10 @@ export default function WallContextMenu({
   onDelete,
   onChangeClass,
   onStartCutMode,
-  onAddStepCorner
+  onAddStepCorner,
+  isWallSnapEnabled,
+  onToggleWallSnap,
+  onStraightenWall
 }) {
   const menuRef = useRef(null);
   const [activeSubmenu, setActiveSubmenu] = useState(null); // 'change-wall' | 'split-attach' | 'locks' | null
@@ -51,7 +54,7 @@ export default function WallContextMenu({
 
   // Clamp position to viewport
   const menuWidth = 240;
-  const menuHeight = 460;
+  const menuHeight = 490;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 10);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 10);
 
@@ -164,6 +167,40 @@ export default function WallContextMenu({
         <span style={getMenuLabelStyle()}>
           <span style={getMenuIconStyle()}>📐</span>
           <span>Tạo Góc Cua (Add Step Corner)</span>
+        </span>
+      </button>
+
+      {/* Item: Làm thẳng ngang */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onStraightenWall) onStraightenWall(wall.id, 'horizontal');
+          onClose();
+        }}
+        style={getMenuButtonStyle(false)}
+        onMouseOver={highlightHover}
+        onMouseOut={clearHighlight}
+      >
+        <span style={getMenuLabelStyle()}>
+          <span style={getMenuIconStyle()}>📏</span>
+          <span>Làm thẳng ngang (Make Horizontal)</span>
+        </span>
+      </button>
+
+      {/* Item: Làm thẳng dọc */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onStraightenWall) onStraightenWall(wall.id, 'vertical');
+          onClose();
+        }}
+        style={getMenuButtonStyle(false)}
+        onMouseOver={highlightHover}
+        onMouseOut={clearHighlight}
+      >
+        <span style={getMenuLabelStyle()}>
+          <span style={getMenuIconStyle()}>📏</span>
+          <span>Làm thẳng dọc (Make Vertical)</span>
         </span>
       </button>
 
@@ -371,7 +408,22 @@ export default function WallContextMenu({
         More Options
       </div>
 
-      {/* Item: Hide Trace Images */}
+      {/* Item: Toggle Wall Snapping */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onToggleWallSnap) onToggleWallSnap();
+          onClose();
+        }}
+        style={getMenuButtonStyle(false)}
+        onMouseOver={highlightHover}
+        onMouseOut={clearHighlight}
+      >
+        <span style={getMenuLabelStyle()}>
+          <span style={getMenuIconStyle()}>🧲</span>
+          <span>{isWallSnapEnabled ? "Tắt hít tường (Disable Snap)" : "Bật hít tường (Enable Snap)"}</span>
+        </span>
+      </button>
       <button
         onClick={(e) => { e.stopPropagation(); alert("Trace images hidden."); onClose(); }}
         style={getMenuButtonStyle(false)}

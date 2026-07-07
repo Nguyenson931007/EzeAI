@@ -242,6 +242,8 @@ export default function App() {
     hoveredDistIdx, setHoveredDistIdx,
     isAddingPoint, setIsAddingPoint,
     isSnapMode, setIsSnapMode,
+    isWallSnapEnabled, setIsWallSnapEnabled,
+    straightenWall,
     isShiftDown,
     rect, setRect,
     hoverId, setHoverId,
@@ -260,6 +262,7 @@ export default function App() {
     handleClick, finishPolygon, finishDoor, updateDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
+    handleWallDoubleClick,
     snapAllDoorsToWalls,
     selectedWallVertex, setSelectedWallVertex,
     drawingWall, setDrawingWall,
@@ -572,7 +575,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF } = useDocumentController({
+  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -625,6 +628,7 @@ export default function App() {
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
+        isWallSnapEnabled={isWallSnapEnabled} setIsWallSnapEnabled={setIsWallSnapEnabled}
         isAddingPoint={isAddingPoint} setIsAddingPoint={setIsAddingPoint}
         interactionMode={interactionMode} setInteractionMode={setInteractionMode}
         scaleValue={scaleValue}
@@ -651,6 +655,7 @@ export default function App() {
         exportPDF={exportPDF}
         addTrain={addTrain}
         addTrainPages={addTrainPages}
+        exportWallLabels={exportWallLabels}
         showExportPageSelector={showExportPageSelector}
         setShowExportPageSelector={setShowExportPageSelector}
         exportSelectedPages={exportSelectedPages}
@@ -737,6 +742,7 @@ export default function App() {
               selectWall={selectWall}
               cutPreviewPoint={cutPreviewPoint}
               interactionMode={interactionMode}
+              setInteractionMode={setInteractionMode}
               hoverId={hoverId}
               setHoverId={setHoverId}
               showLayer={showLayer}
@@ -752,6 +758,11 @@ export default function App() {
               setHoveredDistIdx={setHoveredDistIdx}
               isShiftDown={isShiftDown}
               isSnapMode={isSnapMode}
+              isWallSnapEnabled={isWallSnapEnabled}
+              setIsWallSnapEnabled={setIsWallSnapEnabled}
+              setDrawingWall={setDrawingWall}
+              setDrawingWallEnd={setDrawingWallEnd}
+              straightenWall={straightenWall}
               rect={rect}
               roiRect={roiRect}
               roiProgress={roiProgress}
@@ -794,6 +805,7 @@ export default function App() {
               setDrawingWall={setDrawingWall}
               drawingWallEnd={drawingWallEnd}
               setDrawingWallEnd={setDrawingWallEnd}
+              handleWallDoubleClick={handleWallDoubleClick}
             />
           )}
 

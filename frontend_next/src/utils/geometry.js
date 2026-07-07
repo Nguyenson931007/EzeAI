@@ -142,15 +142,14 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
   if (length > 0) {
     const ux = dx / length;
     const uy = dy / length;
-    const d = thicknessPx / 2;
 
     let p1Ext = { ...p1 };
     let p2Ext = { ...p2 };
 
-    const getExtFactor = (pt) => {
+    const getJunctionExtension = (pt) => {
       if (!allWalls) return 0.0;
       
-      let bestFactor = 0.0;
+      let maxExtension = 0.0;
       
       for (const otherW of allWalls) {
         if (otherW.id === currentWallId) continue;
@@ -159,38 +158,54 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
         const otherP1 = { x: otherC[0][0], y: otherC[0][1] };
         const otherP2 = { x: otherC[1][0], y: otherC[1][1] };
         
-        // Check if pt is close to the other wall's centerline segment
+        // Calculate projection of pt onto other wall centerline
         const proj = distancePointToSegment(pt, otherP1, otherP2);
-        if (proj.dist < 12.0) {
-          // It's a junction! Let's check if L-junction or T-junction
+        if (proj.dist < 15.0) { // 15px snap/connection threshold
+          const otherDx = otherP2.x - otherP1.x;
+          const otherDy = otherP2.y - otherP1.y;
+          const otherLen = Math.hypot(otherDx, otherDy);
+          if (otherLen < 0.1) continue;
+          
+          const vx = otherDx / otherLen;
+          const vy = otherDy / otherLen;
+          
+          // Calculate angle between current wall and other wall
+          const sinTheta = Math.abs(ux * vy - uy * vx);
+          const factor = sinTheta > 0.2 ? 1.0 / sinTheta : 1.0;
+          const cappedFactor = Math.min(factor, 2.0); // cap to avoid huge extensions
+          
+          const otherThick = otherW.thickness_px || 20;
+          const targetExt = (otherThick / 2) * cappedFactor;
+          
+          // Determine if it is a corner (L-junction) or segment-touch (T-junction)
           const distToP1 = Math.hypot(pt.x - otherP1.x, pt.y - otherP1.y);
           const distToP2 = Math.hypot(pt.x - otherP2.x, pt.y - otherP2.y);
           
-          if (distToP1 < 12.0 || distToP2 < 12.0) {
-            // L-junction (Corner): extend vertical, retract/stop horizontal
+          if (distToP1 < 15.0 || distToP2 < 15.0) {
+            // L-junction (Corner): Only the more vertical wall extends to avoid double-extension protrusions
             const currentIsVert = Math.abs(uy) > Math.abs(ux);
             if (currentIsVert) {
-              bestFactor = Math.max(bestFactor, 1.0);
+              maxExtension = Math.max(maxExtension, targetExt);
             }
           } else {
-            // T-junction (stem touches side): extend to centerline
-            bestFactor = Math.max(bestFactor, 1.0);
+            // T-junction (stem touches side): Stem wall always extends to centerline
+            maxExtension = Math.max(maxExtension, targetExt);
           }
         }
       }
-      return bestFactor;
+      return maxExtension;
     };
 
-    const ext1 = getExtFactor(p1);
-    const ext2 = getExtFactor(p2);
+    const ext1 = getJunctionExtension(p1);
+    const ext2 = getJunctionExtension(p2);
 
     if (ext1 > 0) {
-      p1Ext.x -= d * ux * ext1;
-      p1Ext.y -= d * uy * ext1;
+      p1Ext.x -= ext1 * ux;
+      p1Ext.y -= ext1 * uy;
     }
     if (ext2 > 0) {
-      p2Ext.x += d * ux * ext2;
-      p2Ext.y += d * uy * ext2;
+      p2Ext.x += ext2 * ux;
+      p2Ext.y += ext2 * uy;
     }
 
     const extendedPoints = [...points];
@@ -275,14 +290,7 @@ export function cutWallsByDoors(walls, doors, realScale = null) {
 
   let currentWalls = [...walls];
 
-  // Process only swing doors (single/double swing doors)
-  // Sliding doors are skipped: "Sliding door không cần dựng khung theo tường"
-  const swingDoors = doors.filter(d => {
-    const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
-    return !isSliding;
-  });
-
-  for (const door of swingDoors) {
+  for (const door of doors) {
     // Get frame line endpoints p1 and p2 of the door
     let dp1 = null;
     let dp2 = null;
@@ -735,8 +743,107 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   });
 }
 
-export function mergeCollinearWalls(walls, perpDistThresh = 35, angleThresh = 0.95, gapThresh = 400) {
-  return walls;
+export function mergeCollinearWalls(walls, perpDistThresh = 5, angleThresh = 0.998, gapThresh = 120) {
+  if (!walls || walls.length < 2) return walls;
+
+  let merged = true;
+  let currentWalls = [...walls];
+
+  while (merged) {
+    merged = false;
+    let newWalls = [];
+    let skipIndices = new Set();
+
+    for (let i = 0; i < currentWalls.length; i++) {
+      if (skipIndices.has(i)) continue;
+      let w1 = currentWalls[i];
+
+      for (let j = i + 1; j < currentWalls.length; j++) {
+        if (skipIndices.has(j)) continue;
+        let w2 = currentWalls[j];
+
+        // 1. Must have same class_name
+        if (w1.class_name !== w2.class_name) continue;
+
+        // 2. Check thickness difference (must be close, e.g. within 5px)
+        const t1 = w1.thickness_px || 20;
+        const t2 = w2.thickness_px || 20;
+        if (Math.abs(t1 - t2) > 5) continue;
+
+        // Extract endpoints
+        if (!w1.centerline || w1.centerline.length !== 2) continue;
+        if (!w2.centerline || w2.centerline.length !== 2) continue;
+
+        const p1 = { x: w1.centerline[0][0], y: w1.centerline[0][1] };
+        const p2 = { x: w1.centerline[1][0], y: w1.centerline[1][1] };
+        const q1 = { x: w2.centerline[0][0], y: w2.centerline[0][1] };
+        const q2 = { x: w2.centerline[1][0], y: w2.centerline[1][1] };
+
+        // Compute direction unit vectors
+        const dx1 = p2.x - p1.x;
+        const dy1 = p2.y - p1.y;
+        const L1 = Math.hypot(dx1, dy1);
+        if (L1 < 0.1) continue;
+        const u1 = { x: dx1 / L1, y: dy1 / L1 };
+
+        const dx2 = q2.x - q1.x;
+        const dy2 = q2.y - q1.y;
+        const L2 = Math.hypot(dx2, dy2);
+        if (L2 < 0.1) continue;
+        const u2 = { x: dx2 / L2, y: dy2 / L2 };
+
+        // 3. Check angle (parallelism)
+        const dot = u1.x * u2.x + u1.y * u2.y;
+        if (Math.abs(dot) < angleThresh) continue;
+
+        // 4. Check perpendicular distance to line 1
+        const dist_q1 = Math.abs((q1.x - p1.x) * u1.y - (q1.y - p1.y) * u1.x);
+        const dist_q2 = Math.abs((q2.x - p1.x) * u1.y - (q2.y - p1.y) * u1.x);
+        if (dist_q1 > perpDistThresh || dist_q2 > perpDistThresh) continue;
+
+        // 5. Project onto line 1 to check for overlap/gap
+        const t_p1 = 0;
+        const t_p2 = L1;
+        const t_q1 = (q1.x - p1.x) * u1.x + (q1.y - p1.y) * u1.y;
+        const t_q2 = (q2.x - p1.x) * u1.x + (q2.y - p1.y) * u1.y;
+
+        const min_t_p = 0;
+        const max_t_p = L1;
+        const min_t_q = Math.min(t_q1, t_q2);
+        const max_t_q = Math.max(t_q1, t_q2);
+
+        // Check if intervals [min_t_p, max_t_p] and [min_t_q, max_t_q] overlap or are within gapThresh
+        const overlap = (max_t_p >= min_t_q - gapThresh) && (max_t_q >= min_t_p - gapThresh);
+        if (!overlap) continue;
+
+        // Determine new merged centerline endpoints (absolute min and max projection coords)
+        const t_min = Math.min(0, min_t_q);
+        const t_max = Math.max(L1, max_t_q);
+
+        const new_p1_x = p1.x + t_min * u1.x;
+        const new_p1_y = p1.y + t_min * u1.y;
+        const new_p2_x = p1.x + t_max * u1.x;
+        const new_p2_y = p1.y + t_max * u1.y;
+
+        w1 = {
+          ...w1,
+          centerline: [
+            [new_p1_x, new_p1_y],
+            [new_p2_x, new_p2_y]
+          ]
+        };
+
+        skipIndices.add(j);
+        merged = true;
+      }
+
+      newWalls.push(w1);
+    }
+
+    currentWalls = newWalls;
+  }
+
+  return currentWalls;
 }
 
 export function getDoorCenterline(door, walls = []) {
@@ -905,5 +1012,88 @@ export function getDoorCenterline(door, walls = []) {
 }
 
 export function snapDoorToWalls(door, walls, maxDist = 40) {
+  if (!walls || walls.length === 0) return door;
+
+  let p1, p2;
+  if (door.points && door.points.length === 2) {
+    const pt0 = door.points[0];
+    const pt1 = door.points[1];
+    p1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
+    p2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
+  } else {
+    const centerline = getDoorCenterline(door, walls);
+    if (!centerline) return door;
+    p1 = centerline.p1;
+    p2 = centerline.p2;
+  }
+
+  const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+  let bestWall = null;
+  let bestDist = maxDist;
+  let bestProj = null;
+
+  for (const w of walls) {
+    if (!w.centerline || w.centerline.length !== 2) continue;
+    const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+    const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+    const proj = distancePointToSegment(C, a, b);
+    if (proj.dist < bestDist) {
+      bestDist = proj.dist;
+      bestWall = w;
+      bestProj = proj; // { x, y, dist }
+    }
+  }
+
+  if (bestWall && bestProj) {
+    const a = { x: bestWall.centerline[0][0], y: bestWall.centerline[0][1] };
+    const b = { x: bestWall.centerline[1][0], y: bestWall.centerline[1][1] };
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const L = Math.hypot(dx, dy);
+    if (L < 0.1) return door;
+    const u = { x: dx / L, y: dy / L };
+
+    const W = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+
+    const new_p1 = { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y };
+    const new_p2 = { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y };
+
+    const theta = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    const theta_wall = Math.atan2(dy, dx);
+    let d_theta = theta_wall - theta;
+
+    // Normalize relative angle to range [-PI/2, PI/2] to prevent 180-degree flip confusion
+    d_theta = Math.atan2(Math.sin(d_theta), Math.cos(d_theta));
+    if (d_theta > Math.PI / 2) {
+      d_theta -= Math.PI;
+    } else if (d_theta < -Math.PI / 2) {
+      d_theta += Math.PI;
+    }
+
+    const transformPoint = (pt) => {
+      const px = Array.isArray(pt) ? pt[0] : pt.x;
+      const py = Array.isArray(pt) ? pt[1] : pt.y;
+      const rx = px - C.x;
+      const ry = py - C.y;
+      const rotX = rx * Math.cos(d_theta) - ry * Math.sin(d_theta);
+      const rotY = rx * Math.sin(d_theta) + ry * Math.cos(d_theta);
+      const newX = rotX + bestProj.x;
+      const newY = rotY + bestProj.y;
+      return Array.isArray(pt) ? [newX, newY] : { x: newX, y: newY };
+    };
+
+    const updatedPoints = [new_p1, new_p2];
+    const updatedPoly = door.polygon ? door.polygon.map(transformPoint) : null;
+    const updatedMaskPoly = door.mask_polygon ? door.mask_polygon.map(transformPoint) : null;
+
+    return {
+      ...door,
+      points: updatedPoints,
+      polygon: updatedPoly,
+      mask_polygon: updatedMaskPoly
+    };
+  }
+
   return door;
 }

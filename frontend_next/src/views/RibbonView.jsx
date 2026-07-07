@@ -12,6 +12,7 @@ export default function RibbonView({
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
   isSnapMode, setIsSnapMode,
+  isWallSnapEnabled, setIsWallSnapEnabled,
   isAddingPoint, setIsAddingPoint,
   interactionMode, setInteractionMode,
   scaleValue,
@@ -39,6 +40,7 @@ export default function RibbonView({
   roiRect, roiMode, setRoiMode, roiUpscale, clearROI,
   exportPDF, addTrain,
   addTrainPages,
+  exportWallLabels,
   showExportPageSelector, setShowExportPageSelector,
   exportSelectedPages, setExportSelectedPages,
   showImportPageSelector, setShowImportPageSelector,
@@ -92,6 +94,7 @@ export default function RibbonView({
           {isAddingPoint && <span className="mb-badge yellow">➕ Add Point</span>}
           {interactionMode === "draw-ext-rect" && <span className="mb-badge purple">🧱 Draw Ext Rect</span>}
           {scaleValue && <span className="mb-badge green">Scale ✓</span>}
+          {isWallSnapEnabled && <span className="mb-badge green">🧲 Wall Snap</span>}
           <span className="mb-badge gray">Rooms: {rooms.length}</span>
           <span className="mb-badge gray">Pg {currentPage + 1}/{pages.length || 0}</span>
           <button className="logout-btn" onClick={handleLogout}>
@@ -154,6 +157,13 @@ export default function RibbonView({
                   title="Tự động nối các đoạn tường thẳng hàng thành 1 tường (Merge Aligned)"
                 >
                   <span className="icon">🔗</span><span className="label">Merge Aligned</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${isWallSnapEnabled ? "active" : ""}`}
+                  onClick={() => setIsWallSnapEnabled && setIsWallSnapEnabled(prev => !prev)}
+                  title="Bật/Tắt chế độ hít góc/gộp hai đầu nút tường (Toggle Endpoint Snap)"
+                >
+                  <span className="icon">🧲</span><span className="label">{isWallSnapEnabled ? "Snap On" : "Snap Off"}</span>
                 </button>
                 <button
                   className={`ribbon-btn ${interactionMode === "marquee" ? "active" : ""}`}
@@ -444,6 +454,9 @@ export default function RibbonView({
               <div className="ribbon-buttons">
                 <button className="ribbon-btn" onClick={addTrain} title="Export current page to training dataset">
                   <span className="icon">📥</span><span className="label">Export Room</span>
+                </button>
+                <button className="ribbon-btn" onClick={exportWallLabels} title="Export current page walls & image to checking dataset (Label Data)">
+                  <span className="icon">🏷️</span><span className="label">Label Data</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => {
                   // Open page selector for multi-page export

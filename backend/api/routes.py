@@ -25,7 +25,7 @@ from PIL import Image as PILImage
 from pathlib import Path
 import logging
 
-from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest
+from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest, ExportWallLabelsRequest
 from services import dataset_service
 from services.model_paths import get_model_health
 from utils.helpers import convert_to_yolo
@@ -1282,7 +1282,7 @@ def api_generate_rooms_from_walls(
                             best_dist = dist
                             best_proj_point = (proj_point.x, proj_point.y)
                 
-                if best_proj_point and best_dist <= gap_threshold and best_dist > snap_distance:
+                if best_proj_point and best_dist <= gap_threshold and best_dist > 0.1:
                     lines.append(LineString([pt, best_proj_point]))
                     used_pts.add(pt_key)
 
@@ -1415,6 +1415,142 @@ def export_ezplan(req: EZPlanExportRequest, username: str = Depends(validate_ses
             status_code=500,
             detail=f"Internal server error: {str(e)}"
         )
+
+
+@router.post("/api/export-wall-labels")
+async def export_wall_labels(data: ExportWallLabelsRequest):
+    import base64
+    import os
+    import re
+    import cv2
+    import numpy as np
+    from shapely.geometry import LineString as ShapelyLine
+    
+    try:
+        # Root export directory: EzeFloor-main/label_exports
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        export_dir = os.path.join(base_dir, "label_exports")
+
+        # Create 4 fixed subdirectories on first run
+        dirs = {
+            "images": os.path.join(export_dir, "images"),
+            "labels": os.path.join(export_dir, "labels"),
+            "checks": os.path.join(export_dir, "checks"),
+            "js":     os.path.join(export_dir, "js"),
+        }
+        for d in dirs.values():
+            os.makedirs(d, exist_ok=True)
+        
+        # Clean image name
+        clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', data.image_name)
+        
+        # ── 1. Decode & save clean image → images/ ──
+        header, encoded = data.image_data.split(",", 1) if "," in data.image_data else ("", data.image_data)
+        img_bytes = base64.b64decode(encoded)
+
+        img_filename = f"{clean_name}.png"
+        img_path = os.path.join(dirs["images"], img_filename)
+        with open(img_path, "wb") as f:
+            f.write(img_bytes)
+            
+        # ── 2. Draw verification overlay → checks/ ──
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is not None:
+            h, w = img.shape[:2]
+            scale_x = w / data.width
+            scale_y = h / data.height
+            
+            colors = {
+                "ext": (0, 0, 255),    # Red
+                "int": (0, 255, 0),    # Green
+                "part": (255, 0, 0)    # Blue
+            }
+            
+            for wall in data.walls:
+                c = wall.get("centerline")
+                w_type = wall.get("wall_type", "int")
+                if not c or len(c) < 2:
+                    continue
+                p1 = (int(c[0][0] * scale_x), int(c[0][1] * scale_y))
+                p2 = (int(c[1][0] * scale_x), int(c[1][1] * scale_y))
+                color = colors.get(w_type, (0, 255, 255))
+                cv2.line(img, p1, p2, color, 4)
+                cv2.circle(img, p1, 6, (0, 255, 255), -1)
+                cv2.circle(img, p2, 6, (0, 255, 255), -1)
+                
+            check_path = os.path.join(dirs["checks"], f"{clean_name}_check.png")
+            cv2.imwrite(check_path, img)
+            
+        # ── 3. Create JS file → js/ ──
+        formatted_walls = []
+        for wall in data.walls:
+            c = wall.get("centerline")
+            w_type = wall.get("wall_type", "int")
+            if c and len(c) >= 2:
+                formatted_walls.append({
+                    "type": w_type,
+                    "centerline": [[float(c[0][0]), float(c[0][1])], [float(c[1][0]), float(c[1][1])]]
+                })
+                
+        js_content = f"""// Label data for {clean_name}
+const labelData = {{
+  img: "{img_filename}",
+  width: {data.width},
+  height: {data.height},
+  walls: {json.dumps(formatted_walls, indent=2)}
+}};
+
+if (typeof module !== 'undefined' && module.exports) {{
+  module.exports = labelData;
+}}
+"""
+        js_path = os.path.join(dirs["js"], f"{clean_name}.js")
+        with open(js_path, "w", encoding="utf-8") as f:
+            f.write(js_content)
+
+        # ── 4. Generate YOLO .txt label → labels/ ──
+        class_id_map = {"ext": 0, "int": 1, "part": 2}
+        WALL_BUFFER_PX = 15
+
+        yolo_lines = []
+        for wall in data.walls:
+            c = wall.get("centerline")
+            w_type = wall.get("wall_type", "int")
+            if not c or len(c) < 2:
+                continue
+
+            cls_id = class_id_map.get(w_type, 1)
+            line = ShapelyLine([(c[0][0], c[0][1]), (c[1][0], c[1][1])])
+            poly = line.buffer(WALL_BUFFER_PX, join_style=2, cap_style=2)
+
+            if poly.is_empty or not poly.is_valid:
+                continue
+
+            exterior = list(poly.exterior.coords[:-1])
+            if len(exterior) < 3:
+                continue
+
+            norm_coords = " ".join(
+                f"{pt[0] / data.width:.6f} {pt[1] / data.height:.6f}"
+                for pt in exterior
+            )
+            yolo_lines.append(f"{cls_id} {norm_coords}")
+
+        txt_path = os.path.join(dirs["labels"], f"{clean_name}.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(yolo_lines))
+
+        return {
+            "status": "ok",
+            "message": f"Exported to {export_dir}",
+            "export_dir": export_dir,
+            "label_count": len(yolo_lines)
+        }
+    except Exception as e:
+        print(f"Error exporting labels: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 

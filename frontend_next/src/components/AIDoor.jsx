@@ -571,6 +571,7 @@ export default function AIDoor({
   const isDraggingThis = dragging && dragging.id === d.id;
 
   React.useEffect(() => {
+    if (dragging && dragging.id === d.id) return;
     if (!isSliding && topEdges && topEdges.length === 2 && updateDoor) {
       const activeFrameSeg = topEdges[frameEdgeIndex];
       const needsPointsUpdate = !d.points || 
@@ -585,7 +586,7 @@ export default function AIDoor({
         });
       }
     }
-  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, d.points]);
+  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, d.points, dragging]);
 
   const renderJambs = () => {
     let p1, p2;
