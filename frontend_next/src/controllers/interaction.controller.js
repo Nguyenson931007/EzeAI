@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
@@ -112,6 +112,12 @@ export function useInteractionController(svgRef) {
   const [isAddingPoint, setIsAddingPoint] = useState(false);
   const [isSnapMode, setIsSnapMode] = useState(false);
   const [isWallSnapEnabled, setIsWallSnapEnabled] = useState(true);
+  const [isWallMergeDisabled, setIsWallMergeDisabled] = useState(false);
+
+  // Vertex menu state (click on endpoint circle)
+  const [vertexMenu, setVertexMenu] = useState({ visible: false, x: 0, y: 0, vertex: null });
+  // Wall body menu state (click on wall body)
+  const [wallBodyMenu, setWallBodyMenu] = useState({ visible: false, x: 0, y: 0, wall: null });
 
   // Keyboard states
   const [isShiftDown, setIsShiftDown] = useState(false);
@@ -123,6 +129,8 @@ export function useInteractionController(svgRef) {
 
   // Manual wall drawing states
   const [selectedWallVertex, setSelectedWallVertex] = useState(null); // { wallId, index, pt: [x,y] }
+  const [selectedVertices, setSelectedVertices] = useState([]); // Array of { wallId, index }
+  const [movingVertex, setMovingVertex] = useState(null); // { wallId, index, startX, startY, originalPt: [x,y] }
   const [drawingWall, setDrawingWall] = useState(null); // { startX, startY, lock: 'horizontal' | 'vertical' | null, wallType: string }
   const [drawingWallEnd, setDrawingWallEnd] = useState(null); // { x, y }
 
@@ -142,6 +150,38 @@ export function useInteractionController(svgRef) {
     setRoiRect(null);
     setInteractionMode("select");
   }
+
+  const mergeCollinearWalls = (wallsList) => {
+    if (isWallMergeDisabled) return wallsList;
+
+    // Identify exempt walls (currently selected or touching the selected vertex)
+    const exemptIds = new Set(selectedWallIds || []);
+    if (selectedId) exemptIds.add(selectedId);
+
+    if (selectedWallVertex && selectedWallVertex.pt) {
+      const pt = selectedWallVertex.pt;
+      for (const w of wallsList) {
+        if (w.centerline && w.centerline.length === 2) {
+          const p1 = w.centerline[0];
+          const p2 = w.centerline[1];
+          if (Math.hypot(p1[0] - pt[0], p1[1] - pt[1]) < 10 ||
+              Math.hypot(p2[0] - pt[0], p2[1] - pt[1]) < 10) {
+            exemptIds.add(w.id);
+          }
+        }
+      }
+    }
+
+    // Separate exempt walls and non-exempt walls
+    const exemptWalls = wallsList.filter(w => exemptIds.has(w.id));
+    const mergeableWalls = wallsList.filter(w => !exemptIds.has(w.id));
+
+    // Merge the mergeable walls
+    const mergedMergeable = originalMergeCollinearWalls(mergeableWalls);
+
+    // Combine them back
+    return [...exemptWalls, ...mergedMergeable];
+  };
 
   const autoFitExtEnvelope = () => {
     const pageWalls = wallsByPage[currentPage] || [];
@@ -302,95 +342,63 @@ export function useInteractionController(svgRef) {
         setInteractionMode("select");
       }
 
-      // Ctrl + H for horizontal wall drawing
-      if ((e.ctrlKey || e.metaKey) && e.key?.toLowerCase() === "h") {
-        if (selectedWallVertex) {
+      // (Ctrl+H, Ctrl+V, H hotkeys removed — replaced by click-based vertex menu)
+
+      if (e.code === "Enter") {
+        if (interactionMode === "draw-wall" && drawingWall && drawingWallEnd) {
           e.preventDefault();
-          const pageWalls = wallsByPage[currentPage] || [];
-          const sourceWall = pageWalls.find(w => w.id === selectedWallVertex.wallId);
-          const thickness = sourceWall ? (sourceWall.thickness_px || 20) : 20;
-          const wallType = sourceWall ? (sourceWall.class_name || "interior_wall") : "interior_wall";
+          const endX = drawingWallEnd.x;
+          const endY = drawingWallEnd.y;
 
-          setInteractionMode("draw-wall");
-          setDrawingWall({
-            startX: selectedWallVertex.pt[0],
-            startY: selectedWallVertex.pt[1],
-            lock: "horizontal",
-            wallType: wallType,
-            thickness: thickness,
-            wallId: selectedWallVertex.wallId
-          });
-          setDrawingWallEnd({ x: selectedWallVertex.pt[0], y: selectedWallVertex.pt[1] });
-          console.log("[Hotkey Ctrl+H] Start horizontal wall drawing from", selectedWallVertex.pt, "thickness:", thickness);
-        }
-      }
+          if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
+            const wallId = `man_wall_${Date.now()}`;
+            const thickness = drawingWall.thickness || 20;
+            const newWall = {
+              id: wallId,
+              class_name: drawingWall.wallType || "interior_wall",
+              centerline: [
+                [drawingWall.startX, drawingWall.startY],
+                [endX, endY]
+              ],
+              thickness_px: thickness,
+              confidence: 1.0,
+              review_state: 'MANUAL'
+            };
 
-      // Ctrl + V for vertical wall drawing
-      if ((e.ctrlKey || e.metaKey) && e.key?.toLowerCase() === "v") {
-        if (selectedWallVertex) {
-          e.preventDefault();
-          const pageWalls = wallsByPage[currentPage] || [];
-          const sourceWall = pageWalls.find(w => w.id === selectedWallVertex.wallId);
-          const thickness = sourceWall ? (sourceWall.thickness_px || 20) : 20;
-          const wallType = sourceWall ? (sourceWall.class_name || "interior_wall") : "interior_wall";
+            const pageWalls = wallsByPage[currentPage] || [];
+            const pts = [{ x: drawingWall.startX, y: drawingWall.startY }, { x: endX, y: endY }];
+            const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
+            newWall.polygon = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : [
+              [drawingWall.startX - 10, drawingWall.startY],
+              [drawingWall.startX + 10, drawingWall.startY],
+              [endX + 10, endY],
+              [endX - 10, endY]
+            ];
 
-          setInteractionMode("draw-wall");
-          setDrawingWall({
-            startX: selectedWallVertex.pt[0],
-            startY: selectedWallVertex.pt[1],
-            lock: "vertical",
-            wallType: wallType,
-            thickness: thickness,
-            wallId: selectedWallVertex.wallId
-          });
-          setDrawingWallEnd({ x: selectedWallVertex.pt[0], y: selectedWallVertex.pt[1] });
-          console.log("[Hotkey Ctrl+V] Start vertical wall drawing from", selectedWallVertex.pt, "thickness:", thickness);
-        }
-      }
+            const updatedWalls = [...pageWalls, newWall];
+            const recalculatedWalls = recalculateAllWallsPolygons(updatedWalls);
 
-      // Hotkey H to start drawing wall snapped to closest wall centerline point
-      if (e.key?.toLowerCase() === "h" && !e.ctrlKey && !e.metaKey) {
-        const pageWalls = wallsByPage[currentPage] || [];
-        if (pageWalls.length > 0 && currentMouse) {
-          let closestWall = null;
-          let bestDist = Infinity;
-          let projPoint = null;
-
-          for (const w of pageWalls) {
-            if (w.centerline && w.centerline.length === 2) {
-              const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
-              const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
-              const proj = distancePointToSegment(currentMouse, a, b);
-              if (proj.dist < bestDist) {
-                bestDist = proj.dist;
-                closestWall = w;
-                projPoint = { x: proj.x, y: proj.y };
-              }
-            }
+            pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+            setWallsByPage(prev => ({ ...prev, [currentPage]: recalculatedWalls }));
           }
 
-          if (closestWall && bestDist < 100 && projPoint) {
-            e.preventDefault();
-            setInteractionMode("draw-wall");
-            setDrawingWall({
-              startX: projPoint.x,
-              startY: projPoint.y,
-              lock: null,
-              wallType: closestWall.class_name || "interior_wall",
-              thickness: closestWall.thickness_px || 20,
-              wallId: closestWall.id
-            });
-            setDrawingWallEnd({ x: projPoint.x, y: projPoint.y });
-            setSelectedWallVertex(null);
-            console.log("[Hotkey H] Snapped wall drawing start point to centerline of wall", closestWall.id, "thickness:", closestWall.thickness_px);
-          }
+          setDrawingWall(null);
+          setDrawingWallEnd(null);
+          setSelectedWallVertex(null);
+          if (setInteractionMode) setInteractionMode("select");
+        } else if (interactionMode === "move-vertex" && movingVertex) {
+          e.preventDefault();
+          const pageWalls = wallsByPage[currentPage] || [];
+          pushHistory(rooms, pageWalls, doorsByPage[currentPage] || []);
+          setMovingVertex(null);
+          if (setInteractionMode) setInteractionMode("select");
+        } else if (drawing) {
+          e.preventDefault();
+          finishPolygon();
+        } else if (isDrawingDoor) {
+          e.preventDefault();
+          finishDoor();
         }
-      }
-
-      if (e.code === "Enter" && drawing) {
-        e.preventDefault();
-        if (drawing) finishPolygon();
-        if (isDrawingDoor) finishDoor();
       }
 
       if (e.code === "Delete" || e.code === "Backspace") {
@@ -573,7 +581,8 @@ export function useInteractionController(svgRef) {
   function deleteWalls(wallIds) {
     if (!wallIds || wallIds.length === 0) return;
     const pageWalls = wallsByPage[currentPage] || [];
-    const newWalls = pageWalls.filter(w => !wallIds.includes(w.id));
+    const newWalls = pageWalls.filter(w => !wallIds.includes(w.id) || w.locked);
+    if (newWalls.length === pageWalls.length) return;
     pushHistory(null, newWalls, doorsByPage[currentPage] || []);
     setSelectedWallIds([]);
     setSelectedId(null);
@@ -582,10 +591,27 @@ export function useInteractionController(svgRef) {
 
   function updateWallsProperty(wallIds, field, value) {
     const pageWalls = wallsByPage[currentPage] || [];
+
+    // Save original centerlines for walls being changed (to preserve position)
+    const savedCenterlines = {};
+    if (field === "class_name" || field === "wall_type") {
+      for (const wId of wallIds) {
+        const w = pageWalls.find(ww => ww.id === wId);
+        if (w && w.centerline) {
+          savedCenterlines[wId] = JSON.parse(JSON.stringify(w.centerline));
+        }
+      }
+    }
+
     const updated = pageWalls.map(w => {
       if (wallIds.includes(w.id)) {
+        if (w.locked && field !== "locked") {
+          return w;
+        }
         let newWall = { ...w };
-        if (field === "class_name" || field === "wall_type") {
+        if (field === "locked") {
+          newWall.locked = !!value;
+        } else if (field === "class_name" || field === "wall_type") {
           let class_name = w.class_name;
           let wall_type = w.wall_type;
           let thicknessMm = w.thickness || 90;
@@ -636,11 +662,31 @@ export function useInteractionController(svgRef) {
       }
       return w; // Fix: Ensure other walls are returned and not deleted!
     });
-    const finalized = recalculateAllWallsPolygons(updated);
+    let finalized = recalculateAllWallsPolygons(updated);
+
+    // Restore original centerlines for class_name changes (preserve position)
+    if ((field === "class_name" || field === "wall_type") && Object.keys(savedCenterlines).length > 0) {
+      finalized = finalized.map(w => {
+        if (savedCenterlines[w.id]) {
+          const restoredCenterline = savedCenterlines[w.id];
+          const thickness = w.thickness_px || 20;
+          const pts = restoredCenterline.map(pt => ({ x: pt[0], y: pt[1] }));
+          const newPoly = calculateWallPolygonWithJunctions(pts, thickness, w.id, finalized);
+          return {
+            ...w,
+            centerline: restoredCenterline,
+            polygon: newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon
+          };
+        }
+        return w;
+      });
+    }
+
     pushHistory(null, finalized, doorsByPage[currentPage] || []);
   }
 
   function autoMergeCollinearWalls(targetWallIds = null) {
+    if (isWallMergeDisabled) return; // Respect the user toggle
     const pageWalls = wallsByPage[currentPage] || [];
     if (pageWalls.length < 2) return;
 
@@ -882,8 +928,8 @@ export function useInteractionController(svgRef) {
     const dy = p2.y - p1.y;
     const angle = Math.atan2(dy, dx);
 
-    // Snap to increments of 45 degrees (PI/4)
-    const step = Math.PI / 4;
+    // Snap strictly to horizontal and vertical (90 degree increments / PI/2)
+    const step = Math.PI / 2;
     const snappedAngle = Math.round(angle / step) * step;
     const dist = Math.hypot(dx, dy);
 
@@ -935,22 +981,15 @@ export function useInteractionController(svgRef) {
         const recalculatedWalls = recalculateAllWallsPolygons(updatedWalls);
 
         pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+        setWallsByPage(prev => ({ ...prev, [currentPage]: recalculatedWalls }));
+      }
 
-        // Chain drawing: preserve thickness and properties
-        setDrawingWall({
-          startX: endX,
-          startY: endY,
-          lock: null,
-          wallType: drawingWall.wallType,
-          thickness: thickness,
-          wallId: wallId
-        });
-        setDrawingWallEnd({ x: endX, y: endY });
-        setSelectedWallVertex({
-          wallId: wallId,
-          index: 1,
-          pt: [endX, endY]
-        });
+      // Always clear drawing state and return to select mode
+      setDrawingWall(null);
+      setDrawingWallEnd(null);
+      setSelectedWallVertex(null);
+      if (setInteractionMode) {
+        setInteractionMode("select");
       }
       return;
     }
@@ -1029,7 +1068,7 @@ export function useInteractionController(svgRef) {
       }
       return;
     }
-    if ((isShiftDown || isAddingPoint) && !e.altKey) {
+    if ((isShiftDown || isAddingPoint || interactionMode === "cut-wall") && !e.altKey) {
       // First, check if there is a wall centerline close to the click.
       const pageWalls = wallsByPage[currentPage] || [];
       let targetWall = null;
@@ -1049,6 +1088,7 @@ export function useInteractionController(svgRef) {
       }
 
       if (targetWall) {
+        if (targetWall.locked) return; // Prevent splitting locked walls
         const p1 = targetWall.centerline[0];
         const p2 = targetWall.centerline[1];
         const splitPt = [bestWallProj.x, bestWallProj.y];
@@ -1076,6 +1116,18 @@ export function useInteractionController(svgRef) {
           pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
           setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
           setIsAddingPoint(false);
+          setDrawingWall({
+            startX: splitPt[0],
+            startY: splitPt[1],
+            lock: null,
+            wallType: targetWall.class_name || "interior_wall",
+            thickness: targetWall.thickness_px || 20,
+            wallId: w1_id
+          });
+          setDrawingWallEnd({ x: splitPt[0], y: splitPt[1] });
+          if (setInteractionMode) {
+            setInteractionMode("draw-wall");
+          }
           return;
         }
       }
@@ -1119,6 +1171,7 @@ export function useInteractionController(svgRef) {
           pushHistory(rooms.map(room => room.id === targetR.id ? { ...room, polygon: newPoly } : room));
           setSelectedId(targetR.id);
           setIsAddingPoint(false); // Auto-exit after adding
+          if (setInteractionMode) setInteractionMode("select");
           return;
         }
       }
@@ -1580,6 +1633,27 @@ export function useInteractionController(svgRef) {
   }
 
   function startDrag(id, index, type = 'room') {
+    if (type === 'wall-move') {
+      const currentWalls = wallsByPage[currentPage] || [];
+      const dragWallIds = selectedWallIds.includes(id) ? selectedWallIds : [id];
+      const hasLocked = currentWalls.some(w => dragWallIds.includes(w.id) && w.locked);
+      if (hasLocked) return;
+    } else if (type === 'wall-vertex') {
+      const currentWalls = wallsByPage[currentPage] || [];
+      const wall = currentWalls.find(w => w.id === id);
+      if (wall && wall.locked) return;
+
+      // Block dragging connected junction vertices via normal left-drag
+      if (wall && wall.centerline && wall.centerline[index]) {
+        const pt = wall.centerline[index];
+        const count = currentWalls.filter(w => 
+          w.centerline && 
+          w.centerline.some(otherPt => Math.hypot(otherPt[0] - pt[0], otherPt[1] - pt[1]) < 8)
+        ).length;
+        if (count >= 2) return;
+      }
+    }
+
     pushHistory(); // Save undo snapshot before modifying elements via dragging
 
     let connections = [];
@@ -1603,45 +1677,58 @@ export function useInteractionController(svgRef) {
           const otherP2 = otherW.centerline[1];
           const otherIsHoriz = Math.abs(otherP2[0] - otherP1[0]) > Math.abs(otherP2[1] - otherP1[1]);
 
-          if (Math.hypot(otherP1[0] - wallP1[0], otherP1[1] - wallP1[1]) < 8) {
-            connections.push({
-              draggedWallId: wallId,
-              draggedEndpointIndex: 0,
-              otherWallId: otherW.id,
-              otherEndpointIndex: 0,
-              draggedIsHoriz: wallIsHoriz,
-              otherIsHoriz: otherIsHoriz
-            });
-          }
-          if (Math.hypot(otherP2[0] - wallP1[0], otherP2[1] - wallP1[1]) < 8) {
-            connections.push({
-              draggedWallId: wallId,
-              draggedEndpointIndex: 0,
-              otherWallId: otherW.id,
-              otherEndpointIndex: 1,
-              draggedIsHoriz: wallIsHoriz,
-              otherIsHoriz: otherIsHoriz
-            });
-          }
-          if (Math.hypot(otherP1[0] - wallP2[0], otherP1[1] - wallP2[1]) < 8) {
-            connections.push({
-              draggedWallId: wallId,
-              draggedEndpointIndex: 1,
-              otherWallId: otherW.id,
-              otherEndpointIndex: 0,
-              draggedIsHoriz: wallIsHoriz,
-              otherIsHoriz: otherIsHoriz
-            });
-          }
-          if (Math.hypot(otherP2[0] - wallP2[0], otherP2[1] - wallP2[1]) < 8) {
-            connections.push({
-              draggedWallId: wallId,
-              draggedEndpointIndex: 1,
-              otherWallId: otherW.id,
-              otherEndpointIndex: 1,
-              draggedIsHoriz: wallIsHoriz,
-              otherIsHoriz: otherIsHoriz
-            });
+          // Endpoints meeting
+          for (let oi = 0; oi < 2; oi++) {
+            const opt = otherW.centerline[oi];
+            const distP1 = Math.hypot(opt[0] - wallP1[0], opt[1] - wallP1[1]);
+            const distP2 = Math.hypot(opt[0] - wallP2[0], opt[1] - wallP2[1]);
+            
+            if (distP1 < 8) {
+              connections.push({
+                draggedWallId: wallId,
+                draggedEndpointIndex: 0,
+                otherWallId: otherW.id,
+                otherEndpointIndex: oi,
+                draggedIsHoriz: wallIsHoriz,
+                otherIsHoriz: otherIsHoriz,
+                type: 'endpoint'
+              });
+            } else if (distP2 < 8) {
+              connections.push({
+                draggedWallId: wallId,
+                draggedEndpointIndex: 1,
+                otherWallId: otherW.id,
+                otherEndpointIndex: oi,
+                draggedIsHoriz: wallIsHoriz,
+                otherIsHoriz: otherIsHoriz,
+                type: 'endpoint'
+              });
+            } else {
+              // T-junction (other endpoint touches dragged segment body)
+              const segmentP1 = { x: wallP1[0], y: wallP1[1] };
+              const segmentP2 = { x: wallP2[0], y: wallP2[1] };
+              const pt = { x: opt[0], y: opt[1] };
+              const proj = distancePointToSegment(pt, segmentP1, segmentP2);
+              if (proj.dist < 8) {
+                const dx = segmentP2.x - segmentP1.x;
+                const dy = segmentP2.y - segmentP1.y;
+                const len2 = dx * dx + dy * dy;
+                let ratio = 0;
+                if (len2 > 0) {
+                  ratio = ((pt.x - segmentP1.x) * dx + (pt.y - segmentP1.y) * dy) / len2;
+                  ratio = Math.max(0, Math.min(1, ratio));
+                }
+                connections.push({
+                  draggedWallId: wallId,
+                  otherWallId: otherW.id,
+                  otherEndpointIndex: oi,
+                  type: 'mid-segment',
+                  ratio: ratio,
+                  draggedIsHoriz: wallIsHoriz,
+                  otherIsHoriz: otherIsHoriz
+                });
+              }
+            }
           }
         }
       }
@@ -1673,7 +1760,34 @@ export function useInteractionController(svgRef) {
       }
     }
 
-    setDragging({ id, index, type, connections });
+    const currentWalls = wallsByPage[currentPage] || [];
+    let startPt = null;
+    let startSelectedVertices = [];
+    if (type === 'wall-vertex') {
+      const w = currentWalls.find(ww => ww.id === id);
+      if (w && w.centerline && w.centerline[index]) {
+        startPt = { x: w.centerline[index][0], y: w.centerline[index][1] };
+      }
+
+      let currentSel = [...selectedVertices];
+      const isAlreadySelected = currentSel.some(sv => sv.wallId === id && sv.index === index);
+      if (!isAlreadySelected) {
+        currentSel = [{ wallId: id, index: index }];
+        setSelectedVertices(currentSel);
+      }
+
+      startSelectedVertices = currentSel.map(sv => {
+        const sw = currentWalls.find(ww => ww.id === sv.wallId);
+        const originalPt = sw && sw.centerline ? [...sw.centerline[sv.index]] : [0, 0];
+        return {
+          wallId: sv.wallId,
+          index: sv.index,
+          originalPt
+        };
+      });
+    }
+
+    setDragging({ id, index, type, connections, startPt, startSelectedVertices });
   }
 
   function onMouseMove(e) {
@@ -1685,6 +1799,7 @@ export function useInteractionController(svgRef) {
       // Initialize starting conditions dynamically on the first move event
       if (!dragging.startMouse) {
         dragging.startMouse = pRaw;
+        dragging.hasMovedPastThreshold = false;
         if (dragging.type === 'wall-move') {
           const currentWalls = wallsByPage[currentPage] || [];
           dragging.startWalls = currentWalls.map(w => ({
@@ -1701,6 +1816,17 @@ export function useInteractionController(svgRef) {
             polygon: d.polygon ? JSON.parse(JSON.stringify(d.polygon)) : null,
             mask_polygon: d.mask_polygon ? JSON.parse(JSON.stringify(d.mask_polygon)) : null
           }));
+        }
+      }
+
+      // Enforce drag threshold (e.g. 5px) to distinguish click vs drag
+      const dragDist = Math.hypot(pRaw.x - dragging.startMouse.x, pRaw.y - dragging.startMouse.y);
+      if (!dragging.hasMovedPastThreshold) {
+        if (dragDist > 5) {
+          dragging.hasMovedPastThreshold = true;
+        } else {
+          setCurrentMouse(pRaw);
+          return;
         }
       }
 
@@ -1801,39 +1927,47 @@ export function useInteractionController(svgRef) {
           const otherPtArr = draggedWall.centerline[1 - dragging.index];
           const otherPt = { x: otherPtArr[0], y: otherPtArr[1] };
           let snapped = snapToOtherWalls(pRaw, dragging.id, pageWalls, 20, isWallSnapEnabled);
-          if (isShiftDown || isSnapMode) {
+          if (!isShiftDown) {
             snapped = snap(otherPt, snapped);
           }
           const snappedX = snapped.x;
           const snappedY = snapped.y;
 
+          const dx = snappedX - (dragging.startPt?.x || dragging.startMouse?.x || snappedX);
+          const dy = snappedY - (dragging.startPt?.y || dragging.startMouse?.y || snappedY);
+
+          const updated = pageWalls.map(w => {
+            let changed = false;
+            const newCl = w.centerline ? [...w.centerline.map(p => [...p])] : null;
+            if (!newCl) return w;
+
+            if (dragging.startSelectedVertices) {
+              for (const sv of dragging.startSelectedVertices) {
+                if (sv.wallId === w.id) {
+                  newCl[sv.index][0] = sv.originalPt[0] + dx;
+                  newCl[sv.index][1] = sv.originalPt[1] + dy;
+                  changed = true;
+                }
+              }
+            }
+
+            if (dragging.connections) {
+              const conn = dragging.connections.find(c => c.otherWallId === w.id);
+              if (conn) {
+                newCl[conn.otherEndpointIndex] = [snappedX, snappedY];
+                changed = true;
+              }
+            }
+
+            if (changed) {
+              return { ...w, centerline: newCl };
+            }
+            return w;
+          });
+
           return {
             ...prev,
-            [currentPage]: pageWalls.map(w => {
-              if (w.id === dragging.id) {
-                const centerline = [...w.centerline];
-                centerline[dragging.index] = [snappedX, snappedY];
-
-                const thickness = w.thickness_px || 20;
-                const points = centerline.map(pt => ({ x: pt[0], y: pt[1] }));
-                const newPoly = calculateWallPolygonWithJunctions(points, thickness, w.id, pageWalls);
-                const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
-                return { ...w, centerline, polygon: polyCoords };
-              }
-
-              const conn = dragging.connections?.find(c => c.otherWallId === w.id);
-              if (conn) {
-                const centerline = [...w.centerline];
-                centerline[conn.otherEndpointIndex] = [snappedX, snappedY];
-                const thickness = w.thickness_px || 20;
-                const points = centerline.map(pt => ({ x: pt[0], y: pt[1] }));
-                const newPoly = calculateWallPolygonWithJunctions(points, thickness, w.id, pageWalls);
-                const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
-                return { ...w, centerline, polygon: polyCoords };
-              }
-
-              return w;
-            })
+            [currentPage]: recalculateAllWallsPolygons(updated)
           };
         });
       } else if (dragging.type === 'wall-move') {
@@ -1856,10 +1990,6 @@ export function useInteractionController(svgRef) {
 
           if (dragging.connections) {
             for (const conn of dragging.connections) {
-              const draggedCLine = updatedCenterlines[conn.draggedWallId];
-              if (!draggedCLine) continue;
-              const newDraggedPt = draggedCLine[conn.draggedEndpointIndex];
-
               if (!updatedCenterlines[conn.otherWallId]) {
                 const otherWall = pageWalls.find(w => w.id === conn.otherWallId);
                 if (otherWall && otherWall.centerline) {
@@ -1871,7 +2001,25 @@ export function useInteractionController(svgRef) {
               }
 
               const otherCLine = updatedCenterlines[conn.otherWallId];
-              if (otherCLine) {
+              if (!otherCLine) continue;
+
+              const draggedCLine = updatedCenterlines[conn.draggedWallId];
+              if (!draggedCLine) continue;
+
+              const newDraggedPt = draggedCLine[conn.draggedEndpointIndex];
+
+              if (conn.type === 'endpoint') {
+                // Endpoint connections: keep endpoints snapped in both X and Y
+                otherCLine[conn.otherEndpointIndex] = [newDraggedPt[0], newDraggedPt[1]];
+              } else if (conn.type === 'mid-segment') {
+                // T-junction mid-segment: recalculate based on the segment ratio
+                const p1 = draggedCLine[0];
+                const p2 = draggedCLine[1];
+                const newX = p1[0] + conn.ratio * (p2[0] - p1[0]);
+                const newY = p1[1] + conn.ratio * (p2[1] - p1[1]);
+                otherCLine[conn.otherEndpointIndex] = [newX, newY];
+              } else {
+                // Fallback for old/legacy connections
                 if (conn.draggedIsHoriz !== conn.otherIsHoriz) {
                   if (conn.draggedIsHoriz) {
                     otherCLine[conn.otherEndpointIndex][1] = newDraggedPt[1];
@@ -1913,6 +2061,45 @@ export function useInteractionController(svgRef) {
       return; // Don't do anything else during drag
     }
 
+    // ===== MOVE VERTEX (DOUBLE RIGHT-CLICK) =====
+    if (interactionMode === "move-vertex" && movingVertex) {
+      const pRaw = getMouse(e);
+      const dx = pRaw.x - movingVertex.originalPt[0];
+      const dy = pRaw.y - movingVertex.originalPt[1];
+
+      let snappedX, snappedY;
+      // Snap strictly to 90 degrees relative to original point
+      if (Math.abs(dx) > Math.abs(dy)) {
+        snappedX = pRaw.x;
+        snappedY = movingVertex.originalPt[1]; // Pure horizontal
+      } else {
+        snappedX = movingVertex.originalPt[0]; // Pure vertical
+        snappedY = pRaw.y;
+      }
+
+      setWallsByPage(prev => {
+        const pageWalls = prev[currentPage] || [];
+        const updated = pageWalls.map(w => {
+          if (!w.centerline) return w;
+          const newCl = [...w.centerline.map(p => [...p])];
+          let changed = false;
+          for (let i = 0; i < 2; i++) {
+            if (Math.hypot(newCl[i][0] - movingVertex.originalPt[0], newCl[i][1] - movingVertex.originalPt[1]) < 8) {
+              newCl[i][0] = snappedX;
+              newCl[i][1] = snappedY;
+              changed = true;
+            }
+          }
+          if (changed) return { ...w, centerline: newCl };
+          return w;
+        });
+        return { ...prev, [currentPage]: recalculateAllWallsPolygons(updated) };
+      });
+
+      setCurrentMouse({ x: snappedX, y: snappedY });
+      return;
+    }
+
     // ===== PANNING =====
     if (panStart.current) {
       const dx = e.clientX - panStart.current.x;
@@ -1948,7 +2135,7 @@ export function useInteractionController(svgRef) {
       let mx = snappedToWall.x;
       let my = snappedToWall.y;
 
-      if (isShiftDown || isSnapMode) {
+      if (!isShiftDown) {
         const snapped = snap({ x: drawingWall.startX, y: drawingWall.startY }, { x: mx, y: my });
         mx = snapped.x;
         my = snapped.y;
@@ -2038,6 +2225,11 @@ export function useInteractionController(svgRef) {
   function onMouseDown(e) {
     // Never start panning if a drag is active
     if (dragging) return;
+
+    // Prevent starting normal drag-panning during draw-wall and cut-wall modes
+    if ((interactionMode === "draw-wall" || interactionMode === "cut-wall") && e.button !== 1 && !isSpaceDown) {
+      return;
+    }
 
     const p = getMouse(e);
 
@@ -2290,6 +2482,106 @@ export function useInteractionController(svgRef) {
     pullStepPreview, setPullStepPreview,
     extRectStart, setExtRectStart,
     isWallSnapEnabled, setIsWallSnapEnabled,
-    straightenWall
+    straightenWall,
+    // New: vertex/wall menus and merge control
+    vertexMenu, setVertexMenu,
+    wallBodyMenu, setWallBodyMenu,
+    isWallMergeDisabled, setIsWallMergeDisabled,
+    startDrawWallFromVertex,
+    separateJunction,
+    selectedVertices, setSelectedVertices,
+    startVertexMove
   };
+
+  /**
+   * Start drawing a wall from a selected vertex in a given direction.
+   * Replaces the old Ctrl+H / Ctrl+V hotkeys.
+   */
+  function startDrawWallFromVertex(vertexData, lock) {
+    if (!vertexData) return;
+    const pageWalls = wallsByPage[currentPage] || [];
+    const sourceWall = pageWalls.find(w => w.id === vertexData.wallId);
+    const thickness = sourceWall ? (sourceWall.thickness_px || 20) : 20;
+    const wallType = sourceWall ? (sourceWall.class_name || "interior_wall") : "interior_wall";
+
+    setVertexMenu({ visible: false, x: 0, y: 0, vertex: null });
+    setInteractionMode("draw-wall");
+    setDrawingWall({
+      startX: vertexData.pt[0],
+      startY: vertexData.pt[1],
+      lock: lock,
+      wallType: wallType,
+      thickness: thickness,
+      wallId: vertexData.wallId
+    });
+    setDrawingWallEnd({ x: vertexData.pt[0], y: vertexData.pt[1] });
+    console.log(`[VertexMenu] Start ${lock} wall drawing from`, vertexData.pt, "thickness:", thickness);
+  }
+
+  /**
+   * Start moving a vertex (junction) point using strictly 90-degree snap.
+   * Triggered on double right-click.
+   */
+  function startVertexMove(wallId, index, pt) {
+    pushHistory(); // Save undo snapshot before modifying centerline
+    setMovingVertex({
+      wallId,
+      index,
+      startX: pt[0],
+      startY: pt[1],
+      originalPt: [pt[0], pt[1]]
+    });
+    if (setInteractionMode) {
+      setInteractionMode("move-vertex");
+    }
+  }
+
+  /**
+   * Separate a junction point — un-snap walls that share a common endpoint.
+   * Offsets each connected wall's endpoint by a small amount.
+   */
+  function separateJunction(vertexData) {
+    if (!vertexData) return;
+    const pageWalls = wallsByPage[currentPage] || [];
+    const pt = vertexData.pt;
+    const offset = 15; // pixels to separate
+
+    // Find all walls touching this point
+    const touchingWalls = [];
+    for (const w of pageWalls) {
+      if (!w.centerline || w.centerline.length !== 2) continue;
+      for (let i = 0; i < 2; i++) {
+        if (Math.hypot(w.centerline[i][0] - pt[0], w.centerline[i][1] - pt[1]) < 8) {
+          touchingWalls.push({ wallId: w.id, endpointIndex: i });
+        }
+      }
+    }
+
+    if (touchingWalls.length < 2) return; // Not a junction
+
+    // Offset each touching wall's endpoint along its centerline direction (away from the junction)
+    const updatedWalls = pageWalls.map(w => {
+      const match = touchingWalls.find(tw => tw.wallId === w.id);
+      if (!match || w.locked) return w;
+
+      const cl = [...w.centerline.map(p => [...p])];
+      const idx = match.endpointIndex;
+      const otherIdx = 1 - idx;
+
+      // Direction from endpoint toward other end
+      const dx = cl[otherIdx][0] - cl[idx][0];
+      const dy = cl[otherIdx][1] - cl[idx][1];
+      const len = Math.hypot(dx, dy);
+      if (len < 1) return w;
+
+      // Pull endpoint back along wall direction by offset
+      cl[idx][0] = cl[idx][0] - (dx / len) * offset;
+      cl[idx][1] = cl[idx][1] - (dy / len) * offset;
+
+      return { ...w, centerline: cl };
+    });
+
+    const finalized = recalculateAllWallsPolygons(updatedWalls);
+    pushHistory(null, finalized, doorsByPage[currentPage] || []);
+  }
 }

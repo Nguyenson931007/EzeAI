@@ -14,6 +14,7 @@ import AIDoor from "../components/AIDoor";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
 import WallContextMenu from "../components/WallContextMenu";
+import WallVertexMenu from "../components/WallVertexMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { 
   distancePointToSegment, 
@@ -257,8 +258,13 @@ const WallLayer = React.memo(({
   interactionMode,
   selectedWallVertex,
   setSelectedWallVertex,
-  onWallContextMenu
+  onWallContextMenu,
+  onVertexClick,
+  selectedVertices,
+  setSelectedVertices,
+  startVertexMove
 }) => {
+  const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
   const chains = [];
   const validWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
@@ -486,8 +492,16 @@ const WallLayer = React.memo(({
             }}
             onMouseDown={(e) => {
               if (interactionMode === "draw-wall") return;
-              if (isSelected && startDrag && interactionMode !== "cut-wall") {
-                e.stopPropagation();
+              if (interactionMode === "cut-wall") return;
+              e.stopPropagation();
+              // Left click starts wall-move drag
+              if (e.button === 0 && startDrag) {
+                if (selectWall) {
+                  selectWall(w.id, e.ctrlKey || e.shiftKey);
+                } else {
+                  setSelectedId(w.id);
+                  setSelectedType("wall");
+                }
                 startDrag(w.id, null, 'wall-move');
               }
             }}
@@ -517,7 +531,8 @@ const WallLayer = React.memo(({
           <g key={`handles-${w.id}`}>
             {w.centerline.map((pt, i) => {
               const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
-              const isSelectedVertex = selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i;
+              const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) || 
+                                       (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id && sv.index === i));
               return (
                 <circle
                   key={i}
@@ -530,12 +545,62 @@ const WallLayer = React.memo(({
                   style={{ cursor: 'move' }}
                   className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''} ${isSelectedVertex ? 'selected-vertex' : ''}`}
                   onMouseDown={(e) => {
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+
+                    // Double right-click starts move-vertex mode
+                    if (e.button === 2 && e.detail === 2) {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      if (startVertexMove) {
+                        startVertexMove(w.id, i, pt);
+                      }
+                      return;
+                    }
+
+                    if (e.button !== 0) {
+                      e.stopPropagation();
+                      return;
+                    }
                     e.stopPropagation();
+                    mouseDownPos.current = { x: e.clientX, y: e.clientY };
                     if (startDrag) {
                       startDrag(w.id, i, 'wall-vertex');
                     }
                     if (setSelectedWallVertex) {
                       setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
+                    }
+                  }}
+                  onMouseUp={(e) => {
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                    e.stopPropagation();
+                    const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
+                    if (dist < 6) {
+                      if (setSelectedVertices) {
+                        const isShift = e.shiftKey;
+                        setSelectedVertices(prev => {
+                          const isAlreadySelected = (prev || []).some(sv => sv.wallId === w.id && sv.index === i);
+                          if (isShift) {
+                            if (isAlreadySelected) {
+                              return (prev || []).filter(sv => !(sv.wallId === w.id && sv.index === i));
+                            } else {
+                              return [...(prev || []), { wallId: w.id, index: i }];
+                            }
+                          } else {
+                            return [{ wallId: w.id, index: i }];
+                          }
+                        });
+                      }
+                      if (setSelectedWallVertex) {
+                        setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
+                      }
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (onVertexClick) {
+                      onVertexClick(e, { wallId: w.id, index: i, pt });
                     }
                   }}
                 />
@@ -558,7 +623,10 @@ const WallLayer = React.memo(({
   prev.hoverId === next.hoverId &&
   prev.interactionMode === next.interactionMode &&
   prev.selectedWallVertex === next.selectedWallVertex &&
-  prev.onWallContextMenu === next.onWallContextMenu
+  prev.onWallContextMenu === next.onWallContextMenu &&
+  prev.onVertexClick === next.onVertexClick &&
+  prev.selectedVertices === next.selectedVertices &&
+  prev.startVertexMove === next.startVertexMove
 ));
 
 // ==========================================
@@ -1686,7 +1754,18 @@ export default function CanvasView({
   setIsWallSnapEnabled,
   setDrawingWall,
   setDrawingWallEnd,
-  straightenWall
+  straightenWall,
+  vertexMenu,
+  setVertexMenu,
+  wallBodyMenu,
+  setWallBodyMenu,
+  isWallMergeDisabled,
+  setIsWallMergeDisabled,
+  startDrawWallFromVertex,
+  separateJunction,
+  selectedVertices,
+  setSelectedVertices,
+  startVertexMove
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -1723,6 +1802,13 @@ export default function CanvasView({
     const w = wallContextMenu.wall;
     if (w && updateWallsProperty) {
       updateWallsProperty([w.id], "class_name", newClass);
+    }
+  };
+
+  const handleWallToggleLock = () => {
+    const w = wallContextMenu.wall;
+    if (w && updateWallsProperty) {
+      updateWallsProperty([w.id], "locked", !w.locked);
     }
   };
 
@@ -1876,6 +1962,12 @@ export default function CanvasView({
         // Optimistic update
         room.room_name = editValue;
         room.correction_source = "human_verified";
+
+        const newRooms = (rooms || []).map(r => r.id === room.id ? { ...r, room_name: editValue, correction_source: "human_verified" } : r);
+        if (pushHistory) {
+          pushHistory(newRooms);
+        }
+
         setSuccessId(room.id);
         setTimeout(() => setSuccessId(null), 2000);
       }
@@ -2559,6 +2651,10 @@ export default function CanvasView({
               selectedWallVertex={selectedWallVertex}
               setSelectedWallVertex={setSelectedWallVertex}
               onWallContextMenu={handleWallContextMenu}
+              onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
+              selectedVertices={selectedVertices}
+              setSelectedVertices={setSelectedVertices}
+              startVertexMove={startVertexMove}
             />
 
             {/* Memoized Layer 4: Doors */}
@@ -3107,26 +3203,37 @@ export default function CanvasView({
         onClose={closeWallContextMenu}
         onDelete={handleWallDelete}
         onChangeClass={handleWallChangeClass}
-        onStartCutMode={handleWallStartCut}
-        isWallSnapEnabled={isWallSnapEnabled}
-        onToggleWallSnap={() => setIsWallSnapEnabled(prev => !prev)}
-        onStraightenWall={straightenWall}
-        onAddStepCorner={() => {
-          const w = wallContextMenu.wall;
-          if (w && currentMouse && w.centerline && w.centerline.length === 2) {
-            const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
-            const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
-            const proj = distancePointToSegment(currentMouse, a, b);
-            
-            if (setInteractionMode) {
-              setInteractionMode("pull-wall-step");
-            }
-            if (setPullStepInfo) {
-              setPullStepInfo({
-                wallId: w.id,
-                splitPt: { x: proj.x, y: proj.y }
-              });
-            }
+        onAddPoint={handleWallStartCut}
+        onToggleLock={handleWallToggleLock}
+      />
+
+      {/* ===== WALL VERTEX MENU OVERLAY ===== */}
+      <WallVertexMenu
+        visible={vertexMenu.visible}
+        x={vertexMenu.x}
+        y={vertexMenu.y}
+        vertex={vertexMenu.vertex}
+        walls={walls}
+        onClose={() => setVertexMenu({ visible: false, x: 0, y: 0, vertex: null })}
+        onDrawHorizontal={() => {
+          if (startDrawWallFromVertex) {
+            startDrawWallFromVertex(vertexMenu.vertex, 'horizontal');
+          }
+        }}
+        onDrawVertical={() => {
+          if (startDrawWallFromVertex) {
+            startDrawWallFromVertex(vertexMenu.vertex, 'vertical');
+          }
+        }}
+        onSeparateJunction={() => {
+          if (separateJunction) {
+            separateJunction(vertexMenu.vertex);
+          }
+        }}
+        isWallMergeDisabled={isWallMergeDisabled}
+        onToggleWallMerge={() => {
+          if (setIsWallMergeDisabled) {
+            setIsWallMergeDisabled(prev => !prev);
           }
         }}
       />

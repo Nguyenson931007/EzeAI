@@ -160,13 +160,13 @@ export default function RibbonView({
                 >
                   <span className="icon">🔗</span><span className="label">Merge Aligned</span>
                 </button>
-                <button
+                {/* <button
                   className={`ribbon-btn ${isWallSnapEnabled ? "active" : ""}`}
                   onClick={() => setIsWallSnapEnabled && setIsWallSnapEnabled(prev => !prev)}
                   title="Bật/Tắt chế độ hít góc/gộp hai đầu nút tường (Toggle Endpoint Snap)"
-                >
-                  <span className="icon">🧲</span><span className="label">{isWallSnapEnabled ? "Snap On" : "Snap Off"}</span>
-                </button>
+                > */}
+                {/* <span className="icon">🧲</span><span className="label">{isWallSnapEnabled ? "Snap On" : "Snap Off"}</span> */}
+                {/* </button> */}
                 <button
                   className={`ribbon-btn ${interactionMode === "marquee" ? "active" : ""}`}
                   onClick={() => setInteractionMode && setInteractionMode(prev => prev === "marquee" ? "select" : "marquee")}
@@ -260,37 +260,37 @@ export default function RibbonView({
             {/* AI DETECT */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => autoDetect()} disabled={isDetecting} title="AI tự động nhận diện phòng">
+                {/* <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => autoDetect()} disabled={isDetecting} title="AI tự động nhận diện phòng">
                   <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Auto AI</span>
-                </button>
+                </button> */}
 
 
-                <button 
-                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} 
+                <button
+                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
                   onClick={() => {
                     if (!realScale || realScale === 1.0) {
                       showAlert("bạn phải scale trước khi chạy AI");
                       return;
                     }
                     setShowWallConfig(true);
-                  }} 
-                  disabled={isDetecting} 
+                  }}
+                  disabled={isDetecting}
                   title="Dùng AI tự động vẽ tường"
                 >
-                  <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
+                  <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall</span>
                 </button>
 
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
-                  <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
+                  <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door</span>
                 </button>
 
-                <button 
-                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} 
-                  onClick={() => generateRoomsFromWalls()} 
-                  disabled={isDetecting} 
+                <button
+                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
+                  onClick={() => generateRoomsFromWalls()}
+                  disabled={isDetecting}
                   title="Tạo phòng tự động từ tường hiện tại (Shapely)"
                 >
-                  <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Wall-&gt;Room</span>
+                  <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Room</span>
                 </button>
 
                 {/* Smart AI Button — Premium gradient style (Tạm ẩn)
@@ -319,7 +319,7 @@ export default function RibbonView({
                   <span className="label">Smart AI</span>
                 </button>
                 */}
-                <button
+                {/* <button
                   className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
                   onClick={() => detectText()}
                   disabled={isDetecting}
@@ -327,7 +327,7 @@ export default function RibbonView({
                 >
                   <span className="icon">{isDetecting ? "⏳" : "📝"}</span>
                   <span className="label">Text AI</span>
-                </button>
+                </button> */}
               </div>
 
               {/* Smart AI 3-Stage Progress Bar */}
@@ -356,12 +356,12 @@ export default function RibbonView({
                         fontWeight: step.status === 'running' ? 700 : 400,
                         background: step.status === 'running' ? 'rgba(99,102,241,0.3)'
                           : step.status === 'done' ? 'rgba(34,197,94,0.2)'
-                          : step.status === 'failed' ? 'rgba(239,68,68,0.2)'
-                          : 'transparent',
+                            : step.status === 'failed' ? 'rgba(239,68,68,0.2)'
+                              : 'transparent',
                         color: step.status === 'running' ? '#a5b4fc'
                           : step.status === 'done' ? '#86efac'
-                          : step.status === 'failed' ? '#fca5a5'
-                          : '#94a3b8',
+                            : step.status === 'failed' ? '#fca5a5'
+                              : '#94a3b8',
                         animation: step.status === 'running' ? 'pulse 1.5s ease-in-out infinite' : 'none'
                       }}>
                         <span>{step.icon}</span>
@@ -512,8 +512,8 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={rotatePlan90}>
                   <span className="icon">🔄</span><span className="label">Rotate</span>
                 </button>
-                <button className={`ribbon-btn ${showLayer !== 'all' ? "active" : ""}`} 
-                        onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'wall' : l === 'wall' ? 'door' : 'all')}>
+                <button className={`ribbon-btn ${showLayer !== 'all' ? "active" : ""}`}
+                  onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'wall' : l === 'wall' ? 'door' : 'all')}>
                   <span className="icon">{showLayer === 'all' ? '👁' : showLayer === 'floor' ? '🟦' : showLayer === 'wall' ? '🧱' : '🚪'}</span>
                   <span className="label">Layer: {showLayer === 'all' ? 'All' : showLayer === 'floor' ? 'Floor' : showLayer === 'wall' ? 'Wall' : 'Door'}</span>
                 </button>
@@ -546,238 +546,244 @@ export default function RibbonView({
       </div>
 
       {/* ===== ROI CONTEXT TOOLBAR ===== */}
-      {roiRect && (
-        <div className={`roi-toolbar glassmorphic ${cacheStatus}`}>
-          <div className="roi-toolbar-header">
-            <span className="roi-badge">🎯 ROI {Math.round(roiRect.w)}×{Math.round(roiRect.h)}px</span>
-            {cacheStatus === "cached" && <span className="cache-badge blink">⚡ Cache Hit</span>}
-            {inferenceTiming && <span className="timing-badge">⏱ {inferenceTiming}</span>}
-          </div>
+      {
+        roiRect && (
+          <div className={`roi-toolbar glassmorphic ${cacheStatus}`}>
+            <div className="roi-toolbar-header">
+              <span className="roi-badge">🎯 ROI {Math.round(roiRect.w)}×{Math.round(roiRect.h)}px</span>
+              {cacheStatus === "cached" && <span className="cache-badge blink">⚡ Cache Hit</span>}
+              {inferenceTiming && <span className="timing-badge">⏱ {inferenceTiming}</span>}
+            </div>
 
-          <div className="roi-toolbar-controls">
-            <button 
-              className={`roi-btn-detect rooms ${isDetecting ? "pulsing" : ""}`}
-              onClick={() => autoDetect(roiRect, roiMode, roiUpscale)} 
-              disabled={isDetecting}
-            >
-              🤖 Rooms
-            </button>
-
-            <button 
-              className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
-              onClick={() => {
-                if (!realScale || realScale === 1.0) {
-                  showAlert("bạn phải scale trước khi chạy AI");
-                  return;
-                }
-                setShowWallConfig(true);
-              }} 
-              disabled={isDetecting}
-              title="Nhận diện tường trong vùng cắt (ROI)"
-            >
-              🧱 Walls
-            </button>
-
-             <button 
-              className={`roi-btn-detect doors ${isDetecting ? "pulsing" : ""}`}
-              onClick={() => detectDoorSeg(roiRect, roiMode)} 
-              disabled={isDetecting}
-              title="Nhận diện cửa trong vùng cắt (ROI)"
-            >
-              🚪 Doors
-            </button>
-
-            {activeTab === "Search" && (
-              <button 
-                className="roi-btn-detect search"
-                onClick={runROISearch}
-                title="Search similar symbols in this region"
-                style={{ background: "#3b82f6", color: "#fff" }}
+            <div className="roi-toolbar-controls">
+              <button
+                className={`roi-btn-detect rooms ${isDetecting ? "pulsing" : ""}`}
+                onClick={() => autoDetect(roiRect, roiMode, roiUpscale)}
+                disabled={isDetecting}
               >
-                🔍 Search Region
+                🤖 Rooms
               </button>
-            )}
 
-            <div className="roi-select-wrapper">
-              <select value={roiMode} onChange={e => setRoiMode(e.target.value)}>
-                <option value="additive">Additive Mode</option>
-                <option value="replace">Replace Mode</option>
-                <option value="merge">Merge Mode</option>
-                <option value="refine">Refine Mode</option>
-              </select>
-            </div>
-            
-            <button className="roi-clear" onClick={clearROI} disabled={isDetecting}>✕ Close</button>
-          </div>
+              <button
+                className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
+                onClick={() => {
+                  if (!realScale || realScale === 1.0) {
+                    showAlert("bạn phải scale trước khi chạy AI");
+                    return;
+                  }
+                  setShowWallConfig(true);
+                }}
+                disabled={isDetecting}
+                title="Nhận diện tường trong vùng cắt (ROI)"
+              >
+                🧱 Walls
+              </button>
 
-          {/* Linear Progress Bar with cancel button (Requirement 5) */}
-          {isDetecting && (
-            <div className="roi-progress-container">
-              <div className="roi-progress-bar-wrapper">
-                <div className="roi-progress-bar" style={{ width: `${roiProgress}%` }}>
-                  <span className="roi-progress-glow" />
-                </div>
+              <button
+                className={`roi-btn-detect doors ${isDetecting ? "pulsing" : ""}`}
+                onClick={() => detectDoorSeg(roiRect, roiMode)}
+                disabled={isDetecting}
+                title="Nhận diện cửa trong vùng cắt (ROI)"
+              >
+                🚪 Doors
+              </button>
+
+              {activeTab === "Search" && (
+                <button
+                  className="roi-btn-detect search"
+                  onClick={runROISearch}
+                  title="Search similar symbols in this region"
+                  style={{ background: "#3b82f6", color: "#fff" }}
+                >
+                  🔍 Search Region
+                </button>
+              )}
+
+              <div className="roi-select-wrapper">
+                <select value={roiMode} onChange={e => setRoiMode(e.target.value)}>
+                  <option value="additive">Additive Mode</option>
+                  <option value="replace">Replace Mode</option>
+                  <option value="merge">Merge Mode</option>
+                  <option value="refine">Refine Mode</option>
+                </select>
               </div>
-              <span className="roi-progress-text">{roiProgress}% Processing...</span>
-              <button className="roi-btn-cancel" onClick={cancelROI} title="Cancel Active Inference Signal">
-                🛑 Cancel
-              </button>
+
+              <button className="roi-clear" onClick={clearROI} disabled={isDetecting}>✕ Close</button>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* Linear Progress Bar with cancel button (Requirement 5) */}
+            {isDetecting && (
+              <div className="roi-progress-container">
+                <div className="roi-progress-bar-wrapper">
+                  <div className="roi-progress-bar" style={{ width: `${roiProgress}%` }}>
+                    <span className="roi-progress-glow" />
+                  </div>
+                </div>
+                <span className="roi-progress-text">{roiProgress}% Processing...</span>
+                <button className="roi-btn-cancel" onClick={cancelROI} title="Cancel Active Inference Signal">
+                  🛑 Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      }
 
       {/* === Export Page Selector Modal === */}
-      {showExportPageSelector && (
-        <>
-          <div style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998
-          }} onClick={() => setShowExportPageSelector(false)} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: '#1e2128', border: '1px solid #3b82f6', borderRadius: 16,
-            padding: 24, zIndex: 9999, minWidth: 360, maxWidth: 500,
-            boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: '#e1e4ea'
-          }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#fff' }}>📑 Select Pages to Export</h3>
-            <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
-              {pages.map((pg, i) => {
-                const roomCount = (roomsByPage[i] || []).length;
-                const isChecked = exportSelectedPages.includes(i);
-                return (
-                  <label key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                    borderRadius: 8, cursor: roomCount > 0 ? 'pointer' : 'not-allowed',
-                    background: isChecked ? 'rgba(59,130,246,0.15)' : 'transparent',
-                    opacity: roomCount === 0 ? 0.4 : 1,
-                    marginBottom: 4, transition: 'background 0.2s'
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      disabled={roomCount === 0}
-                      onChange={(e) => {
-                        if (e.target.checked) setExportSelectedPages(prev => [...prev, i]);
-                        else setExportSelectedPages(prev => prev.filter(p => p !== i));
-                      }}
-                      style={{ accentColor: '#3b82f6', width: 16, height: 16 }}
-                    />
-                    <img src={pg.image} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #374151' }} />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>Page {i + 1}</div>
-                      <div style={{ fontSize: 11, color: roomCount > 0 ? '#4ade80' : '#6b7280' }}>
-                        {roomCount > 0 ? `${roomCount} rooms` : 'No rooms'}
+      {
+        showExportPageSelector && (
+          <>
+            <div style={{
+              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998
+            }} onClick={() => setShowExportPageSelector(false)} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              background: '#1e2128', border: '1px solid #3b82f6', borderRadius: 16,
+              padding: 24, zIndex: 9999, minWidth: 360, maxWidth: 500,
+              boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: '#e1e4ea'
+            }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#fff' }}>📑 Select Pages to Export</h3>
+              <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
+                {pages.map((pg, i) => {
+                  const roomCount = (roomsByPage[i] || []).length;
+                  const isChecked = exportSelectedPages.includes(i);
+                  return (
+                    <label key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                      borderRadius: 8, cursor: roomCount > 0 ? 'pointer' : 'not-allowed',
+                      background: isChecked ? 'rgba(59,130,246,0.15)' : 'transparent',
+                      opacity: roomCount === 0 ? 0.4 : 1,
+                      marginBottom: 4, transition: 'background 0.2s'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={roomCount === 0}
+                        onChange={(e) => {
+                          if (e.target.checked) setExportSelectedPages(prev => [...prev, i]);
+                          else setExportSelectedPages(prev => prev.filter(p => p !== i));
+                        }}
+                        style={{ accentColor: '#3b82f6', width: 16, height: 16 }}
+                      />
+                      <img src={pg.image} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #374151' }} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>Page {i + 1}</div>
+                        <div style={{ fontSize: 11, color: roomCount > 0 ? '#4ade80' : '#6b7280' }}>
+                          {roomCount > 0 ? `${roomCount} rooms` : 'No rooms'}
+                        </div>
                       </div>
-                    </div>
-                  </label>
-                );
-              })}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowExportPageSelector(false)} style={{
+                  padding: '8px 20px', background: '#374151', color: '#e1e4ea', border: 'none',
+                  borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
+                }}>Cancel</button>
+                <button onClick={() => {
+                  setShowExportPageSelector(false);
+                  addTrainPages(exportSelectedPages);
+                }} disabled={exportSelectedPages.length === 0} style={{
+                  padding: '8px 20px', background: exportSelectedPages.length > 0 ? '#3b82f6' : '#374151',
+                  color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
+                }}>Export {exportSelectedPages.length} Page(s)</button>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowExportPageSelector(false)} style={{
-                padding: '8px 20px', background: '#374151', color: '#e1e4ea', border: 'none',
-                borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-              }}>Cancel</button>
-              <button onClick={() => {
-                setShowExportPageSelector(false);
-                addTrainPages(exportSelectedPages);
-              }} disabled={exportSelectedPages.length === 0} style={{
-                padding: '8px 20px', background: exportSelectedPages.length > 0 ? '#3b82f6' : '#374151',
-                color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-              }}>Export {exportSelectedPages.length} Page(s)</button>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        )
+      }
 
       {/* === Import Page Selector Modal === */}
-      {showImportPageSelector && (
-        <>
-          <div style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998
-          }} onClick={() => setShowImportPageSelector(false)} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: '#1e2128', border: '1px solid #3b82f6', borderRadius: 16,
-            padding: 24, zIndex: 9999, minWidth: 360, maxWidth: 500,
-            boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: '#e1e4ea'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>📂 Select Pages to Import</h3>
-              <button 
-                onClick={() => {
-                  if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
-                  else setImportSelectedPages(pendingPages.map((_, i) => i));
-                }}
-                style={{
-                  background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6',
-                  borderRadius: 4, padding: '4px 12px', fontSize: 12, cursor: 'pointer',
-                  fontWeight: 600, transition: 'all 0.2s'
-                }}
-              >
-                {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
-              </button>
-            </div>
-            <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
-              {pendingPages.map((pg, i) => {
-                const isChecked = importSelectedPages.includes(i);
-                return (
-                  <label 
-                    key={i} 
-                    onMouseEnter={() => setHoveredPageIdx(i)}
-                    onMouseLeave={() => setHoveredPageIdx(null)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-                      borderRadius: 12, cursor: 'pointer',
-                      background: isChecked ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.03)',
-                      marginBottom: 8, transition: 'all 0.2s',
-                      border: isChecked ? '1px solid #3b82f6' : '1px solid transparent'
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={(e) => {
-                        if (e.target.checked) setImportSelectedPages(prev => [...prev, i]);
-                        else setImportSelectedPages(prev => prev.filter(p => p !== i));
-                      }}
-                      style={{ accentColor: '#3b82f6', width: 18, height: 18 }}
-                    />
-                    <img src={pg.image} alt="" style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 8, border: '1px solid #374151' }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>Page {i + 1}</div>
-                      <div style={{ fontSize: 12, color: '#9ca3af' }}>{pg.w} x {pg.h} px</div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-            
-            {/* Hover Preview Tooltip */}
-            {hoveredPageIdx !== null && (
-              <div style={{
-                position: 'fixed', left: 'calc(50% + 280px)', top: '50%', transform: 'translateY(-50%)',
-                background: '#1e2128', border: '1px solid #3b82f6', borderRadius: 16,
-                padding: 12, boxShadow: '0 25px 50px rgba(0,0,0,0.6)', zIndex: 10000,
-                width: 400, pointerEvents: 'none', transition: 'all 0.2s'
-              }}>
-                <div style={{ fontSize: 12, color: '#3b82f6', marginBottom: 8, fontWeight: 600 }}>PREVIEW - PAGE {hoveredPageIdx + 1}</div>
-                <img src={pendingPages[hoveredPageIdx].image} alt="" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+      {
+        showImportPageSelector && (
+          <>
+            <div style={{
+              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998
+            }} onClick={() => setShowImportPageSelector(false)} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              background: '#1e2128', border: '1px solid #3b82f6', borderRadius: 16,
+              padding: 24, zIndex: 9999, minWidth: 360, maxWidth: 500,
+              boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: '#e1e4ea'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>📂 Select Pages to Import</h3>
+                <button
+                  onClick={() => {
+                    if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
+                    else setImportSelectedPages(pendingPages.map((_, i) => i));
+                  }}
+                  style={{
+                    background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6',
+                    borderRadius: 4, padding: '4px 12px', fontSize: 12, cursor: 'pointer',
+                    fontWeight: 600, transition: 'all 0.2s'
+                  }}
+                >
+                  {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
+                </button>
               </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowImportPageSelector(false)} style={{
-                padding: '8px 20px', background: '#374151', color: '#e1e4ea', border: 'none',
-                borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-              }}>Cancel</button>
-              <button onClick={confirmImport} disabled={importSelectedPages.length === 0} style={{
-                padding: '8px 20px', background: importSelectedPages.length > 0 ? '#3b82f6' : '#374151',
-                color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-              }}>Import {importSelectedPages.length} Page(s)</button>
+              <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
+                {pendingPages.map((pg, i) => {
+                  const isChecked = importSelectedPages.includes(i);
+                  return (
+                    <label
+                      key={i}
+                      onMouseEnter={() => setHoveredPageIdx(i)}
+                      onMouseLeave={() => setHoveredPageIdx(null)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                        borderRadius: 12, cursor: 'pointer',
+                        background: isChecked ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.03)',
+                        marginBottom: 8, transition: 'all 0.2s',
+                        border: isChecked ? '1px solid #3b82f6' : '1px solid transparent'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) setImportSelectedPages(prev => [...prev, i]);
+                          else setImportSelectedPages(prev => prev.filter(p => p !== i));
+                        }}
+                        style={{ accentColor: '#3b82f6', width: 18, height: 18 }}
+                      />
+                      <img src={pg.image} alt="" style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 8, border: '1px solid #374151' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>Page {i + 1}</div>
+                        <div style={{ fontSize: 12, color: '#9ca3af' }}>{pg.w} x {pg.h} px</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Hover Preview Tooltip */}
+              {hoveredPageIdx !== null && (
+                <div style={{
+                  position: 'fixed', left: 'calc(50% + 280px)', top: '50%', transform: 'translateY(-50%)',
+                  background: '#1e2128', border: '1px solid #3b82f6', borderRadius: 16,
+                  padding: 12, boxShadow: '0 25px 50px rgba(0,0,0,0.6)', zIndex: 10000,
+                  width: 400, pointerEvents: 'none', transition: 'all 0.2s'
+                }}>
+                  <div style={{ fontSize: 12, color: '#3b82f6', marginBottom: 8, fontWeight: 600 }}>PREVIEW - PAGE {hoveredPageIdx + 1}</div>
+                  <img src={pendingPages[hoveredPageIdx].image} alt="" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowImportPageSelector(false)} style={{
+                  padding: '8px 20px', background: '#374151', color: '#e1e4ea', border: 'none',
+                  borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
+                }}>Cancel</button>
+                <button onClick={confirmImport} disabled={importSelectedPages.length === 0} style={{
+                  padding: '8px 20px', background: importSelectedPages.length > 0 ? '#3b82f6' : '#374151',
+                  color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
+                }}>Import {importSelectedPages.length} Page(s)</button>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )
+      }
       <WallThicknessDialog
         visible={showWallConfig}
         onConfirm={(config) => {
@@ -786,6 +792,6 @@ export default function RibbonView({
         }}
         onClose={() => setShowWallConfig(false)}
       />
-    </div>
+    </div >
   );
 }

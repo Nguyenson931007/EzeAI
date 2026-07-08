@@ -357,12 +357,14 @@ export function cutWallsByDoors(walls, doors, realScale = null) {
         const nearProj = { x: wp1.x + minT * ux, y: wp1.y + minT * uy };
         const farProj = { x: wp1.x + maxT * ux, y: wp1.y + maxT * uy };
 
+        const baseId = w.id.split('-A-')[0].split('-B-')[0];
+
         // Segment A: from wp1 to nearProj
         const lenA = Math.hypot(nearProj.x - wp1.x, nearProj.y - wp1.y);
         if (lenA > 10.0) {
           nextWalls.push({
             ...w,
-            id: `${w.id}-A-${door.id}`,
+            id: `${baseId}-A-${door.id}`,
             centerline: [
               [wp1.x, wp1.y],
               [nearProj.x, nearProj.y]
@@ -375,7 +377,7 @@ export function cutWallsByDoors(walls, doors, realScale = null) {
         if (lenB > 10.0) {
           nextWalls.push({
             ...w,
-            id: `${w.id}-B-${door.id}`,
+            id: `${baseId}-B-${door.id}`,
             centerline: [
               [farProj.x, farProj.y],
               [wp2.x, wp2.y]
@@ -743,7 +745,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   });
 }
 
-export function mergeCollinearWalls(walls, perpDistThresh = 5, angleThresh = 0.998, gapThresh = 120) {
+export function mergeCollinearWalls(walls, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120) {
   if (!walls || walls.length < 2) return walls;
 
   let merged = true;
