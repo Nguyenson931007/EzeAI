@@ -3,12 +3,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors, getDoorCenterline } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline, mapFloorName } from "@/utils/geometry";
 
 export default function ThreeDView({
-  rooms = [],
-  walls = [],
-  doors = [],
+  pages = [],
+  wallsByPage = {},
+  doorsByPage = {},
+  roomsByPage = {},
+  currentPage = 0,
   onClose,
   realScale = 1.0,
   image = null,
@@ -20,6 +22,7 @@ export default function ThreeDView({
   const [showDoors, setShowDoors] = useState(true);
   const [showPDF, setShowPDF] = useState(true);
   const [enableShadows, setEnableShadows] = useState(true);
+  const [visibleLevels, setVisibleLevels] = useState({});
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
   const controlsRef = useRef(null);
@@ -30,39 +33,77 @@ export default function ThreeDView({
   const floorMeshesRef = useRef([]);
   const doorMeshesRef = useRef([]);
 
+  // Initialize visibleLevels
+  useEffect(() => {
+    const initial = {};
+    pages.forEach((_, i) => {
+      initial[i] = true;
+    });
+    setVisibleLevels(initial);
+  }, [pages]);
+
+  const getFloorLevel = (page, index) => {
+    if (!page || !page.floor_name) return index;
+    const norm = page.floor_name.toLowerCase().trim().replace(/[\s_]+/g, '_');
+    if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 0;
+    if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 1;
+    if (norm === 'third_floor' || norm === 'floor_2') return 2;
+    if (norm === 'fourth_floor' || norm === 'floor_3') return 3;
+    if (norm === 'fifth_floor' || norm === 'floor_4') return 4;
+    
+    const match = norm.match(/^floor_(\d+)$/);
+    if (match) return parseInt(match[1]);
+    
+    return index;
+  };
+
+  const sortedPageIndices = React.useMemo(() => {
+    return pages
+      .map((p, i) => ({ page: p, originalIndex: i, level: getFloorLevel(p, i) }))
+      .sort((a, b) => a.level - b.level)
+      .map(x => x.originalIndex);
+  }, [pages]);
+
   // Calculate center of the floor plan for OrbitControls target
   const center = React.useMemo(() => {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     
-    // Check walls
-    walls.forEach(w => {
-      if (w.centerline && w.centerline.length === 2) {
-        w.centerline.forEach(p => {
-          minX = Math.min(minX, p[0]);
-          maxX = Math.max(maxX, p[0]);
-          minY = Math.min(minY, p[1]);
-          maxY = Math.max(maxY, p[1]);
-        });
-      }
+    pages.forEach((_, i) => {
+      const walls = wallsByPage[i] || [];
+      const rooms = roomsByPage[i] || [];
+      
+      walls.forEach(w => {
+        if (w.centerline && w.centerline.length === 2) {
+          w.centerline.forEach(p => {
+            minX = Math.min(minX, p[0]);
+            maxX = Math.max(maxX, p[0]);
+            minY = Math.min(minY, p[1]);
+            maxY = Math.max(maxY, p[1]);
+          });
+        }
+      });
+
+      rooms.forEach(r => {
+        if (r.polygon) {
+          r.polygon.forEach(p => {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+          });
+        }
+      });
     });
 
-    // Check rooms
-    rooms.forEach(r => {
-      if (r.polygon) {
-        r.polygon.forEach(p => {
-          minX = Math.min(minX, p.x);
-          maxX = Math.max(maxX, p.x);
-          minY = Math.min(minY, p.y);
-          maxY = Math.max(maxY, p.y);
-        });
-      }
-    });
+    if (minX === Infinity) {
+      return new THREE.Vector3(0, 0, 0);
+    }
 
-    if (minX === Infinity) return new THREE.Vector3(0, 0, 0);
     const midX = (minX + maxX) / 2;
     const midZ = (minY + maxY) / 2;
-    return new THREE.Vector3(midX - imgSize.w / 2, 0, midZ - imgSize.h / 2);
-  }, [walls, rooms, imgSize]);
+    const midY = (pages.length * wallHeight) / 4;
+    return new THREE.Vector3(midX - imgSize.w / 2, midY, midZ - imgSize.h / 2);
+  }, [pages, wallsByPage, roomsByPage, wallHeight, imgSize]);
 
   // Utility to extract door properties using getDoorCenterline
   const getDoorProps = (door) => {
@@ -271,696 +312,618 @@ export default function ThreeDView({
     doorMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
     doorMeshesRef.current = [];
 
-    // --- 1. RENDER ROOMS (FLOORS) ---
-    if (showFloors) {
-      rooms.forEach(room => {
-        const poly = room.polygon;
-        if (!poly || poly.length < 3) return;
+    // Loop through each page sorted by its level
+    sortedPageIndices.forEach((originalIndex, k) => {
+      // Check if this level is visible
+      if (visibleLevels[originalIndex] === false) return;
 
-        const shape = new THREE.Shape();
-        shape.moveTo(poly[0].x, poly[0].y);
-        for (let i = 1; i < poly.length; i++) {
-          shape.lineTo(poly[i].x, poly[i].y);
-        }
-        shape.closePath();
+      const page = pages[originalIndex];
+      const pageWalls = wallsByPage[originalIndex] || [];
+      const pageDoors = doorsByPage[originalIndex] || [];
+      const pageRooms = roomsByPage[originalIndex] || [];
+      
+      const yOffset = k * wallHeight;
 
-        // Color theme based on room type
-        let color = 0x475569; // default slate gray
-        const rType = (room.type || "").toLowerCase();
-        const rName = (room.room_name || "").toLowerCase();
+      // --- 1. RENDER ROOMS (FLOORS) ---
+      if (showFloors) {
+        pageRooms.forEach(room => {
+          const poly = room.polygon;
+          if (!poly || poly.length < 3) return;
 
-        if (rType === "wet" || /(bath|wc|toilet|ensuite|powder|laundry|shower)/i.test(rName)) {
-          color = 0x1e3a8a; // Ocean Blue tiles
-        } else if (rType === "dry" || /(bed|living|kitchen|dining|office|study|entry|hall)/i.test(rName)) {
-          color = 0x7c2d12; // Timber/wood brown
-          if (/(bed|bedroom|study|office)/i.test(rName)) {
-            color = 0x334155; // Cozy carpet grey
+          const shape = new THREE.Shape();
+          shape.moveTo(poly[0].x, poly[0].y);
+          for (let i = 1; i < poly.length; i++) {
+            shape.lineTo(poly[i].x, poly[i].y);
           }
-        } else if (rType === "timber_deck") {
-          color = 0x451a03; // Dark timber deck
-        } else if (rType === "tile_deck" || /(balcony|deck|alfresco)/i.test(rName)) {
-          color = 0x3f3f46; // Stone gray tiles
-        }
+          shape.closePath();
 
-        const extrudeSettings = { depth: 1, bevelEnabled: false };
-        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          // Color theme based on room type
+          let color = 0x475569;
+          const rType = (room.type || "").toLowerCase();
+          const rName = (room.room_name || "").toLowerCase();
+
+          if (rType === "wet" || /(bath|wc|toilet|ensuite|powder|laundry|shower)/i.test(rName)) {
+            color = 0x1e3a8a;
+          } else if (rType === "dry" || /(bed|living|kitchen|dining|office|study|entry|hall)/i.test(rName)) {
+            color = 0x7c2d12;
+            if (/(bed|bedroom|study|office)/i.test(rName)) {
+              color = 0x334155;
+            }
+          } else if (rType === "timber_deck") {
+            color = 0x451a03;
+          } else if (rType === "tile_deck" || /(balcony|deck|alfresco)/i.test(rName)) {
+            color = 0x3f3f46;
+          }
+
+          const extrudeSettings = { depth: 1, bevelEnabled: false };
+          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          const material = new THREE.MeshStandardMaterial({
+            color: color,
+            roughness: 0.85,
+            metalness: 0.1,
+            side: THREE.DoubleSide
+          });
+
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.rotation.x = Math.PI / 2;
+          mesh.position.set(-imgSize.w / 2, yOffset - 0.5, -imgSize.h / 2);
+          mesh.receiveShadow = enableShadows;
+          scene.add(mesh);
+          floorMeshesRef.current.push(mesh);
+        });
+      }
+
+      // --- 1b. RENDER PDF UNDERLAY (Only for level 0) ---
+      if (showPDF && page.image && k === 0) {
+        const loader = new THREE.TextureLoader();
+        const texture = loader.load(page.image);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.flipY = false;
+        
+        const planeGeo = new THREE.PlaneGeometry(imgSize.w, imgSize.h);
+        const planeMat = new THREE.MeshBasicMaterial({
+          map: texture,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.65
+        });
+        
+        const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+        planeMesh.rotation.x = Math.PI / 2;
+        planeMesh.position.set(0, -1.5, 0);
+        
+        scene.add(planeMesh);
+        floorMeshesRef.current.push(planeMesh);
+      }
+
+      // --- 2. RENDER WALLS ---
+      const cutWalls = cutWallsByDoors(pageWalls, pageDoors, realScale, true);
+      cutWalls.forEach(wall => {
+        const centerline = wall.centerline;
+        if (!centerline || centerline.length !== 2) return;
+
+        const p1 = centerline[0];
+        const p2 = centerline[1];
+        const x1 = p1[0], y1 = p1[1];
+        const x2 = p2[0], y2 = p2[1];
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+        const thickness = wall.thickness_px || 20;
+
+        let activeWallHeight = wallHeight; // Scale to height slider
+
+        const color = wall.class_name === "exterior_wall" ? 0x64748b : 0x94a3b8;
         const material = new THREE.MeshStandardMaterial({
           color: color,
-          roughness: 0.85,
-          metalness: 0.1,
-          side: THREE.DoubleSide
-        });
-
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.rotation.x = Math.PI / 2; // Lie flat on X-Z plane
-        mesh.position.set(-imgSize.w / 2, -0.5, -imgSize.h / 2); // Center floors on grid helper
-        mesh.receiveShadow = enableShadows;
-        scene.add(mesh);
-        floorMeshesRef.current.push(mesh);
-      });
-    }
-
-    // --- 1b. RENDER PDF UNDERLAY ---
-    if (showPDF && image) {
-      const loader = new THREE.TextureLoader();
-      const texture = loader.load(image);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.minFilter = THREE.LinearFilter;
-      texture.flipY = false; // Disable default vertical flip to match SVG canvas coordinates exactly
-      
-      const planeGeo = new THREE.PlaneGeometry(imgSize.w, imgSize.h);
-      const planeMat = new THREE.MeshBasicMaterial({
-        map: texture,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.65
-      });
-      
-      const planeMesh = new THREE.Mesh(planeGeo, planeMat);
-      planeMesh.rotation.x = Math.PI / 2;
-      planeMesh.position.set(0, -1.5, 0); // Center PDF on the grid
-      
-      scene.add(planeMesh);
-      floorMeshesRef.current.push(planeMesh);
-    }
-
-    // --- 2. RENDER WALLS ---
-    const cutWalls = cutWallsByDoors(walls, doors, realScale, true);
-    cutWalls.forEach(wall => {
-      const centerline = wall.centerline;
-      if (!centerline || centerline.length !== 2) return;
-
-      const p1 = centerline[0];
-      const p2 = centerline[1];
-      const x1 = p1[0], y1 = p1[1];
-      const x2 = p2[0], y2 = p2[1];
-
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx);
-      const thickness = wall.thickness_px || 20;
-
-      // Convert mm to pixels. Fallback to default height.
-      let activeWallHeight = defaultHeightPx;
-      if (wall.height && realScale) {
-        activeWallHeight = wall.height / realScale;
-      }
-
-      const color = wall.class_name === "exterior_wall" ? 0x64748b : 0x94a3b8;
-      const material = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: 0.75,
-        metalness: 0.15
-      });
-
-      const poly = wall.polygon;
-      if (poly && poly.length >= 3) {
-        // Render exact 3D wall using its 2D polygon representation to eliminate corner gaps
-        const shape = new THREE.Shape();
-        shape.moveTo(poly[0][0], poly[0][1]);
-        for (let i = 1; i < poly.length; i++) {
-          shape.lineTo(poly[i][0], poly[i][1]);
-        }
-        shape.closePath();
-
-        const extrudeSettings = { depth: activeWallHeight, bevelEnabled: false };
-        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.rotation.x = Math.PI / 2; // Lie flat on X-Z plane
-        mesh.position.set(-imgSize.w / 2, activeWallHeight, -imgSize.h / 2); // Align with extrusion direction
-        mesh.castShadow = enableShadows;
-        mesh.receiveShadow = enableShadows;
-
-        scene.add(mesh);
-        wallMeshesRef.current.push(mesh);
-      } else {
-        // Fallback to BoxGeometry
-        const geometry = new THREE.BoxGeometry(length, activeWallHeight, thickness);
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set((x1 + x2) / 2 - imgSize.w / 2, activeWallHeight / 2, (y1 + y2) / 2 - imgSize.h / 2); // Center walls on grid
-        mesh.rotation.y = -angle;
-        mesh.castShadow = enableShadows;
-        mesh.receiveShadow = enableShadows;
-
-        scene.add(mesh);
-        wallMeshesRef.current.push(mesh);
-      }
-    });
-
-    if (showDoors) {
-      doors.forEach(door => {
-        const { cx, cy, length, angle, thickness } = getDoorProps(door);
-        
-        let wallThickness = thickness;
-        let hostWallAngle = angle;
-        let hostWallCx = cx;
-        let hostWallCy = cy;
-        let hostWallClass = "interior_wall";
-        let hostWallHeightPx = defaultHeightPx;
-
-        // Find closest wall for thickness, class_name (to match color/material) and cut endpoints
-        const points = door.points || [];
-        let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
-        let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
-        
-        const jambOffsetMm = 150;
-        const halfJamb = (realScale && realScale > 0) ? (jambOffsetMm / realScale) : 10.0;
-        let leftJambMesh = null;
-        let rightJambMesh = null;
-
-        if (p1 && p2) {
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const dLen = Math.sqrt(dx * dx + dy * dy);
-          if (dLen > 0) {
-            const ux = dx / dLen;
-            const uy = dy / dLen;
-
-            let nearestWall = null;
-            let minPerpDist = Infinity;
-
-            if (walls && walls.length > 0) {
-              walls.forEach(w => {
-                if (!w.centerline || w.centerline.length < 2) return;
-                const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
-                const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-                
-                const cxSeg = (p1.x + p2.x) / 2;
-                const cySeg = (p1.y + p2.y) / 2;
-                const wdx = wp2.x - wp1.x;
-                const wdy = wp2.y - wp1.y;
-                const L2 = wdx * wdx + wdy * wdy;
-                if (L2 < 0.1) return;
-
-                const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
-                const tVal = ((cxSeg - wp1.x) * wdx + (cySeg - wp1.y) * wdy) / L2;
-
-                if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
-                  if (perpDist < minPerpDist) {
-                    minPerpDist = perpDist;
-                    nearestWall = w;
-                  }
-                }
-              });
-            }
-
-            if (nearestWall) {
-              wallThickness = nearestWall.thickness_px || thickness;
-              hostWallClass = nearestWall.class_name || "interior_wall";
-              const wHeight = nearestWall.height || defaultHeightMm;
-              if (realScale) {
-                hostWallHeightPx = wHeight / realScale;
-              }
-
-              const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
-              const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
-              const wdx = wp2.x - wp1.x;
-              const wdy = wp2.y - wp1.y;
-              const wLen = Math.hypot(wdx, wdy);
-
-              if (wLen > 0.1) {
-                const wAngle = Math.atan2(wdy, wdx);
-                const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
-                hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
-
-                const uxW = wdx / wLen;
-                const uyW = wdy / wLen;
-                const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
-                hostWallCx = wp1.x + tProj * uxW;
-                hostWallCy = wp1.y + tProj * uyW;
-
-                const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-                const fillerMat = new THREE.MeshStandardMaterial({
-                  color: wallColor,
-                  roughness: 0.75,
-                  metalness: 0.15
-                });
-
-                [wp1, wp2].forEach(pt => {
-                  const dxPt1 = pt.x - p1.x;
-                  const dyPt1 = pt.y - p1.y;
-                  const t1 = dxPt1 * ux + dyPt1 * uy;
-                  const projX1 = p1.x + t1 * ux;
-                  const projY1 = p1.y + t1 * uy;
-                  const distToP1 = Math.hypot(pt.x - projX1, pt.y - projY1);
-
-                  if (distToP1 < 12.0 && t1 < 0 && t1 >= -halfJamb * 3) {
-                    const tGap = (p1.x - pt.x) * uxW + (p1.y - pt.y) * uyW;
-                    const gapLen = Math.abs(tGap);
-                    if (gapLen > 0.1) {
-                      const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
-                      leftJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
-                      leftJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
-                      leftJambMesh.rotation.y = -wAngle;
-                      leftJambMesh.castShadow = enableShadows;
-                      leftJambMesh.receiveShadow = enableShadows;
-                    }
-                  }
-
-                  const dxPt2 = pt.x - p2.x;
-                  const dyPt2 = pt.y - p2.y;
-                  const t2 = dxPt2 * ux + dyPt2 * uy;
-                  const projX2 = p2.x + t2 * ux;
-                  const projY2 = p2.y + t2 * uy;
-                  const distToP2 = Math.hypot(pt.x - projX2, pt.y - projY2);
-
-                  if (distToP2 < 12.0 && t2 > 0 && t2 <= halfJamb * 3) {
-                    const tGap = (p2.x - pt.x) * uxW + (p2.y - pt.y) * uyW;
-                    const gapLen = Math.abs(tGap);
-                    if (gapLen > 0.1) {
-                      const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
-                      rightJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
-                      rightJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
-                      rightJambMesh.rotation.y = -wAngle;
-                      rightJambMesh.castShadow = enableShadows;
-                      rightJambMesh.receiveShadow = enableShadows;
-                    }
-                  }
-                });
-              }
-            }
-          }
-        }
-
-        // Group to manage the frame and slab together
-        const doorGroup = new THREE.Group();
-        const frameHeight = hostWallHeightPx * 0.85; // Doors are slightly shorter than walls
-        const frameDepth = wallThickness + 4; // Frame depth matches wall thickness + 4px for lintel/trim
-
-        // Frame post materials (wood style)
-        const frameMat = new THREE.MeshStandardMaterial({
-          color: 0x27160c, // Dark chocolate brown frame
-          roughness: 0.7,
-          metalness: 0.1
-        });
-        
-        const slabMat = new THREE.MeshStandardMaterial({
-          color: 0x5c3a21, // Warm teak brown door panel
-          roughness: 0.5,
-          metalness: 0.05
-        });
-
-        const glassMat = new THREE.MeshStandardMaterial({
-          color: 0xa5f3fc, // Cyan/sky tint
-          roughness: 0.1,
-          metalness: 0.9,
-          opacity: 0.35,
-          transparent: true
-        });
-
-        const handleMat = new THREE.MeshStandardMaterial({
-          color: 0xd4af37, // Gold brass handles
-          roughness: 0.2,
-          metalness: 0.8
-        });
-
-        // Frame posts (Left, Right, Top)
-        const postThickness = 5;
-        
-        // Left Frame Post
-        const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
-        const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
-        leftPost.position.set(-length / 2 + postThickness / 2, frameHeight / 2, 0);
-        leftPost.castShadow = enableShadows;
-        leftPost.receiveShadow = enableShadows;
-        doorGroup.add(leftPost);
-
-        // Right Frame Post
-        const rightPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
-        const rightPost = new THREE.Mesh(rightPostGeo, frameMat);
-        rightPost.position.set(length / 2 - postThickness / 2, frameHeight / 2, 0);
-        rightPost.castShadow = enableShadows;
-        rightPost.receiveShadow = enableShadows;
-        doorGroup.add(rightPost);
-
-        // Top Frame Header
-        const headerGeo = new THREE.BoxGeometry(length, postThickness, frameDepth);
-        const header = new THREE.Mesh(headerGeo, frameMat);
-        header.position.set(0, frameHeight - postThickness / 2, 0);
-        header.castShadow = enableShadows;
-        header.receiveShadow = enableShadows;
-        doorGroup.add(header);
-
-        // Door Classes:
-        const dClass = door.class || "";
-        const isSliding = dClass.includes("sliding") || dClass.includes("slider");
-        const isBifold = dClass.includes("bifold");
-        const isDouble = dClass.includes("double") || (door.door_name && door.door_name.toLowerCase().includes("2x"));
-        const isGarage = dClass.includes("garage");
-
-        // Helper to add handles
-        const addHandleToPanel = (group, posX, posY, posZ, isLever = true) => {
-          const handleGroup = new THREE.Group();
-          handleGroup.position.set(posX, posY, posZ);
-
-          // Handle base plate
-          const plateGeo = new THREE.BoxGeometry(1.2, 5, 0.4);
-          const plate = new THREE.Mesh(plateGeo, handleMat);
-          handleGroup.add(plate);
-
-          if (isLever) {
-            // Latch cylinder sticking out in Z
-            const neckGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 8);
-            const neck = new THREE.Mesh(neckGeo, handleMat);
-            neck.rotation.x = Math.PI / 2;
-            neck.position.set(0, 0, 0.7);
-            handleGroup.add(neck);
-
-            // Handle bar pointing horizontally
-            const barGeo = new THREE.BoxGeometry(3.5, 0.6, 0.4);
-            const bar = new THREE.Mesh(barGeo, handleMat);
-            bar.position.set(1.5, 0, 1.4);
-            handleGroup.add(bar);
-          } else {
-            // Pull knob
-            const knobGeo = new THREE.CylinderGeometry(1, 1, 1.2, 12);
-            const knob = new THREE.Mesh(knobGeo, handleMat);
-            knob.rotation.x = Math.PI / 2;
-            knob.position.set(0, 0, 0.8);
-            handleGroup.add(knob);
-          }
-          group.add(handleGroup);
-        };
-
-        const slabHeight = frameHeight - postThickness - 2;
-
-        if (isGarage) {
-          // Render Garage Door Panel: Large sectional panel with horizontal slots
-          const pWidth = length - postThickness * 2 - 2;
-          const sectionGroup = new THREE.Group();
-          sectionGroup.position.set(0, slabHeight / 2, 0);
-
-          const mainPanelGeo = new THREE.BoxGeometry(pWidth, slabHeight, 4);
-          const mainPanel = new THREE.Mesh(mainPanelGeo, slabMat);
-          mainPanel.castShadow = enableShadows;
-          mainPanel.receiveShadow = enableShadows;
-          sectionGroup.add(mainPanel);
-
-          // Horizontal grid grooves
-          const grooveColor = 0x1a0f0a;
-          const grooveMat = new THREE.MeshStandardMaterial({ color: grooveColor, roughness: 0.8 });
-          for (let yOffset = -slabHeight/2 + slabHeight/4; yOffset < slabHeight/2; yOffset += slabHeight/4) {
-            const grooveGeo = new THREE.BoxGeometry(pWidth - 10, 1, 4.2);
-            const groove = new THREE.Mesh(grooveGeo, grooveMat);
-            groove.position.set(0, yOffset, 0);
-            sectionGroup.add(groove);
-          }
-          doorGroup.add(sectionGroup);
-
-        } else if (isSliding) {
-          // Sliding Door: Two panels overlapping
-          const pWidth = (length - postThickness * 2) / 2 + 5;
-          const slabThick = 3;
-
-          // Panel 1 (Fixed) - offset back in Z, aligned to right
-          const fixedGroup = new THREE.Group();
-          fixedGroup.position.set(length/4 - postThickness/2, slabHeight / 2, -2);
-          
-          // Framed glass structure
-          const borderThick = 6;
-          // Left border
-          const b1 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
-          b1.position.set(-pWidth/2 + borderThick/2, 0, 0);
-          fixedGroup.add(b1);
-          // Right border
-          const b2 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
-          b2.position.set(pWidth/2 - borderThick/2, 0, 0);
-          fixedGroup.add(b2);
-          // Top border
-          const b3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
-          b3.position.set(0, slabHeight/2 - borderThick/2, 0);
-          fixedGroup.add(b3);
-          // Bottom border
-          const b4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
-          b4.position.set(0, -slabHeight/2 + borderThick/2, 0);
-          fixedGroup.add(b4);
-          // Center glass
-          const glassGeo = new THREE.BoxGeometry(pWidth - borderThick*2, slabHeight - borderThick*2, 1);
-          const glass = new THREE.Mesh(glassGeo, glassMat);
-          fixedGroup.add(glass);
-          doorGroup.add(fixedGroup);
-
-          // Panel 2 (Slidable - offset forward in Z, slid open slightly)
-          const activeGroup = new THREE.Group();
-          // Slid open by 30% of panel width
-          const slideOffset = pWidth * 0.4;
-          activeGroup.position.set(-length/4 + postThickness/2 + slideOffset, slabHeight / 2, 2);
-
-          // Left border
-          const ab1 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
-          ab1.position.set(-pWidth/2 + borderThick/2, 0, 0);
-          activeGroup.add(ab1);
-          // Right border
-          const ab2 = new THREE.Mesh(new THREE.BoxGeometry(borderThick, slabHeight, slabThick), slabMat);
-          ab2.position.set(pWidth/2 - borderThick/2, 0, 0);
-          activeGroup.add(ab2);
-          // Top border
-          const ab3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
-          ab3.position.set(0, slabHeight/2 - borderThick/2, 0);
-          activeGroup.add(ab3);
-          // Bottom border
-          const ab4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, borderThick, slabThick), slabMat);
-          ab4.position.set(0, -slabHeight/2 + borderThick/2, 0);
-          activeGroup.add(ab4);
-          // Center glass
-          const aglass = new THREE.Mesh(glassGeo, glassMat);
-          activeGroup.add(aglass);
-
-          // Add a sliding handle (pull knob style) on active panel
-          addHandleToPanel(activeGroup, pWidth/2 - borderThick - 4, 0, slabThick/2, false);
-          addHandleToPanel(activeGroup, pWidth/2 - borderThick - 4, 0, -slabThick/2, false);
-
-          doorGroup.add(activeGroup);
-
-        } else if (isBifold) {
-          // Bifold Door: 4 folding panels
-          const panelCount = 4;
-          const pWidth = (length - postThickness * 2 - 4) / panelCount;
-          const slabThick = 3;
-          const borderThick = 5;
-
-          // Pivot Group for accordion folding
-          const bifoldContainer = new THREE.Group();
-          bifoldContainer.position.set(-length/2 + postThickness + 1, slabHeight/2, 0);
-
-          // We model a V-shape fold for 4 panels
-          // Fold Angle: e.g. 45 degrees
-          const foldAngle = Math.PI / 4; 
-
-          // Panel 1: Swings from left hinge
-          const p1Group = new THREE.Group();
-          p1Group.rotation.y = foldAngle;
-          
-          const p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          p1Mesh.position.set(pWidth/2, 0, 0);
-          p1Group.add(p1Mesh);
-
-          // Panel 2: Hinged on panel 1 tip, folds back
-          const p2Group = new THREE.Group();
-          p2Group.position.set(pWidth, 0, 0);
-          p2Group.rotation.y = -foldAngle * 2;
-
-          const p2Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          p2Mesh.position.set(pWidth/2, 0, 0);
-          p2Group.add(p2Mesh);
-          p1Group.add(p2Group);
-
-          // Panel 3: Hinged on panel 2 tip, folds forward
-          const p3Group = new THREE.Group();
-          p3Group.position.set(pWidth, 0, 0);
-          p3Group.rotation.y = foldAngle * 2;
-
-          const p3Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          p3Mesh.position.set(pWidth/2, 0, 0);
-          p3Group.add(p3Mesh);
-          p2Group.add(p3Group);
-
-          // Panel 4: Hinged on panel 3 tip, folds back
-          const p4Group = new THREE.Group();
-          p4Group.position.set(pWidth, 0, 0);
-          p4Group.rotation.y = -foldAngle * 2;
-
-          const p4Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          p4Mesh.position.set(pWidth/2, 0, 0);
-          p4Group.add(p4Mesh);
-          p3Group.add(p4Group);
-
-          bifoldContainer.add(p1Group);
-          doorGroup.add(bifoldContainer);
-
-        } else if (isDouble) {
-          // Double Door: Two symmetrically opening panels
-          const pWidth = (length - postThickness * 2 - 4) / 2;
-          const slabThick = 4;
-          
-          // Left Pivot Group
-          const leftPivot = new THREE.Group();
-          leftPivot.position.set(-length/2 + postThickness, slabHeight / 2, 0);
-          
-          const leftPanelGroup = new THREE.Group();
-          // Frame + recessed panels
-          const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          leftSlab.position.set(pWidth/2, 0, 0);
-          leftPanelGroup.add(leftSlab);
-
-          // Recessed panels detailing (2 rectangular border frames)
-          const detailMat = new THREE.MeshStandardMaterial({ color: 0x482d19, roughness: 0.6 });
-          const detailGeo = new THREE.BoxGeometry(pWidth - 10, slabHeight/2 - 10, 0.6);
-          const topDetail = new THREE.Mesh(detailGeo, detailMat);
-          topDetail.position.set(pWidth/2, slabHeight/4, slabThick/2 + 0.1);
-          const bottomDetail = new THREE.Mesh(detailGeo, detailMat);
-          bottomDetail.position.set(pWidth/2, -slabHeight/4, slabThick/2 + 0.1);
-          leftPanelGroup.add(topDetail);
-          leftPanelGroup.add(bottomDetail);
-
-          // Mirror on the back
-          const topDetailB = new THREE.Mesh(detailGeo, detailMat);
-          topDetailB.position.set(pWidth/2, slabHeight/4, -slabThick/2 - 0.1);
-          const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
-          bottomDetailB.position.set(pWidth/2, -slabHeight/4, -slabThick/2 - 0.1);
-          leftPanelGroup.add(topDetailB);
-          leftPanelGroup.add(bottomDetailB);
-
-          // Handle (lever style)
-          addHandleToPanel(leftPanelGroup, pWidth - 6, 0, slabThick/2, true);
-          addHandleToPanel(leftPanelGroup, pWidth - 6, 0, -slabThick/2, true);
-
-          leftPivot.add(leftPanelGroup);
-          leftPivot.rotation.y = Math.PI / 4; // Open at 45°
-          doorGroup.add(leftPivot);
-
-          // Right Pivot Group
-          const rightPivot = new THREE.Group();
-          rightPivot.position.set(length/2 - postThickness, slabHeight / 2, 0);
-          
-          const rightPanelGroup = new THREE.Group();
-          const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          rightSlab.position.set(-pWidth/2, 0, 0);
-          rightPanelGroup.add(rightSlab);
-
-          // Recessed panels detailing
-          const topDetailR = new THREE.Mesh(detailGeo, detailMat);
-          topDetailR.position.set(-pWidth/2, slabHeight/4, slabThick/2 + 0.1);
-          const bottomDetailR = new THREE.Mesh(detailGeo, detailMat);
-          bottomDetailR.position.set(-pWidth/2, -slabHeight/4, slabThick/2 + 0.1);
-          rightPanelGroup.add(topDetailR);
-          rightPanelGroup.add(bottomDetailR);
-
-          const topDetailRB = new THREE.Mesh(detailGeo, detailMat);
-          topDetailRB.position.set(-pWidth/2, slabHeight/4, -slabThick/2 - 0.1);
-          const bottomDetailRB = new THREE.Mesh(detailGeo, detailMat);
-          bottomDetailRB.position.set(-pWidth/2, -slabHeight/4, -slabThick/2 - 0.1);
-          rightPanelGroup.add(topDetailRB);
-          rightPanelGroup.add(bottomDetailRB);
-
-          // Handle (lever style)
-          addHandleToPanel(rightPanelGroup, -pWidth + 6, 0, slabThick/2, true);
-          addHandleToPanel(rightPanelGroup, -pWidth + 6, 0, -slabThick/2, true);
-
-          rightPivot.add(rightPanelGroup);
-          rightPivot.rotation.y = -Math.PI / 4; // Open at 45°
-          doorGroup.add(rightPivot);
-
-        } else {
-          // Single Swing Door
-          const hingeSide = door.hingeSide || door.hinge_side || "left";
-          const swing = door.swing || door.swing_direction || "inward";
-          const angleVal = door.angle || door.opening_angle || 35; // default 35 for visualization
-
-          const isRightHinge = hingeSide === "right";
-          const isInward = swing === "inward";
-          const hingeFactor = isRightHinge ? -1 : 1;
-          const sideFactor = isInward ? 1 : -1;
-          const openAngleRad = (angleVal * Math.PI) / 180;
-
-          const pWidth = length - postThickness * 2 - 2;
-          const slabThick = 4;
-
-          const pivotGroup = new THREE.Group();
-          if (isRightHinge) {
-            pivotGroup.position.set(length / 2 - postThickness, slabHeight / 2, 0);
-          } else {
-            pivotGroup.position.set(-length / 2 + postThickness, slabHeight / 2, 0);
-          }
-
-          const dxSlab = isRightHinge ? -pWidth / 2 : pWidth / 2;
-          const dxHandle = isRightHinge ? -pWidth + 8 : pWidth - 8;
-
-          const panelGroup = new THREE.Group();
-          const slab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-          slab.position.set(dxSlab, 0, 0);
-          slab.castShadow = enableShadows;
-          slab.receiveShadow = enableShadows;
-          panelGroup.add(slab);
-
-          // Recessed detail panels
-          const detailMat = new THREE.MeshStandardMaterial({ color: 0x482d19, roughness: 0.6 });
-          const detailGeo = new THREE.BoxGeometry(pWidth - 12, slabHeight/2 - 12, 0.6);
-          const topDetail = new THREE.Mesh(detailGeo, detailMat);
-          topDetail.position.set(dxSlab, slabHeight/4, slabThick/2 + 0.1);
-          const bottomDetail = new THREE.Mesh(detailGeo, detailMat);
-          bottomDetail.position.set(dxSlab, -slabHeight/4, slabThick/2 + 0.1);
-          panelGroup.add(topDetail);
-          panelGroup.add(bottomDetail);
-
-          const topDetailB = new THREE.Mesh(detailGeo, detailMat);
-          topDetailB.position.set(dxSlab, slabHeight/4, -slabThick/2 - 0.1);
-          const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
-          bottomDetailB.position.set(dxSlab, -slabHeight/4, -slabThick/2 - 0.1);
-          panelGroup.add(topDetailB);
-          panelGroup.add(bottomDetailB);
-
-          // Handle (lever style)
-          addHandleToPanel(panelGroup, dxHandle, 0, slabThick/2, true);
-          addHandleToPanel(panelGroup, dxHandle, 0, -slabThick/2, true);
-
-          pivotGroup.add(panelGroup);
-
-          // Swing open dynamically based on 2D properties
-          pivotGroup.rotation.y = hingeFactor * sideFactor * openAngleRad;
-          doorGroup.add(pivotGroup);
-        }
-
-        // --- 3D WALL FILLER BLOCK (Header above the door) ---
-        const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-        const fillerMat = new THREE.MeshStandardMaterial({
-          color: wallColor,
           roughness: 0.75,
           metalness: 0.15
         });
 
-        // 1. Header filler block (above the door frame)
-        const headerHeight = Math.max(0, hostWallHeightPx - frameHeight);
-        if (headerHeight > 0.1) {
-          const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
-          const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
-          headerMesh.position.set(0, frameHeight + headerHeight / 2, 0);
-          headerMesh.castShadow = enableShadows;
-          headerMesh.receiveShadow = enableShadows;
-          doorGroup.add(headerMesh);
-        }
+        const poly = wall.polygon;
+        if (poly && poly.length >= 3) {
+          const shape = new THREE.Shape();
+          shape.moveTo(poly[0][0], poly[0][1]);
+          for (let i = 1; i < poly.length; i++) {
+            shape.lineTo(poly[i][0], poly[i][1]);
+          }
+          shape.closePath();
 
-        // Add side jambs directly to scene
-        if (leftJambMesh) {
-          scene.add(leftJambMesh);
-          doorMeshesRef.current.push(leftJambMesh);
-        }
-        if (rightJambMesh) {
-          scene.add(rightJambMesh);
-          doorMeshesRef.current.push(rightJambMesh);
-        }
+          const extrudeSettings = { depth: activeWallHeight, bevelEnabled: false };
+          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
 
-        doorGroup.position.set(hostWallCx - imgSize.w / 2, 0, hostWallCy - imgSize.h / 2);
-        doorGroup.rotation.y = -hostWallAngle;
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.rotation.x = Math.PI / 2;
+          mesh.position.set(-imgSize.w / 2, yOffset + activeWallHeight, -imgSize.h / 2);
+          mesh.castShadow = enableShadows;
+          mesh.receiveShadow = enableShadows;
 
-        scene.add(doorGroup);
-        doorMeshesRef.current.push(doorGroup);
+          scene.add(mesh);
+          wallMeshesRef.current.push(mesh);
+        } else {
+          const geometry = new THREE.BoxGeometry(length, activeWallHeight, thickness);
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.position.set((x1 + x2) / 2 - imgSize.w / 2, yOffset + activeWallHeight / 2, (y1 + y2) / 2 - imgSize.h / 2);
+          mesh.rotation.y = -angle;
+          mesh.castShadow = enableShadows;
+          mesh.receiveShadow = enableShadows;
+
+          scene.add(mesh);
+          wallMeshesRef.current.push(mesh);
+        }
       });
-    }
 
-  }, [rooms, walls, doors, wallHeight, showFloors, showDoors, showPDF, enableShadows, realScale, image, imgSize]);
+      // --- 3. RENDER DOORS ---
+      if (showDoors) {
+        pageDoors.forEach(door => {
+          const { cx, cy, length, angle, thickness } = getDoorProps(door);
+          
+          let wallThickness = thickness;
+          let hostWallAngle = angle;
+          let hostWallCx = cx;
+          let hostWallCy = cy;
+          let hostWallClass = "interior_wall";
+          let hostWallHeightPx = wallHeight;
+
+          const points = door.points || [];
+          let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
+          let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
+          
+          const jambOffsetMm = 150;
+          const halfJamb = (realScale && realScale > 0) ? (jambOffsetMm / realScale) : 10.0;
+          let leftJambMesh = null;
+          let rightJambMesh = null;
+
+          if (p1 && p2) {
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const dLen = Math.sqrt(dx * dx + dy * dy);
+            if (dLen > 0) {
+              const ux = dx / dLen;
+              const uy = dy / dLen;
+
+              let nearestWall = null;
+              let minPerpDist = Infinity;
+
+              if (pageWalls && pageWalls.length > 0) {
+                pageWalls.forEach(w => {
+                  if (!w.centerline || w.centerline.length < 2) return;
+                  const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+                  const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+                  
+                  const cxSeg = (p1.x + p2.x) / 2;
+                  const cySeg = (p1.y + p2.y) / 2;
+                  const wdx = wp2.x - wp1.x;
+                  const wdy = wp2.y - wp1.y;
+                  const L2 = wdx * wdx + wdy * wdy;
+                  if (L2 < 0.1) return;
+
+                  const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
+                  const tVal = ((cxSeg - wp1.x) * wdx + (cySeg - wp1.y) * wdy) / L2;
+
+                  if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
+                    if (perpDist < minPerpDist) {
+                      minPerpDist = perpDist;
+                      nearestWall = w;
+                    }
+                  }
+                });
+              }
+
+              if (nearestWall) {
+                wallThickness = nearestWall.thickness_px || thickness;
+                hostWallClass = nearestWall.class_name || "interior_wall";
+                hostWallHeightPx = wallHeight;
+
+                const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
+                const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
+                const wdx = wp2.x - wp1.x;
+                const wdy = wp2.y - wp1.y;
+                const wLen = Math.hypot(wdx, wdy);
+
+                if (wLen > 0.1) {
+                  const wAngle = Math.atan2(wdy, wdx);
+                  const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
+                  hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
+
+                  const uxW = wdx / wLen;
+                  const uyW = wdy / wLen;
+                  const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
+                  hostWallCx = wp1.x + tProj * uxW;
+                  hostWallCy = wp1.y + tProj * uyW;
+
+                  const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+                  const fillerMat = new THREE.MeshStandardMaterial({
+                    color: wallColor,
+                    roughness: 0.75,
+                    metalness: 0.15
+                  });
+
+                  [wp1, wp2].forEach(pt => {
+                    const dxPt1 = pt.x - p1.x;
+                    const dyPt1 = pt.y - p1.y;
+                    const t1 = dxPt1 * ux + dyPt1 * uy;
+                    const projX1 = p1.x + t1 * ux;
+                    const projY1 = p1.y + t1 * uy;
+                    const distToP1 = Math.hypot(pt.x - projX1, pt.y - projY1);
+
+                    if (distToP1 < 12.0 && t1 < 0 && t1 >= -halfJamb * 3) {
+                      const tGap = (p1.x - pt.x) * uxW + (p1.y - pt.y) * uyW;
+                      const gapLen = Math.abs(tGap);
+                      if (gapLen > 0.1) {
+                        const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
+                        leftJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
+                        leftJambMesh.position.set(pt.x + (tGap / 2) * uxW - imgSize.w / 2, yOffset + hostWallHeightPx / 2, pt.y + (tGap / 2) * uyW - imgSize.h / 2);
+                        leftJambMesh.rotation.y = -wAngle;
+                        leftJambMesh.castShadow = enableShadows;
+                        leftJambMesh.receiveShadow = enableShadows;
+                      }
+                    }
+
+                    const dxPt2 = pt.x - p2.x;
+                    const dyPt2 = pt.y - p2.y;
+                    const t2 = dxPt2 * ux + dyPt2 * uy;
+                    const projX2 = p2.x + t2 * ux;
+                    const projY2 = p2.y + t2 * uy;
+                    const distToP2 = Math.hypot(pt.x - projX2, pt.y - projY2);
+
+                    if (distToP2 < 12.0 && t2 > 0 && t2 <= halfJamb * 3) {
+                      const tGap = (pt.x - p2.x) * uxW + (pt.y - p2.y) * uyW;
+                      const gapLen = Math.abs(tGap);
+                      if (gapLen > 0.1) {
+                        const fillerGeo = new THREE.BoxGeometry(gapLen, hostWallHeightPx, wallThickness);
+                        rightJambMesh = new THREE.Mesh(fillerGeo, fillerMat);
+                        rightJambMesh.position.set(p2.x + (tGap / 2) * uxW - imgSize.w / 2, yOffset + hostWallHeightPx / 2, p2.y + (tGap / 2) * uyW - imgSize.h / 2);
+                        rightJambMesh.rotation.y = -wAngle;
+                        rightJambMesh.castShadow = enableShadows;
+                        rightJambMesh.receiveShadow = enableShadows;
+                      }
+                    }
+                  });
+                }
+              }
+            }
+          }
+
+          const doorGroup = new THREE.Group();
+          const frameHeight = hostWallHeightPx * 0.85;
+
+          const frameMat = new THREE.MeshStandardMaterial({
+            color: 0x2e1a0c,
+            roughness: 0.8,
+            metalness: 0.1
+          });
+
+          const postThickness = 3;
+          const frameDepth = wallThickness + 4;
+
+          const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
+          const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
+          leftPost.position.set(-length/2, frameHeight/2, 0);
+          leftPost.castShadow = enableShadows;
+          leftPost.receiveShadow = enableShadows;
+          doorGroup.add(leftPost);
+
+          const rightPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
+          const rightPost = new THREE.Mesh(rightPostGeo, frameMat);
+          rightPost.position.set(length/2, frameHeight/2, 0);
+          rightPost.castShadow = enableShadows;
+          rightPost.receiveShadow = enableShadows;
+          doorGroup.add(rightPost);
+
+          const headerGeo = new THREE.BoxGeometry(length, postThickness, frameDepth);
+          const header = new THREE.Mesh(headerGeo, frameMat);
+          header.position.set(0, frameHeight - postThickness/2, 0);
+          header.castShadow = enableShadows;
+          header.receiveShadow = enableShadows;
+          doorGroup.add(header);
+
+          const dClass = door.class || "";
+          const isDouble = dClass.includes("double") || (door.door_name && door.door_name.toLowerCase().includes("2x"));
+          const isSliding = dClass.includes("sliding") || dClass.includes("slider") || dClass.includes("cavity");
+          const isBifold = dClass.includes("bifold") || dClass.includes("fold");
+          const isGarage = dClass.includes("garage") || dClass.includes("roller");
+
+          const slabHeight = frameHeight - postThickness;
+          const slabThick = 4;
+          const slabMat = new THREE.MeshStandardMaterial({
+            color: 0x5c3a21,
+            roughness: 0.85,
+            metalness: 0.1,
+            side: THREE.DoubleSide
+          });
+
+          const detailMat = new THREE.MeshStandardMaterial({
+            color: 0x422817,
+            roughness: 0.9,
+            metalness: 0.1
+          });
+
+          const addHandleToPanel = (panel, dx, dy, dz, lever = false) => {
+            const handleGroup = new THREE.Group();
+            const plateGeo = new THREE.BoxGeometry(1.2, 5, 0.4);
+            const plate = new THREE.Mesh(plateGeo, frameMat);
+            plate.position.set(0, 0, 0);
+            handleGroup.add(plate);
+
+            if (lever) {
+              const neckGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 8);
+              const neck = new THREE.Mesh(neckGeo, frameMat);
+              neck.rotation.x = Math.PI / 2;
+              neck.position.set(0, 0, 0.75);
+              handleGroup.add(neck);
+
+              const barGeo = new THREE.BoxGeometry(3.5, 0.6, 0.4);
+              const bar = new THREE.Mesh(barGeo, frameMat);
+              bar.position.set(1.5, 0, 1.5);
+              handleGroup.add(bar);
+            } else {
+              const knobGeo = new THREE.CylinderGeometry(1, 1, 1.2, 12);
+              const knob = new THREE.Mesh(knobGeo, frameMat);
+              knob.rotation.x = Math.PI / 2;
+              knob.position.set(0, 0, 0.6);
+              handleGroup.add(knob);
+            }
+            handleGroup.position.set(dx, dy, dz);
+            panel.add(handleGroup);
+          };
+
+          if (isGarage) {
+            const sectionGroup = new THREE.Group();
+            const numSections = 4;
+            const secH = slabHeight / numSections;
+            const pWidth = length - postThickness;
+
+            for (let sIdx = 0; sIdx < numSections; sIdx++) {
+              const mainPanelGeo = new THREE.BoxGeometry(pWidth, secH - 1, 4);
+              const panel = new THREE.Mesh(mainPanelGeo, slabMat);
+              panel.position.set(0, sIdx * secH + secH/2, 0);
+              panel.castShadow = enableShadows;
+              panel.receiveShadow = enableShadows;
+              sectionGroup.add(panel);
+
+              if (secH > 10) {
+                const grooveGeo = new THREE.BoxGeometry(pWidth - 10, 1, 4.2);
+                const groove = new THREE.Mesh(grooveGeo, detailMat);
+                groove.position.set(0, sIdx * secH + secH/2, 0);
+                sectionGroup.add(groove);
+              }
+            }
+            doorGroup.add(sectionGroup);
+          } else if (isSliding) {
+            const pWidth = (length - postThickness) / 2;
+            const fixedGroup = new THREE.Group();
+            const b1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+            const b2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+            const b3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+            const b4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+            b1.position.set(-pWidth/2, slabHeight/2, 0);
+            b2.position.set(pWidth/2, slabHeight/2, 0);
+            b3.position.set(0, 1, 0);
+            b4.position.set(0, slabHeight - 1, 0);
+            fixedGroup.add(b1, b2, b3, b4);
+            const glassGeo = new THREE.BoxGeometry(pWidth - 4, slabHeight - 4, 1);
+            const glassMat = new THREE.MeshPhysicalMaterial({
+              color: 0xffffff, transparent: true, opacity: 0.25,
+              roughness: 0.1, transmission: 0.9, thickness: 1.0
+            });
+            const glass = new THREE.Mesh(glassGeo, glassMat);
+            glass.position.set(0, slabHeight/2, 0);
+            fixedGroup.add(glass);
+            fixedGroup.position.set(-pWidth/2, 0, -2);
+            doorGroup.add(fixedGroup);
+
+            const activeGroup = new THREE.Group();
+            const ab1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+            const ab2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+            const ab3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+            const ab4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+            ab1.position.set(-pWidth/2, slabHeight/2, 0);
+            ab2.position.set(pWidth/2, slabHeight/2, 0);
+            ab3.position.set(0, 1, 0);
+            ab4.position.set(0, slabHeight - 1, 0);
+            activeGroup.add(ab1, ab2, ab3, ab4);
+            const glassActive = new THREE.Mesh(glassGeo, glassMat);
+            glassActive.position.set(0, slabHeight/2, 0);
+            activeGroup.add(glassActive);
+
+            addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, slabThick/2, false);
+            addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, -slabThick/2, false);
+
+            const openProgress = 0.5;
+            const slideOffsetX = openProgress * (pWidth - 4);
+            activeGroup.position.set(pWidth/2 - slideOffsetX, 0, 2);
+            doorGroup.add(activeGroup);
+          } else if (isBifold) {
+            const pWidth = (length - postThickness) / 4;
+            const bifoldContainer = new THREE.Group();
+
+            const p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            p1Mesh.position.set(pWidth/2, slabHeight/2, 0);
+            p1Mesh.castShadow = enableShadows;
+            p1Mesh.receiveShadow = enableShadows;
+
+            const b1Group = new THREE.Group();
+            b1Group.add(p1Mesh);
+
+            const p2Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            p2Mesh.position.set(pWidth/2, slabHeight/2, 0);
+            p2Mesh.castShadow = enableShadows;
+            p2Mesh.receiveShadow = enableShadows;
+
+            const b2Group = new THREE.Group();
+            b2Group.position.set(pWidth, 0, 0);
+            b2Group.add(p2Mesh);
+            b1Group.add(b2Group);
+
+            const p3Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            p3Mesh.position.set(-pWidth/2, slabHeight/2, 0);
+            p3Mesh.castShadow = enableShadows;
+            p3Mesh.receiveShadow = enableShadows;
+
+            const b3Group = new THREE.Group();
+            b3Group.add(p3Mesh);
+
+            const p4Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            p4Mesh.position.set(-pWidth/2, slabHeight/2, 0);
+            p4Mesh.castShadow = enableShadows;
+            p4Mesh.receiveShadow = enableShadows;
+
+            const b4Group = new THREE.Group();
+            b4Group.position.set(-pWidth, 0, 0);
+            b4Group.add(p4Mesh);
+            b3Group.add(b4Group);
+
+            const foldAngleRad = (45 * Math.PI) / 180;
+            b1Group.rotation.y = foldAngleRad;
+            b2Group.rotation.y = -foldAngleRad * 2;
+
+            b3Group.rotation.y = -foldAngleRad;
+            b4Group.rotation.y = foldAngleRad * 2;
+
+            b1Group.position.set(-length/2 + postThickness/2, 0, 0);
+            b3Group.position.set(length/2 - postThickness/2, 0, 0);
+
+            bifoldContainer.add(b1Group);
+            bifoldContainer.add(b3Group);
+            doorGroup.add(bifoldContainer);
+          } else if (isDouble) {
+            const pWidth = (length - postThickness) / 2;
+            const openAngleRad = (35 * Math.PI) / 180;
+
+            const leftPivot = new THREE.Group();
+            leftPivot.position.set(-length/2 + postThickness/2, 0, 0);
+            const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            leftSlab.position.set(pWidth/2, slabHeight/2, 0);
+            leftSlab.castShadow = enableShadows;
+            leftSlab.receiveShadow = enableShadows;
+
+            const leftGroup = new THREE.Group();
+            leftGroup.add(leftSlab);
+            const detailGeo = new THREE.BoxGeometry(pWidth - 10, slabHeight/2 - 10, 0.6);
+            const topDetailL = new THREE.Mesh(detailGeo, detailMat);
+            topDetailL.position.set(pWidth/2, slabHeight*0.75 - 5, slabThick/2 + 0.1);
+            const bottomDetailL = new THREE.Mesh(detailGeo, detailMat);
+            bottomDetailL.position.set(pWidth/2, slabHeight/4, slabThick/2 + 0.1);
+            leftGroup.add(topDetailL);
+            leftGroup.add(bottomDetailL);
+
+            addHandleToPanel(leftGroup, pWidth - 4, slabHeight/2, slabThick/2, true);
+            addHandleToPanel(leftGroup, pWidth - 4, slabHeight/2, -slabThick/2, true);
+
+            leftPivot.add(leftGroup);
+            leftPivot.rotation.y = openAngleRad;
+            doorGroup.add(leftPivot);
+
+            const rightPivot = new THREE.Group();
+            rightPivot.position.set(length/2 - postThickness/2, 0, 0);
+            const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
+            rightSlab.castShadow = enableShadows;
+            rightSlab.receiveShadow = enableShadows;
+
+            const rightGroup = new THREE.Group();
+            rightGroup.add(rightSlab);
+            const topDetailR = new THREE.Mesh(detailGeo, detailMat);
+            topDetailR.position.set(-pWidth/2, slabHeight*0.75 - 5, slabThick/2 + 0.1);
+            const bottomDetailR = new THREE.Mesh(detailGeo, detailMat);
+            bottomDetailR.position.set(-pWidth/2, slabHeight/4, slabThick/2 + 0.1);
+            rightGroup.add(topDetailR);
+            rightGroup.add(bottomDetailR);
+
+            addHandleToPanel(rightGroup, -pWidth + 4, slabHeight/2, slabThick/2, true);
+            addHandleToPanel(rightGroup, -pWidth + 4, slabHeight/2, -slabThick/2, true);
+
+            rightPivot.add(rightGroup);
+            rightPivot.rotation.y = -openAngleRad;
+            doorGroup.add(rightPivot);
+          } else {
+            const hingeSide = door.hingeSide || door.hinge_side || "left";
+            const swing = door.swing || door.swing_direction || "inward";
+            const angleVal = door.angle || door.opening_angle || 35;
+            const openAngleRad = (angleVal * Math.PI) / 180;
+
+            const pWidth = length - postThickness;
+            const pivotGroup = new THREE.Group();
+            const hingeFactor = hingeSide === "left" ? 1 : -1;
+            const sideFactor = swing === "inward" ? -1 : 1;
+
+            const pivotX = hingeSide === "left" ? -length/2 + postThickness/2 : length/2 - postThickness/2;
+            pivotGroup.position.set(pivotX, 0, 0);
+
+            const slab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+            const slabCenterX = hingeSide === "left" ? pWidth/2 : -pWidth/2;
+            slab.position.set(slabCenterX, slabHeight/2, 0);
+            slab.castShadow = enableShadows;
+            slab.receiveShadow = enableShadows;
+
+            const panelGroup = new THREE.Group();
+            panelGroup.add(slab);
+
+            const detailGeo = new THREE.BoxGeometry(pWidth - 12, slabHeight/2 - 12, 0.6);
+            const topDetailA = new THREE.Mesh(detailGeo, detailMat);
+            const dxSlab = slabCenterX;
+            topDetailA.position.set(dxSlab, slabHeight*0.75 - 6, slabThick/2 + 0.1);
+            const bottomDetailA = new THREE.Mesh(detailGeo, detailMat);
+            bottomDetailA.position.set(dxSlab, slabHeight/4, slabThick/2 + 0.1);
+            panelGroup.add(topDetailA);
+            panelGroup.add(bottomDetailA);
+
+            const topDetailB = new THREE.Mesh(detailGeo, detailMat);
+            topDetailB.position.set(dxSlab, slabHeight*0.75 - 6, -slabThick/2 - 0.1);
+            const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
+            bottomDetailB.position.set(dxSlab, slabHeight/4, -slabThick/2 - 0.1);
+            panelGroup.add(topDetailB);
+            panelGroup.add(bottomDetailB);
+
+            const dxHandle = hingeSide === "left" ? pWidth - 6 : -pWidth + 6;
+            addHandleToPanel(panelGroup, dxHandle, 0, slabThick/2, true);
+            addHandleToPanel(panelGroup, dxHandle, 0, -slabThick/2, true);
+
+            pivotGroup.add(panelGroup);
+            pivotGroup.rotation.y = hingeFactor * sideFactor * openAngleRad;
+            doorGroup.add(pivotGroup);
+          }
+
+          const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+          const fillerMat = new THREE.MeshStandardMaterial({
+            color: wallColor,
+            roughness: 0.75,
+            metalness: 0.15
+          });
+
+          const headerHeight = Math.max(0, hostWallHeightPx - frameHeight);
+          if (headerHeight > 0.1) {
+            const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
+            const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
+            headerMesh.position.set(0, frameHeight + headerHeight / 2, 0);
+            headerMesh.castShadow = enableShadows;
+            headerMesh.receiveShadow = enableShadows;
+            doorGroup.add(headerMesh);
+          }
+
+          if (leftJambMesh) {
+            scene.add(leftJambMesh);
+            doorMeshesRef.current.push(leftJambMesh);
+          }
+          if (rightJambMesh) {
+            scene.add(rightJambMesh);
+            doorMeshesRef.current.push(rightJambMesh);
+          }
+
+          doorGroup.position.set(hostWallCx - imgSize.w / 2, yOffset, hostWallCy - imgSize.h / 2);
+          doorGroup.rotation.y = -hostWallAngle;
+
+          scene.add(doorGroup);
+          doorMeshesRef.current.push(doorGroup);
+        });
+      }
+    });
+
+  }, [pages, wallsByPage, doorsByPage, roomsByPage, wallHeight, showFloors, showDoors, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
 
   // Reset Camera View
   const handleResetCamera = () => {

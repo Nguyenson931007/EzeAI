@@ -768,9 +768,11 @@ export default function App() {
 
           {show3D ? (
             <ThreeDView
-              rooms={rooms}
-              walls={wallsByPage[currentPage] || []}
-              doors={processedDoorsByPage[currentPage] || []}
+              pages={pages}
+              wallsByPage={wallsByPage}
+              doorsByPage={processedDoorsByPage}
+              roomsByPage={roomsByPage}
+              currentPage={currentPage}
               realScale={realScale}
               image={image}
               imgSize={imgSize}
