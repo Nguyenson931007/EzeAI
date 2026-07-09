@@ -151,7 +151,7 @@ export function useInteractionController(svgRef) {
     setInteractionMode("select");
   }
 
-  const mergeCollinearWalls = (wallsList) => {
+  const mergeCollinearWalls = (wallsList, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120) => {
     if (isWallMergeDisabled) return wallsList;
 
     // Identify exempt walls (currently selected or touching the selected vertex)
@@ -164,8 +164,8 @@ export function useInteractionController(svgRef) {
         if (w.centerline && w.centerline.length === 2) {
           const p1 = w.centerline[0];
           const p2 = w.centerline[1];
-          if (Math.hypot(p1[0] - pt[0], p1[1] - pt[1]) < 10 ||
-              Math.hypot(p2[0] - pt[0], p2[1] - pt[1]) < 10) {
+          if (Math.hypot(p1[0] - pt[0], pt[1] - pt[1]) < 10 ||
+              Math.hypot(p2[0] - pt[0], pt[1] - pt[1]) < 10) {
             exemptIds.add(w.id);
           }
         }
@@ -177,7 +177,7 @@ export function useInteractionController(svgRef) {
     const mergeableWalls = wallsList.filter(w => !exemptIds.has(w.id));
 
     // Merge the mergeable walls
-    const mergedMergeable = originalMergeCollinearWalls(mergeableWalls);
+    const mergedMergeable = originalMergeCollinearWalls(mergeableWalls, perpDistThresh, angleThresh, gapThresh);
 
     // Combine them back
     return [...exemptWalls, ...mergedMergeable];
@@ -861,7 +861,7 @@ export function useInteractionController(svgRef) {
       });
 
       // Merge collinear walls automatically after snapping
-      const merged = mergeCollinearWalls(updatedWalls);
+      const merged = mergeCollinearWalls(updatedWalls, 15, 0.98, 5);
       const pageDoors = doorsByPage[currentPage] || [];
       const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
       const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
@@ -2351,7 +2351,7 @@ export function useInteractionController(svgRef) {
           });
 
           // Automatically merge collinear/overlapping walls
-          const merged = mergeCollinearWalls(updatedWalls);
+          const merged = mergeCollinearWalls(updatedWalls, 15, 0.98, 5);
           // Cut the merged walls by the current doors list
           const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
           // Recalculate all wall junctions to cleanly snap and connect corners
