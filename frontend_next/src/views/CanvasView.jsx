@@ -262,7 +262,9 @@ const WallLayer = React.memo(({
   onVertexClick,
   selectedVertices,
   setSelectedVertices,
-  startVertexMove
+  startVertexMove,
+  handleWallDoubleClick,
+  onMouseUp
 }) => {
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
@@ -2650,6 +2652,8 @@ export default function CanvasView({
               selectedVertices={selectedVertices}
               setSelectedVertices={setSelectedVertices}
               startVertexMove={startVertexMove}
+              handleWallDoubleClick={handleWallDoubleClick}
+              onMouseUp={onMouseUp}
             />
 
             {/* Memoized Layer 4: Doors */}
