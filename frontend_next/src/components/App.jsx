@@ -212,6 +212,7 @@ export default function App() {
   const [showImportPageSelector, setShowImportPageSelector] = useState(false);
   const [importSelectedPages, setImportSelectedPages] = useState([]);
   const [pendingPages, setPendingPages] = useState([]);
+  const [isAddingPagesMode, setIsAddingPagesMode] = useState(false);
 
   // Authentication UI State
   const [authData, setAuthData] = useState({ username: "", password: "", email: "" });
@@ -544,25 +545,73 @@ export default function App() {
     
     const selectedData = importSelectedPages.sort((a,b) => a - b).map(idx => pendingPages[idx]);
     
-    // Clear ALL previous data when opening new file
-    setRoomsByPage({});
-    setDoorsByPage({});
-    setWallsByPage({});
+    if (isAddingPagesMode) {
+      // Shifting existing page data to their new indices
+      const newRoomsByPage = {};
+      const newWallsByPage = {};
+      const newDoorsByPage = {};
+      
+      selectedData.forEach((newPage, newIdx) => {
+        const oldIdx = pages.findIndex(p => p.image === newPage.image);
+        if (oldIdx !== -1) {
+          if (roomsByPage[oldIdx]) newRoomsByPage[newIdx] = roomsByPage[oldIdx];
+          if (wallsByPage[oldIdx]) newWallsByPage[newIdx] = wallsByPage[oldIdx];
+          if (doorsByPage[oldIdx]) newDoorsByPage[newIdx] = doorsByPage[oldIdx];
+        }
+      });
+      
+      setRoomsByPage(newRoomsByPage);
+      setWallsByPage(newWallsByPage);
+      setDoorsByPage(newDoorsByPage);
+      
+      setPages(selectedData);
+      
+      const stillExists = selectedData.some(p => p.image === image);
+      if (!stillExists) {
+        setCurrentPage(0);
+        setImage(selectedData[0].image);
+        setImgSize({
+          w: selectedData[0].w,
+          h: selectedData[0].h
+        });
+      } else {
+        const newCurrentIdx = selectedData.findIndex(p => p.image === image);
+        if (newCurrentIdx !== -1) {
+          setCurrentPage(newCurrentIdx);
+        }
+      }
+    } else {
+      // Clear ALL previous data when opening new file
+      setRoomsByPage({});
+      setDoorsByPage({});
+      setWallsByPage({});
 
-    setPages(selectedData);
-    setCurrentPage(0);
-    setImage(selectedData[0].image);
-    setImgSize({
-      w: selectedData[0].w,
-      h: selectedData[0].h
-    });
+      setPages(selectedData);
+      setCurrentPage(0);
+      setImage(selectedData[0].image);
+      setImgSize({
+        w: selectedData[0].w,
+        h: selectedData[0].h
+      });
+    }
 
     setShowImportPageSelector(false);
-    setPendingPages([]);
     setImportSelectedPages([]);
+    setIsAddingPagesMode(false);
 
     setTimeout(fitToScreen, 100);
   }
+
+  const openAddPagesSelector = () => {
+    if (!pendingPages || pendingPages.length === 0) {
+      alert("Không tìm thấy tệp gốc để thêm trang. Vui lòng tải lại tệp PDF!");
+      return;
+    }
+    const currentIndices = pages.map(p => pendingPages.findIndex(pending => pending.image === p.image)).filter(idx => idx !== -1);
+    setImportSelectedPages(currentIndices);
+    setIsAddingPagesMode(true);
+    setShowImportPageSelector(true);
+  };
 
   function getClassId(type) {
     if (type === "dry") return 0;
@@ -605,6 +654,7 @@ export default function App() {
     setPendingPages,
     setShowImportPageSelector,
     setImportSelectedPages,
+    setIsAddingPagesMode,
     roiRect
   });
 
@@ -675,6 +725,8 @@ export default function App() {
         pendingPages={pendingPages}
         setPendingPages={setPendingPages}
         confirmImport={confirmImport}
+        isAddingPagesMode={isAddingPagesMode}
+        setIsAddingPagesMode={setIsAddingPagesMode}
         fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} goPage={goPage}
         loadPDF={loadPDF} setImage={setImage} setImgSize={setImgSize}
         searchResultsVisible={searchResultsVisible}
@@ -701,6 +753,7 @@ export default function App() {
               currentPage={currentPage}
               onPageClick={goPage}
               roomsByPage={roomsByPage}
+              onAddPagesClick={openAddPagesSelector}
             />
           )}
 

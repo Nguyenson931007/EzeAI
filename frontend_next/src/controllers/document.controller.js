@@ -38,6 +38,7 @@ export function useDocumentController({
   setPendingPages,
   setShowImportPageSelector,
   setImportSelectedPages,
+  setIsAddingPagesMode,
   roiRect
 }) {
   const { showAlert } = useDialog();
@@ -67,6 +68,7 @@ export function useDocumentController({
 
     setPendingPages(pagesData);
     setImportSelectedPages(pagesData.map((_, i) => i)); // Select all by default
+    if (setIsAddingPagesMode) setIsAddingPagesMode(false);
     setShowImportPageSelector(true);
   }
 

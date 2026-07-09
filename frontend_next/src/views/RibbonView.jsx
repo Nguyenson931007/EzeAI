@@ -48,6 +48,8 @@ export default function RibbonView({
   importSelectedPages, setImportSelectedPages,
   pendingPages, setPendingPages,
   confirmImport,
+  isAddingPagesMode,
+  setIsAddingPagesMode,
   fitToScreen, rotatePlan90, goPage,
   loadPDF, setImage, setImgSize,
   // Add new search props
@@ -128,6 +130,7 @@ export default function RibbonView({
                         const imgData = { image: url, w: 2000, h: 1500 };
                         setPendingPages([imgData]);
                         setImportSelectedPages([0]);
+                        if (setIsAddingPagesMode) setIsAddingPagesMode(false);
                         setShowImportPageSelector(true);
                       }
                       e.target.value = '';
@@ -196,6 +199,9 @@ export default function RibbonView({
               <div className="ribbon-buttons">
                 <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
+                </button>
+                <button className={`ribbon-btn ${isDrawingDoor ? "active" : ""}`} onClick={() => { setIsDrawingDoor(d => !d); setDrawing(false); if (setDrawingWall) setDrawingWall(null); if (setInteractionMode) setInteractionMode("select"); }} title="Vẽ cửa thủ công bằng cách kéo thả">
+                  <span className="icon">🚪</span><span className="label">Door</span>
                 </button>
                 <button
                   className={`ribbon-btn ${interactionMode === "draw-ext-rect" ? "active" : ""}`}
@@ -708,7 +714,7 @@ export default function RibbonView({
               boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: '#e1e4ea'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>📂 Select Pages to Import</h3>
+                <h3 style={{ margin: 0, fontSize: 16, color: '#fff' }}>📂 {isAddingPagesMode ? "Add Pages to Project" : "Select Pages to Import"}</h3>
                 <button
                   onClick={() => {
                     if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
@@ -778,7 +784,7 @@ export default function RibbonView({
                 <button onClick={confirmImport} disabled={importSelectedPages.length === 0} style={{
                   padding: '8px 20px', background: importSelectedPages.length > 0 ? '#3b82f6' : '#374151',
                   color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-                }}>Import {importSelectedPages.length} Page(s)</button>
+                }}>{isAddingPagesMode ? "Add Selected Page(s)" : `Import ${importSelectedPages.length} Page(s)`}</button>
               </div>
             </div>
           </>
