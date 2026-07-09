@@ -474,6 +474,7 @@ const WallLayer = React.memo(({
               if (onWallContextMenu) onWallContextMenu(e, w);
             }}
             onClick={(e) => {
+              if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
               e.stopPropagation();
             }}
             onDoubleClick={(e) => {

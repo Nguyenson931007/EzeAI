@@ -2016,7 +2016,7 @@ export function useInteractionController(svgRef) {
             }
           }
 
-          if (dragging.connections) {
+          if (dragging.connections && !e.ctrlKey && !e.metaKey) {
             for (const conn of dragging.connections) {
               if (!updatedCenterlines[conn.otherWallId]) {
                 const otherWall = pageWalls.find(w => w.id === conn.otherWallId);
