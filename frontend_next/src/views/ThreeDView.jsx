@@ -345,7 +345,7 @@ export default function ThreeDView({
     }
 
     // --- 2. RENDER WALLS ---
-    const cutWalls = cutWallsByDoors(walls, doors, realScale);
+    const cutWalls = cutWallsByDoors(walls, doors, realScale, true);
     cutWalls.forEach(wall => {
       const centerline = wall.centerline;
       if (!centerline || centerline.length !== 2) return;
@@ -367,9 +367,6 @@ export default function ThreeDView({
         activeWallHeight = wall.height / realScale;
       }
 
-      const geometry = new THREE.BoxGeometry(length, activeWallHeight, thickness);
-      
-      // Material: concrete texture simulation
       const color = wall.class_name === "exterior_wall" ? 0x64748b : 0x94a3b8;
       const material = new THREE.MeshStandardMaterial({
         color: color,
@@ -377,14 +374,39 @@ export default function ThreeDView({
         metalness: 0.15
       });
 
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set((x1 + x2) / 2 - imgSize.w / 2, activeWallHeight / 2, (y1 + y2) / 2 - imgSize.h / 2); // Center walls on grid
-      mesh.rotation.y = -angle;
-      mesh.castShadow = enableShadows;
-      mesh.receiveShadow = enableShadows;
-      
-      scene.add(mesh);
-      wallMeshesRef.current.push(mesh);
+      const poly = wall.polygon;
+      if (poly && poly.length >= 3) {
+        // Render exact 3D wall using its 2D polygon representation to eliminate corner gaps
+        const shape = new THREE.Shape();
+        shape.moveTo(poly[0][0], poly[0][1]);
+        for (let i = 1; i < poly.length; i++) {
+          shape.lineTo(poly[i][0], poly[i][1]);
+        }
+        shape.closePath();
+
+        const extrudeSettings = { depth: activeWallHeight, bevelEnabled: false };
+        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.x = Math.PI / 2; // Lie flat on X-Z plane
+        mesh.position.set(-imgSize.w / 2, activeWallHeight, -imgSize.h / 2); // Align with extrusion direction
+        mesh.castShadow = enableShadows;
+        mesh.receiveShadow = enableShadows;
+
+        scene.add(mesh);
+        wallMeshesRef.current.push(mesh);
+      } else {
+        // Fallback to BoxGeometry
+        const geometry = new THREE.BoxGeometry(length, activeWallHeight, thickness);
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set((x1 + x2) / 2 - imgSize.w / 2, activeWallHeight / 2, (y1 + y2) / 2 - imgSize.h / 2); // Center walls on grid
+        mesh.rotation.y = -angle;
+        mesh.castShadow = enableShadows;
+        mesh.receiveShadow = enableShadows;
+
+        scene.add(mesh);
+        wallMeshesRef.current.push(mesh);
+      }
     });
 
     if (showDoors) {

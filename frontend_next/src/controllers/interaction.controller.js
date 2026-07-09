@@ -151,21 +151,21 @@ export function useInteractionController(svgRef) {
     setInteractionMode("select");
   }
 
-  const mergeCollinearWalls = (wallsList, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120) => {
+  const mergeCollinearWalls = (wallsList, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120, ignoreExemptions = false) => {
     if (isWallMergeDisabled) return wallsList;
 
     // Identify exempt walls (currently selected or touching the selected vertex)
-    const exemptIds = new Set(selectedWallIds || []);
-    if (selectedId) exemptIds.add(selectedId);
+    const exemptIds = ignoreExemptions ? new Set() : new Set(selectedWallIds || []);
+    if (!ignoreExemptions && selectedId) exemptIds.add(selectedId);
 
-    if (selectedWallVertex && selectedWallVertex.pt) {
+    if (!ignoreExemptions && selectedWallVertex && selectedWallVertex.pt) {
       const pt = selectedWallVertex.pt;
       for (const w of wallsList) {
         if (w.centerline && w.centerline.length === 2) {
           const p1 = w.centerline[0];
           const p2 = w.centerline[1];
-          if (Math.hypot(p1[0] - pt[0], pt[1] - pt[1]) < 10 ||
-              Math.hypot(p2[0] - pt[0], pt[1] - pt[1]) < 10) {
+          if (Math.hypot(p1[0] - pt[0], p1[1] - pt[1]) < 10 ||
+              Math.hypot(p2[0] - pt[0], p2[1] - pt[1]) < 10) {
             exemptIds.add(w.id);
           }
         }
@@ -693,12 +693,18 @@ export function useInteractionController(svgRef) {
     let wallsToProcess = pageWalls;
     let otherWalls = [];
 
-    if (targetWallIds && targetWallIds.length > 0) {
-      wallsToProcess = pageWalls.filter(w => targetWallIds.includes(w.id));
-      otherWalls = pageWalls.filter(w => !targetWallIds.includes(w.id));
+    // Default to selected walls if no target wall IDs are explicitly provided and we have selected walls
+    const activeTargetIds = (targetWallIds && targetWallIds.length > 0)
+      ? targetWallIds
+      : (selectedWallIds && selectedWallIds.length > 1 ? selectedWallIds : null);
+
+    if (activeTargetIds && activeTargetIds.length > 0) {
+      wallsToProcess = pageWalls.filter(w => activeTargetIds.includes(w.id));
+      otherWalls = pageWalls.filter(w => !activeTargetIds.includes(w.id));
     }
 
-    const merged = mergeCollinearWalls(wallsToProcess);
+    // Call mergeCollinearWalls with ignoreExemptions = true so selected walls are successfully merged
+    const merged = mergeCollinearWalls(wallsToProcess, 30, 0.90, 120, true);
     const finalWalls = [...otherWalls, ...merged];
 
     const currentPageDoors = doorsByPage[currentPage] || [];
@@ -2010,7 +2016,7 @@ export function useInteractionController(svgRef) {
             }
           }
 
-          if (dragging.connections) {
+          if (dragging.connections && !e.ctrlKey && !e.metaKey) {
             for (const conn of dragging.connections) {
               if (!updatedCenterlines[conn.otherWallId]) {
                 const otherWall = pageWalls.find(w => w.id === conn.otherWallId);

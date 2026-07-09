@@ -284,7 +284,11 @@ export function overlapsWithAnyDoor(wall, doors) {
   return false;
 }
 
-export function cutWallsByDoors(walls, doors, realScale = null) {
+export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false) {
+  if (!forceCut) {
+    return walls;
+  }
+
   if (!walls || walls.length === 0) return [];
   if (!doors || doors.length === 0) return walls;
 
