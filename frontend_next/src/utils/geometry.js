@@ -1036,7 +1036,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
   const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
 
   let bestWall = null;
-  let bestDist = maxDist;
+  let bestDist = Math.min(maxDist, 12); // Limit maximum snap distance to 12px to keep doors close to detected model positions
   let bestProj = null;
 
   for (const w of walls) {
