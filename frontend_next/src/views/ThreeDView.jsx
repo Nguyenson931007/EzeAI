@@ -106,8 +106,8 @@ export default function ThreeDView({
   }, [pages, wallsByPage, roomsByPage, wallHeight, imgSize]);
 
   // Utility to extract door properties using getDoorCenterline
-  const getDoorProps = (door) => {
-    const centerline = getDoorCenterline(door, walls);
+  const getDoorProps = (door, pageWalls = []) => {
+    const centerline = getDoorCenterline(door, pageWalls);
     const p1 = centerline.p1;
     const p2 = centerline.p2;
 
@@ -459,7 +459,7 @@ export default function ThreeDView({
       // --- 3. RENDER DOORS ---
       if (showDoors) {
         pageDoors.forEach(door => {
-          const { cx, cy, length, angle, thickness } = getDoorProps(door);
+          const { cx, cy, length, angle, thickness } = getDoorProps(door, pageWalls);
           
           let wallThickness = thickness;
           let hostWallAngle = angle;
