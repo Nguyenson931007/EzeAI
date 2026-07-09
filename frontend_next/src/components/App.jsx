@@ -273,7 +273,15 @@ export default function App() {
     pullStepPreview,
     extRectStart,
     setExtRectStart,
-    autoFitExtEnvelope
+    autoFitExtEnvelope,
+    vertexMenu, setVertexMenu,
+    wallBodyMenu, setWallBodyMenu,
+    isWallMergeDisabled, setIsWallMergeDisabled,
+    startDrawWallFromVertex,
+    separateJunction,
+    selectedVertices,
+    setSelectedVertices,
+    startVertexMove
   } = useInteractionController(svgRef);
 
   useEffect(() => {
@@ -806,6 +814,17 @@ export default function App() {
               drawingWallEnd={drawingWallEnd}
               setDrawingWallEnd={setDrawingWallEnd}
               handleWallDoubleClick={handleWallDoubleClick}
+              vertexMenu={vertexMenu}
+              setVertexMenu={setVertexMenu}
+              wallBodyMenu={wallBodyMenu}
+              setWallBodyMenu={setWallBodyMenu}
+              isWallMergeDisabled={isWallMergeDisabled}
+              setIsWallMergeDisabled={setIsWallMergeDisabled}
+              startDrawWallFromVertex={startDrawWallFromVertex}
+              separateJunction={separateJunction}
+              selectedVertices={selectedVertices}
+              setSelectedVertices={setSelectedVertices}
+              startVertexMove={startVertexMove}
             />
           )}
 
