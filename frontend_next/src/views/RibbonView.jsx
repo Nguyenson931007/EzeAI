@@ -260,9 +260,9 @@ export default function RibbonView({
             {/* AI DETECT */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                {/* <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => autoDetect()} disabled={isDetecting} title="AI tự động nhận diện phòng">
-                  <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Auto AI</span>
-                </button> */}
+                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => autoDetect()} disabled={isDetecting} title="AI tự động nhận diện phòng">
+                  <span className="icon">{isDetecting ? "⏳" : "🤖"}</span><span className="label">Room AI</span>
+                </button>
 
 
                 <button
@@ -277,11 +277,11 @@ export default function RibbonView({
                   disabled={isDetecting}
                   title="Dùng AI tự động vẽ tường"
                 >
-                  <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall</span>
+                  <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
                 </button>
 
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
-                  <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door</span>
+                  <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
 
                 <button
@@ -290,7 +290,7 @@ export default function RibbonView({
                   disabled={isDetecting}
                   title="Tạo phòng tự động từ tường hiện tại (Shapely)"
                 >
-                  <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Room</span>
+                  <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Wall &rarr; Room</span>
                 </button>
 
                 {/* Smart AI Button — Premium gradient style (Tạm ẩn)

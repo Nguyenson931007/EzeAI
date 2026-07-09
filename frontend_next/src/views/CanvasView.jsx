@@ -572,6 +572,9 @@ const WallLayer = React.memo(({
                   }}
                   onMouseUp={(e) => {
                     if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                    if (onMouseUp) {
+                      onMouseUp(e);
+                    }
                     e.stopPropagation();
                     const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
                     if (dist < 6) {
