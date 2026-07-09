@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 
 /**
@@ -284,6 +284,22 @@ export const useAIController = (
 ) => {
   const [isDetecting, setIsDetecting] = useState(false);
   const [roiProgress, setRoiProgress] = useState(0);
+
+  const wallsByPageRef = useRef(wallsByPage);
+  const doorsByPageRef = useRef(doorsByPage);
+  const roomsByPageRef = useRef(roomsByPage);
+
+  useEffect(() => {
+    wallsByPageRef.current = wallsByPage;
+  }, [wallsByPage]);
+
+  useEffect(() => {
+    doorsByPageRef.current = doorsByPage;
+  }, [doorsByPage]);
+
+  useEffect(() => {
+    roomsByPageRef.current = roomsByPage;
+  }, [roomsByPage]);
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
   const [inferenceTiming, setInferenceTiming] = useState("");
   const [activeScanRoom, setActiveScanRoom] = useState(null);
@@ -394,7 +410,7 @@ export const useAIController = (
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
-      const existingRooms = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+      const existingRooms = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
 
       // ★ CRITICAL: Snapshot existing rooms BEFORE streaming starts.
       // All streaming events will merge against this frozen snapshot,
@@ -465,7 +481,7 @@ export const useAIController = (
             }
 
             setRoomsByPage(prev => {
-              const currentWalls = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+              const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
               const snappedRooms = currentRooms.map(r => {
                 if (r.polygon) {
                   return {
@@ -510,7 +526,7 @@ export const useAIController = (
             isCacheHit = !!event.cache_hit;
 
             setRoomsByPage(prev => {
-              const currentWalls = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+              const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
               const snappedRooms = finalRooms.map(r => {
                 if (r.polygon) {
                   return {
@@ -586,7 +602,7 @@ export const useAIController = (
     try {
       const blob = await fetch(image).then(r => r.blob());
       const conf = String(useAIConfigStore.getState().config?.walls ?? "0.001");
-      const existingWallsSnapshot = wallsByPage ? (wallsByPage[currentPage] || []) : [];
+      const existingWallsSnapshot = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
       let isCacheHit = false;
 
       await ApiService.detectWallSegStream(
@@ -634,9 +650,9 @@ export const useAIController = (
             });
 
             // Filter out false positive walls (overlaps with doors)
-            const doors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
+            const doors = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
             let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
-            const currentRoomsForFilter = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+            const currentRoomsForFilter = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
             const allWalls = [...existingWallsSnapshot, ...cleanWalls];
@@ -653,7 +669,7 @@ export const useAIController = (
 
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: _cutWallsByDoors(mergedWalls, snappedDoors, realScale)
+              [currentPage]: recalculateAllWallsPolygons(_cutWallsByDoors(mergedWalls, snappedDoors, realScale))
             }));
           }
 
@@ -815,13 +831,13 @@ export const useAIController = (
         // Snap detected doors to existing walls!
         // Merge cut walls back into continuous segments so snap can find walls
         // even when the door midpoint sits in the gap between two cut segments.
-        const currentWalls = wallsByPage[currentPage] || [];
+        const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls]) : [];
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => snapDoorToWalls(d, uncutWalls, 80))
           : detectedDoors;
 
-        const mergedDoors = _mergeOverlappingDoors(doorsByPage[currentPage] || [], snappedDoors);
+        const mergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
 
         if (setDoorsByPage) {
           setDoorsByPage(prev => ({
@@ -830,12 +846,12 @@ export const useAIController = (
           }));
         }
 
-        // Cut existing walls at the new doors
-        if (setWallsByPage && wallsByPage) {
+        // Cut existing walls at the new doors and recalculate polygons immediately
+        if (setWallsByPage && wallsByPageRef.current) {
           if (currentWalls.length > 0) {
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: _cutWallsByDoors(currentWalls, mergedDoors, realScale)
+              [currentPage]: recalculateAllWallsPolygons(_cutWallsByDoors(currentWalls, mergedDoors, realScale))
             }));
           }
         }
@@ -937,7 +953,7 @@ export const useAIController = (
             review_state: 'AI_GENERATED'
           }));
 
-          const existingDoors = clearExisting ? [] : (doorsByPage[currentPage] || []);
+          const existingDoors = clearExisting ? [] : ((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || []);
           const mergedDoors = _mergeOverlappingDoors(existingDoors, detectedDoors);
           detectedDoors = mergedDoors;
 
@@ -1007,15 +1023,15 @@ export const useAIController = (
           // Get current doors (including just-detected ones)
           const currentDoors = detectedDoors.length > 0
             ? detectedDoors
-            : (doorsByPage[currentPage] || []);
+            : ((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || []);
 
           // Filter false positive walls that overlap entirely with doors
           let cleanWalls = rawWalls.filter(w => !_overlapsWithAnyDoor(w, currentDoors));
-          const currentRoomsForSmart = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+          const currentRoomsForSmart = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
           cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForSmart, wallData.width, wallData.height);
 
           // Merge with existing walls if not clearing
-          const existingWalls = clearExisting ? [] : (wallsByPage[currentPage] || []);
+          const existingWalls = clearExisting ? [] : ((wallsByPageRef.current && wallsByPageRef.current[currentPage]) || []);
           const allWalls = [...existingWalls, ...cleanWalls];
           const mergedWalls = mergeCollinearWalls(allWalls);
 
@@ -1029,8 +1045,8 @@ export const useAIController = (
             [currentPage]: snappedDoors
           }));
 
-          // Cut walls at door positions using snapped doors
-          detectedWalls = _cutWallsByDoors(mergedWalls, snappedDoors, realScale);
+          // Cut walls at door positions using snapped doors and recalculate polygons immediately
+          detectedWalls = recalculateAllWallsPolygons(_cutWallsByDoors(mergedWalls, snappedDoors, realScale));
 
           setWallsByPage(prev => ({
             ...prev,
@@ -1069,7 +1085,7 @@ export const useAIController = (
       let yoloRooms = [];
       try {
         // Step 3a: YOLO Room Detection via streaming
-        const existingRooms = clearExisting ? [] : (roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : []);
+        const existingRooms = clearExisting ? [] : (roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : []);
 
         const roomsConf = String(useAIConfigStore.getState().config?.rooms ?? ROOMS_CONF);
         await ApiService.floorAIDetectStream(
@@ -1093,7 +1109,7 @@ export const useAIController = (
             // Apply room results as they stream in
             if (event.rooms) {
               yoloRooms = event.rooms;
-              const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPage ? (wallsByPage[currentPage] || []) : []);
+              const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : []);
               const snappedRooms = event.rooms.map(r => {
                 if (r.polygon) {
                   return {
@@ -1144,7 +1160,7 @@ export const useAIController = (
 
               if (newTopoRooms.length > 0) {
                 console.log(`[Smart AI] Adding ${newTopoRooms.length} topology rooms not covered by YOLO`);
-                const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPage ? (wallsByPage[currentPage] || []) : []);
+                const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : []);
                 const snappedRooms = newTopoRooms.map(r => {
                   if (r.polygon) {
                     return {
@@ -1221,8 +1237,8 @@ export const useAIController = (
     setIsDetecting(true);
     setCacheStatus("processing");
     try {
-      const currentWalls = wallsByPage ? (wallsByPage[currentPage] || []) : [];
-      const currentDoors = doorsByPage ? (doorsByPage[currentPage] || []) : [];
+      const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
+      const currentDoors = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
       
       let texts = [];
       try {
@@ -1243,7 +1259,7 @@ export const useAIController = (
       }
 
       if (texts.length === 0) {
-        const currentRoomsForGen = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+        const currentRoomsForGen = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
         texts = currentRoomsForGen.map(r => {
           const pts = r.polygon || [];
           if (pts.length === 0) return null;
@@ -1269,7 +1285,7 @@ export const useAIController = (
 
         // HYBRID OPTIMIZATION: Combine Auto AI (YOLO) and Wall-to-Room topology
         // Use perfect topology rooms first, and use existing YOLO rooms as fallbacks for unclosed regions
-        const existingRooms = roomsByPage && Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+        const existingRooms = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
         const mergedRooms = [...res.rooms];
         
         const IOU_THRESHOLD = 0.3;
