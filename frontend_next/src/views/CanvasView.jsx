@@ -472,15 +472,7 @@ const WallLayer = React.memo(({
               if (onWallContextMenu) onWallContextMenu(e, w);
             }}
             onClick={(e) => {
-              if (interactionMode === "draw-wall") return;
-              if (interactionMode === "cut-wall") return;
               e.stopPropagation();
-              if (selectWall) {
-                selectWall(w.id, e.ctrlKey || e.shiftKey);
-              } else {
-                setSelectedId(w.id);
-                setSelectedType("wall");
-              }
             }}
             onDoubleClick={(e) => {
               if (interactionMode === "draw-wall") return;
