@@ -197,9 +197,25 @@ export default function RibbonView({
                 <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button>
+                {/* <button
+                  className={`ribbon-btn ${isDrawingDoor ? "active" : ""}`}
+                  onClick={() => {
+                    if (!scaleValue) {
+                      showAlert("Bạn phải scale trước khi vẽ cửa!");
+                      return;
+                    }
+                    setIsDrawingDoor(d => !d);
+                    setDrawing(false);
+                    setCurrentPoly([]);
+                  }}
+                  title="Vẽ cửa thủ công sử dụng tỉ lệ bản vẽ"
+                >
+                  <span className="icon">🚪</span><span className="label">Door</span>
+                </button> */}
                 <button
                   className={`ribbon-btn ${interactionMode === "draw-ext-rect" ? "active" : ""}`}
                   onClick={() => {
+                    setIsDrawingDoor(false);
                     if (interactionMode === "draw-ext-rect") {
                       setInteractionMode && setInteractionMode("select");
                     } else {
@@ -239,10 +255,10 @@ export default function RibbonView({
             {/* MEASURE TOOLS */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn ${isMeasuring ? "active" : ""}`} onClick={() => { setIsMeasuring(true); setMeasurePoints([]); setIsDistancing(false); setDistancePoints([]); }}>
+                <button className={`ribbon-btn ${isMeasuring ? "active" : ""}`} onClick={() => { setIsMeasuring(true); setMeasurePoints([]); setIsDistancing(false); setDistancePoints([]); setIsDrawingDoor(false); }}>
                   <span className="icon">📏</span><span className="label">Scale</span>
                 </button>
-                <button className={`ribbon-btn ${isDistancing ? "active" : ""}`} onClick={() => { if (!scaleValue) { showAlert("Bạn phải scale trước khi đo kích thước!"); return; } setIsDistancing(v => !v); setDistancePoints([]); setIsMeasuring(false); }}>
+                <button className={`ribbon-btn ${isDistancing ? "active" : ""}`} onClick={() => { if (!scaleValue) { showAlert("Bạn phải scale trước khi đo kích thước!"); return; } setIsDistancing(v => !v); setDistancePoints([]); setIsMeasuring(false); setIsDrawingDoor(false); }}>
                   <span className="icon">📏📐</span><span className="label">Dist</span>
                 </button>
 

@@ -481,7 +481,7 @@ export default function RightPropertyPaneView({
         if (user.username) headers["X-Username"] = user.username;
         if (user.session_token) headers["X-Session-Token"] = user.session_token;
       }
-      
+
       const response = await fetch(`${BASE_URL}/api/export/takeoff`, {
         method: "POST",
         headers,
@@ -527,362 +527,362 @@ export default function RightPropertyPaneView({
       <div className="panel-section">
         <div className="panel-title">Properties</div>
         {selectedType === "room" && selectedRoom ? (
-            <>
-              <div className="panel-field">
-                <span className="panel-label">Location</span>
-                <select
-                  className="panel-select"
-                  value={selectedRoom.location || "internal"}
-                  onChange={(e) => updateRoom("location", e.target.value)}
-                >
-                  <option value="internal">Internal</option>
-                  <option value="external">External</option>
-                </select>
-              </div>
+          <>
+            <div className="panel-field">
+              <span className="panel-label">Location</span>
+              <select
+                className="panel-select"
+                value={selectedRoom.location || "internal"}
+                onChange={(e) => updateRoom("location", e.target.value)}
+              >
+                <option value="internal">Internal</option>
+                <option value="external">External</option>
+              </select>
+            </div>
 
-              <div className="panel-field">
-                <span className="panel-label">Room Name</span>
-                <input
-                  className="panel-input"
-                  value={selectedRoom.room_name || ""}
-                  onChange={(e) => updateRoom("room_name", e.target.value)}
-                />
-                {selectedRoom.ocr_candidates && selectedRoom.ocr_candidates.length > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    <div style={{ width: "100%", fontSize: 9, color: "#6b7280", marginBottom: 2 }}>AI Detected Names:</div>
-                    {selectedRoom.ocr_candidates.map((cand, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => updateRoom("room_name", cand.text)}
-                        title={`Score: ${cand.score} (Source: ${cand.source})`}
-                        className="rp-ocr-tag"
-                        style={{
-                          background: selectedRoom.room_name === cand.text ? "#3b82f6" : undefined,
-                        }}
-                      >
-                        {cand.text}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Room Class</span>
-                <select
-                  className="panel-select"
-                  value={selectedRoom.room_class || "other"}
-                  onChange={(e) => updateRoom("room_class", e.target.value)}
-                >
-                  <option value="bedroom">Bedroom</option>
-                  <option value="bathroom">Bathroom</option>
-                  <option value="kitchen">Kitchen</option>
-                  <option value="living">Living Room</option>
-                  <option value="garage">Garage</option>
-                  <option value="hallway">Hallway</option>
-                  <option value="deck">Deck / Porch</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Classification</span>
-                <select
-                  className="panel-select"
-                  value={selectedRoom.type || selectedRoom.wetness || "dry"}
-                  onChange={(e) => updateRoom("type", e.target.value)}
-                >
-                  <option value="dry">Dry</option>
-                  <option value="wet">Wet</option>
-                  <option value="timber_deck">Timber Deck</option>
-                  <option value="tile_deck">Tile Deck</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Area</span>
-                <div style={{ fontSize: 16, color: "#3b82f6", fontWeight: "bold" }}>
-                  {(scaleValue ? polygonAreaM2Util(selectedRoom.polygon, scaleValue) : 0).toFixed(2)} m²
-                </div>
-              </div>
-            </>
-          ) : selectedType === "wall" && (selectedWall || selectedWallIds.length > 0) ? (
-            <>
-              {selectedWallIds.length <= 1 && selectedWall && (
-                <div className="panel-field">
-                  <span className="panel-label">Wall ID</span>
-                  <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
-                    {selectedWall.id}
-                  </div>
+            <div className="panel-field">
+              <span className="panel-label">Room Name</span>
+              <input
+                className="panel-input"
+                value={selectedRoom.room_name || ""}
+                onChange={(e) => updateRoom("room_name", e.target.value)}
+              />
+              {selectedRoom.ocr_candidates && selectedRoom.ocr_candidates.length > 0 && (
+                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  <div style={{ width: "100%", fontSize: 9, color: "#6b7280", marginBottom: 2 }}>AI Detected Names:</div>
+                  {selectedRoom.ocr_candidates.map((cand, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => updateRoom("room_name", cand.text)}
+                      title={`Score: ${cand.score} (Source: ${cand.source})`}
+                      className="rp-ocr-tag"
+                      style={{
+                        background: selectedRoom.room_name === cand.text ? "#3b82f6" : undefined,
+                      }}
+                    >
+                      {cand.text}
+                    </button>
+                  ))}
                 </div>
               )}
+            </div>
 
-              {selectedWallIds.length > 1 && (
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>
-                  Selected: <b>{selectedWallIds.length} walls</b>
-                </div>
-              )}
+            <div className="panel-field">
+              <span className="panel-label">Room Class</span>
+              <select
+                className="panel-select"
+                value={selectedRoom.room_class || "other"}
+                onChange={(e) => updateRoom("room_class", e.target.value)}
+              >
+                <option value="bedroom">Bedroom</option>
+                <option value="bathroom">Bathroom</option>
+                <option value="kitchen">Kitchen</option>
+                <option value="living">Living Room</option>
+                <option value="garage">Garage</option>
+                <option value="hallway">Hallway</option>
+                <option value="deck">Deck / Porch</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
 
+            <div className="panel-field">
+              <span className="panel-label">Classification</span>
+              <select
+                className="panel-select"
+                value={selectedRoom.type || selectedRoom.wetness || "dry"}
+                onChange={(e) => updateRoom("type", e.target.value)}
+              >
+                <option value="dry">Dry</option>
+                <option value="wet">Wet</option>
+                <option value="timber_deck">Timber Deck</option>
+                <option value="tile_deck">Tile Deck</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Area</span>
+              <div style={{ fontSize: 16, color: "#3b82f6", fontWeight: "bold" }}>
+                {(scaleValue ? polygonAreaM2Util(selectedRoom.polygon, scaleValue) : 0).toFixed(2)} m²
+              </div>
+            </div>
+          </>
+        ) : selectedType === "wall" && (selectedWall || selectedWallIds.length > 0) ? (
+          <>
+            {selectedWallIds.length <= 1 && selectedWall && (
               <div className="panel-field">
-                <span className="panel-label">Wall Type</span>
-                <select
-                  className="panel-select"
-                  value={
-                    selectedWallIds.length > 1
-                      ? "multiple"
-                      : selectedWall?.class_name || selectedWall?.wall_type || "interior_wall"
-                  }
-                  onChange={(e) => {
-                    if (e.target.value === "multiple") return;
-                    const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                    updateWallsProperty && updateWallsProperty(targetIds, "class_name", e.target.value);
-                  }}
-                >
-                  {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Types --</option>}
-                  <option value="exterior_wall">Exterior Wall</option>
-                  <option value="interior_wall">Interior Wall</option>
-                  <option value="partition_wall">Partition Wall</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Wall Thickness</span>
-                <select
-                  className="panel-select"
-                  value={
-                    selectedWallIds.length > 1
-                      ? "multiple"
-                      : selectedWall && pxToMm
-                        ? Math.round(pxToMm(selectedWall.thickness_px, realScale))
-                        : selectedWall?.thickness || 90
-                  }
-                  onChange={(e) => {
-                    if (e.target.value === "multiple") return;
-                    const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                    updateWallsProperty && updateWallsProperty(targetIds, "thickness", Number(e.target.value));
-                  }}
-                >
-                  {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Thicknesses --</option>}
-                  <option value={70}>70 mm</option>
-                  <option value={90}>90 mm</option>
-                  <option value={140}>140 mm</option>
-                  <option value={180}>180 mm</option>
-                  <option value={200}>200 mm</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Wall Height</span>
-                <select
-                  className="panel-select"
-                  value={
-                    selectedWallIds.length > 1
-                      ? "multiple"
-                      : selectedWall?.height || 2400
-                  }
-                  onChange={(e) => {
-                    if (e.target.value === "multiple") return;
-                    const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                    updateWallsProperty && updateWallsProperty(targetIds, "height", Number(e.target.value));
-                  }}
-                >
-                  {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Heights --</option>}
-                  <option value={2100}>2100 mm</option>
-                  <option value={2400}>2400 mm</option>
-                  <option value={2700}>2700 mm</option>
-                  <option value={3000}>3000 mm</option>
-                  <option value={3300}>3300 mm</option>
-                  <option value={3600}>3600 mm</option>
-                </select>
-              </div>
-
-              {selectedWallIds.length === 1 && selectedWall && selectedWallLengthM !== null && (
-                <div className="panel-field">
-                  <span className="panel-label">Wall Length</span>
-                  <div className="panel-value" style={{ fontSize: 13, color: "#e1e4ea" }}>
-                    <b>{selectedWallLengthM.toFixed(2)}</b> m
-                  </div>
-                </div>
-              )}
-
-              {selectedWallIds.length === 1 && selectedWall && (
-                <div style={{ marginTop: 12 }}>
-                  <button
-                    className="rp-action-btn"
-                    style={{
-                      background: interactionMode === "cut-wall" ? "#dc2626" : "#3b82f6",
-                    }}
-                    onClick={() => {
-                      setInteractionMode && setInteractionMode((prev) => (prev === "cut-wall" ? "select" : "cut-wall"));
-                    }}
-                  >
-                    {interactionMode === "cut-wall" ? "Cancel Cut Mode" : "Cut/Split Wall"}
-                  </button>
-                </div>
-              )}
-
-              <div style={{ marginTop: 4 }}>
-                <button
-                  className="rp-action-btn"
-                  style={{ background: "#10b981" }}
-                  onClick={() => {
-                    const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
-                    autoMergeCollinearWalls && autoMergeCollinearWalls(targetIds);
-                  }}
-                >
-                  Merge Aligned Walls
-                </button>
-              </div>
-
-              <div style={{ marginTop: 4 }}>
-                <button
-                  className="rp-action-btn rp-action-btn--danger"
-                  onClick={() => {
-                    const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                    deleteWalls && deleteWalls(targetIds);
-                  }}
-                >
-                  Delete Selected Wall(s)
-                </button>
-              </div>
-            </>
-          ) : selectedType === "door" && selectedDoor ? (
-            <>
-              <div className="panel-field">
-                <span className="panel-label">Door ID</span>
+                <span className="panel-label">Wall ID</span>
                 <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
-                  {selectedDoor.id}
+                  {selectedWall.id}
                 </div>
               </div>
+            )}
 
-              <div className="panel-field">
-                <span className="panel-label">Door Name</span>
-                <input
-                  className="panel-input"
-                  value={selectedDoor.door_name || ""}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, door_name: e.target.value })}
-                />
+            {selectedWallIds.length > 1 && (
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>
+                Selected: <b>{selectedWallIds.length} walls</b>
               </div>
+            )}
 
-              <div className="panel-field">
-                <span className="panel-label">Door Type</span>
-                <select
-                  className="panel-select"
-                  value={selectedDoor.penetration_type || selectedDoor.penetrationType || (selectedDoor.class?.includes("double") ? "hinged_double" : "hinged_single")}
-                  onChange={(e) => {
-                    let cls = "single_door";
-                    if (e.target.value === "hinged_double") cls = "double_door";
-                    else if (e.target.value === "sliding") cls = "sliding_door";
-                    else if (e.target.value === "bifold") cls = "bifold_door";
-                    else if (e.target.value === "garage") cls = "garage_door";
-                    else if (e.target.value === "cavity_slider") cls = "cavity_slider";
-                    else if (e.target.value === "double_slider") cls = "double_slider";
-                    updateDoor && updateDoor({ ...selectedDoor, penetration_type: e.target.value, class: cls });
-                  }}
-                >
-                  <option value="hinged_single">Hinged Single Door</option>
-                  <option value="hinged_double">Hinged Double Door</option>
-                  <option value="sliding">Sliding Door</option>
-                  <option value="cavity_slider">Cavity Slider Door</option>
-                  <option value="double_slider">Double Slider Door</option>
-                  <option value="bifold">Bifold Door</option>
-                  <option value="garage">Garage Door</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Hardware Type</span>
-                <select
-                  className="panel-select"
-                  value={selectedDoor.hardware_type || "privacy"}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hardware_type: e.target.value })}
-                >
-                  <option value="privacy">Privacy</option>
-                  <option value="passage">Passage</option>
-                  <option value="dummy">Dummy</option>
-                  <option value="entrance">Entrance</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Width</span>
-                <select
-                  className="panel-select"
-                  value={selectedDoor.width_mm || 760}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
-                >
-                  <option value={520}>520 mm</option>
-                  <option value={620}>620 mm</option>
-                  <option value={720}>720 mm</option>
-                  <option value={760}>760 mm</option>
-                  <option value={820}>820 mm</option>
-                  <option value={870}>870 mm</option>
-                  <option value={920}>920 mm</option>
-                  <option value={1020}>1020 mm</option>
-                  <option value={1520}>1520 mm</option>
-                  <option value={1640}>1640 mm</option>
-                  <option value={1800}>1800 mm</option>
-                  <option value={2400}>2400 mm</option>
-                  <option value={5000}>5000 mm</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Height</span>
-                <select
-                  className="panel-select"
-                  value={selectedDoor.height_mm || 1980}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
-                >
-                  <option value={1980}>1980 mm</option>
-                  <option value={2040}>2040 mm</option>
-                  <option value={2100}>2100 mm</option>
-                  <option value={2200}>2200 mm</option>
-                  <option value={2340}>2340 mm</option>
-                  <option value={2400}>2400 mm</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Hinge Side</span>
-                <select
-                  className="panel-select"
-                  value={selectedDoor.hinge_side || selectedDoor.hingeSide || "left"}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hinge_side: e.target.value, hingeSide: e.target.value })}
-                >
-                  <option value="left">Left Hinge</option>
-                  <option value="right">Right Hinge</option>
-                </select>
-              </div>
-
-              <div className="panel-field">
-                <span className="panel-label">Swing</span>
-                <select
-                  className="panel-select"
-                  value={selectedDoor.swing_direction || selectedDoor.swing || "inward"}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, swing_direction: e.target.value, swing: e.target.value })}
-                >
-                  <option value="inward">Inward Swing</option>
-                  <option value="outward">Outward Swing</option>
-                </select>
-              </div>
-
-              <div style={{ marginTop: 12 }}>
-                <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
-                  e.stopPropagation();
-                  if (await showConfirm("Are you sure you want to delete this door?")) {
-                    deleteDoor && deleteDoor(selectedDoor.id);
-                  }
+            <div className="panel-field">
+              <span className="panel-label">Wall Type</span>
+              <select
+                className="panel-select"
+                value={
+                  selectedWallIds.length > 1
+                    ? "multiple"
+                    : selectedWall?.class_name || selectedWall?.wall_type || "interior_wall"
+                }
+                onChange={(e) => {
+                  if (e.target.value === "multiple") return;
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  updateWallsProperty && updateWallsProperty(targetIds, "class_name", e.target.value);
                 }}
               >
-                  Delete Selected Door
+                {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Types --</option>}
+                <option value="exterior_wall">Exterior Wall</option>
+                <option value="interior_wall">Interior Wall</option>
+                <option value="partition_wall">Partition Wall</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Wall Thickness</span>
+              <select
+                className="panel-select"
+                value={
+                  selectedWallIds.length > 1
+                    ? "multiple"
+                    : selectedWall && pxToMm
+                      ? Math.round(pxToMm(selectedWall.thickness_px, realScale))
+                      : selectedWall?.thickness || 90
+                }
+                onChange={(e) => {
+                  if (e.target.value === "multiple") return;
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  updateWallsProperty && updateWallsProperty(targetIds, "thickness", Number(e.target.value));
+                }}
+              >
+                {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Thicknesses --</option>}
+                <option value={70}>70 mm</option>
+                <option value={90}>90 mm</option>
+                <option value={140}>140 mm</option>
+                <option value={180}>180 mm</option>
+                <option value={200}>200 mm</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Wall Height</span>
+              <select
+                className="panel-select"
+                value={
+                  selectedWallIds.length > 1
+                    ? "multiple"
+                    : selectedWall?.height || 2400
+                }
+                onChange={(e) => {
+                  if (e.target.value === "multiple") return;
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  updateWallsProperty && updateWallsProperty(targetIds, "height", Number(e.target.value));
+                }}
+              >
+                {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Heights --</option>}
+                <option value={2100}>2100 mm</option>
+                <option value={2400}>2400 mm</option>
+                <option value={2700}>2700 mm</option>
+                <option value={3000}>3000 mm</option>
+                <option value={3300}>3300 mm</option>
+                <option value={3600}>3600 mm</option>
+              </select>
+            </div>
+
+            {selectedWallIds.length === 1 && selectedWall && selectedWallLengthM !== null && (
+              <div className="panel-field">
+                <span className="panel-label">Wall Length</span>
+                <div className="panel-value" style={{ fontSize: 13, color: "#e1e4ea" }}>
+                  <b>{selectedWallLengthM.toFixed(2)}</b> m
+                </div>
+              </div>
+            )}
+
+            {selectedWallIds.length === 1 && selectedWall && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="rp-action-btn"
+                  style={{
+                    background: interactionMode === "cut-wall" ? "#dc2626" : "#3b82f6",
+                  }}
+                  onClick={() => {
+                    setInteractionMode && setInteractionMode((prev) => (prev === "cut-wall" ? "select" : "cut-wall"));
+                  }}
+                >
+                  {interactionMode === "cut-wall" ? "Cancel Cut Mode" : "Cut/Split Wall"}
                 </button>
               </div>
-            </>
-          ) : (
-            <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, or door to edit properties.</div>
-          )}
-        </div>
+            )}
+
+            <div style={{ marginTop: 4 }}>
+              <button
+                className="rp-action-btn"
+                style={{ background: "#10b981" }}
+                onClick={() => {
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
+                  autoMergeCollinearWalls && autoMergeCollinearWalls(targetIds);
+                }}
+              >
+                Merge Aligned Walls
+              </button>
+            </div>
+
+            <div style={{ marginTop: 4 }}>
+              <button
+                className="rp-action-btn rp-action-btn--danger"
+                onClick={() => {
+                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                  deleteWalls && deleteWalls(targetIds);
+                }}
+              >
+                Delete Selected Wall(s)
+              </button>
+            </div>
+          </>
+        ) : selectedType === "door" && selectedDoor ? (
+          <>
+            <div className="panel-field">
+              <span className="panel-label">Door ID</span>
+              <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
+                {selectedDoor.id}
+              </div>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Door Name</span>
+              <input
+                className="panel-input"
+                value={selectedDoor.door_name || ""}
+                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, door_name: e.target.value })}
+              />
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Door Type</span>
+              <select
+                className="panel-select"
+                value={selectedDoor.penetration_type || selectedDoor.penetrationType || (selectedDoor.class?.includes("double") ? "hinged_double" : "hinged_single")}
+                onChange={(e) => {
+                  let cls = "single_door";
+                  if (e.target.value === "hinged_double") cls = "double_door";
+                  else if (e.target.value === "sliding") cls = "sliding_door";
+                  else if (e.target.value === "bifold") cls = "bifold_door";
+                  else if (e.target.value === "garage") cls = "garage_door";
+                  else if (e.target.value === "cavity_slider") cls = "cavity_slider";
+                  else if (e.target.value === "double_slider") cls = "double_slider";
+                  updateDoor && updateDoor({ ...selectedDoor, penetration_type: e.target.value, class: cls });
+                }}
+              >
+                <option value="hinged_single">Hinged Single Door</option>
+                <option value="hinged_double">Hinged Double Door</option>
+                <option value="sliding">Sliding Door</option>
+                <option value="cavity_slider">Cavity Slider Door</option>
+                <option value="double_slider">Double Slider Door</option>
+                <option value="bifold">Bifold Door</option>
+                <option value="garage">Garage Door</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Hardware Type</span>
+              <select
+                className="panel-select"
+                value={selectedDoor.hardware_type || "privacy"}
+                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hardware_type: e.target.value })}
+              >
+                <option value="privacy">Privacy</option>
+                <option value="passage">Passage</option>
+                <option value="dummy">Dummy</option>
+                <option value="entrance">Entrance</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Width</span>
+              <select
+                className="panel-select"
+                value={selectedDoor.width_mm || 760}
+                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
+              >
+                <option value={520}>520 mm</option>
+                <option value={620}>620 mm</option>
+                <option value={720}>720 mm</option>
+                <option value={760}>760 mm</option>
+                <option value={820}>820 mm</option>
+                <option value={870}>870 mm</option>
+                <option value={920}>920 mm</option>
+                <option value={1020}>1020 mm</option>
+                <option value={1520}>1520 mm</option>
+                <option value={1640}>1640 mm</option>
+                <option value={1800}>1800 mm</option>
+                <option value={2400}>2400 mm</option>
+                <option value={5000}>5000 mm</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Height</span>
+              <select
+                className="panel-select"
+                value={selectedDoor.height_mm || 1980}
+                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
+              >
+                <option value={1980}>1980 mm</option>
+                <option value={2040}>2040 mm</option>
+                <option value={2100}>2100 mm</option>
+                <option value={2200}>2200 mm</option>
+                <option value={2340}>2340 mm</option>
+                <option value={2400}>2400 mm</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Hinge Side</span>
+              <select
+                className="panel-select"
+                value={selectedDoor.hinge_side || selectedDoor.hingeSide || "left"}
+                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hinge_side: e.target.value, hingeSide: e.target.value })}
+              >
+                <option value="left">Left Hinge</option>
+                <option value="right">Right Hinge</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Swing</span>
+              <select
+                className="panel-select"
+                value={selectedDoor.swing_direction || selectedDoor.swing || "inward"}
+                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, swing_direction: e.target.value, swing: e.target.value })}
+              >
+                <option value="inward">Inward Swing</option>
+                <option value="outward">Outward Swing</option>
+              </select>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
+                e.stopPropagation();
+                if (await showConfirm("Are you sure you want to delete this door?")) {
+                  deleteDoor && deleteDoor(selectedDoor.id);
+                }
+              }}
+              >
+                Delete Selected Door
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, or door to edit properties.</div>
+        )}
+      </div>
 
       {/* ── WALL SUMMARY COLLAPSIBLE GROUP ── */}
       <CollapsibleSection
@@ -1188,11 +1188,11 @@ export default function RightPropertyPaneView({
             <h3 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: "bold", borderBottom: "1px solid #2d3139", paddingBottom: "12px" }}>
               📋 Export Takeoff Excel Form
             </h3>
-            
+
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Project Name</label>
-                <input 
+                <input
                   type="text"
                   value={takeoffForm.projectName}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, projectName: e.target.value }))}
@@ -1210,7 +1210,7 @@ export default function RightPropertyPaneView({
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Client Name</label>
-                <input 
+                <input
                   type="text"
                   value={takeoffForm.clientName}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, clientName: e.target.value }))}
@@ -1228,7 +1228,7 @@ export default function RightPropertyPaneView({
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Detailer Name</label>
-                <input 
+                <input
                   type="text"
                   value={takeoffForm.detailerName}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, detailerName: e.target.value }))}
@@ -1246,7 +1246,7 @@ export default function RightPropertyPaneView({
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Job No</label>
-                <input 
+                <input
                   type="text"
                   value={takeoffForm.jobNo}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, jobNo: e.target.value }))}
@@ -1264,7 +1264,7 @@ export default function RightPropertyPaneView({
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Date</label>
-                <input 
+                <input
                   type="text"
                   value={takeoffForm.date}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, date: e.target.value }))}
@@ -1282,7 +1282,7 @@ export default function RightPropertyPaneView({
             </div>
 
             <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button 
+              <button
                 onClick={() => setShowTakeoffModal(false)}
                 disabled={isExporting}
                 style={{
@@ -1297,7 +1297,7 @@ export default function RightPropertyPaneView({
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleExportTakeoff}
                 disabled={isExporting}
                 style={{
