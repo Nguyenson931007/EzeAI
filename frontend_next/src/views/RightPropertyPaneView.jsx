@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
+import { BASE_URL } from "@/models/api.service";
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -268,7 +269,18 @@ export default function RightPropertyPaneView({
   deleteItem
 }) {
   const { showConfirm } = useDialog();
-  const { wasteByPage, setWasteByPage, currentPage } = useAppModel();
+  const { wasteByPage, setWasteByPage, currentPage, currentProjectName, user } = useAppModel();
+
+  // Takeoff export modal state
+  const [showTakeoffModal, setShowTakeoffModal] = React.useState(false);
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [takeoffForm, setTakeoffForm] = React.useState({
+    projectName: "",
+    clientName: "",
+    detailerName: "",
+    jobNo: "",
+    date: ""
+  });
 
   // Collapsible accordion expanded states (all true by default on load)
   const [isWallSummaryExpanded, setIsWallSummaryExpanded] = React.useState(true);
@@ -411,6 +423,102 @@ export default function RightPropertyPaneView({
     const a = document.createElement("a");
     a.href = url; a.download = "Wall_Summary.xlsx"; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleExportTakeoff = async () => {
+    try {
+      setIsExporting(true);
+
+      const mappedWalls = walls.map(w => {
+        const c = w.centerline;
+        let lengthMm = 0;
+        if (c && c.length === 2) {
+          const dx = c[1][0] - c[0][0];
+          const dy = c[1][1] - c[0][1];
+          const lengthPx = Math.hypot(dx, dy);
+          lengthMm = scaleValue ? lengthPx * scaleValue * 1000 : 0;
+        }
+        return {
+          id: String(w.id),
+          class_name: w.class_name || w.wall_type || "interior_wall",
+          length_mm: lengthMm,
+          height_mm: w.height || 2400,
+          thickness_mm: w.thickness || 90
+        };
+      });
+
+      const mappedDoors = doors.map(d => {
+        let t = d.penetration_type || d.penetrationType || "";
+        let cls = d.class || "";
+        let doorType = "Single Door";
+        if (cls.includes("double") || t.includes("double")) {
+          doorType = "Double Door";
+        } else if (cls.includes("sliding") || t.includes("sliding") || cls.includes("slider") || t.includes("slider")) {
+          doorType = "Sliding Door";
+        }
+
+        return {
+          id: String(d.id),
+          door_type: doorType,
+          width_mm: d.width_mm || 760,
+          height_mm: d.height_mm || 1980,
+          qty: 1
+        };
+      });
+
+      const payload = {
+        walls: mappedWalls,
+        doors: mappedDoors,
+        project_name: takeoffForm.projectName,
+        client_name: takeoffForm.clientName,
+        detailer_name: takeoffForm.detailerName,
+        job_no: takeoffForm.jobNo,
+        date: takeoffForm.date
+      };
+
+      const headers = { "Content-Type": "application/json" };
+      if (user) {
+        if (user.username) headers["X-Username"] = user.username;
+        if (user.session_token) headers["X-Session-Token"] = user.session_token;
+      }
+      
+      const response = await fetch(`${BASE_URL}/api/export/takeoff`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${takeoffForm.projectName || "Takeoff"}_Form.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setShowTakeoffModal(false);
+    } catch (error) {
+      console.error("Export takeoff error:", error);
+      alert("Failed to export Takeoff Form: " + error.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const openTakeoffModal = () => {
+    setTakeoffForm({
+      projectName: "",
+      clientName: "",
+      detailerName: "",
+      jobNo: "",
+      date: ""
+    });
+    setShowTakeoffModal(true);
   };
 
   return (
@@ -891,9 +999,12 @@ export default function RightPropertyPaneView({
             )}
 
             {/* Export */}
-            <div style={{ marginTop: "6px" }}>
-              <ExportButton onClick={exportWallExcel} disabled={!scaleValue}>
+            <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
+              {/* <ExportButton onClick={exportWallExcel} disabled={!scaleValue}>
                 📥 Export Wall Summary (.xlsx)
+              </ExportButton> */}
+              <ExportButton onClick={openTakeoffModal} disabled={!scaleValue}>
+                📊 Export Takeoff Form (.xlsx)
               </ExportButton>
             </div>
           </div>
@@ -1052,6 +1163,160 @@ export default function RightPropertyPaneView({
           <div className="panel-hint" style={{ padding: "8px 0" }}>No doors detected yet. Draw doors or run AI to generate doors.</div>
         )}
       </CollapsibleSection>
+
+      {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
+      {showTakeoffModal && (
+        <div style={{
+          position: "fixed",
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.7)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999
+        }}>
+          <div style={{
+            background: "#181a20",
+            border: "1px solid #2d3139",
+            borderRadius: "12px",
+            padding: "24px",
+            width: "400px",
+            maxWidth: "90%",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+            color: "#e1e4ea"
+          }}>
+            <h3 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: "bold", borderBottom: "1px solid #2d3139", paddingBottom: "12px" }}>
+              📋 Export Takeoff Excel Form
+            </h3>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Project Name</label>
+                <input 
+                  type="text"
+                  value={takeoffForm.projectName}
+                  onChange={e => setTakeoffForm(prev => ({ ...prev, projectName: e.target.value }))}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#1e2028",
+                    color: "#e1e4ea",
+                    border: "1px solid #3f4451",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    outline: "none"
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Client Name</label>
+                <input 
+                  type="text"
+                  value={takeoffForm.clientName}
+                  onChange={e => setTakeoffForm(prev => ({ ...prev, clientName: e.target.value }))}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#1e2028",
+                    color: "#e1e4ea",
+                    border: "1px solid #3f4451",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    outline: "none"
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Detailer Name</label>
+                <input 
+                  type="text"
+                  value={takeoffForm.detailerName}
+                  onChange={e => setTakeoffForm(prev => ({ ...prev, detailerName: e.target.value }))}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#1e2028",
+                    color: "#e1e4ea",
+                    border: "1px solid #3f4451",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    outline: "none"
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Job No</label>
+                <input 
+                  type="text"
+                  value={takeoffForm.jobNo}
+                  onChange={e => setTakeoffForm(prev => ({ ...prev, jobNo: e.target.value }))}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#1e2028",
+                    color: "#e1e4ea",
+                    border: "1px solid #3f4451",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    outline: "none"
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Date</label>
+                <input 
+                  type="text"
+                  value={takeoffForm.date}
+                  onChange={e => setTakeoffForm(prev => ({ ...prev, date: e.target.value }))}
+                  style={{
+                    padding: "8px 12px",
+                    background: "#1e2028",
+                    color: "#e1e4ea",
+                    border: "1px solid #3f4451",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    outline: "none"
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button 
+                onClick={() => setShowTakeoffModal(false)}
+                disabled={isExporting}
+                style={{
+                  padding: "8px 16px",
+                  background: "transparent",
+                  color: "#e1e4ea",
+                  border: "1px solid #3f4451",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  cursor: "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleExportTakeoff}
+                disabled={isExporting}
+                style={{
+                  padding: "8px 16px",
+                  background: "#3b82f6",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  cursor: isExporting ? "not-allowed" : "pointer",
+                  opacity: isExporting ? 0.7 : 1
+                }}
+              >
+                {isExporting ? "Exporting..." : "Export Excel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
