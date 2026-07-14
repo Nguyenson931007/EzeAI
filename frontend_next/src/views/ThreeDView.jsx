@@ -10,6 +10,7 @@ export default function ThreeDView({
   wallsByPage = {},
   doorsByPage = {},
   roomsByPage = {},
+  roofsByPage = {},
   currentPage = 0,
   onClose,
   realScale = 1.0,
@@ -20,6 +21,7 @@ export default function ThreeDView({
   const [wallHeight, setWallHeight] = useState(150);
   const [showFloors, setShowFloors] = useState(true);
   const [showDoors, setShowDoors] = useState(true);
+  const [showRoofs, setShowRoofs] = useState(true);
   const [showPDF, setShowPDF] = useState(true);
   const [enableShadows, setEnableShadows] = useState(true);
   const [visibleLevels, setVisibleLevels] = useState({});
@@ -50,6 +52,7 @@ export default function ThreeDView({
     if (norm === 'third_floor' || norm === 'floor_2') return 2;
     if (norm === 'fourth_floor' || norm === 'floor_3') return 3;
     if (norm === 'fifth_floor' || norm === 'floor_4') return 4;
+    if (norm === 'roof') return 999;
     
     const match = norm.match(/^floor_(\d+)$/);
     if (match) return parseInt(match[1]);
@@ -921,9 +924,112 @@ export default function ThreeDView({
           doorMeshesRef.current.push(doorGroup);
         });
       }
+
+      // --- 4. RENDER ROOFS ---
+      if (showRoofs) {
+        const pageRoofs = roofsByPage[originalIndex] || [];
+        pageRoofs.forEach(roof => {
+          const poly = roof.polygon;
+          if (!poly || poly.length < 3) return;
+
+          const isRoofPage = page.floor_name === 'roof';
+          const baseHeight = isRoofPage ? yOffset : yOffset + wallHeight;
+          const pitchAngle = roof.pitchAngle || 0;
+
+          if (pitchAngle === 0) {
+            // Render Flat Slab Roof
+            const shape = new THREE.Shape();
+            shape.moveTo(poly[0].x, poly[0].y);
+            for (let i = 1; i < poly.length; i++) {
+              shape.lineTo(poly[i].x, poly[i].y);
+            }
+            shape.closePath();
+
+            const extrudeSettings = { depth: 8, bevelEnabled: false };
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            const material = new THREE.MeshStandardMaterial({
+              color: 0x334155, // Dark slate gray flat roof slab
+              roughness: 0.8,
+              metalness: 0.1,
+              side: THREE.DoubleSide
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.x = Math.PI / 2;
+            mesh.position.set(-imgSize.w / 2, baseHeight + 8, -imgSize.h / 2);
+            mesh.castShadow = enableShadows;
+            mesh.receiveShadow = enableShadows;
+            scene.add(mesh);
+            floorMeshesRef.current.push(mesh);
+          } else {
+            // Render Pitched Roof (Pyramid/Hipped shape)
+            let sumX = 0, sumY = 0;
+            poly.forEach(pt => {
+              sumX += pt.x;
+              sumY += pt.y;
+            });
+            const centroidX = sumX / poly.length;
+            const centroidY = sumY / poly.length;
+
+            let sumDist = 0;
+            poly.forEach(pt => {
+              const dx = pt.x - centroidX;
+              const dy = pt.y - centroidY;
+              sumDist += Math.sqrt(dx * dx + dy * dy);
+            });
+            const avgDist = sumDist / poly.length;
+
+            const pitchRad = pitchAngle * (Math.PI / 180);
+            const roofHeight = avgDist * Math.tan(pitchRad);
+
+            const mapTo3D = (pt) => {
+              return {
+                x: pt.x - imgSize.w / 2,
+                z: pt.y - imgSize.h / 2
+              };
+            };
+
+            const peak = mapTo3D({ x: centroidX, y: centroidY });
+
+            const geom = new THREE.BufferGeometry();
+            const vertices = [];
+            const indices = [];
+
+            poly.forEach(pt => {
+              const mapped = mapTo3D(pt);
+              vertices.push(mapped.x, baseHeight, mapped.z);
+            });
+
+            vertices.push(peak.x, baseHeight + roofHeight, peak.z);
+            const peakIndex = poly.length;
+
+            for (let i = 0; i < poly.length; i++) {
+              const iNext = (i + 1) % poly.length;
+              indices.push(i, iNext, peakIndex);
+            }
+
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geom.setIndex(indices);
+            geom.computeVertexNormals();
+
+            const material = new THREE.MeshStandardMaterial({
+              color: 0x991b1b, // Elegant premium dark red terracotta shingles
+              roughness: 0.5,
+              metalness: 0.1,
+              side: THREE.DoubleSide
+            });
+
+            const mesh = new THREE.Mesh(geom, material);
+            mesh.castShadow = enableShadows;
+            mesh.receiveShadow = enableShadows;
+            scene.add(mesh);
+            floorMeshesRef.current.push(mesh);
+          }
+        });
+      }
     });
 
-  }, [pages, wallsByPage, doorsByPage, roomsByPage, wallHeight, showFloors, showDoors, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
+  }, [pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, wallHeight, showFloors, showDoors, showRoofs, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
 
   // Reset Camera View
   const handleResetCamera = () => {
@@ -1071,6 +1177,21 @@ export default function ThreeDView({
               type="checkbox" 
               checked={showDoors} 
               onChange={() => setShowDoors(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span>Show 3D Roofs</span>
+            <input 
+              type="checkbox" 
+              checked={showRoofs} 
+              onChange={() => setShowRoofs(v => !v)}
               style={{
                 width: "16px",
                 height: "16px",

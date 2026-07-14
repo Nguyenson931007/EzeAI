@@ -47,7 +47,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
               alt={floorDisplayName}
               draggable={false}
             />
-            <div className="page-thumb-info" style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", padding: "4px 8px" }}>
+             <div className="page-thumb-info" style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", padding: "4px 8px", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>
                 <span className="page-thumb-number" style={{ fontSize: 11, fontWeight: "bold" }}>{i + 1}</span>
                 <span 
@@ -67,8 +67,41 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
                   {floorDisplayName} ✏️
                 </span>
               </div>
+              <select
+                value={p.floor_name || `floor_${i}`}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPages(prev => prev.map((pg, idx) => 
+                    idx === i ? { ...pg, floor_name: val } : pg
+                  ));
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: "9px",
+                  background: "#1f2937",
+                  color: "#cbd5e1",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: "4px",
+                  padding: "2px 4px",
+                  width: "100%",
+                  marginTop: "2px",
+                  outline: "none",
+                  cursor: "pointer",
+                  fontFamily: "Inter, sans-serif"
+                }}
+              >
+                <option value="first_floor">Tầng 1</option>
+                <option value="upper_floor">Tầng 2</option>
+                <option value="third_floor">Tầng 3</option>
+                <option value="fourth_floor">Tầng 4</option>
+                <option value="fifth_floor">Tầng 5</option>
+                <option value="roof">Mái (Roof)</option>
+                {p.floor_name && !["first_floor", "upper_floor", "third_floor", "fourth_floor", "fifth_floor", "roof"].includes(p.floor_name) && (
+                  <option value={p.floor_name}>{floorDisplayName}</option>
+                )}
+              </select>
               {roomCount > 0 && (
-                <span className="page-thumb-rooms" style={{ fontSize: 9, alignSelf: "flex-end" }}>{roomCount} rooms</span>
+                <span className="page-thumb-rooms" style={{ fontSize: 9, alignSelf: "flex-end", marginTop: "2px" }}>{roomCount} rooms</span>
               )}
             </div>
           </div>

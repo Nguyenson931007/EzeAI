@@ -1156,6 +1156,7 @@ export function mapFloorName(name, index) {
   if (norm === 'third_floor' || norm === 'floor_2') return 'Tầng 3';
   if (norm === 'fourth_floor' || norm === 'floor_3') return 'Tầng 4';
   if (norm === 'fifth_floor' || norm === 'floor_4') return 'Tầng 5';
+  if (norm === 'roof') return 'Mái';
   
   const match = norm.match(/^floor_(\d+)$/);
   if (match) {
@@ -1182,6 +1183,9 @@ export function convertNameToClass(name, index) {
   }
   if (norm === 'tầng 5' || norm === 'tang 5' || norm === 'fifth floor') {
     return 'fifth_floor';
+  }
+  if (norm === 'mái' || norm === 'mai' || norm === 'roof') {
+    return 'roof';
   }
   return name.toLowerCase().replace(/[\s]+/g, '_');
 }

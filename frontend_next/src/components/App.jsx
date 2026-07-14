@@ -186,6 +186,7 @@ export default function App() {
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
     pdfOffsetsByPage, setPdfOffsetsByPage,
+    roofsByPage, setRoofsByPage,
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId
   } = useAppModel();
@@ -396,7 +397,8 @@ export default function App() {
     user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
     setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
     currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
-    pdfOffsetsByPage, setPdfOffsetsByPage
+    pdfOffsetsByPage, setPdfOffsetsByPage,
+    roofsByPage, setRoofsByPage
   );
 
   // Pass down context for global access
@@ -792,6 +794,7 @@ export default function App() {
               wallsByPage={wallsByPage}
               doorsByPage={processedDoorsByPage}
               roomsByPage={roomsByPage}
+              roofsByPage={roofsByPage}
               currentPage={currentPage}
               realScale={realScale}
               image={image}
