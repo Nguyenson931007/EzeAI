@@ -2661,6 +2661,19 @@ svg {
   opacity: 0.6;
 }
 
+/* Hide number input spin buttons */
+input.no-spinner::-webkit-outer-spin-button,
+input.no-spinner::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+input.no-spinner,
+input[type=number] {
+  -moz-appearance: textfield !important;
+}
+
 
 
 

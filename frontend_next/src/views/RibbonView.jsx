@@ -11,6 +11,7 @@ export default function RibbonView({
   autoFitExtEnvelope,
   isDrawingDoor, setIsDrawingDoor,
   doorController,
+  isDrawingRoof, setIsDrawingRoof,
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
   isSnapMode, setIsSnapMode,
@@ -198,8 +199,20 @@ export default function RibbonView({
             {/* DRAW */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); }}>
+                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${isDrawingRoof ? "active" : ""}`}
+                  onClick={() => {
+                    setIsDrawingRoof(r => !r);
+                    setDrawing(false);
+                    setCurrentPoly([]);
+                    setIsDrawingDoor(false);
+                  }}
+                  title="Vẽ polygon để tính diện tích mái"
+                >
+                  <span className="icon">🏠</span><span className="label">Roof</span>
                 </button>
                 <button
                   className={`ribbon-btn ${isDrawingDoor && (!doorController || doorController.doorPreset?.id !== 'win_standard') ? "active" : ""}`}
