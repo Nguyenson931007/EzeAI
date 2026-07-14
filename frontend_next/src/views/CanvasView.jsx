@@ -77,13 +77,13 @@ const getDoorBoundingBox = (d) => {
 // ==========================================
 // 1. FloorImageLayer (Memoized)
 // ==========================================
-const FloorImageLayer = React.memo(({ image, w, h, showPDF }) => {
+const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, y: 0 } }) => {
   if (!image) return null;
   return (
     <image
       href={image}
-      x={0}
-      y={0}
+      x={pdfOffset.x}
+      y={pdfOffset.y}
       width={w}
       height={h}
       style={{
@@ -94,7 +94,14 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF }) => {
       }}
     />
   );
-}, (prev, next) => prev.image === next.image && prev.w === next.w && prev.h === next.h && prev.showPDF === next.showPDF);
+}, (prev, next) => 
+  prev.image === next.image && 
+  prev.w === next.w && 
+  prev.h === next.h && 
+  prev.showPDF === next.showPDF &&
+  prev.pdfOffset?.x === next.pdfOffset?.x &&
+  prev.pdfOffset?.y === next.pdfOffset?.y
+);
 
 // ==========================================
 // 2. RoomPolygonLayer (Memoized)
@@ -1841,6 +1848,8 @@ export default function CanvasView({
   rooms,
   walls,
   underlayWalls = [],
+  pdfOffset = { x: 0, y: 0 },
+  setPdfOffsetsByPage,
   doors,
   scaleValue,
   realScale,
@@ -2411,6 +2420,52 @@ export default function CanvasView({
             >
               {showPDF ? "ON" : "OFF"}
             </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (setInteractionMode) {
+                  setInteractionMode(prev => prev === "align-pdf" ? "select" : "align-pdf");
+                }
+              }}
+              style={{
+                background: interactionMode === "align-pdf" ? "linear-gradient(135deg, #eab308 0%, #ca8a04 100%)" : "rgba(255, 255, 255, 0.1)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                color: "#ffffff",
+                padding: "4px 10px",
+                borderRadius: "6px",
+                fontSize: "11px",
+                fontWeight: "800",
+                cursor: "pointer",
+                transition: "all 0.2s ease-in-out",
+                boxShadow: interactionMode === "align-pdf" ? "0 0 10px rgba(234, 179, 8, 0.4)" : "none"
+              }}
+            >
+              {interactionMode === "align-pdf" ? "ALIGNING" : "ALIGN"}
+            </button>
+          </div>
+        )}
+
+        {interactionMode === "align-pdf" && (
+          <div
+            className="glassmorphic"
+            style={{
+              position: "absolute",
+              top: "20px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 100,
+              padding: "8px 16px",
+              borderRadius: "8px",
+              border: "1px solid rgba(234, 179, 8, 0.3)",
+              background: "rgba(251, 191, 36, 0.15)",
+              color: "#fef08a",
+              fontWeight: "600",
+              fontSize: "12px",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.2)"
+            }}
+          >
+            ✋ Drag anywhere to align PDF background with walls
           </div>
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
@@ -2556,7 +2611,8 @@ export default function CanvasView({
                   : isMeasuring ? "crosshair"
                     : isAddingPoint ? "crosshair"
                       : interactionMode === "draw-ext-rect" ? "crosshair"
-                        : "default"
+                        : interactionMode === "align-pdf" ? "move"
+                          : "default"
           }}
           onClick={(e) => {
             if (editingRoomId) return;
@@ -2595,7 +2651,7 @@ export default function CanvasView({
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
             
             {/* Memoized Layer 1: Base Floor Image */}
-            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} />
+            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
 
             {/* Underlay Ghost Walls of Previous Page */}
             <UnderlayWallLayer walls={underlayWalls} />

@@ -70,7 +70,8 @@ export function useInteractionController(svgRef) {
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
     currentPage, realScale, setRealScale,
-    activeTab
+    activeTab,
+    pdfOffsetsByPage, setPdfOffsetsByPage
   } = useAppModel();
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
@@ -1882,7 +1883,7 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    // ===== PANNING =====
+    // ===== PANNING / ALIGN PDF =====
     if (panStart.current) {
       const dx = e.clientX - panStart.current.x;
       const dy = e.clientY - panStart.current.y;
@@ -1890,7 +1891,24 @@ export function useInteractionController(svgRef) {
         ignoreClickRef.current = true;
         setIsPanning(true);
       }
-      setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+
+      if (interactionMode === "align-pdf") {
+        const svgDx = dx / scale;
+        const svgDy = dy / scale;
+        setPdfOffsetsByPage(prev => {
+          const currentOffset = prev[currentPage] || { x: 0, y: 0 };
+          return {
+            ...prev,
+            [currentPage]: {
+              x: currentOffset.x + svgDx,
+              y: currentOffset.y + svgDy
+            }
+          };
+        });
+      } else {
+        setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      }
+
       panStart.current = { x: e.clientX, y: e.clientY };
       return;
     } else {
@@ -2021,6 +2039,12 @@ export function useInteractionController(svgRef) {
 
     // Never start panning if a drag is active
     if (dragging) return;
+
+    if (interactionMode === "align-pdf" && e.button === 0) {
+      panStart.current = { x: e.clientX, y: e.clientY };
+      ignoreClickRef.current = true;
+      return;
+    }
 
     // Prevent starting normal drag-panning during draw-wall and cut-wall modes
     if ((interactionMode === "draw-wall" || interactionMode === "cut-wall") && e.button !== 1 && !isSpaceDown) {

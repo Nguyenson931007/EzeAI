@@ -185,6 +185,7 @@ export default function App() {
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
+    pdfOffsetsByPage, setPdfOffsetsByPage,
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId
   } = useAppModel();
@@ -388,7 +389,8 @@ export default function App() {
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
     user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
     setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
-    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage
+    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
+    pdfOffsetsByPage, setPdfOffsetsByPage
   );
 
   // Pass down context for global access
@@ -805,6 +807,8 @@ export default function App() {
               walls={wallsByPage[currentPage] || []}
               underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
               doors={processedDoorsByPage[currentPage] || []}
+              pdfOffset={pdfOffsetsByPage[currentPage] || { x: 0, y: 0 }}
+              setPdfOffsetsByPage={setPdfOffsetsByPage}
               scaleValue={scaleValue}
               realScale={realScale}
               highlightType={highlightType}

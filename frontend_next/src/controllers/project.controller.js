@@ -14,7 +14,8 @@ export const useProjectController = (
   user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
   setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage,
   setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId,
-  doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage
+  doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
+  pdfOffsetsByPage, setPdfOffsetsByPage
 ) => {
   const { showAlert } = useDialog();
   
@@ -29,7 +30,7 @@ export const useProjectController = (
     
     const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
-    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, wasteByPage };
+    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, wasteByPage, pdfOffsetsByPage };
 
     try {
       const payload = {
@@ -61,6 +62,8 @@ export const useProjectController = (
     else setWallsByPage({});
     if (jobData.realScale) setRealScale(jobData.realScale);
     if (jobData.wasteByPage) setWasteByPage(jobData.wasteByPage);
+    if (jobData.pdfOffsetsByPage) setPdfOffsetsByPage(jobData.pdfOffsetsByPage);
+    else setPdfOffsetsByPage({});
     if (jobData.pages?.length > 0) {
       setCurrentPage(0);
       setImage(jobData.pages[0].image);
