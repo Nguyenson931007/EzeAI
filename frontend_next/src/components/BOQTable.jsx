@@ -462,46 +462,36 @@ export default function BOQTable({
 
     // ===== DOORS =====
     const doorSummaries = [];
-    let singleDoorsCount = 0;
-    let doubleDoorsCount = 0;
-    let slidingDoorsCount = 0;
-
+    const counts = {};
     pages.forEach(p => {
       (p.doors || []).forEach(d => {
-        if (d.class === "single_door") singleDoorsCount++;
-        else if (d.class === "double_door") doubleDoorsCount++;
-        else if (d.class === "sliding_door" || d.class === "double_sliding_door") slidingDoorsCount++;
-        else singleDoorsCount++;
+        const cls = d.class || 'single_door';
+        counts[cls] = (counts[cls] || 0) + 1;
       });
     });
 
-    if (singleDoorsCount > 0) {
-      doorSummaries.push({
-        id: "DOOR_SINGLE",
-        name: "Single Internal Door",
-        area: 0,
-        finalQty: singleDoorsCount,
-        unit: "ea",
-      });
-    }
-    if (doubleDoorsCount > 0) {
-      doorSummaries.push({
-        id: "DOOR_DOUBLE",
-        name: "Double Internal Door",
-        area: 0,
-        finalQty: doubleDoorsCount,
-        unit: "ea",
-      });
-    }
-    if (slidingDoorsCount > 0) {
-      doorSummaries.push({
-        id: "DOOR_SLIDING",
-        name: "Sliding Door",
-        area: 0,
-        finalQty: slidingDoorsCount,
-        unit: "ea",
-      });
-    }
+    const doorTypeLabels = {
+      single_door: "Single Hinged Door",
+      double_door: "Double Hinged Door",
+      sliding_door: "Sliding Door",
+      cavity_slider_door: "Cavity Slider Door",
+      double_slider_door: "Double Slider Door",
+      bifold_door: "Bifold Door",
+      garage_door: "Garage Door"
+    };
+
+    Object.entries(counts).forEach(([cls, count]) => {
+      if (count > 0) {
+        const label = doorTypeLabels[cls] || cls.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+        doorSummaries.push({
+          id: `DOOR_${cls.toUpperCase()}`,
+          name: label,
+          area: 0,
+          finalQty: count,
+          unit: "ea",
+        });
+      }
+    });
 
     return [
       {

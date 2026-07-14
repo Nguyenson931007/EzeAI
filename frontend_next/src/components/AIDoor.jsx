@@ -793,8 +793,13 @@ export default function AIDoor({
         stroke="transparent"
         strokeWidth={0}
         onMouseDown={(e) => {
-          if (isSelected && startDrag) {
+          if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+          if (startDrag) {
             e.stopPropagation();
+            if (!isSelected) {
+              setSelectedId(d.id);
+              setSelectedType("door");
+            }
             startDrag(d.id, null, 'door-move');
           }
         }}

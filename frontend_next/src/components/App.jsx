@@ -260,7 +260,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishDoor, updateDoor,
+    handleClick, finishPolygon, finishDoor, updateDoor, deleteDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -268,6 +268,7 @@ export default function App() {
     selectedWallVertex, setSelectedWallVertex,
     drawingWall, setDrawingWall,
     drawingWallEnd, setDrawingWallEnd,
+    doorController, // also expose the controller itself if needed
     createDefaultExtEnvelope,
     pullStepInfo,
     setPullStepInfo,
@@ -315,10 +316,7 @@ export default function App() {
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
 
-  const deleteDoor = (doorId) => {
-    const doors = Array.isArray(doorsByPage[currentPage]) ? doorsByPage[currentPage] : [];
-    pushHistory(null, null, doors.filter(d => d.id !== doorId));
-  };
+
 
   // Thêm door_name (D-1, D-2) và page_index tự động cho các cửa để hiển thị đồng nhất và liên kết với tầng chính xác
   const processedDoorsByPage = useMemo(() => {
@@ -328,8 +326,20 @@ export default function App() {
       const pageRooms = Array.isArray(roomsByPage[pageIdx]) ? roomsByPage[pageIdx] : [];
       const pageWalls = Array.isArray(wallsByPage[pageIdx]) ? wallsByPage[pageIdx] : [];
 
-      newObj[page] = (Array.isArray(doorsByPage[page]) ? doorsByPage[page] : []).map((d, i) => {
-        const doorName = d.door_name || `D-${i + 1}`;
+      let doorCount = 0;
+      let windowCount = 0;
+
+      newObj[page] = (Array.isArray(doorsByPage[page]) ? doorsByPage[page] : []).map((d) => {
+        const isWindow = d.type === 'window' || d.class === 'window' || d.doorTypeId === 'win_standard';
+        let defaultName;
+        if (isWindow) {
+          windowCount++;
+          defaultName = `W-${windowCount}`;
+        } else {
+          doorCount++;
+          defaultName = `D-${doorCount}`;
+        }
+        const doorName = d.door_name || defaultName;
         const autoHardware = getHardwareType({ ...d, door_name: doorName }, pageRooms, pageWalls, realScale);
         return {
           ...d,
@@ -683,6 +693,7 @@ export default function App() {
         createDefaultExtEnvelope={createDefaultExtEnvelope}
         autoFitExtEnvelope={autoFitExtEnvelope}
         isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
+        doorController={doorController}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -850,6 +861,7 @@ export default function App() {
               pushHistory={pushHistory}
               updateDoor={updateDoor}
               deleteDoor={deleteDoor}
+              doorController={doorController}
               deleteWalls={deleteWalls}
               updateWallsProperty={updateWallsProperty}
               pullStepPreview={pullStepPreview}

@@ -224,7 +224,37 @@ export function useDocumentController({
           isClosed: Boolean(w.isClosed),
           polygon: w.polygon.map(p => ({ x: Number(p[0]), y: Number(p[1]) }))
         })),
-        doors: [],
+        doors: (doorsByPage[currentPage] || []).map(d => ({
+          id: d.id || `door_${Math.round(Math.random() * 1e9)}`,
+          door_name: d.doorName || d.door_name || d.id,
+          door_type_id: d.doorTypeId || 'int_hinged_single',
+          class: d.class || 'single_door',
+          type: d.type || 'single',
+          parent_wall_id: d.parentWallId || null,
+          width_mm: Number(d.width_mm) || 760,
+          height_mm: Number(d.height_mm) || 1980,
+          thickness_mm: Number(d.thickness_mm) || 90,
+          hinge_side: d.hingeSide || d.hinge_side || 'left',
+          swing_direction: d.swingDirection || d.swing_direction || d.swing || 'inward',
+          open_angle: d.openAngle || d.angle || 90,
+          material: d.material || 'timber',
+          fire_rating: d.fireRating || 'none',
+          hardware_type: d.hardwareType || d.hardware_type || 'passage',
+          review_state: d.review_state || 'human_verified',
+          status: d.status || 'active',
+          points: (d.points || []).map(p => ({
+            x: Number(Array.isArray(p) ? p[0] : p.x),
+            y: Number(Array.isArray(p) ? p[1] : p.y)
+          })),
+          polygon: (d.polygon || []).map(p => ({
+            x: Number(Array.isArray(p) ? p[0] : p.x),
+            y: Number(Array.isArray(p) ? p[1] : p.y)
+          })),
+          mask_polygon: (d.mask_polygon || []).map(p => ({
+            x: Number(Array.isArray(p) ? p[0] : p.x),
+            y: Number(Array.isArray(p) ? p[1] : p.y)
+          }))
+        })),
         width: Math.round(imgSize.w),
         height: Math.round(imgSize.h),
         name: String(realName),
@@ -301,7 +331,37 @@ export function useDocumentController({
             isClosed: Boolean(w.isClosed),
             polygon: w.polygon.map(p => ({ x: Number(p[0]), y: Number(p[1]) }))
           })),
-          doors: [],
+          doors: (doorsByPage[pageIdx] || []).map(d => ({
+            id: d.id || `door_${Math.round(Math.random() * 1e9)}`,
+            door_name: d.doorName || d.door_name || d.id,
+            door_type_id: d.doorTypeId || 'int_hinged_single',
+            class: d.class || 'single_door',
+            type: d.type || 'single',
+            parent_wall_id: d.parentWallId || null,
+            width_mm: Number(d.width_mm) || 760,
+            height_mm: Number(d.height_mm) || 1980,
+            thickness_mm: Number(d.thickness_mm) || 90,
+            hinge_side: d.hingeSide || d.hinge_side || 'left',
+            swing_direction: d.swingDirection || d.swing_direction || d.swing || 'inward',
+            open_angle: d.openAngle || d.angle || 90,
+            material: d.material || 'timber',
+            fire_rating: d.fireRating || 'none',
+            hardware_type: d.hardwareType || d.hardware_type || 'passage',
+            review_state: d.review_state || 'human_verified',
+            status: d.status || 'active',
+            points: (d.points || []).map(p => ({
+              x: Number(Array.isArray(p) ? p[0] : p.x),
+              y: Number(Array.isArray(p) ? p[1] : p.y)
+            })),
+            polygon: (d.polygon || []).map(p => ({
+              x: Number(Array.isArray(p) ? p[0] : p.x),
+              y: Number(Array.isArray(p) ? p[1] : p.y)
+            })),
+            mask_polygon: (d.mask_polygon || []).map(p => ({
+              x: Number(Array.isArray(p) ? p[0] : p.x),
+              y: Number(Array.isArray(p) ? p[1] : p.y)
+            }))
+          })),
           width: Math.round(pageData.w),
           height: Math.round(pageData.h),
           name: String(realName),

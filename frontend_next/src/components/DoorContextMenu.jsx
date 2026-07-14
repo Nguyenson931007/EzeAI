@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { getPenetrationTypeOptions } from '@/models/DoorTypeRegistry';
 
 /**
  * DoorContextMenu — Floating right-click context menu for door elements.
@@ -69,15 +70,7 @@ export default function DoorContextMenu({
   const submenuLeft = fitsRight ? clampedX + menuWidth - 4 : clampedX - submenuWidth + 4;
   const clampedSubmenuY = Math.min(clampedY + 170, window.innerHeight - 260 - 10);
 
-  const penetrationTypes = [
-    { value: 'single_door', label: 'Hinged Single' },
-    { value: 'double_door', label: 'Hinged Double' },
-    { value: 'sliding_door', label: 'Sliding Door' },
-    { value: 'cavity_slider_door', label: 'Cavity Slider' },
-    { value: 'double_slider_door', label: 'Double Slider' },
-    { value: 'bifold_door', label: 'Bifold' },
-    { value: 'garage_door', label: 'Garage' }
-  ];
+  const penetrationTypes = getPenetrationTypeOptions();
 
   const menuItems = [
     { icon: '↩️', label: 'Rotate Left', action: onRotateLeft, shortcut: '' },

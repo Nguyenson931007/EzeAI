@@ -25,6 +25,8 @@ logger = logging.getLogger("ezefloor.wall_segment_service")
 
 _wall_model: YOLO = None
 _model_lock = threading.Lock()
+_wall_model_last: YOLO = None
+_model_last_lock = threading.Lock()
 
 def _get_model() -> YOLO:
     """Gets or loads the singleton wall segmentation YOLO model."""
@@ -41,6 +43,229 @@ def _get_model() -> YOLO:
                 logger.info(f"[wall_segment_service] Loading YOLO Wall model from {model_path} (source: {source_name})")
                 _wall_model = YOLO(str(model_path))
     return _wall_model
+
+
+def _get_last_model():
+    """Gets or loads the secondary 'last.pt' model if it exists. Returns None if not found."""
+    global _wall_model_last
+    if _wall_model_last is None:
+        with _model_last_lock:
+            if _wall_model_last is None:
+                last_path = BASE_DIR / "backend" / "models" / "Walls" / "last.pt"
+                if last_path.exists():
+                    logger.info(f"[wall_segment_service] Loading secondary YOLO Wall model (last.pt) from {last_path}")
+                    _wall_model_last = YOLO(str(last_path))
+                else:
+                    logger.info("[wall_segment_service] No last.pt found, skipping ensemble")
+                    return None
+    return _wall_model_last
+
+
+def _run_yolo_inference(
+    model: YOLO,
+    img_inference,
+    img_w: int,
+    img_h: int,
+    inference_width: int,
+    inference_height: int,
+    img_np,
+    confidence: float,
+    imgsz: int,
+    device: str,
+    real_scale: float,
+    model_label: str = "best"
+) -> List[dict]:
+    """
+    Runs YOLO segmentation inference with a given model and returns raw detected walls.
+    Shared helper used by both predict() and predict_stream() for primary and ensemble models.
+    """
+    results = model.predict(
+        source=img_inference,
+        conf=float(confidence),
+        imgsz=imgsz,
+        retina_masks=True,
+        device=device,
+        verbose=False
+    )
+
+    detected_walls = []
+
+    if len(results) > 0:
+        res = results[0]
+        boxes = res.boxes
+        masks = res.masks
+
+        if boxes is not None and masks is not None:
+            for idx in range(len(boxes)):
+                if idx >= len(masks.xy):
+                    continue
+
+                box = boxes[idx]
+                conf = float(box.conf[0].item())
+                class_id = int(box.cls[0].item())
+                class_name = model.names.get(class_id, f"wall_{class_id}")
+
+                # Normalize YOLO class names to canonical names used in frontend/backend
+                _CLASS_NAME_MAP = {
+                    "ext_wall": "exterior_wall",
+                    "int_wall": "interior_wall",
+                    "part_wall": "partition_wall",
+                }
+                class_name = _CLASS_NAME_MAP.get(class_name, class_name)
+
+                # Class-specific confidence filtering
+                if conf < confidence:
+                    continue
+
+                # Get raw polygon coordinates from YOLO masks
+                poly_xy = masks.xy[idx]
+                if len(poly_xy) < 3:
+                    continue
+
+                # Scale coordinates from inference scale back to original image scale
+                scale_x = img_w / inference_width
+                scale_y = img_h / inference_height
+                raw_polygon_coords = [[float(p[0]) * scale_x, float(p[1]) * scale_y] for p in poly_xy]
+
+                # Basic geometric properties and simplification from Shapely
+                try:
+                    poly_geom = ShapelyPolygon(raw_polygon_coords)
+                    if not poly_geom.is_valid:
+                        poly_geom = poly_geom.buffer(0)
+
+                    poly_geom = poly_geom.simplify(2.0, preserve_topology=True)
+
+                    if poly_geom.is_empty:
+                        continue
+
+                    if poly_geom.geom_type == 'Polygon':
+                        polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
+                    elif poly_geom.geom_type == 'MultiPolygon':
+                        largest_poly = max(poly_geom.geoms, key=lambda p: p.area)
+                        poly_geom = largest_poly
+                        polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
+                    else:
+                        polygon_coords = raw_polygon_coords
+
+                    if len(polygon_coords) < 3:
+                        polygon_coords = raw_polygon_coords
+                except Exception:
+                    polygon_coords = raw_polygon_coords
+
+                # Centerline and thickness from MRR
+                centerline, raw_thickness_px = _compute_centerline_and_thickness(polygon_coords)
+
+                if centerline and len(centerline) == 2:
+                    p1, p2 = centerline[0], centerline[1]
+                    length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+
+                    # Aspect Ratio and Length Filtering
+                    if real_scale and real_scale != 1.0:
+                        min_len_mm = 120.0 if confidence < 0.01 else 350.0
+                        min_len_thresh = float(min_len_mm) / real_scale
+                    else:
+                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+
+                    if length < min_len_thresh:
+                        continue
+
+                    ratio_thresh = 1.0 if confidence < 0.01 else 2.0
+                    if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
+                        continue
+
+                    # OpenCV parallel edge validation (filters out furniture, text, etc.)
+                    if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
+                        continue
+
+                    wall_obj = {
+                        "class_name": class_name,
+                        "confidence": round(conf, 3),
+                        "centerline": centerline,
+                        "polygon": polygon_coords,
+                        "source_model": model_label
+                    }
+                    detected_walls.append(wall_obj)
+
+    logger.info(f"[wall_segment_service] _run_yolo_inference ({model_label}): detected {len(detected_walls)} raw walls")
+    return detected_walls
+
+
+def _merge_ensemble_walls(walls_primary: List[dict], walls_secondary: List[dict]) -> List[dict]:
+    """
+    Merges walls from two models (best.pt primary, last.pt secondary).
+    For overlapping walls (IoU > 0.45 or containment > 0.70), keeps the one with higher confidence.
+    Non-overlapping walls from the secondary model are added to fill gaps.
+    """
+    if not walls_secondary:
+        return walls_primary
+
+    merged = list(walls_primary)  # Start with all primary walls
+    added_from_secondary = 0
+    replaced_by_secondary = 0
+
+    for sw in walls_secondary:
+        sw_poly = sw.get("polygon")
+        if not sw_poly or len(sw_poly) < 3:
+            continue
+
+        try:
+            sw_geom = ShapelyPolygon(sw_poly)
+            if not sw_geom.is_valid:
+                sw_geom = sw_geom.buffer(0)
+            if sw_geom.is_empty:
+                continue
+        except Exception:
+            continue
+
+        best_overlap_idx = -1
+        best_iou = 0.0
+
+        for i, pw in enumerate(merged):
+            pw_poly = pw.get("polygon")
+            if not pw_poly or len(pw_poly) < 3:
+                continue
+            try:
+                pw_geom = ShapelyPolygon(pw_poly)
+                if not pw_geom.is_valid:
+                    pw_geom = pw_geom.buffer(0)
+                if pw_geom.is_empty:
+                    continue
+
+                if not sw_geom.intersects(pw_geom):
+                    continue
+
+                inter_area = sw_geom.intersection(pw_geom).area
+                union_area = sw_geom.union(pw_geom).area
+                iou = inter_area / union_area if union_area > 0 else 0
+
+                min_area = min(sw_geom.area, pw_geom.area)
+                containment = inter_area / min_area if min_area > 0 else 0
+
+                if iou > 0.45 or containment > 0.70:
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_overlap_idx = i
+            except Exception:
+                continue
+
+        if best_overlap_idx >= 0:
+            # Overlapping wall found — keep the one with higher confidence
+            existing = merged[best_overlap_idx]
+            if sw.get("confidence", 0) > existing.get("confidence", 0):
+                sw["source_model"] = "last_replaced"
+                merged[best_overlap_idx] = sw
+                replaced_by_secondary += 1
+        else:
+            # No overlap — this is a new wall detected only by last.pt
+            sw["source_model"] = "last_added"
+            merged.append(sw)
+            added_from_secondary += 1
+
+    logger.info(
+        f"[wall_segment_service] Ensemble merge: {len(walls_primary)} primary + {len(walls_secondary)} secondary "
+        f"→ {len(merged)} merged (added {added_from_secondary}, replaced {replaced_by_secondary})"
+    )
+    return merged
 
 
 def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
@@ -709,121 +934,22 @@ class WallSegmentService:
 
         img_inference = img_original.resize((inference_width, inference_height))
 
-        # Run segmentation inference
-        results = model.predict(
-            source=img_inference,
-            conf=float(confidence),
-            imgsz=imgsz,
-            retina_masks=True,
-            device=device,
-            verbose=False
+        # Primary inference with best.pt
+        detected_walls = _run_yolo_inference(
+            model, img_inference, img_w, img_h,
+            inference_width, inference_height, img_np,
+            confidence, imgsz, device, real_scale, model_label="best"
         )
 
-        detected_walls = []
-
-        if len(results) > 0:
-            res = results[0]
-            boxes = res.boxes
-            masks = res.masks
-
-            if boxes is not None and masks is not None:
-                for idx in range(len(boxes)):
-                    if idx >= len(masks.xy):
-                        continue
-
-                    box = boxes[idx]
-                    conf = float(box.conf[0].item())
-                    class_id = int(box.cls[0].item())
-                    class_name = model.names.get(class_id, f"wall_{class_id}")
-
-                    # Class-specific confidence filtering
-                    part_thresh = confidence
-                    int_thresh = confidence
-                    ext_thresh = confidence
-
-                    if class_name == "partition_wall":
-                        if conf < part_thresh:
-                            continue
-                    elif class_name == "interior_wall":
-                        if conf < int_thresh:
-                            continue
-                    elif class_name == "exterior_wall":
-                        if conf < ext_thresh:
-                            continue
-                    else:
-                        if conf < confidence:
-                            continue
-
-                    # Get raw polygon coordinates from YOLO masks
-                    poly_xy = masks.xy[idx]
-                    if len(poly_xy) < 3:
-                        continue
-
-                    # Scale coordinates from inference scale back to original image scale
-                    scale_x = img_w / inference_width
-                    scale_y = img_h / inference_height
-                    raw_polygon_coords = [[float(p[0]) * scale_x, float(p[1]) * scale_y] for p in poly_xy]
-
-                    # Basic geometric properties and simplification from Shapely
-                    try:
-                        poly_geom = ShapelyPolygon(raw_polygon_coords)
-                        if not poly_geom.is_valid:
-                            poly_geom = poly_geom.buffer(0)
-                        
-                        # Simplify shape with tolerance=2.0 to make it more even (straighten lines)
-                        poly_geom = poly_geom.simplify(2.0, preserve_topology=True)
-                        
-                        if poly_geom.is_empty:
-                            continue
-                            
-                        if poly_geom.geom_type == 'Polygon':
-                            polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
-                        elif poly_geom.geom_type == 'MultiPolygon':
-                            largest_poly = max(poly_geom.geoms, key=lambda p: p.area)
-                            poly_geom = largest_poly
-                            polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
-                        else:
-                            polygon_coords = raw_polygon_coords
-
-                        if len(polygon_coords) < 3:
-                            polygon_coords = raw_polygon_coords
-                    except Exception:
-                        polygon_coords = raw_polygon_coords
-
-                    # Centerline and thickness from MRR
-                    centerline, raw_thickness_px = _compute_centerline_and_thickness(polygon_coords)
-
-                    if centerline and len(centerline) == 2:
-                        p1, p2 = centerline[0], centerline[1]
-                        length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
-                        
-                        # Aspect Ratio and Length Filtering (Idea 7)
-                        # Discard walls that are too short based on real scale
-                        if real_scale and real_scale != 1.0:
-                            min_len_mm = 120.0 if confidence < 0.01 else 350.0
-                            min_len_thresh = float(min_len_mm) / real_scale
-                        else:
-                            min_len_thresh = 12.0 if confidence < 0.01 else 35.0
-                            
-                        if length < min_len_thresh:
-                            continue
-                            
-                        # Discard square-like blocks (length to thickness ratio < 2.0, or < 1.0 for high sensitivity)
-                        ratio_thresh = 1.0 if confidence < 0.01 else 2.0
-                        if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
-                            continue
-
-                        # OpenCV parallel edge validation (filters out furniture, text, etc.)
-                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
-                            continue
-
-                        wall_obj = {
-                            "class_name": class_name,
-                            "confidence": round(conf, 3),
-                            "centerline": centerline,
-                            "polygon": polygon_coords  # Temp polygon until final reconstruction
-                        }
-                        detected_walls.append(wall_obj)
+        # Ensemble inference with last.pt (if available)
+        last_model = _get_last_model()
+        if last_model is not None:
+            detected_walls_last = _run_yolo_inference(
+                last_model, img_inference, img_w, img_h,
+                inference_width, inference_height, img_np,
+                confidence, imgsz, device, real_scale, model_label="last"
+            )
+            detected_walls = _merge_ensemble_walls(detected_walls, detected_walls_last)
 
         # Step 0.5: Skip backend door cross-filter (frontend handles door gaps correctly)
         # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
@@ -1051,118 +1177,25 @@ class WallSegmentService:
 
         img_inference = img_original.resize((inference_width, inference_height))
 
-        yield {"status": "yolo_started", "message": "Running YOLO Segmenter..."}
+        yield {"status": "yolo_started", "message": "Running YOLO Segmenter (best.pt)..."}
 
-        # Run segmentation inference
-        results = model.predict(
-            source=img_inference,
-            conf=float(confidence),
-            imgsz=imgsz,
-            retina_masks=True,
-            device=device,
-            verbose=False
+        # Primary inference with best.pt
+        detected_walls = _run_yolo_inference(
+            model, img_inference, img_w, img_h,
+            inference_width, inference_height, img_np,
+            confidence, imgsz, device, real_scale, model_label="best"
         )
 
-        detected_walls = []
-
-        if len(results) > 0:
-            res = results[0]
-            boxes = res.boxes
-            masks = res.masks
-
-            if boxes is not None and masks is not None:
-                for idx in range(len(boxes)):
-                    if idx >= len(masks.xy):
-                        continue
-
-                    box = boxes[idx]
-                    conf = float(box.conf[0].item())
-                    class_id = int(box.cls[0].item())
-                    class_name = model.names.get(class_id, f"wall_{class_id}")
-
-                    # Class-specific confidence filtering
-                    part_thresh = confidence
-                    int_thresh = confidence
-                    ext_thresh = confidence
-
-                    if class_name == "partition_wall":
-                        if conf < part_thresh:
-                            continue
-                    elif class_name == "interior_wall":
-                        if conf < int_thresh:
-                            continue
-                    elif class_name == "exterior_wall":
-                        if conf < ext_thresh:
-                            continue
-                    else:
-                        if conf < confidence:
-                            continue
-
-                    # Get raw polygon coordinates from YOLO masks
-                    poly_xy = masks.xy[idx]
-                    if len(poly_xy) < 3:
-                        continue
-
-                    # Scale coordinates from inference scale back to original image scale
-                    scale_x = img_w / inference_width
-                    scale_y = img_h / inference_height
-                    raw_polygon_coords = [[float(p[0]) * scale_x, float(p[1]) * scale_y] for p in poly_xy]
-
-                    # Basic geometric properties and simplification from Shapely
-                    try:
-                        poly_geom = ShapelyPolygon(raw_polygon_coords)
-                        if not poly_geom.is_valid:
-                            poly_geom = poly_geom.buffer(0)
-                        
-                        poly_geom = poly_geom.simplify(2.0, preserve_topology=True)
-                        
-                        if poly_geom.is_empty:
-                            continue
-                            
-                        if poly_geom.geom_type == 'Polygon':
-                            polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
-                        elif poly_geom.geom_type == 'MultiPolygon':
-                            largest_poly = max(poly_geom.geoms, key=lambda p: p.area)
-                            poly_geom = largest_poly
-                            polygon_coords = [[float(x), float(y)] for x, y in poly_geom.exterior.coords][:-1]
-                        else:
-                            polygon_coords = raw_polygon_coords
-
-                        if len(polygon_coords) < 3:
-                            polygon_coords = raw_polygon_coords
-                    except Exception:
-                        polygon_coords = raw_polygon_coords
-
-                    # Centerline and thickness from MRR
-                    centerline, raw_thickness_px = _compute_centerline_and_thickness(polygon_coords)
-
-                    if centerline and len(centerline) == 2:
-                        p1, p2 = centerline[0], centerline[1]
-                        length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
-                        
-                        if real_scale and real_scale != 1.0:
-                            min_len_mm = 120.0 if confidence < 0.01 else 350.0
-                            min_len_thresh = float(min_len_mm) / real_scale
-                        else:
-                            min_len_thresh = 12.0 if confidence < 0.01 else 35.0
-                            
-                        if length < min_len_thresh:
-                            continue
-                            
-                        ratio_thresh = 1.0 if confidence < 0.01 else 2.0
-                        if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
-                            continue
-
-                        if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
-                            continue
-
-                        wall_obj = {
-                            "class_name": class_name,
-                            "confidence": round(conf, 3),
-                            "centerline": centerline,
-                            "polygon": polygon_coords
-                        }
-                        detected_walls.append(wall_obj)
+        # Ensemble inference with last.pt (if available)
+        last_model = _get_last_model()
+        if last_model is not None:
+            yield {"status": "ensemble_started", "message": f"Running ensemble with last.pt ({len(detected_walls)} walls from best.pt)..."}
+            detected_walls_last = _run_yolo_inference(
+                last_model, img_inference, img_w, img_h,
+                inference_width, inference_height, img_np,
+                confidence, imgsz, device, real_scale, model_label="last"
+            )
+            detected_walls = _merge_ensemble_walls(detected_walls, detected_walls_last)
 
         # Build initial raw walls to yield immediately so the user doesn't wait
         raw_yield_walls = []

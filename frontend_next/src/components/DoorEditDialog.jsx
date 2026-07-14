@@ -1,40 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  DOOR_TYPE_REGISTRY,
+  getDoorTypeOptions,
+  HARDWARE_TYPES,
+  MATERIAL_OPTIONS,
+  FIRE_RATING_OPTIONS,
+  computeDoorHeight,
+  WALL_TYPE_DEFAULTS
+} from '@/models/DoorTypeRegistry';
 
-/**
- * DOOR_TYPES — Preset door type configurations with default dimensions.
- */
-export const DOOR_TYPES = {
-  // External Penetrations
-  ext_hinged_single: { label: 'Custom External Door', category: 'external', defaultW: 820, defaultH: 2040 },
-  ext_hinged_double: { label: 'Custom Hinged Double Door', category: 'external', defaultW: 1640, defaultH: 2040 },
-  ext_sliding: { label: 'Custom Sliding Door', category: 'external', defaultW: 1800, defaultH: 2200 },
-  ext_bifold: { label: 'Custom Bifold Door', category: 'external', defaultW: 2400, defaultH: 2200 },
-  ext_garage: { label: 'Custom Garage Door', category: 'external', defaultW: 5000, defaultH: 2400 },
-  // Internal Penetrations
-  int_hinged_single: { label: 'Custom Hinged Door - Internal', category: 'internal', defaultW: 760, defaultH: 1980 },
-  int_hinged_double: { label: 'Custom Hinged Double Door', category: 'internal', defaultW: 1520, defaultH: 1980 },
-  int_sliding: { label: 'Custom Sliding Door', category: 'internal', defaultW: 760, defaultH: 1980 },
-  int_cavity_slider: { label: 'Custom Cavity Slider Door', category: 'internal', defaultW: 760, defaultH: 1980 },
-  int_double_slider: { label: 'Custom Double Slider Door', category: 'internal', defaultW: 1520, defaultH: 1980 },
-  int_bifold: { label: 'Custom Bifold Door', category: 'internal', defaultW: 1800, defaultH: 1980 },
-};
+const PENETRATION_TYPE_OPTIONS = getDoorTypeOptions();
 
-const PENETRATION_TYPE_OPTIONS = [
-  { value: 'hinged_single', label: 'Hinged Doors (Custom Size)' },
-  { value: 'hinged_double', label: 'Hinged Double Doors (Custom Size)' },
-  { value: 'sliding', label: 'Sliding Door (Custom Size)' },
-  { value: 'cavity_slider', label: 'Cavity Slider Door (Custom Size)' },
-  { value: 'double_slider', label: 'Double Slider Door (Custom Size)' },
-  { value: 'bifold', label: 'Bifold Door (Custom Size)' },
-  { value: 'garage', label: 'Garage Door (Custom Size)' },
-];
-
-const HARDWARE_TYPE_OPTIONS = [
-  { value: 'privacy', label: 'Privacy' },
-  { value: 'passage', label: 'Passage' },
-  { value: 'dummy', label: 'Dummy' },
-  { value: 'entrance', label: 'Entrance' },
-];
 
 /**
  * DoorEditDialog — Modal dialog for editing door properties.
@@ -59,24 +35,68 @@ export default function DoorEditDialog({
 
   // Determine the initial penetration type from the door class
   const getInitialPenetType = () => {
-    if (!door) return 'hinged_single';
+    if (!door) return 'int_hinged_single';
+    if (door.doorTypeId) return door.doorTypeId;
     const cls = door.class || '';
-    if (cls.includes('sliding')) return 'sliding';
-    if (cls.includes('double_door')) return 'hinged_double';
-    if (cls.includes('bifold')) return 'bifold';
-    if (cls.includes('garage')) return 'garage';
-    if (cls.includes('cavity')) return 'cavity_slider';
-    return 'hinged_single';
+    const isExt = door.class?.includes('ext') || door.doorName?.toLowerCase().includes('external') || door.door_name?.toLowerCase().includes('external');
+    const category = isExt ? 'external' : 'internal';
+    const prefix = isExt ? 'ext_' : 'int_';
+    for (const [key, def] of Object.entries(DOOR_TYPE_REGISTRY)) {
+      if (def.renderClass === cls && key.startsWith(prefix)) {
+        return key;
+      }
+    }
+    for (const [key, def] of Object.entries(DOOR_TYPE_REGISTRY)) {
+      if (def.renderClass === cls) {
+        return key;
+      }
+    }
+    return 'int_hinged_single';
   };
 
-  const [penetrationType, setPenetrationType] = useState('hinged_single');
-  const [hardwareType, setHardwareType] = useState('privacy');
+  const [penetrationType, setPenetrationType] = useState('int_hinged_single');
+  const [hardwareType, setHardwareType] = useState('passage');
+  const [material, setMaterial] = useState('timber');
+  const [fireRating, setFireRating] = useState('none');
+  const [status, setStatus] = useState('active');
   const [distanceSide, setDistanceSide] = useState('left');
   const [distanceValue, setDistanceValue] = useState(0);
   const [heightMm, setHeightMm] = useState(1980);
   const [widthMm, setWidthMm] = useState(760);
   const [applyToAll, setApplyToAll] = useState(false);
   const [computedDistances, setComputedDistances] = useState({ left: 0, right: 0 });
+
+  const getParentWall = () => {
+    if (!door || !walls || walls.length === 0) return null;
+    if (door.parentWallId) {
+      return walls.find(w => w.id === door.parentWallId) || null;
+    }
+    // Proximity lookup
+    const points = door.points || [];
+    let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
+    let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
+    if (!p1 || !p2) return null;
+    const cx = (p1.x + p2.x) / 2;
+    const cy = (p1.y + p2.y) / 2;
+    let closestWall = null;
+    let minDist = 100;
+    walls.forEach(w => {
+      if (!w.centerline || w.centerline.length < 2) return;
+      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+      const dx = wp2.x - wp1.x;
+      const dy = wp2.y - wp1.y;
+      const L2 = dx * dx + dy * dy;
+      let t = L2 < 0.1 ? 0 : ((cx - wp1.x) * dx + (cy - wp1.y) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const dist = Math.hypot(cx - (wp1.x + t * dx), cy - (wp1.y + t * dy));
+      if (dist < minDist) {
+        minDist = dist;
+        closestWall = w;
+      }
+    });
+    return closestWall;
+  };
 
   const getActualCurrentDistance = () => {
     if (!door || !walls || walls.length === 0 || !realScale) return { side: 'left', value: 0 };
@@ -100,27 +120,8 @@ export default function DoorEditDialog({
     const cy = (p1.y + p2.y) / 2;
     const doorWidthPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
 
-    let closestWall = null;
-    let minDist = Infinity;
-    walls.forEach(w => {
-      if (!w.centerline || w.centerline.length < 2) return;
-      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
-      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-      
-      const dx = wp2.x - wp1.x;
-      const dy = wp2.y - wp1.y;
-      const L2 = dx * dx + dy * dy;
-      let t = L2 < 0.1 ? 0 : ((cx - wp1.x) * dx + (cy - wp1.y) * dy) / L2;
-      t = Math.max(0, Math.min(1, t));
-      const dist = Math.hypot(cx - (wp1.x + t * dx), cy - (wp1.y + t * dy));
-
-      if (dist < minDist) {
-        minDist = dist;
-        closestWall = w;
-      }
-    });
-
-    if (!closestWall || minDist > 100) return { side: 'left', value: 0 };
+    const closestWall = getParentWall();
+    if (!closestWall) return { side: 'left', value: 0 };
 
     const w1 = { x: closestWall.centerline[0][0], y: closestWall.centerline[0][1] };
     const w2 = { x: closestWall.centerline[1][0], y: closestWall.centerline[1][1] };
@@ -156,7 +157,10 @@ export default function DoorEditDialog({
   useEffect(() => {
     if (!door) return;
     setPenetrationType(getInitialPenetType());
-    setHardwareType(door.hardware_type || 'privacy');
+    setHardwareType(door.hardwareType || door.hardware_type || 'passage');
+    setMaterial(door.material || 'timber');
+    setFireRating(door.fireRating || 'none');
+    setStatus(door.status || 'active');
     
     const actDist = getActualCurrentDistance();
     setDistanceSide(actDist.side);
@@ -174,9 +178,8 @@ export default function DoorEditDialog({
   if (!visible || !door) return null;
 
   // Derive the "Penetration" read-only label
-  const isExternal = door.class?.includes('ext') || false;
-  const prefix = isExternal ? 'Custom External' : 'Custom Internal';
-  const typeLabel = PENETRATION_TYPE_OPTIONS.find(o => o.value === penetrationType)?.label || '';
+  const doorDef = DOOR_TYPE_REGISTRY[penetrationType];
+  const typeLabel = doorDef?.label || 'Custom Door';
 
   // Convert distance to display
   const distanceMmDisplay = distanceValue > 0
@@ -188,14 +191,23 @@ export default function DoorEditDialog({
     : '0mm';
 
   const handleSave = () => {
+    const parentWall = getParentWall();
     const updated = {
       ...door,
-      penetration_type: penetrationType,
-      hardware_type: hardwareType,
+      doorTypeId: penetrationType,
+      class: doorDef?.renderClass || door.class || 'single_door',
+      type: doorDef?.doorType || door.type || 'single',
+      penetration_type: doorDef?.renderClass || door.penetration_type || 'single_door',
+      hardwareType: hardwareType,
+      hardware_type: hardwareType, // legacy
+      material: material,
+      fireRating: fireRating,
+      status: status,
       distance_from: { side: distanceSide, value: distanceValue },
       height_mm: heightMm,
       width_mm: widthMm,
-      width_source: 'manual'
+      width_source: 'manual',
+      parentWallId: parentWall?.id || door.parentWallId || null
     };
     onSave(updated, applyToAll);
     onClose();
@@ -328,9 +340,51 @@ export default function DoorEditDialog({
               onChange={(e) => setHardwareType(e.target.value)}
               style={{ ...selectStyle, flex: 1 }}
             >
-              {HARDWARE_TYPE_OPTIONS.map(o => (
+              {HARDWARE_TYPES.map(o => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Material */}
+          <div style={rowStyle}>
+            <span style={labelStyle}>Material:</span>
+            <select
+              value={material}
+              onChange={(e) => setMaterial(e.target.value)}
+              style={{ ...selectStyle, flex: 1 }}
+            >
+              {MATERIAL_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Fire Rating */}
+          <div style={rowStyle}>
+            <span style={labelStyle}>Fire Rating:</span>
+            <select
+              value={fireRating}
+              onChange={(e) => setFireRating(e.target.value)}
+              style={{ ...selectStyle, flex: 1 }}
+            >
+              {FIRE_RATING_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status */}
+          <div style={rowStyle}>
+            <span style={labelStyle}>Status:</span>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={{ ...selectStyle, flex: 1 }}
+            >
+              <option value="active">Active</option>
+              <option value="deleted">Deleted</option>
+              <option value="superseded">Superseded</option>
             </select>
           </div>
 
