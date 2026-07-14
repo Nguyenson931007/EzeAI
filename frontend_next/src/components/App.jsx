@@ -227,6 +227,12 @@ export default function App() {
     isPanning,
     drawing, setDrawing,
     isDrawingDoor, setIsDrawingDoor,
+    isDrawingRoof, setIsDrawingRoof,
+    roofInteractionState, setRoofInteractionState,
+    selectedRoofId, setSelectedRoofId,
+    hoveredRoofTarget, setHoveredRoofTarget,
+    updateRoofPitch, deleteRoof,
+    undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
     currentMouse,
@@ -259,7 +265,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishDoor, updateDoor,
+    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -633,6 +639,7 @@ export default function App() {
         createDefaultExtEnvelope={createDefaultExtEnvelope}
         autoFitExtEnvelope={autoFitExtEnvelope}
         isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
+        isDrawingRoof={isDrawingRoof} setIsDrawingRoof={setIsDrawingRoof}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -732,6 +739,13 @@ export default function App() {
               scale={scale}
               drawing={drawing}
               isDrawingDoor={isDrawingDoor}
+              isDrawingRoof={isDrawingRoof}
+              roofInteractionState={roofInteractionState}
+              selectedRoofId={selectedRoofId}
+              setSelectedRoofId={setSelectedRoofId}
+              hoveredRoofTarget={hoveredRoofTarget}
+              updateRoofPitch={updateRoofPitch}
+              deleteRoof={deleteRoof}
               currentPoly={currentPoly}
               currentDoor={currentDoor}
               currentMouse={currentMouse}
@@ -879,6 +893,10 @@ export default function App() {
                 autoMergeCollinearWalls={autoMergeCollinearWalls}
                 walls={wallsByPage[currentPage] || []}
                 doors={processedDoorsByPage[currentPage] || []}
+                selectedRoofId={selectedRoofId}
+                setSelectedRoofId={setSelectedRoofId}
+                updateRoofPitch={updateRoofPitch}
+                deleteRoof={deleteRoof}
               />
             )
           )}

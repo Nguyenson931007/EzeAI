@@ -256,6 +256,62 @@ function ExportButton({ onClick, disabled = false, children }) {
   );
 }
 
+/* — Reusable Smart Pitch Input Component — */
+function PitchInput({ value, onChange, style, className }) {
+  const [tempVal, setTempVal] = React.useState(null);
+  const displayValue = tempVal !== null ? tempVal : (value === 0 ? "0" : (value ?? "0"));
+
+  const handleChange = (e) => {
+    let raw = e.target.value;
+    raw = raw.replace(/[^0-9.]/g, '');
+    const parts = raw.split('.');
+    if (parts.length > 2) {
+      raw = parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (/^0[0-9]/.test(raw)) {
+      raw = raw.replace(/^0+/, '');
+    }
+
+    setTempVal(raw);
+
+    if (raw === "" || raw === ".") {
+      onChange(0);
+    } else {
+      const parsed = parseFloat(raw);
+      if (!isNaN(parsed)) {
+        const clamped = Math.max(0, Math.min(85, parsed));
+        onChange(clamped);
+      }
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onFocus={(e) => e.target.select()}
+      onBlur={() => setTempVal(null)}
+      onChange={handleChange}
+      onClick={(e) => e.stopPropagation()}
+      className={`no-spinner ${className || ''}`}
+      style={{
+        width: '50px',
+        background: 'rgba(255,255,255,0.06)',
+        border: '1px solid rgba(255,255,255,0.2)',
+        borderRadius: '4px',
+        color: '#ffffff',
+        textAlign: 'center',
+        fontWeight: 700,
+        fontSize: '12px',
+        padding: '2px',
+        outline: 'none',
+        ...style
+      }}
+    />
+  );
+}
+
 /* ================================================================
    MAIN PANEL
    ================================================================ */
@@ -266,10 +322,15 @@ export default function RightPropertyPaneView({
   autoMergeCollinearWalls,
   walls = [],
   doors = [],
-  deleteItem
+  deleteItem,
+  selectedRoofId,
+  setSelectedRoofId,
+  updateRoofPitch,
+  deleteRoof
 }) {
   const { showConfirm } = useDialog();
-  const { wasteByPage, setWasteByPage, currentPage, currentProjectName, user } = useAppModel();
+  const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user } = useAppModel();
+  const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
 
   // Takeoff export modal state
   const [showTakeoffModal, setShowTakeoffModal] = React.useState(false);
@@ -374,6 +435,16 @@ export default function RightPropertyPaneView({
   }, [doors]);
 
   const totalDoorCount = doors.length;
+
+  // 4. Calculations for Roof Area Summary
+  const pageRoofs = roofsByPage[currentPage] || [];
+  const roofCalculations = pageRoofs.map(roof => {
+    const footprintM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
+    const pitchRad = (roof.pitchAngle || 0) * (Math.PI / 180);
+    const trueAreaM2 = pitchRad > 0 ? footprintM2 / Math.cos(pitchRad) : footprintM2;
+    return { ...roof, footprintM2, trueAreaM2 };
+  });
+  const totalRoofArea = roofCalculations.reduce((acc, r) => acc + r.trueAreaM2, 0);
 
   const selectedWallLengthM = React.useMemo(() => {
     if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return null;
@@ -1116,6 +1187,98 @@ export default function RightPropertyPaneView({
           </div>
         ) : (
           <div className="panel-hint" style={{ padding: "8px 0" }}>No rooms detected yet. Draw rooms or run AI to generate areas.</div>
+        )}
+      </CollapsibleSection>
+
+      {/* ── ROOF AREA SUMMARY COLLAPSIBLE GROUP ── */}
+      <CollapsibleSection
+        title="Roof Summary"
+        isExpanded={isRoofSummaryExpanded}
+        onToggle={() => setIsRoofSummaryExpanded(!isRoofSummaryExpanded)}
+        totalCount={pageRoofs.length}
+      >
+        {pageRoofs.length > 0 ? (
+          <div className="rp-floor-container">
+            <div className="rp-floor-title">
+              <span style={{ fontSize: "14px" }}>🏠</span>
+              <span>Roof Area Summary</span>
+            </div>
+
+            {roofCalculations.map((roof, idx) => {
+              const isSelected = selectedRoofId === roof.id;
+              return (
+                <div
+                  key={roof.id || idx}
+                  className={`rp-area-card${isSelected ? " rp-area-card--active" : ""}`}
+                  onClick={() => setSelectedRoofId && setSelectedRoofId(isSelected ? null : roof.id)}
+                  style={{ cursor: "pointer", borderLeft: isSelected ? "4px solid #f59e0b" : undefined }}
+                >
+                  <div className="rp-area-card__top">
+                    <div className="rp-area-card__left">
+                      <span className="rp-area-card__dot" style={{ background: "#f59e0b" }} />
+                      <div className="rp-area-card__label-container">
+                        <span className="rp-area-card__label" style={{ fontWeight: 700 }}>
+                          {roof.name || `Roof ${idx + 1}`}
+                        </span>
+                        <span className="rp-area-card__sublabel">
+                          Footprint: {scaleValue ? `${roof.footprintM2.toFixed(2)} m²` : "No Scale"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                      <span className="rp-area-card__value" style={{ fontSize: "15px", fontWeight: 800, color: "#f59e0b" }}>
+                        {scaleValue ? `${roof.trueAreaM2.toFixed(2)} m²` : "No Scale"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px", paddingTop: "6px", borderTop: "1px dashed rgba(255,255,255,0.08)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+                      <span>Pitch Slope:</span>
+                      <PitchInput
+                        value={roof.pitchAngle || 0}
+                        onChange={(val) => updateRoofPitch && updateRoofPitch(roof.id, val)}
+                      />
+                      <span>°</span>
+                    </div>
+
+                    {deleteRoof && (
+                      <button
+                        title="Delete Roof"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteRoof(roof.id);
+                        }}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "#ef4444",
+                          cursor: "pointer",
+                          fontSize: "13px",
+                          opacity: 0.8
+                        }}
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Total Roof Area Card */}
+            <div className="rp-totals-card" style={{ background: "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.25)" }}>
+              <div className="rp-totals-row rp-totals-row--grand">
+                <span className="rp-totals-row__icon" style={{ color: "#f59e0b" }}>🏠</span>
+                <span className="rp-totals-row__label" style={{ fontWeight: 800 }}>Total Roof Area</span>
+                <span className="rp-totals-row__value" style={{ color: "#f59e0b", fontSize: "18px" }}>
+                  {scaleValue ? `${totalRoofArea.toFixed(2)} m²` : "No Scale"}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="panel-hint" style={{ padding: "8px 0" }}>No roofs drawn yet. Click 'Roof' in the top Ribbon to draw.</div>
         )}
       </CollapsibleSection>
 

@@ -5,11 +5,11 @@ const nextConfig = {
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8090";
-    
+
     return [
       // Main API routes
       { source: "/api/:path*", destination: `${backendUrl}/:path*` },
-      
+
       // AI inference endpoints
       { source: "/predict_seg", destination: `${backendUrl}/predict_seg` },
       { source: "/predict_seg_roi", destination: `${backendUrl}/predict_seg_roi` },
@@ -20,12 +20,12 @@ const nextConfig = {
       { source: "/predict-room", destination: `${backendUrl}/predict-room` },
       { source: "/predict-room-6class", destination: `${backendUrl}/predict-room-6class` },
       { source: "/predict_template", destination: `${backendUrl}/predict_template` },
-      
+
       // OCR & classification endpoints
       { source: "/ocr-corrections", destination: `${backendUrl}/ocr-corrections` },
       { source: "/classify-room", destination: `${backendUrl}/classify-room` },
       { source: "/roi-heatmap", destination: `${backendUrl}/roi-heatmap` },
-      
+
       // Upload & training endpoints
       { source: "/upload-image", destination: `${backendUrl}/upload-image` },
       { source: "/save-label", destination: `${backendUrl}/save-label` },
