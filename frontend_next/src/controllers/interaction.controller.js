@@ -97,6 +97,7 @@ export function useInteractionController(svgRef) {
   const [currentDoor, setCurrentDoor] = useState([]);
   const [currentMouse, setCurrentMouse] = useState(null);
   const [doorPreset, setDoorPreset] = useState(null);
+  const isDraggingDoorRef = useRef(false);
 
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
@@ -2274,6 +2275,15 @@ export function useInteractionController(svgRef) {
   }
 
   function onMouseDown(e) {
+    if (isDrawingDoor) {
+      if (e.button === 0) {
+        const p = getMouse(e);
+        setCurrentDoor([p]);
+        isDraggingDoorRef.current = true;
+      }
+      return;
+    }
+
     // Never start panning if a drag is active
     if (dragging) return;
 
@@ -2318,7 +2328,14 @@ export function useInteractionController(svgRef) {
     }
   }
 
-  function onMouseUp() {
+  function onMouseUp(e) {
+    if (isDrawingDoor && isDraggingDoorRef.current) {
+      const p = getMouse(e);
+      isDraggingDoorRef.current = false;
+      finishDoor([currentDoor[0], p]);
+      return;
+    }
+
     if (dragging) {
       if (dragging.hasMovedPastThreshold) {
         if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {

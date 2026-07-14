@@ -1036,7 +1036,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
   const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
 
   let bestWall = null;
-  let bestDist = maxDist;
+  let bestDist = Math.min(maxDist, 12); // Limit maximum snap distance to 12px to keep doors close to detected model positions
   let bestProj = null;
 
   for (const w of walls) {
@@ -1102,4 +1102,42 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
   }
 
   return door;
+}
+
+export function mapFloorName(name, index) {
+  if (!name) return `Tầng ${index + 1}`;
+  const norm = name.toLowerCase().trim().replace(/[\s_]+/g, '_');
+  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 'Tầng 1';
+  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 'Tầng 2';
+  if (norm === 'third_floor' || norm === 'floor_2') return 'Tầng 3';
+  if (norm === 'fourth_floor' || norm === 'floor_3') return 'Tầng 4';
+  if (norm === 'fifth_floor' || norm === 'floor_4') return 'Tầng 5';
+  
+  const match = norm.match(/^floor_(\d+)$/);
+  if (match) {
+    return `Tầng ${parseInt(match[1]) + 1}`;
+  }
+  
+  return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+export function convertNameToClass(name, index) {
+  if (!name) return `floor_${index}`;
+  const norm = name.toLowerCase().trim().replace(/[\s_]+/g, ' ');
+  if (norm === 'tầng 1' || norm === 'tang 1' || norm === 'first floor' || norm === 'ground floor' || norm === 'trệt' || norm === 'tầng trệt') {
+    return 'first_floor';
+  }
+  if (norm === 'tầng 2' || norm === 'tang 2' || norm === 'upper floor' || norm === 'second floor') {
+    return 'upper_floor';
+  }
+  if (norm === 'tầng 3' || norm === 'tang 3' || norm === 'third floor') {
+    return 'third_floor';
+  }
+  if (norm === 'tầng 4' || norm === 'tang 4' || norm === 'fourth floor') {
+    return 'fourth_floor';
+  }
+  if (norm === 'tầng 5' || norm === 'tang 5' || norm === 'fifth floor') {
+    return 'fifth_floor';
+  }
+  return name.toLowerCase().replace(/[\s]+/g, '_');
 }
