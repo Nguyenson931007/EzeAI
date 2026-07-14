@@ -106,7 +106,6 @@ export function useInteractionController(svgRef) {
 
   const [drawing, setDrawing] = useState(false);
   const [currentPoly, setCurrentPoly] = useState([]);
-  const [isDrawingDoor, setIsDrawingDoor] = useState(false);
   const [isDrawingRoof, setIsDrawingRoof] = useState(false);
   const [roofInteractionState, setRoofInteractionState] = useState(RoofInteractionState.IDLE);
   const [selectedRoofId, setSelectedRoofId] = useState(null);
@@ -114,7 +113,6 @@ export function useInteractionController(svgRef) {
   const [activeRoofDragTarget, setActiveRoofDragTarget] = useState(null);
   const [roofHistory, setRoofHistory] = useState([]);
   const [roofFuture, setRoofFuture] = useState([]);
-  const [currentDoor, setCurrentDoor] = useState([]);
   const [currentMouse, setCurrentMouse] = useState(null);
 
   const doorController = useDoorController({
