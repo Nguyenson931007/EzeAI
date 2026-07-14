@@ -245,6 +245,108 @@ const RoomPolygonLayer = React.memo(({
 });
 
 // ==========================================
+// 2.5 UnderlayWallLayer (Memoized)
+// ==========================================
+const UnderlayWallLayer = React.memo(({ walls }) => {
+  if (!walls || walls.length === 0) return null;
+
+  const chains = [];
+  const validWalls = walls.filter(w => w.centerline && w.centerline.length === 2);
+  const visited = new Set();
+
+  while (visited.size < validWalls.length) {
+    const startWall = validWalls.find(w => !visited.has(w.id));
+    if (!startWall) break;
+
+    visited.add(startWall.id);
+    let pts = [
+      { x: startWall.centerline[0][0], y: startWall.centerline[0][1] },
+      { x: startWall.centerline[1][0], y: startWall.centerline[1][1] }
+    ];
+    let thickness = startWall.thickness_px || 20;
+    let className = startWall.class_name || "exterior_wall";
+    let wallIds = [startWall.id];
+
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      const tail = pts[pts.length - 1];
+      const head = pts[0];
+
+      for (const w of validWalls) {
+        if (visited.has(w.id)) continue;
+        if ((w.class_name || "exterior_wall") !== className) continue;
+        const wThick = w.thickness_px || 20;
+        if (Math.abs(wThick - thickness) > 5) continue;
+
+        const p1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const p2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+        // Connect to tail
+        if (Math.hypot(p1.x - tail.x, p1.y - tail.y) < 8.0) {
+          pts.push(p2);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        } else if (Math.hypot(p2.x - tail.x, p2.y - tail.y) < 8.0) {
+          pts.push(p1);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        }
+        // Connect to head
+        else if (Math.hypot(p1.x - head.x, p1.y - head.y) < 8.0) {
+          pts.unshift(p2);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        } else if (Math.hypot(p2.x - head.x, p2.y - head.y) < 8.0) {
+          pts.unshift(p1);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        }
+      }
+    }
+
+    chains.push({
+      points: pts,
+      thickness,
+      className,
+      wallIds
+    });
+  }
+
+  return (
+    <g id="UnderlayWallLayer" opacity={0.25} pointerEvents="none">
+      {chains.map((chain, chainIdx) => {
+        const isClosed = chain.points.length > 2 && Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x, chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+        let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+        if (isClosed) pathData += " Z";
+
+        return (
+          <path
+            key={`underlay-${chainIdx}`}
+            d={pathData}
+            fill="none"
+            stroke="#64748b"
+            strokeWidth={chain.thickness}
+            strokeDasharray="4,4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      })}
+    </g>
+  );
+});
+UnderlayWallLayer.displayName = "UnderlayWallLayer";
+
+// ==========================================
 // 3. WallLayer (Memoized)
 // ==========================================
 const WallLayer = React.memo(({
@@ -1738,6 +1840,7 @@ export default function CanvasView({
   currentMouse,
   rooms,
   walls,
+  underlayWalls = [],
   doors,
   scaleValue,
   realScale,
@@ -2493,6 +2596,9 @@ export default function CanvasView({
             
             {/* Memoized Layer 1: Base Floor Image */}
             <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} />
+
+            {/* Underlay Ghost Walls of Previous Page */}
+            <UnderlayWallLayer walls={underlayWalls} />
             
             {/* Snap Guides */}
             {(isShiftDown || isSnapMode) && currentMouse && (() => {

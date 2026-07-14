@@ -803,6 +803,7 @@ export default function App() {
               currentMouse={currentMouse}
               rooms={rooms}
               walls={wallsByPage[currentPage] || []}
+              underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
               doors={processedDoorsByPage[currentPage] || []}
               scaleValue={scaleValue}
               realScale={realScale}
