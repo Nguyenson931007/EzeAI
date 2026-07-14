@@ -205,7 +205,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
         </div>
 
         {/* Partition */}
-        <div style={rowStyle}>
+        {/* <div style={rowStyle}>
           <div style={labelStyle}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
             Partition Wall
@@ -219,7 +219,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
               <option key={v} value={v}>{v} mm</option>
             ))}
           </select>
-        </div>
+        </div> */}
 
         {/* Divider */}
         <div style={{ height: 1, background: '#2a2d38', margin: '16px 0' }} />
