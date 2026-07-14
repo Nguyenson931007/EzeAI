@@ -1312,5 +1312,3 @@ export function validateRoofPolygon(polygon, scaleValue) {
   }
   return { valid: true };
 }
-
->>>>>>> roof-point-tools

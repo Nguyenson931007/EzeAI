@@ -2346,7 +2346,6 @@ export function useInteractionController(svgRef) {
         return;
       }
     }
-    }
 
     if (dragging) {
       if (dragging.hasMovedPastThreshold) {
