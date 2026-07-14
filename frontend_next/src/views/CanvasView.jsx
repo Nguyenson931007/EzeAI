@@ -17,6 +17,7 @@ import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
+import { useAppModel } from "@/models/app.context";
 import { 
   distancePointToSegment, 
   pointInPolygon, 
@@ -1844,6 +1845,62 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 
   prev.pdfOffset?.y === next.pdfOffset?.y
 );
 
+/* — Reusable Smart Pitch Input Component — */
+function PitchInput({ value, onChange, style, className }) {
+  const [tempVal, setTempVal] = React.useState(null);
+  const displayValue = tempVal !== null ? tempVal : (value === 0 ? "0" : (value ?? "0"));
+
+  const handleChange = (e) => {
+    let raw = e.target.value;
+    raw = raw.replace(/[^0-9.]/g, '');
+    const parts = raw.split('.');
+    if (parts.length > 2) {
+      raw = parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (/^0[0-9]/.test(raw)) {
+      raw = raw.replace(/^0+/, '');
+    }
+
+    setTempVal(raw);
+
+    if (raw === "" || raw === ".") {
+      onChange(0);
+    } else {
+      const parsed = parseFloat(raw);
+      if (!isNaN(parsed)) {
+        const clamped = Math.max(0, Math.min(85, parsed));
+        onChange(clamped);
+      }
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onFocus={(e) => e.target.select()}
+      onBlur={() => setTempVal(null)}
+      onChange={handleChange}
+      onClick={(e) => e.stopPropagation()}
+      className={`no-spinner ${className || ''}`}
+      style={{
+        width: '44px',
+        background: 'rgba(255,255,255,0.2)',
+        border: '1px solid rgba(255,255,255,0.4)',
+        borderRadius: '4px',
+        color: '#ffffff',
+        textAlign: 'center',
+        fontWeight: 700,
+        fontSize: '12px',
+        padding: '1px 2px',
+        outline: 'none',
+        ...style
+      }}
+    />
+  );
+}
+
 
 export default function CanvasView({
   svgRef,
@@ -1853,6 +1910,13 @@ export default function CanvasView({
   scale,
   drawing,
   isDrawingDoor,
+  isDrawingRoof,
+  roofInteractionState,
+  selectedRoofId,
+  setSelectedRoofId,
+  hoveredRoofTarget,
+  updateRoofPitch,
+  deleteRoof,
   currentPoly,
   currentDoor,
   currentMouse,
@@ -1954,6 +2018,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
+  const { roofsByPage, setRoofsByPage } = useAppModel();
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -2618,11 +2683,12 @@ export default function CanvasView({
             height: "100%",
             cursor: isPanning ? "grab"
               : drawing ? "crosshair"
-                : isDistancing ? "crosshair"
-                  : isMeasuring ? "crosshair"
-                    : isAddingPoint ? "crosshair"
-                      : interactionMode === "draw-ext-rect" ? "crosshair"
-                        : interactionMode === "align-pdf" ? "move"
+                : isDrawingRoof ? "crosshair"
+                  : isDistancing ? "crosshair"
+                    : isMeasuring ? "crosshair"
+                      : isAddingPoint ? "crosshair"
+                        : interactionMode === "draw-ext-rect" ? "crosshair"
+                          : interactionMode === "align-pdf" ? "move"
                           : "default"
           }}
           onClick={(e) => {
@@ -2723,6 +2789,159 @@ export default function CanvasView({
               </g>
             )}
 
+            {/* Roof Drawing Preview */}
+            {isDrawingRoof && (currentPoly.length > 0 || currentMouse) && (
+              <g style={{ pointerEvents: 'none' }}>
+                <polygon
+                  points={[...currentPoly, currentMouse].filter(Boolean).map(p => `${p.x},${p.y}`).join(" ")}
+                  fill="rgba(245,158,11,0.15)"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  strokeDasharray="6,3"
+                />
+                {currentPoly.map((p, i) => (
+                  <circle
+                    key={`roof-preview-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={4}
+                    fill={i === 0 ? "#ef4444" : "#f59e0b"}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  />
+                ))}
+                {/* Visual close indicator: larger ring on first point when mouse is near */}
+                {currentPoly.length >= 2 && currentMouse && Math.hypot(
+                  currentMouse.x - currentPoly[0].x, currentMouse.y - currentPoly[0].y
+                ) < 15 && (
+                  <circle
+                    cx={currentPoly[0].x}
+                    cy={currentPoly[0].y}
+                    r={10}
+                    fill="rgba(239,68,68,0.3)"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                  />
+                )}
+                {currentMouse && (
+                  <circle
+                    cx={currentMouse.x}
+                    cy={currentMouse.y}
+                    r={3}
+                    fill="#f59e0b"
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    opacity={0.8}
+                  />
+                )}
+              </g>
+            )}
+
+            {/* Committed Roof Polygons Layer */}
+            {(roofsByPage[currentPage] || []).map(roof => {
+              const c = centroid(roof.polygon);
+              const isSelected = selectedRoofId === roof.id;
+              const isHovered = hoveredRoofTarget?.roofId === roof.id;
+
+              const areaM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
+              const pitchRad = (roof.pitchAngle || 0) * (Math.PI / 180);
+              const trueArea = pitchRad > 0 ? areaM2 / Math.cos(pitchRad) : areaM2;
+
+              return (
+                <g key={roof.id}>
+                  {/* Roof Base Polygon */}
+                  <polygon
+                    points={roof.polygon.map(p => `${p.x},${p.y}`).join(" ")}
+                    fill={isSelected ? "rgba(245,158,11,0.28)" : isHovered ? "rgba(245,158,11,0.22)" : "rgba(245,158,11,0.15)"}
+                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "rgba(245,158,11,0.8)"}
+                    strokeWidth={isSelected ? 3 : isHovered ? 2.5 : 2}
+                    strokeDasharray={isSelected ? "none" : "8,4"}
+                    style={{ cursor: "pointer" }}
+                  />
+
+                  {/* Priority 2: Edge Hover Highlight */}
+                  {isHovered && hoveredRoofTarget?.type === 'edge' && (() => {
+                    const eIdx = hoveredRoofTarget.edgeIndex;
+                    const p1 = roof.polygon[eIdx];
+                    const p2 = roof.polygon[(eIdx + 1) % roof.polygon.length];
+                    return (
+                      <g pointerEvents="none">
+                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
+                        {hoveredRoofTarget.projectionPoint && (
+                          <circle cx={hoveredRoofTarget.projectionPoint.x} cy={hoveredRoofTarget.projectionPoint.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+                        )}
+                      </g>
+                    );
+                  })()}
+
+                  {/* Priority 1 & Handles: Vertices */}
+                  {(isSelected || isHovered) && roof.polygon.map((v, idx) => {
+                    const isVertexHovered = isHovered && hoveredRoofTarget?.type === 'vertex' && hoveredRoofTarget?.index === idx;
+                    return (
+                      <circle
+                        key={`roof-v-${roof.id}-${idx}`}
+                        cx={v.x}
+                        cy={v.y}
+                        r={isVertexHovered ? 7 : 5}
+                        fill={isVertexHovered ? "#ef4444" : "#f59e0b"}
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                        style={{ cursor: "grab" }}
+                      />
+                    );
+                  })}
+
+                  {/* Informative Canvas Area Overlay Badge */}
+                  <foreignObject
+                    x={c.x - 110}
+                    y={c.y - 45}
+                    width={220}
+                    height={90}
+                    style={{ overflow: 'visible', pointerEvents: 'auto' }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isSelected ? 'rgba(217, 119, 6, 0.92)' : 'rgba(30, 41, 59, 0.88)',
+                        border: isSelected ? '2px solid #fef3c7' : '1px solid rgba(245, 158, 11, 0.5)',
+                        borderRadius: '10px',
+                        padding: '6px 12px',
+                        color: '#ffffff',
+                        boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+                        backdropFilter: 'blur(4px)',
+                        fontSize: '13px',
+                        userSelect: 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Title: Roof Name */}
+                      <div style={{ fontWeight: 700, fontSize: '13px', color: '#fef3c7', letterSpacing: '0.5px' }}>
+                        🏠 {roof.name || "Roof"}
+                      </div>
+
+                      {/* 3D True Surface Area (Large text) */}
+                      <div style={{ fontWeight: 800, fontSize: '20px', color: '#ffffff', margin: '2px 0' }}>
+                        {scaleValue ? `${trueArea.toFixed(2)} m²` : "No Scale"}
+                      </div>
+
+                      {/* Inline Pitch Angle Input Control */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: 0.95 }}>
+                        <span>Pitch:</span>
+                        <PitchInput
+                          value={roof.pitchAngle || 0}
+                          onChange={(val) => updateRoofPitch(roof.id, val)}
+                        />
+                        <span>°</span>
+                      </div>
+                    </div>
+                  </foreignObject>
+                </g>
+              );
+            })}
 
 
             {/* Wall Drawing Preview */}
