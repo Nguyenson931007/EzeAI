@@ -26,7 +26,6 @@ logger = logging.getLogger("ezefloor.wall_segment_service")
 _wall_model: YOLO = None
 _model_lock = threading.Lock()
 
-
 def _get_model() -> YOLO:
     """Gets or loads the singleton wall segmentation YOLO model."""
     global _wall_model
@@ -36,7 +35,7 @@ def _get_model() -> YOLO:
                 from services.model_paths import resolve_model_path
                 model_path, source_name = resolve_model_path("wall_seg")
                 if not model_path or not Path(model_path).exists():
-                    model_path = BASE_DIR / "backend" / "models" / "Walls" / "best_4.pt"
+                    model_path = BASE_DIR / "backend" / "models" / "Walls" / "best.pt"
                 if not Path(model_path).exists():
                     raise FileNotFoundError(f"Wall model not found at {model_path}")
                 logger.info(f"[wall_segment_service] Loading YOLO Wall model from {model_path} (source: {source_name})")

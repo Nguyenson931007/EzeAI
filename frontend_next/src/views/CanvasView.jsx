@@ -172,11 +172,14 @@ const RoomPolygonLayer = React.memo(({
               strokeWidth={strokeWidth}
               strokeDasharray={isText ? "4,3" : undefined}
               opacity={opacity}
+              style={{
+                pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+              }}
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={(e) => {
                 if (interactionMode === "draw-wall") return;
-                if (drawing || isMeasuring || isDistancing) return;
+                if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
                 if (e.shiftKey || isAddingPoint) return;
                 e.stopPropagation();
                 setSelectedId(r.id);
@@ -264,7 +267,11 @@ const WallLayer = React.memo(({
   setSelectedVertices,
   startVertexMove,
   handleWallDoubleClick,
-  onMouseUp
+  onMouseUp,
+  drawing,
+  isDrawingDoor,
+  isMeasuring,
+  isDistancing
 }) => {
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
@@ -465,7 +472,10 @@ const WallLayer = React.memo(({
             fill={fillColor}
             stroke={strokeColor}
             strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
-            style={{ cursor: 'pointer' }}
+            style={{
+              cursor: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "crosshair" : "pointer",
+              pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+            }}
             onMouseEnter={() => setHoverId(w.id)}
             onMouseLeave={() => setHoverId(null)}
             onContextMenu={(e) => {
@@ -624,7 +634,11 @@ const WallLayer = React.memo(({
   prev.onWallContextMenu === next.onWallContextMenu &&
   prev.onVertexClick === next.onVertexClick &&
   prev.selectedVertices === next.selectedVertices &&
-  prev.startVertexMove === next.startVertexMove
+  prev.startVertexMove === next.startVertexMove &&
+  prev.drawing === next.drawing &&
+  prev.isDrawingDoor === next.isDrawingDoor &&
+  prev.isMeasuring === next.isMeasuring &&
+  prev.isDistancing === next.isDistancing
 ));
 
 // ==========================================
@@ -1311,7 +1325,10 @@ const OCRLabelLayer = React.memo(({
                 </foreignObject>
               ) : (
                 <g 
-                  style={{ cursor: 'text' }}
+                  style={{
+                    cursor: 'text',
+                    pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+                  }}
                   onMouseDown={stopEvent}
                   onMouseUp={stopEvent}
                   onClick={stopEvent}
@@ -2490,32 +2507,7 @@ export default function CanvasView({
               </g>
             )}
 
-            {/* Door Drawing Preview */}
-            {isDrawingDoor && currentDoor.length > 0 && currentMouse && (
-              <g style={{ pointerEvents: 'none' }}>
-                <line
-                  x1={currentDoor[0].x}
-                  y1={currentDoor[0].y}
-                  x2={currentMouse.x}
-                  y2={currentMouse.y}
-                  fill="none"
-                  stroke="#4CAF50"
-                  strokeWidth={3}
-                  strokeDasharray="4,4"
-                  opacity={0.8}
-                />
-                {currentDoor.map((p, i) => (
-                  <circle
-                    key={`preview-door-${i}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={5}
-                    fill="#4CAF50"
-                    stroke="#ffffff"
-                  />
-                ))}
-              </g>
-            )}
+
 
             {/* Wall Drawing Preview */}
             {interactionMode === "draw-wall" && drawingWall && drawingWallEnd && (
@@ -2655,6 +2647,10 @@ export default function CanvasView({
               startVertexMove={startVertexMove}
               handleWallDoubleClick={handleWallDoubleClick}
               onMouseUp={onMouseUp}
+              drawing={drawing}
+              isDrawingDoor={isDrawingDoor}
+              isMeasuring={isMeasuring}
+              isDistancing={isDistancing}
             />
 
             {/* Memoized Layer 4: Doors */}
@@ -3015,6 +3011,33 @@ export default function CanvasView({
                   strokeWidth={1.5 / scale}
                   pointerEvents="none"
                 />
+              </g>
+            )}
+
+            {/* Door Drawing Preview */}
+            {isDrawingDoor && currentDoor.length > 0 && currentMouse && (
+              <g style={{ pointerEvents: 'none' }}>
+                <line
+                  x1={currentDoor[0].x}
+                  y1={currentDoor[0].y}
+                  x2={currentMouse.x}
+                  y2={currentMouse.y}
+                  fill="none"
+                  stroke="#4CAF50"
+                  strokeWidth={3}
+                  strokeDasharray="4,4"
+                  opacity={0.8}
+                />
+                {currentDoor.map((p, i) => (
+                  <circle
+                    key={`preview-door-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={5}
+                    fill="#4CAF50"
+                    stroke="#ffffff"
+                  />
+                ))}
               </g>
             )}
 
