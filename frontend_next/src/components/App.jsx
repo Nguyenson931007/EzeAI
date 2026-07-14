@@ -234,7 +234,7 @@ export default function App() {
     roofInteractionState, setRoofInteractionState,
     selectedRoofId, setSelectedRoofId,
     hoveredRoofTarget, setHoveredRoofTarget,
-    updateRoofPitch, deleteRoof,
+    updateRoofPitch, updateRoofType, deleteRoof,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
@@ -816,6 +816,7 @@ export default function App() {
               setSelectedRoofId={setSelectedRoofId}
               hoveredRoofTarget={hoveredRoofTarget}
               updateRoofPitch={updateRoofPitch}
+              updateRoofType={updateRoofType}
               deleteRoof={deleteRoof}
               currentPoly={currentPoly}
               currentDoor={currentDoor}

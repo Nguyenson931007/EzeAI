@@ -869,10 +869,20 @@ export const useAIController = (
             x: migrated.centerPoint.x + pdfOffset.x,
             y: migrated.centerPoint.y + pdfOffset.y
           } : null;
+          const shiftedPolygon = migrated.polygon ? migrated.polygon.map(pt => ({
+            x: pt.x + pdfOffset.x,
+            y: pt.y + pdfOffset.y
+          })) : null;
+          const shiftedMaskPolygon = migrated.mask_polygon ? migrated.mask_polygon.map(pt => ({
+            x: pt.x + pdfOffset.x,
+            y: pt.y + pdfOffset.y
+          })) : null;
           return {
             ...migrated,
             points: shiftedPoints,
             centerPoint: shiftedCenter,
+            polygon: shiftedPolygon,
+            mask_polygon: shiftedMaskPolygon,
             review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
           };
         });
@@ -1007,10 +1017,20 @@ export const useAIController = (
               x: migrated.centerPoint.x + pdfOffset.x,
               y: migrated.centerPoint.y + pdfOffset.y
             } : null;
+            const shiftedPolygon = migrated.polygon ? migrated.polygon.map(pt => ({
+              x: pt.x + pdfOffset.x,
+              y: pt.y + pdfOffset.y
+            })) : null;
+            const shiftedMaskPolygon = migrated.mask_polygon ? migrated.mask_polygon.map(pt => ({
+              x: pt.x + pdfOffset.x,
+              y: pt.y + pdfOffset.y
+            })) : null;
             return {
               ...migrated,
               points: shiftedPoints,
               centerPoint: shiftedCenter,
+              polygon: shiftedPolygon,
+              mask_polygon: shiftedMaskPolygon,
               review_state: 'AI_GENERATED'
             };
           });

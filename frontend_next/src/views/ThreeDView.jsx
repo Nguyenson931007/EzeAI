@@ -962,7 +962,21 @@ export default function ThreeDView({
             scene.add(mesh);
             floorMeshesRef.current.push(mesh);
           } else {
-            // Render Pitched Roof (Pyramid/Hipped shape)
+            // Render Pitched Roof (Hipped or Gable shape)
+            const rType = roof.roofType || "hip";
+
+            // 1. Calculate bounding box and centroid
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            poly.forEach(pt => {
+              minX = Math.min(minX, pt.x);
+              maxX = Math.max(maxX, pt.x);
+              minY = Math.min(minY, pt.y);
+              maxY = Math.max(maxY, pt.y);
+            });
+            const midX = (minX + maxX) / 2;
+            const midY = (minY + maxY) / 2;
+
+            // Average distance to calculate height
             let sumX = 0, sumY = 0;
             poly.forEach(pt => {
               sumX += pt.x;
@@ -989,23 +1003,74 @@ export default function ThreeDView({
               };
             };
 
-            const peak = mapTo3D({ x: centroidX, y: centroidY });
-
             const geom = new THREE.BufferGeometry();
             const vertices = [];
             const indices = [];
 
-            poly.forEach(pt => {
-              const mapped = mapTo3D(pt);
-              vertices.push(mapped.x, baseHeight, mapped.z);
-            });
+            if (rType === "gable_horiz") {
+              // Horizontal Ridge Gable Roof
+              poly.forEach(pt => {
+                const mapped = mapTo3D(pt);
+                vertices.push(mapped.x, baseHeight, mapped.z);
+              });
 
-            vertices.push(peak.x, baseHeight + roofHeight, peak.z);
-            const peakIndex = poly.length;
+              poly.forEach(pt => {
+                const mappedProj = mapTo3D({ x: pt.x, y: midY });
+                vertices.push(mappedProj.x, baseHeight + roofHeight, mappedProj.z);
+              });
 
-            for (let i = 0; i < poly.length; i++) {
-              const iNext = (i + 1) % poly.length;
-              indices.push(i, iNext, peakIndex);
+              const peakOffset = poly.length;
+
+              for (let i = 0; i < poly.length; i++) {
+                const iNext = (i + 1) % poly.length;
+                const v1 = i;
+                const v2 = iNext;
+                const v3 = i + peakOffset;
+                const v4 = iNext + peakOffset;
+
+                indices.push(v1, v2, v4);
+                indices.push(v1, v4, v3);
+              }
+            } else if (rType === "gable_vert") {
+              // Vertical Ridge Gable Roof
+              poly.forEach(pt => {
+                const mapped = mapTo3D(pt);
+                vertices.push(mapped.x, baseHeight, mapped.z);
+              });
+
+              poly.forEach(pt => {
+                const mappedProj = mapTo3D({ x: midX, y: pt.y });
+                vertices.push(mappedProj.x, baseHeight + roofHeight, mappedProj.z);
+              });
+
+              const peakOffset = poly.length;
+
+              for (let i = 0; i < poly.length; i++) {
+                const iNext = (i + 1) % poly.length;
+                const v1 = i;
+                const v2 = iNext;
+                const v3 = i + peakOffset;
+                const v4 = iNext + peakOffset;
+
+                indices.push(v1, v2, v4);
+                indices.push(v1, v4, v3);
+              }
+            } else {
+              // Default: Hipped (4-sided slope meeting at centroid)
+              const peak = mapTo3D({ x: centroidX, y: centroidY });
+
+              poly.forEach(pt => {
+                const mapped = mapTo3D(pt);
+                vertices.push(mapped.x, baseHeight, mapped.z);
+              });
+
+              vertices.push(peak.x, baseHeight + roofHeight, peak.z);
+              const peakIndex = poly.length;
+
+              for (let i = 0; i < poly.length; i++) {
+                const iNext = (i + 1) % poly.length;
+                indices.push(i, iNext, peakIndex);
+              }
             }
 
             geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));

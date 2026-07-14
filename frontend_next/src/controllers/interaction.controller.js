@@ -1447,6 +1447,12 @@ export function useInteractionController(svgRef) {
     pushRoofHistory(updated);
   }
 
+  function updateRoofType(roofId, roofType) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, roofType } : r);
+    pushRoofHistory(updated);
+  }
+
   function deleteRoof(roofId) {
     const pageRoofs = roofsByPage[currentPage] || [];
     const updated = pageRoofs.filter(r => r.id !== roofId);
@@ -2568,7 +2574,7 @@ export function useInteractionController(svgRef) {
     hoveredRoofTarget, setHoveredRoofTarget,
     activeRoofDragTarget,
     roofHistory, roofFuture,
-    updateRoofPitch, deleteRoof,
+    updateRoofPitch, updateRoofType, deleteRoof,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,

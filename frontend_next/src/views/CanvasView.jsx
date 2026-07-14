@@ -1916,6 +1916,7 @@ export default function CanvasView({
   setSelectedRoofId,
   hoveredRoofTarget,
   updateRoofPitch,
+  updateRoofType,
   deleteRoof,
   currentPoly,
   currentDoor,
@@ -2936,6 +2937,29 @@ export default function CanvasView({
                           onChange={(val) => updateRoofPitch(roof.id, val)}
                         />
                         <span>°</span>
+                      </div>
+
+                      {/* Roof Type Selection Dropdown */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', marginTop: '4px' }}>
+                        <span>Type:</span>
+                        <select
+                          value={roof.roofType || "hip"}
+                          onChange={(e) => updateRoofType(roof.id, e.target.value)}
+                          style={{
+                            fontSize: '11px',
+                            background: 'rgba(255,255,255,0.2)',
+                            border: '1px solid rgba(255,255,255,0.4)',
+                            borderRadius: '4px',
+                            color: '#ffffff',
+                            padding: '1px 2px',
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value="hip" style={{ color: '#000' }}>Hipped (4 mái)</option>
+                          <option value="gable_horiz" style={{ color: '#000' }}>Gable Horiz (Đầu hồi ngang)</option>
+                          <option value="gable_vert" style={{ color: '#000' }}>Gable Vert (Đầu hồi dọc)</option>
+                        </select>
                       </div>
                     </div>
                   </foreignObject>
