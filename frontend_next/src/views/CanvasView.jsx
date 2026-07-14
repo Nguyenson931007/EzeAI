@@ -1791,19 +1791,24 @@ const OCRLabelLayer = React.memo(({
 // ==========================================
 // 6. ROIOverlayLayer (Memoized)
 // ==========================================
-const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize }) => {
+const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 0, y: 0 } }) => {
   if (!roiRect) return null;
+
+  const rx = roiRect.x + pdfOffset.x;
+  const ry = roiRect.y + pdfOffset.y;
+  const px = pdfOffset.x;
+  const py = pdfOffset.y;
 
   return (
     <g id="ROIOverlayLayer">
       {/* Dimmed region outside ROI */}
       <path
-        d={`M0,0 H${imgSize.w} V${imgSize.h} H0 Z M${roiRect.x},${roiRect.y} V${roiRect.y + roiRect.h} H${roiRect.x + roiRect.w} V${roiRect.y} Z`}
+        d={`M${px},${py} H${px + imgSize.w} V${py + imgSize.h} H${px} Z M${rx},${ry} V${ry + roiRect.h} H${rx + roiRect.w} V${ry} Z`}
         fill="rgba(0,0,0,0.38)" fillRule="evenodd" pointerEvents="none"
       />
       {/* Marching ants border */}
       <rect
-        x={roiRect.x} y={roiRect.y}
+        x={rx} y={ry}
         width={roiRect.w} height={roiRect.h}
         fill="none" stroke="#3b82f6" strokeWidth={2.5 / scale}
         strokeDasharray={`${8/scale} ${4/scale}`}
@@ -1811,19 +1816,19 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize }) => {
       />
       {/* Glow border */}
       <rect
-        x={roiRect.x} y={roiRect.y}
+        x={rx} y={ry}
         width={roiRect.w} height={roiRect.h}
         fill="none" stroke="rgba(59,130,246,0.3)" strokeWidth={6 / scale}
         pointerEvents="none"
       />
       {/* Size label */}
       <rect
-        x={roiRect.x} y={roiRect.y - 22/scale}
+        x={rx} y={ry - 22/scale}
         width={135/scale} height={18/scale}
         rx={4/scale} fill="rgba(22,28,45,0.9)" pointerEvents="none"
       />
       <text
-        x={roiRect.x + 6/scale} y={roiRect.y - 8/scale}
+        x={rx + 6/scale} y={ry - 8/scale}
         fontSize={11 / scale} fill="#60a5fa" fontWeight="700" fontFamily="Inter, sans-serif"
         pointerEvents="none"
       >
@@ -1831,7 +1836,13 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize }) => {
       </text>
     </g>
   );
-}, (prev, next) => prev.roiRect === next.roiRect && prev.scale === next.scale && prev.imgSize === next.imgSize);
+}, (prev, next) => 
+  prev.roiRect === next.roiRect && 
+  prev.scale === next.scale && 
+  prev.imgSize === next.imgSize &&
+  prev.pdfOffset?.x === next.pdfOffset?.x &&
+  prev.pdfOffset?.y === next.pdfOffset?.y
+);
 
 
 export default function CanvasView({
@@ -3184,7 +3195,7 @@ export default function CanvasView({
             })}
 
             {/* Memoized Layer 6: ROI Overlay region */}
-            <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} />
+            <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} pdfOffset={pdfOffset} />
 
             {/* Cut Wall Preview Dot */}
             {cutPreviewPoint && (

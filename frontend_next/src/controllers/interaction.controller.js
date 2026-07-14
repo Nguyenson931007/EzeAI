@@ -1905,6 +1905,51 @@ export function useInteractionController(svgRef) {
             }
           };
         });
+
+        // Shift walls
+        setWallsByPage(prev => {
+          const pageWalls = prev[currentPage] || [];
+          const shifted = pageWalls.map(w => {
+            if (!w.centerline) return w;
+            const shiftedCl = w.centerline.map(pt => [pt[0] + svgDx, pt[1] + svgDy]);
+            return {
+              ...w,
+              centerline: shiftedCl,
+              polygon: w.polygon ? w.polygon.map(pt => [pt[0] + svgDx, pt[1] + svgDy]) : null
+            };
+          });
+          return { ...prev, [currentPage]: shifted };
+        });
+
+        // Shift doors
+        setDoorsByPage(prev => {
+          const pageDoors = prev[currentPage] || [];
+          const shifted = pageDoors.map(d => {
+            if (!d.points) return d;
+            const shiftedPts = d.points.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
+            const shiftedCenter = d.centerPoint ? { x: d.centerPoint.x + svgDx, y: d.centerPoint.y + svgDy } : null;
+            return {
+              ...d,
+              points: shiftedPts,
+              centerPoint: shiftedCenter
+            };
+          });
+          return { ...prev, [currentPage]: shifted };
+        });
+
+        // Shift rooms
+        setRoomsByPage(prev => {
+          const pageRooms = prev[currentPage] || [];
+          const shifted = pageRooms.map(r => {
+            if (!r.polygon) return r;
+            const shiftedPoly = r.polygon.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
+            return {
+              ...r,
+              polygon: shiftedPoly
+            };
+          });
+          return { ...prev, [currentPage]: shifted };
+        });
       } else {
         setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
       }
@@ -2180,8 +2225,9 @@ export function useInteractionController(svgRef) {
         setRect(null);
       } else {
         // Finalize ALT+drag as ROI selection
-        const x = Math.min(rect.x1, rect.x2);
-        const y = Math.min(rect.y1, rect.y2);
+        const offsetVal = pdfOffsetsByPage[currentPage] || { x: 0, y: 0 };
+        const x = Math.min(rect.x1, rect.x2) - offsetVal.x;
+        const y = Math.min(rect.y1, rect.y2) - offsetVal.y;
         const w = Math.abs(rect.x2 - rect.x1);
         const h = Math.abs(rect.y2 - rect.y1);
         if (w > 20 && h > 20) {

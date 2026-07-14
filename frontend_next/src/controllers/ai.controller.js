@@ -10,6 +10,7 @@ import { ApiService } from "@/models/api.service";
 import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor } from "@/models/DoorTypeRegistry";
+import { useAppModel } from "@/models/app.context";
 
 /**
  * Compute bounding-box IoU (Intersection over Union) between two polygons.
@@ -283,6 +284,9 @@ export const useAIController = (
   wallsByPage,
   pushHistory
 ) => {
+  const { pdfOffsetsByPage } = useAppModel();
+  const pdfOffset = pdfOffsetsByPage?.[currentPage] || { x: 0, y: 0 };
+
   const [isDetecting, setIsDetecting] = useState(false);
   const [roiProgress, setRoiProgress] = useState(0);
 
@@ -485,9 +489,13 @@ export const useAIController = (
               const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
               const snappedRooms = currentRooms.map(r => {
                 if (r.polygon) {
+                  const shiftedPoly = r.polygon.map(pt => ({
+                    x: pt.x + pdfOffset.x,
+                    y: pt.y + pdfOffset.y
+                  }));
                   return {
                     ...r,
-                    polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                    polygon: snapRoomPolygonToWalls(shiftedPoly, currentWalls, 15)
                   };
                 }
                 return r;
@@ -530,9 +538,13 @@ export const useAIController = (
               const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
               const snappedRooms = finalRooms.map(r => {
                 if (r.polygon) {
+                  const shiftedPoly = r.polygon.map(pt => ({
+                    x: pt.x + pdfOffset.x,
+                    y: pt.y + pdfOffset.y
+                  }));
                   return {
                     ...r,
-                    polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                    polygon: snapRoomPolygonToWalls(shiftedPoly, currentWalls, 15)
                   };
                 }
                 return r;
@@ -641,8 +653,18 @@ export const useAIController = (
               } else if (w.class_name === "interior_wall") {
                 wall_type = "int";
               }
+              const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
+                pt[0] + pdfOffset.x,
+                pt[1] + pdfOffset.y
+              ]) : null;
+              const shiftedPoly = w.polygon ? w.polygon.map(pt => [
+                pt[0] + pdfOffset.x,
+                pt[1] + pdfOffset.y
+              ]) : null;
               return {
                 ...w,
+                centerline: shiftedCenterline,
+                polygon: shiftedPoly,
                 wall_type,
                 thickness,
                 height: defaultHeight, // Per-wall height property
@@ -716,15 +738,17 @@ export const useAIController = (
         .filter(t => !t.text?.toUpperCase().includes("GARAGE"))
         .map(t => {
           const { x, y, w, h } = t.bbox;
+          const rx = x + pdfOffset.x;
+          const ry = y + pdfOffset.y;
           return {
             id: `text-${Math.random()}`,
             room_name: t.text,
             type: "dry",
             polygon: [
-              { x, y },
-              { x: x + w, y },
-              { x: x + w, y: y + h },
-              { x, y: y + h }
+              { x: rx, y: ry },
+              { x: rx + w, y: ry },
+              { x: rx + w, y: ry + h },
+              { x: rx, y: ry + h }
             ],
             conf: t.conf,
             correction_source: "AI_GENERATED"
@@ -767,12 +791,23 @@ export const useAIController = (
       if (data && data.pages && data.pages[0]) {
         const detected = data.pages[0].objects || [];
         console.log("[Template AI] Detected objects:", detected.length);
+        const shiftedDetected = detected
+          .filter(r => r.polygon && r.polygon.length >= 3 && !r.room_name?.toUpperCase().includes("GARAGE"))
+          .map(r => {
+            const shiftedPoly = r.polygon.map(pt => ({
+              x: pt.x + pdfOffset.x,
+              y: pt.y + pdfOffset.y
+            }));
+            return {
+              ...r,
+              polygon: shiftedPoly,
+              correction_source: "AI_GENERATED"
+            };
+          });
+
         setRoomsByPage(prev => ({
           ...prev,
-          [currentPage]: [...(prev[currentPage] || []), ...detected.filter(r => r.polygon && r.polygon.length >= 3 && !r.room_name?.toUpperCase().includes("GARAGE")).map(r => ({
-            ...r,
-            correction_source: "AI_GENERATED"
-          }))]
+          [currentPage]: [...(prev[currentPage] || []), ...shiftedDetected]
         }));
         const durationSeconds = ((performance.now() - startTime) / 1000).toFixed(2);
         setInferenceTiming(`${durationSeconds}s`);
@@ -826,8 +861,18 @@ export const useAIController = (
       if (doorsArray && doorsArray.length > 0) {
         const detectedDoors = doorsArray.map(d => {
           const migrated = migrateLegacyDoor(d, currentPage, realScale);
+          const shiftedPoints = migrated.points ? migrated.points.map(pt => ({
+            x: pt.x + pdfOffset.x,
+            y: pt.y + pdfOffset.y
+          })) : null;
+          const shiftedCenter = migrated.centerPoint ? {
+            x: migrated.centerPoint.x + pdfOffset.x,
+            y: migrated.centerPoint.y + pdfOffset.y
+          } : null;
           return {
             ...migrated,
+            points: shiftedPoints,
+            centerPoint: shiftedCenter,
             review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
           };
         });
@@ -954,8 +999,18 @@ export const useAIController = (
         if (doorsArray.length > 0) {
           detectedDoors = doorsArray.map(d => {
             const migrated = migrateLegacyDoor(d, currentPage, realScale);
+            const shiftedPoints = migrated.points ? migrated.points.map(pt => ({
+              x: pt.x + pdfOffset.x,
+              y: pt.y + pdfOffset.y
+            })) : null;
+            const shiftedCenter = migrated.centerPoint ? {
+              x: migrated.centerPoint.x + pdfOffset.x,
+              y: migrated.centerPoint.y + pdfOffset.y
+            } : null;
             return {
               ...migrated,
+              points: shiftedPoints,
+              centerPoint: shiftedCenter,
               review_state: 'AI_GENERATED'
             };
           });
@@ -1019,8 +1074,18 @@ export const useAIController = (
               wall_type = "int";
               thickness = 70;
             }
+            const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
+              pt[0] + pdfOffset.x,
+              pt[1] + pdfOffset.y
+            ]) : null;
+            const shiftedPoly = w.polygon ? w.polygon.map(pt => [
+              pt[0] + pdfOffset.x,
+              pt[1] + pdfOffset.y
+            ]) : null;
             return {
               ...w,
+              centerline: shiftedCenterline,
+              polygon: shiftedPoly,
               wall_type,
               thickness,
               review_state: 'AI_GENERATED'
@@ -1119,9 +1184,13 @@ export const useAIController = (
               const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : []);
               const snappedRooms = event.rooms.map(r => {
                 if (r.polygon) {
+                  const shiftedPoly = r.polygon.map(pt => ({
+                    x: pt.x + pdfOffset.x,
+                    y: pt.y + pdfOffset.y
+                  }));
                   return {
                     ...r,
-                    polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
+                    polygon: snapRoomPolygonToWalls(shiftedPoly, currentWalls, 15)
                   };
                 }
                 return r;
