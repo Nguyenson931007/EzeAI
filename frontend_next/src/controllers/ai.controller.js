@@ -9,6 +9,7 @@ import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
+import { migrateLegacyDoor } from "@/models/DoorTypeRegistry";
 
 /**
  * Compute bounding-box IoU (Intersection over Union) between two polygons.
@@ -823,10 +824,13 @@ export const useAIController = (
       }
 
       if (doorsArray && doorsArray.length > 0) {
-        const detectedDoors = doorsArray.map(d => ({
-          ...d,
-          review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
-        }));
+        const detectedDoors = doorsArray.map(d => {
+          const migrated = migrateLegacyDoor(d, currentPage, realScale);
+          return {
+            ...migrated,
+            review_state: isCacheHit ? "ai_corrected" : "AI_GENERATED"
+          };
+        });
 
         // Snap detected doors to existing walls!
         // Merge cut walls back into continuous segments so snap can find walls
@@ -948,10 +952,13 @@ export const useAIController = (
         }
 
         if (doorsArray.length > 0) {
-          detectedDoors = doorsArray.map(d => ({
-            ...d,
-            review_state: 'AI_GENERATED'
-          }));
+          detectedDoors = doorsArray.map(d => {
+            const migrated = migrateLegacyDoor(d, currentPage, realScale);
+            return {
+              ...migrated,
+              review_state: 'AI_GENERATED'
+            };
+          });
 
           const existingDoors = clearExisting ? [] : ((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || []);
           const mergedDoors = _mergeOverlappingDoors(existingDoors, detectedDoors);

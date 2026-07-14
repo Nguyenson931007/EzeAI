@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import AIDoor from "../components/AIDoor";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
+import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
@@ -112,6 +113,7 @@ const RoomPolygonLayer = React.memo(({
   dragging,
   pushHistory,
   drawing,
+  isDrawingDoor,
   isMeasuring,
   isDistancing,
   isAddingPoint,
@@ -172,11 +174,14 @@ const RoomPolygonLayer = React.memo(({
               strokeWidth={strokeWidth}
               strokeDasharray={isText ? "4,3" : undefined}
               opacity={opacity}
+              style={{
+                pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+              }}
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={(e) => {
                 if (interactionMode === "draw-wall") return;
-                if (drawing || isMeasuring || isDistancing) return;
+                if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
                 if (e.shiftKey || isAddingPoint) return;
                 e.stopPropagation();
                 setSelectedId(r.id);
@@ -264,7 +269,11 @@ const WallLayer = React.memo(({
   setSelectedVertices,
   startVertexMove,
   handleWallDoubleClick,
-  onMouseUp
+  onMouseUp,
+  drawing,
+  isDrawingDoor,
+  isMeasuring,
+  isDistancing
 }) => {
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
@@ -465,7 +474,10 @@ const WallLayer = React.memo(({
             fill={fillColor}
             stroke={strokeColor}
             strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
-            style={{ cursor: 'pointer' }}
+            style={{
+              cursor: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "crosshair" : "pointer",
+              pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+            }}
             onMouseEnter={() => setHoverId(w.id)}
             onMouseLeave={() => setHoverId(null)}
             onContextMenu={(e) => {
@@ -624,7 +636,11 @@ const WallLayer = React.memo(({
   prev.onWallContextMenu === next.onWallContextMenu &&
   prev.onVertexClick === next.onVertexClick &&
   prev.selectedVertices === next.selectedVertices &&
-  prev.startVertexMove === next.startVertexMove
+  prev.startVertexMove === next.startVertexMove &&
+  prev.drawing === next.drawing &&
+  prev.isDrawingDoor === next.isDrawingDoor &&
+  prev.isMeasuring === next.isMeasuring &&
+  prev.isDistancing === next.isDistancing
 ));
 
 // ==========================================
@@ -820,6 +836,24 @@ const DoorLayer = React.memo(({
             );
           };
 
+          const renderWindow = () => {
+            if (!p1 || !p2 || len <= 0) return null;
+            const ux = dx / len;
+            const uy = dy / len;
+            const nx = -uy;
+            const ny = ux;
+            const thickness = 4;
+            return (
+              <g>
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
+                <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
+                <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
+                <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
+                <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
+              </g>
+            );
+          };
+
           const renderManualJambs = () => {
             const doorType = (d.type || "").toLowerCase();
             const doorClass = (d.class_name || "").toLowerCase();
@@ -943,7 +977,19 @@ const DoorLayer = React.memo(({
                  setSelectedId(d.id);
                  setSelectedType("door");
                }}
-               style={{ cursor: 'pointer' }}
+               onMouseDown={(e) => {
+                 if (interactionMode === "draw-wall") return;
+                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                 if (startDrag) {
+                   e.stopPropagation();
+                   if (!isSelected) {
+                     setSelectedId(d.id);
+                     setSelectedType("door");
+                   }
+                   startDrag(d.id, null, 'door-move');
+                 }
+               }}
+               style={{ cursor: 'pointer', pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto" }}
                onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
                onMouseEnter={() => setHoverId(d.id)}
                onMouseLeave={() => setHoverId(null)}
@@ -960,13 +1006,6 @@ const DoorLayer = React.memo(({
                   strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 2.0 : 1.5))}
                   strokeDasharray={isSelected ? "none" : "6,3"}
                   opacity={0.85}
-                  onMouseDown={(e) => {
-                    if (interactionMode === "draw-wall") return;
-                    if (isSelected && startDrag) {
-                      e.stopPropagation();
-                      startDrag(d.id, null, 'door-move');
-                    }
-                  }}
                 />
               )}
               {type === "double" ? (
@@ -1001,6 +1040,22 @@ const DoorLayer = React.memo(({
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
+              ) : (type === "window" ? (
+                <>
+                  {renderWindow()}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={isSelected ? color : "#1e293b"} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                  >
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                  </text>
+                </>
               ) : (
                 <>
                   {renderSingleDoor()}
@@ -1017,7 +1072,7 @@ const DoorLayer = React.memo(({
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
-              ))}
+              )))}
 
               {/* Bounding Box Corner Handles */}
               {isSelected && hasBBox && bboxPoly.map((p, i) => {
@@ -1194,6 +1249,7 @@ const OCRLabelLayer = React.memo(({
   handleEditSubmit,
   stopEvent,
   drawing,
+  isDrawingDoor,
   isMeasuring,
   isDistancing,
   config,
@@ -1311,7 +1367,10 @@ const OCRLabelLayer = React.memo(({
                 </foreignObject>
               ) : (
                 <g 
-                  style={{ cursor: 'text' }}
+                  style={{
+                    cursor: 'text',
+                    pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+                  }}
                   onMouseDown={stopEvent}
                   onMouseUp={stopEvent}
                   onClick={stopEvent}
@@ -1730,6 +1789,7 @@ export default function CanvasView({
   showLayer,
   updateDoor,
   deleteDoor,
+  doorController,
   searchResults = [],
   searchResultsVisible = true,
   hoveredSearchResultId = null,
@@ -2490,32 +2550,7 @@ export default function CanvasView({
               </g>
             )}
 
-            {/* Door Drawing Preview */}
-            {isDrawingDoor && currentDoor.length > 0 && currentMouse && (
-              <g style={{ pointerEvents: 'none' }}>
-                <line
-                  x1={currentDoor[0].x}
-                  y1={currentDoor[0].y}
-                  x2={currentMouse.x}
-                  y2={currentMouse.y}
-                  fill="none"
-                  stroke="#4CAF50"
-                  strokeWidth={3}
-                  strokeDasharray="4,4"
-                  opacity={0.8}
-                />
-                {currentDoor.map((p, i) => (
-                  <circle
-                    key={`preview-door-${i}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={5}
-                    fill="#4CAF50"
-                    stroke="#ffffff"
-                  />
-                ))}
-              </g>
-            )}
+
 
             {/* Wall Drawing Preview */}
             {interactionMode === "draw-wall" && drawingWall && drawingWallEnd && (
@@ -2655,6 +2690,10 @@ export default function CanvasView({
               startVertexMove={startVertexMove}
               handleWallDoubleClick={handleWallDoubleClick}
               onMouseUp={onMouseUp}
+              drawing={drawing}
+              isDrawingDoor={isDrawingDoor}
+              isMeasuring={isMeasuring}
+              isDistancing={isDistancing}
             />
 
             {/* Memoized Layer 4: Doors */}
@@ -2697,7 +2736,7 @@ export default function CanvasView({
               stopEvent={stopEvent}
               drawing={drawing}
               isMeasuring={isMeasuring}
-              isDistancing={isDistancing}
+              isDrawingDoor={isDrawingDoor}
               isDistancing={isDistancing}
               config={config}
               heatmapMode={heatmapMode}
@@ -3018,6 +3057,111 @@ export default function CanvasView({
               </g>
             )}
 
+            {/* Door Drawing Preview */}
+            {isDrawingDoor && currentDoor.length > 0 && currentMouse && (() => {
+              const p1 = currentDoor[0];
+              const p2 = currentMouse;
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const len = Math.hypot(dx, dy);
+
+              if (len < 5) {
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <circle cx={p1.x} cy={p1.y} r={5} fill="#4CAF50" stroke="#ffffff" />
+                  </g>
+                );
+              }
+
+              // Use current doorPreview class/type if available
+              const doorClass = doorController?.doorPreview?.class || 'single_door';
+              const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
+              const isDouble = doorClass.includes('double');
+              const isWindow = doorClass.includes('window');
+
+              if (isWindow) {
+                const angle = Math.atan2(dy, dx);
+                const nx = -Math.sin(angle);
+                const ny = Math.cos(angle);
+                const thickness = 4;
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} />
+                    <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke="#2196F3" strokeWidth={1} />
+                    <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke="#2196F3" strokeWidth={1} />
+                    <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
+                    <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
+                    <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
+                    <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
+                  </g>
+                );
+              }
+
+              if (isSliding) {
+                const angle = Math.atan2(dy, dx);
+                const offsetX = -Math.sin(angle) * 3;
+                const offsetY = Math.cos(angle) * 3;
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={4} />
+                    <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke="#2196F3" strokeWidth={1} opacity={0.5} />
+                    <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
+                    <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
+                  </g>
+                );
+              }
+
+              if (isDouble) {
+                const halfLen = len / 2;
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                const openAngleRad = Math.PI / 2;
+                const ang1 = Math.atan2(midY - p1.y, midX - p1.x) + openAngleRad;
+                const end1X = p1.x + halfLen * Math.cos(ang1);
+                const end1Y = p1.y + halfLen * Math.sin(ang1);
+                const ang2 = Math.atan2(midY - p2.y, midX - p2.x) - openAngleRad;
+                const end2X = p2.x + halfLen * Math.cos(ang2);
+                const end2Y = p2.y + halfLen * Math.sin(ang2);
+
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.5} strokeDasharray="3,3" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 1 ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke="#2196F3" strokeWidth={2} />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 0 ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke="#2196F3" strokeWidth={2} />
+                    <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
+                    <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
+                  </g>
+                );
+              }
+
+              // Single swing door preview
+              const geom = calculateDoorGeometry({
+                p1,
+                p2,
+                type: 'single',
+                hingeSide: 'left',
+                swing: 'inward',
+                angle: 90
+              });
+
+              if (!geom) return null;
+
+              return (
+                <g style={{ pointerEvents: 'none' }}>
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.5} strokeDasharray="3,3" />
+                  <path 
+                    d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 1 ${geom.arcEnd.x} ${geom.arcEnd.y}`}
+                    fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2"
+                  />
+                  <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke="#2196F3" strokeWidth={2.5} />
+                  <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
+                  <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
+                </g>
+              );
+            })()}
+
           </g>
         </svg>
 
@@ -3246,6 +3390,18 @@ export default function CanvasView({
         realScale={realScale}
         onSave={handleDoorEditSave}
         onClose={() => setDoorEditDialog({ visible: false, door: null })}
+      />
+
+      {/* ===== DOOR TYPE SELECTOR POPUP ===== */}
+      <DoorTypeSelector
+        visible={doorController?.showTypeSelector || false}
+        position={doorController?.pendingDoor?.screenPosition}
+        selectedTypeId={doorController?.selectedTypeId || 'int_hinged_single'}
+        onSelect={doorController?.selectDoorType}
+        onConfirm={doorController?.confirmDoorType}
+        onCancel={doorController?.cancelDoorDraw}
+        scale={scale}
+        offset={offset}
       />
     </div>
   );

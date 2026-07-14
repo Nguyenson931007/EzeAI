@@ -32,6 +32,8 @@ from utils.helpers import convert_to_yolo
 from api.auth import validate_session
 from app.limiter import limiter
 from exporters.ezplan_exporter import EZPlanExportRequest, EZPlanExporter, EZPlanExportError
+from exporters.takeoff_exporter import TakeoffExportRequest, TakeoffExporter
+from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger("ezefloor.routes")
 
@@ -1411,6 +1413,27 @@ def export_ezplan(req: EZPlanExportRequest, username: str = Depends(validate_ses
         )
     except Exception as e:
         logger.error(f"[export_ezplan] Unexpected error during export: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+@router.post("/api/export/takeoff")
+def export_takeoff(req: TakeoffExportRequest, username: str = Depends(validate_session)):
+    """
+    Exports structured wall and door takeoff data into a customized Excel spreadsheet.
+    """
+    try:
+        exporter = TakeoffExporter()
+        file_stream = exporter.export(req)
+        return StreamingResponse(
+            file_stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=Wall_Door_Takeoff_Form.xlsx"}
+        )
+    except Exception as e:
+        logger.error(f"[export_takeoff] Error during export: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"

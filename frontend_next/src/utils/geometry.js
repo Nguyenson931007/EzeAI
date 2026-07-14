@@ -281,13 +281,56 @@ export function doorBbox(door) {
 }
 
 export function overlapsWithAnyDoor(wall, doors) {
+  if (!wall || !wall.centerline || wall.centerline.length !== 2) return false;
+  if (!doors || doors.length === 0) return false;
+
+  const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+  const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+  const wallDx = wp2.x - wp1.x;
+  const wallDy = wp2.y - wp1.y;
+  const wallLen = Math.hypot(wallDx, wallDy);
+  if (wallLen < 1.0) return false;
+
+  const ux = wallDx / wallLen;
+  const uy = wallDy / wallLen;
+
+  for (const door of doors) {
+    let dp1 = null;
+    let dp2 = null;
+    if (door.points && door.points.length >= 2) {
+      const pt0 = door.points[0];
+      const pt1 = door.points[1];
+      dp1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
+      dp2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
+    } else {
+      continue;
+    }
+
+    // Check perpendicular distance to wall
+    const dist1 = Math.abs(-uy * (dp1.x - wp1.x) + ux * (dp1.y - wp1.y));
+    const dist2 = Math.abs(-uy * (dp2.x - wp1.x) + ux * (dp2.y - wp1.y));
+    if (dist1 > 40 || dist2 > 40) continue;
+
+    // Project door endpoints onto wall axis
+    const t1 = (dp1.x - wp1.x) * ux + (dp1.y - wp1.y) * uy;
+    const t2 = (dp2.x - wp1.x) * ux + (dp2.y - wp1.y) * uy;
+    const minT = Math.min(t1, t2);
+    const maxT = Math.max(t1, t2);
+
+    // Check 1D overlap with wall segment [0, wallLen]
+    const overlapStart = Math.max(0, minT);
+    const overlapEnd = Math.min(wallLen, maxT);
+    if (overlapEnd - overlapStart > 5.0) {
+      return true;
+    }
+  }
+
   return false;
 }
 
 export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false) {
-  if (!forceCut) {
-    return walls;
-  }
+  // Wall cutting is always enabled — the forceCut parameter is kept for API compatibility
+  // but no longer gates the operation.
 
   if (!walls || walls.length === 0) return [];
   if (!doors || doors.length === 0) return walls;
@@ -1061,21 +1104,22 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
     const u = { x: dx / L, y: dy / L };
 
     const W = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const isOpposite = (p2.x - p1.x) * u.x + (p2.y - p1.y) * u.y < 0;
 
-    const new_p1 = { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y };
-    const new_p2 = { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y };
+    const new_p1 = isOpposite
+      ? { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y }
+      : { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y };
+    const new_p2 = isOpposite
+      ? { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y }
+      : { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y };
 
     const theta = Math.atan2(p2.y - p1.y, p2.x - p1.x);
     const theta_wall = Math.atan2(dy, dx);
-    let d_theta = theta_wall - theta;
+    const theta_new = isOpposite ? (theta_wall + Math.PI) : theta_wall;
+    let d_theta = theta_new - theta;
 
-    // Normalize relative angle to range [-PI/2, PI/2] to prevent 180-degree flip confusion
+    // Normalize relative angle to range [-PI, PI] to prevent flip confusion
     d_theta = Math.atan2(Math.sin(d_theta), Math.cos(d_theta));
-    if (d_theta > Math.PI / 2) {
-      d_theta -= Math.PI;
-    } else if (d_theta < -Math.PI / 2) {
-      d_theta += Math.PI;
-    }
 
     const transformPoint = (pt) => {
       const px = Array.isArray(pt) ? pt[0] : pt.x;
