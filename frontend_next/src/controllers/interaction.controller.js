@@ -448,6 +448,13 @@ export function useInteractionController(svgRef) {
         deleteItem();
       }
 
+      if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
+        if (selectedWallVertex) {
+          e.preventDefault();
+          separateJunction(selectedWallVertex);
+        }
+      }
+
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyZ" || e.key === "z")) {
         e.preventDefault();
         if (isDrawingRoof && currentPoly.length > 0) {
@@ -481,7 +488,7 @@ export function useInteractionController(svgRef) {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse]);
+  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse, currentPage]);
 
   // Zoom Handler
   useEffect(() => {
@@ -1383,6 +1390,8 @@ export function useInteractionController(svgRef) {
     setSelectedType(found ? 'room' : null);
     setSelectedPointIndex(null); // Default to no point selected
     setSelectedWallIds([]); // Clear wall selection when clicking rooms or empty canvas
+    setSelectedWallVertex(null);
+    setSelectedVertices([]);
 
     // Vertex Selection (Check if user clicked exactly on a point)
     if (found) {
@@ -2726,5 +2735,7 @@ export function useInteractionController(svgRef) {
 
     const finalized = recalculateAllWallsPolygons(updatedWalls);
     pushHistory(null, finalized, doorsByPage[currentPage] || []);
+    setSelectedWallVertex(null);
+    setSelectedVertices([]);
   }
 }
