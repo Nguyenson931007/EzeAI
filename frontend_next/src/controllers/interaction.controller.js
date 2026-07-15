@@ -187,7 +187,7 @@ export function useInteractionController(svgRef) {
     setInteractionMode("select");
   }
 
-  function mergeCollinearWalls(wallsList, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120, ignoreExemptions = false) {
+  function mergeCollinearWalls(wallsList, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120, ignoreExemptions = false) {
     if (isWallMergeDisabled) return wallsList;
 
     // Identify exempt walls (currently selected or touching the selected vertex)
@@ -2280,11 +2280,19 @@ export function useInteractionController(svgRef) {
   function onMouseDown(e) {
     if (doorController.showTypeSelector) return;
     if (isDrawingDoor) {
-      if (e.button === 0) {
-        const p = getMouse(e);
-        doorController.onDoorMouseDown(p);
+      const pageDoors = doorsByPage[currentPage] || [];
+      const isHoveringDoor = pageDoors.some(d => d.id === hoverId);
+
+      if (hoverId && isHoveringDoor) {
+        setIsDrawingDoor(false);
+        doorController.cancelDoorDraw();
+      } else {
+        if (e.button === 0) {
+          const p = getMouse(e);
+          doorController.onDoorMouseDown(p);
+        }
+        return;
       }
-      return;
     }
 
     // Never start panning if a drag is active

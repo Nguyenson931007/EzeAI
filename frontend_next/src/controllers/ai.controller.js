@@ -859,8 +859,9 @@ export const useAIController = (
       }
 
       if (doorsArray && doorsArray.length > 0) {
+        const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
         const detectedDoors = doorsArray.map(d => {
-          const migrated = migrateLegacyDoor(d, currentPage, realScale);
+          const migrated = migrateLegacyDoor(d, currentWalls, currentPage, realScale);
           const shiftedPoints = migrated.points ? migrated.points.map(pt => ({
             x: pt.x + pdfOffset.x,
             y: pt.y + pdfOffset.y
@@ -890,7 +891,6 @@ export const useAIController = (
         // Snap detected doors to existing walls!
         // Merge cut walls back into continuous segments so snap can find walls
         // even when the door midpoint sits in the gap between two cut segments.
-        const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls]) : [];
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => snapDoorToWalls(d, uncutWalls, 80))
@@ -1007,8 +1007,9 @@ export const useAIController = (
         }
 
         if (doorsArray.length > 0) {
+          const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
           detectedDoors = doorsArray.map(d => {
-            const migrated = migrateLegacyDoor(d, currentPage, realScale);
+            const migrated = migrateLegacyDoor(d, currentWalls, currentPage, realScale);
             const shiftedPoints = migrated.points ? migrated.points.map(pt => ({
               x: pt.x + pdfOffset.x,
               y: pt.y + pdfOffset.y

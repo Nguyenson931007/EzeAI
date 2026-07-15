@@ -792,7 +792,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   });
 }
 
-export function mergeCollinearWalls(walls, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120) {
+export function mergeCollinearWalls(walls, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120) {
   if (!walls || walls.length < 2) return walls;
 
   let merged = true;
@@ -1082,10 +1082,18 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
   let bestDist = Math.min(maxDist, 12); // Limit maximum snap distance to 12px to keep doors close to detected model positions
   let bestProj = null;
 
+  const doorAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
   for (const w of walls) {
     if (!w.centerline || w.centerline.length !== 2) continue;
     const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
     const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+    // Snapping angle guard: only snap if the door and wall centerline are nearly parallel (within 45 degrees)
+    const wallAngle = Math.atan2(b.y - a.y, b.x - a.x);
+    const angleDiff = Math.abs(Math.sin(doorAngle - wallAngle));
+    if (angleDiff > 0.707) continue;
+
     const proj = distancePointToSegment(C, a, b);
     if (proj.dist < bestDist) {
       bestDist = proj.dist;

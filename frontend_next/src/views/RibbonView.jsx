@@ -223,7 +223,14 @@ export default function RibbonView({
                     } else {
                       if (doorController) {
                         doorController.startDoorDraw();
-                        doorController.setDoorPreset(null);
+                        doorController.setDoorPreset({
+                          id: 'int_hinged_single',
+                          width: 810,
+                          label: 'Internal Hinged Door',
+                          category: 'internal',
+                          renderClass: 'single_door',
+                          doorType: 'single'
+                        });
                       } else {
                         setIsDrawingDoor(true);
                       }

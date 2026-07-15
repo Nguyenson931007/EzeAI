@@ -19,10 +19,19 @@ export default function AIDoor({
   onDoorContextMenu,
   realScale
 }) {
-  const maskPoly = d.polygon || d.mask_polygon || [];
-  if (maskPoly.length < 3) return null;
+  const maskPoly = (d.polygon && d.polygon.length >= 3)
+    ? d.polygon
+    : ((d.mask_polygon && d.mask_polygon.length >= 3) ? d.mask_polygon : []);
 
-  const polyPoints = maskPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+  const polyPoints = maskPoly
+    .map(p => {
+      const x = Array.isArray(p) ? p[0] : (p ? p.x : undefined);
+      const y = Array.isArray(p) ? p[1] : (p ? p.y : undefined);
+      return { x: Number(x), y: Number(y) };
+    })
+    .filter(p => p && !isNaN(p.x) && !isNaN(p.y));
+
+  if (polyPoints.length < 3) return null;
 
   // Calculate centroid for label placement
   const cxSum = polyPoints.reduce((s, p) => s + p.x, 0);
@@ -454,8 +463,9 @@ export default function AIDoor({
         
         for (let i = 0; i < 2; i++) {
           for (let j = 0; j < 2; j++) {
+            if (!pts1[i] || !pts2[j]) continue;
             const dist = Math.hypot(pts1[i].x - pts2[j].x, pts1[i].y - pts2[j].y);
-            if (dist < minDist) {
+            if (!isNaN(dist) && dist < minDist) {
               minDist = dist;
               h1 = pts1[i];
               h2 = pts2[j];
@@ -463,6 +473,10 @@ export default function AIDoor({
               o2 = pts2[1-j];
             }
           }
+        }
+        
+        if (!h1 || !h2 || !o1 || !o2) {
+          return null;
         }
         
         const hingeX = (h1.x + h2.x) / 2;
@@ -548,18 +562,27 @@ export default function AIDoor({
             if (wallDetectedFrameIndex !== -1) {
               frameEdgeIndex = wallDetectedFrameIndex;
             } else if (d.points && d.points.length >= 2) {
-              const pts = d.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
-              const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
-              const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
-              const frame_end_target = d0 > d1 ? pts[0] : pts[1];
+              const pts = d.points
+                .map(p => {
+                  const x = Array.isArray(p) ? p[0] : (p ? p.x : undefined);
+                  const y = Array.isArray(p) ? p[1] : (p ? p.y : undefined);
+                  return { x: Number(x), y: Number(y) };
+                })
+                .filter(p => p && !isNaN(p.x) && !isNaN(p.y));
+              
+              if (pts.length >= 2) {
+                const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
+                const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
+                const frame_end_target = d0 > d1 ? pts[0] : pts[1];
 
-              const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
-              const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
+                const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
+                const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
 
-              if (dist1 < dist2) {
-                frameEdgeIndex = 0;
-              } else {
-                frameEdgeIndex = 1;
+                if (dist1 < dist2) {
+                  frameEdgeIndex = 0;
+                } else {
+                  frameEdgeIndex = 1;
+                }
               }
             }
           }
@@ -574,9 +597,11 @@ export default function AIDoor({
     if (dragging && dragging.id === d.id) return;
     if (!isSliding && topEdges && topEdges.length === 2 && updateDoor) {
       const activeFrameSeg = topEdges[frameEdgeIndex];
-      const needsPointsUpdate = !d.points || 
-        Math.hypot(d.points[0].x - activeFrameSeg.p1.x, d.points[0].y - activeFrameSeg.p1.y) > 0.1 ||
-        Math.hypot(d.points[1].x - activeFrameSeg.p2.x, d.points[1].y - activeFrameSeg.p2.y) > 0.1;
+      const needsPointsUpdate = !d.points || d.points.length < 2 || !d.points[0] || !d.points[1] ||
+        (d.points[0].x !== undefined && d.points[0].y !== undefined &&
+         Math.hypot(d.points[0].x - activeFrameSeg.p1.x, d.points[0].y - activeFrameSeg.p1.y) > 0.1) ||
+        (d.points[1].x !== undefined && d.points[1].y !== undefined &&
+         Math.hypot(d.points[1].x - activeFrameSeg.p2.x, d.points[1].y - activeFrameSeg.p2.y) > 0.1);
 
       if (d.frameEdgeIndex === undefined || needsPointsUpdate) {
         updateDoor({

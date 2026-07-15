@@ -3808,17 +3808,6 @@ export default function CanvasView({
         onClose={() => setDoorEditDialog({ visible: false, door: null })}
       />
 
-      {/* ===== DOOR TYPE SELECTOR POPUP ===== */}
-      <DoorTypeSelector
-        visible={doorController?.showTypeSelector || false}
-        position={doorController?.pendingDoor?.screenPosition}
-        selectedTypeId={doorController?.selectedTypeId || 'int_hinged_single'}
-        onSelect={doorController?.selectDoorType}
-        onConfirm={doorController?.confirmDoorType}
-        onCancel={doorController?.cancelDoorDraw}
-        scale={scale}
-        offset={offset}
-      />
     </div>
   );
 }

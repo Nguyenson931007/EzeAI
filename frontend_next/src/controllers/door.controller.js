@@ -119,234 +119,6 @@ export function useDoorController({
     setShowTypeSelector(false);
   }, [initDoorSequence]);
 
-  /**
-   * Step 2: Records the first click point (mousedown).
-   * Snaps to nearest wall centerline.
-   */
-  const onDoorMouseDown = useCallback((canvasPoint) => {
-    if (!isDrawingDoor) return false;
-
-    // If we're in type-selection mode, ignore canvas clicks
-    if (showTypeSelector) return true;
-
-    const walls = getCurrentWalls();
-    const snap = snapPointToWall(canvasPoint, walls, 60);
-
-    setCurrentDoorPoints([snap.snappedPoint]);
-    isDraggingDoorRef.current = true;
-    return true; // consumed the event
-  }, [isDrawingDoor, showTypeSelector, getCurrentWalls]);
-
-  /**
-   * Step 3: Handles mouse movement during drag to update preview.
-   */
-  const onDoorMouseMove = useCallback((canvasPoint, isShiftDown = false, isSnapMode = false) => {
-    if (!isDrawingDoor || currentDoorPoints.length === 0 || !isDraggingDoorRef.current) {
-      return canvasPoint;
-    }
-
-    const startPoint = currentDoorPoints[0];
-    let endPoint = canvasPoint;
-
-    // Snap to horizontal/vertical
-    if (isShiftDown || isSnapMode) {
-      const dx = canvasPoint.x - startPoint.x;
-      const dy = canvasPoint.y - startPoint.y;
-      const angle = Math.atan2(dy, dx);
-      const step = Math.PI / 2;
-      const snappedAngle = Math.round(angle / step) * step;
-      const distance = Math.hypot(dx, dy);
-      endPoint = {
-        x: startPoint.x + distance * Math.cos(snappedAngle),
-        y: startPoint.y + distance * Math.sin(snappedAngle),
-      };
-    }
-
-    // Snap end point to wall direction
-    const walls = getCurrentWalls();
-    const snapResult = snapPointToWall(
-      { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 },
-      walls,
-      60
-    );
-
-    // If both points are near a wall, project onto wall direction
-    if (snapResult.wall) {
-      const projected = projectDoorOntoWall(startPoint, endPoint, snapResult.wall);
-      endPoint = projected.p2;
-
-      // If we have a preset with specific width, enforce it
-      if (doorPreset && doorPreset.width && realScale) {
-        const desiredPx = doorPreset.width / realScale;
-        const dir = { x: projected.p2.x - projected.p1.x, y: projected.p2.y - projected.p1.y };
-        const len = Math.hypot(dir.x, dir.y);
-        if (len > 0.1) {
-          endPoint = {
-            x: projected.p1.x + (dir.x / len) * desiredPx,
-            y: projected.p1.y + (dir.y / len) * desiredPx,
-          };
-        }
-      }
-    }
-
-    // Update preview
-    const previewDoor = {
-      id: '__preview__',
-      points: [startPoint, endPoint],
-      type: doorPreset ? (DOOR_TYPE_REGISTRY[selectedTypeId]?.doorType || 'single') : 'single',
-      class: doorPreset ? (DOOR_TYPE_REGISTRY[selectedTypeId]?.renderClass || 'single_door') : 'single_door',
-      hingeSide: 'left',
-      swing: 'inward',
-      angle: 90,
-    };
-    setDoorPreview(previewDoor);
-
-    return endPoint;
-  }, [isDrawingDoor, currentDoorPoints, doorPreset, selectedTypeId, realScale, getCurrentWalls]);
-
-  /**
-   * Step 3b: Handles mouseup to complete the geometry.
-   * Shows the type selector popup.
-   */
-  const onDoorMouseUp = useCallback((canvasPoint, isShiftDown = false, isSnapMode = false) => {
-    if (!isDrawingDoor || !isDraggingDoorRef.current) return false;
-
-    isDraggingDoorRef.current = false;
-
-    if (currentDoorPoints.length === 0) return false;
-
-    const startPoint = currentDoorPoints[0];
-    let endPoint = canvasPoint;
-
-    // Snap to horizontal/vertical
-    if (isShiftDown || isSnapMode) {
-      const dx = canvasPoint.x - startPoint.x;
-      const dy = canvasPoint.y - startPoint.y;
-      const angle = Math.atan2(dy, dx);
-      const step = Math.PI / 2;
-      const snappedAngle = Math.round(angle / step) * step;
-      const distance = Math.hypot(dx, dy);
-      endPoint = {
-        x: startPoint.x + distance * Math.cos(snappedAngle),
-        y: startPoint.y + distance * Math.sin(snappedAngle),
-      };
-    }
-
-    // Minimum door width check (at least 5px)
-    if (Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) < 5) {
-      cancelDoorDraw();
-      return true;
-    }
-
-    const walls = getCurrentWalls();
-    const doors = getCurrentDoors();
-
-    // Snap to wall
-    const snapResult = snapPointToWall(
-      { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 },
-      walls,
-      60
-    );
-
-    let finalP1 = startPoint;
-    let finalP2 = endPoint;
-    let parentWall = snapResult.wall;
-
-    if (parentWall) {
-      const projected = projectDoorOntoWall(startPoint, endPoint, parentWall);
-      finalP1 = projected.p1;
-      finalP2 = projected.p2;
-    }
-
-    // If we have a preset with specific width, enforce it
-    if (doorPreset && doorPreset.width && realScale) {
-      const desiredPx = doorPreset.width / realScale;
-      const dx = finalP2.x - finalP1.x;
-      const dy = finalP2.y - finalP1.y;
-      const len = Math.hypot(dx, dy);
-      if (len > 0.1) {
-        finalP2 = {
-          x: finalP1.x + (dx / len) * desiredPx,
-          y: finalP1.y + (dy / len) * desiredPx,
-        };
-      }
-    }
-
-    // Determine the initial door type from preset or default
-    const initialTypeId = doorPreset
-      ? (doorPreset.id || selectedTypeId)
-      : selectedTypeId;
-
-    // If there's a doorPreset already set (from the old DoorTypePanel workflow),
-    // skip the type selector and finalize immediately
-    if (doorPreset) {
-      finalizeDoor(finalP1, finalP2, initialTypeId, parentWall);
-      return true;
-    }
-
-    // Create pending door for the type selector
-    const pending = {
-      p1: finalP1,
-      p2: finalP2,
-      parentWall: parentWall,
-      initialTypeId: initialTypeId,
-      screenPosition: { x: (finalP1.x + finalP2.x) / 2, y: (finalP1.y + finalP2.y) / 2 },
-    };
-
-    setPendingDoor(pending);
-    setSelectedTypeId(initialTypeId);
-
-    // Show preview with pending geometry
-    setDoorPreview({
-      id: '__preview__',
-      points: [finalP1, finalP2],
-      type: DOOR_TYPE_REGISTRY[initialTypeId]?.doorType || 'single',
-      class: DOOR_TYPE_REGISTRY[initialTypeId]?.renderClass || 'single_door',
-      hingeSide: 'left',
-      swing: 'inward',
-      angle: 90,
-    });
-
-    setShowTypeSelector(true);
-    return true;
-  }, [isDrawingDoor, currentDoorPoints, doorPreset, selectedTypeId, realScale, getCurrentWalls, getCurrentDoors]);
-
-  /**
-   * Step 4: User selects a door type from the popup.
-   * Updates the preview in real-time.
-   */
-  const selectDoorType = useCallback((typeId) => {
-    setSelectedTypeId(typeId);
-    const def = DOOR_TYPE_REGISTRY[typeId];
-
-    if (pendingDoor && def) {
-      // Update preview with new type
-      setDoorPreview(prev => prev ? {
-        ...prev,
-        type: def.doorType,
-        class: def.renderClass,
-      } : null);
-    }
-  }, [pendingDoor]);
-
-  /**
-   * Step 5: User presses ENTER or clicks Confirm.
-   * Finalizes the door with full BIM attributes.
-   */
-  const confirmDoorType = useCallback(() => {
-    if (!pendingDoor) return;
-
-    finalizeDoor(
-      pendingDoor.p1,
-      pendingDoor.p2,
-      selectedTypeId,
-      pendingDoor.parentWall
-    );
-  }, [pendingDoor, selectedTypeId]);
-
-  /**
-   * Internal: Creates the final door object and updates state.
-   */
   const finalizeDoor = useCallback((p1, p2, doorTypeId, parentWall) => {
     const walls = getCurrentWalls();
     const doors = getCurrentDoors();
@@ -410,12 +182,226 @@ export function useDoorController({
     pushHistory(null, cutWalls, newDoors);
 
     // Reset drawing state
+    setIsDrawingDoor(false);
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);
     setShowTypeSelector(false);
-    setIsDrawingDoor(false);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls]);
+  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, setIsDrawingDoor]);
+
+  /**
+   * Step 2: Records the first click point (mousedown).
+   * Snaps to nearest wall centerline.
+   */
+  const onDoorMouseDown = useCallback((canvasPoint) => {
+    if (!isDrawingDoor) return false;
+
+    // If we're in type-selection mode, ignore canvas clicks
+    if (showTypeSelector) return true;
+
+    const walls = getCurrentWalls();
+    const snap = snapPointToWall(canvasPoint, walls, 60);
+
+    setCurrentDoorPoints([snap.snappedPoint]);
+    isDraggingDoorRef.current = true;
+    return true; // consumed the event
+  }, [isDrawingDoor, showTypeSelector, getCurrentWalls]);
+
+  /**
+   * Step 3: Handles mouse movement during drag to update preview.
+   */
+  const onDoorMouseMove = useCallback((canvasPoint, isShiftDown = false, isSnapMode = false) => {
+    if (!isDrawingDoor || currentDoorPoints.length === 0 || !isDraggingDoorRef.current) {
+      return canvasPoint;
+    }
+
+    const startPoint = currentDoorPoints[0];
+    let endPoint = canvasPoint;
+
+    // Snap to horizontal/vertical
+    if (isShiftDown || isSnapMode) {
+      const dx = canvasPoint.x - startPoint.x;
+      const dy = canvasPoint.y - startPoint.y;
+      const angle = Math.atan2(dy, dx);
+      const step = Math.PI / 2;
+      const snappedAngle = Math.round(angle / step) * step;
+      const distance = Math.hypot(dx, dy);
+      endPoint = {
+        x: startPoint.x + distance * Math.cos(snappedAngle),
+        y: startPoint.y + distance * Math.sin(snappedAngle),
+      };
+    }
+
+    // Snap end point to wall direction
+    const walls = getCurrentWalls();
+    const snapResult = snapPointToWall(
+      { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 },
+      walls,
+      60
+    );
+
+    // If both points are near a wall, project onto wall direction
+    if (snapResult.wall) {
+      const projected = projectDoorOntoWall(startPoint, endPoint, snapResult.wall);
+      endPoint = projected.p2;
+
+      // If we have a preset with specific width, enforce it (except for window presets)
+      const isWindowPreset = doorPreset && (
+        doorPreset.renderClass === 'window' ||
+        doorPreset.class === 'window' ||
+        doorPreset.doorType === 'window' ||
+        doorPreset.id === 'win_standard'
+      );
+      if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
+        const desiredPx = doorPreset.width / realScale;
+        const dir = { x: projected.p2.x - projected.p1.x, y: projected.p2.y - projected.p1.y };
+        const len = Math.hypot(dir.x, dir.y);
+        if (len > 0.1) {
+          endPoint = {
+            x: projected.p1.x + (dir.x / len) * desiredPx,
+            y: projected.p1.y + (dir.y / len) * desiredPx,
+          };
+        }
+      }
+    }
+
+    // Update preview
+    const activeTypeId = doorPreset?.id || selectedTypeId;
+    const previewDoor = {
+      id: '__preview__',
+      points: [startPoint, endPoint],
+      type: doorPreset ? (DOOR_TYPE_REGISTRY[activeTypeId]?.doorType || 'single') : 'single',
+      class: doorPreset ? (DOOR_TYPE_REGISTRY[activeTypeId]?.renderClass || 'single_door') : 'single_door',
+      hingeSide: 'left',
+      swing: 'inward',
+      angle: 90,
+    };
+    setDoorPreview(previewDoor);
+
+    return endPoint;
+  }, [isDrawingDoor, currentDoorPoints, doorPreset, selectedTypeId, realScale, getCurrentWalls]);
+
+  /**
+   * Step 3b: Handles mouseup to complete the geometry.
+   * Shows the type selector popup.
+   */
+  const onDoorMouseUp = useCallback((canvasPoint, isShiftDown = false, isSnapMode = false) => {
+    if (!isDrawingDoor || !isDraggingDoorRef.current) return false;
+
+    isDraggingDoorRef.current = false;
+
+    if (currentDoorPoints.length === 0) return false;
+
+    const startPoint = currentDoorPoints[0];
+    let endPoint = canvasPoint;
+
+    // Snap to horizontal/vertical
+    if (isShiftDown || isSnapMode) {
+      const dx = canvasPoint.x - startPoint.x;
+      const dy = canvasPoint.y - startPoint.y;
+      const angle = Math.atan2(dy, dx);
+      const step = Math.PI / 2;
+      const snappedAngle = Math.round(angle / step) * step;
+      const distance = Math.hypot(dx, dy);
+      endPoint = {
+        x: startPoint.x + distance * Math.cos(snappedAngle),
+        y: startPoint.y + distance * Math.sin(snappedAngle),
+      };
+    }
+
+    // Minimum door width check (at least 5px)
+    if (Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) < 5) {
+      cancelDoorDraw();
+      return true;
+    }
+
+    const walls = getCurrentWalls();
+    const doors = getCurrentDoors();
+
+    // Snap to wall
+    const snapResult = snapPointToWall(
+      { x: (startPoint.x + endPoint.x) / 2, y: (startPoint.y + endPoint.y) / 2 },
+      walls,
+      60
+    );
+
+    let finalP1 = startPoint;
+    let finalP2 = endPoint;
+    let parentWall = snapResult.wall;
+
+    if (parentWall) {
+      const projected = projectDoorOntoWall(startPoint, endPoint, parentWall);
+      finalP1 = projected.p1;
+      finalP2 = projected.p2;
+    }
+
+    // If we have a preset with specific width, enforce it (except for window presets)
+    const isWindowPreset = doorPreset && (
+      doorPreset.renderClass === 'window' ||
+      doorPreset.class === 'window' ||
+      doorPreset.doorType === 'window' ||
+      doorPreset.id === 'win_standard'
+    );
+    if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
+      const desiredPx = doorPreset.width / realScale;
+      const dx = finalP2.x - finalP1.x;
+      const dy = finalP2.y - finalP1.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0.1) {
+        finalP2 = {
+          x: finalP1.x + (dx / len) * desiredPx,
+          y: finalP1.y + (dy / len) * desiredPx,
+        };
+      }
+    }
+
+    // Determine the initial door type from preset or default
+    const initialTypeId = doorPreset
+      ? (doorPreset.id || selectedTypeId)
+      : selectedTypeId;
+
+    // Finalize the door immediately using the active preset or selectedTypeId, bypassing the type selector completely
+    finalizeDoor(finalP1, finalP2, initialTypeId, parentWall);
+    return true;
+  }, [isDrawingDoor, currentDoorPoints, doorPreset, selectedTypeId, realScale, getCurrentWalls, getCurrentDoors, finalizeDoor]);
+
+  /**
+   * Step 4: User selects a door type from the popup.
+   * Updates the preview in real-time.
+   */
+  const selectDoorType = useCallback((typeId) => {
+    setSelectedTypeId(typeId);
+    const def = DOOR_TYPE_REGISTRY[typeId];
+
+    if (pendingDoor && def) {
+      // Update preview with new type
+      setDoorPreview(prev => prev ? {
+        ...prev,
+        type: def.doorType,
+        class: def.renderClass,
+      } : null);
+    }
+  }, [pendingDoor]);
+
+  /**
+   * Step 5: User presses ENTER or clicks Confirm.
+   * Finalizes the door with full BIM attributes.
+   */
+  const confirmDoorType = useCallback(() => {
+    if (!pendingDoor) return;
+
+    finalizeDoor(
+      pendingDoor.p1,
+      pendingDoor.p2,
+      selectedTypeId,
+      pendingDoor.parentWall
+    );
+  }, [pendingDoor, selectedTypeId]);
+
+  /**
+   * Internal: Creates the final door object and updates state.
+   */
+
 
   /**
    * Cancel door drawing at any point.

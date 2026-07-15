@@ -1282,6 +1282,62 @@ export default function ThreeDView({
           </label>
         </div>
 
+        {/* Floor Visibility Checklist */}
+        {pages && pages.length > 1 && (
+          <div 
+            style={{ 
+              display: "flex", 
+              flexDirection: "column", 
+              gap: "8px", 
+              borderTop: "1px solid rgba(255, 255, 255, 0.1)", 
+              paddingTop: "12px",
+              marginTop: "4px"
+            }}
+          >
+            <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em", marginBottom: "4px" }}>
+              FLOOR VISIBILITY
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {sortedPageIndices.map((originalIndex) => {
+                const page = pages[originalIndex];
+                const floorName = page?.floor_name || `Floor ${originalIndex + 1}`;
+                const isVisible = visibleLevels[originalIndex] !== false;
+                return (
+                  <label 
+                    key={originalIndex} 
+                    style={{ 
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "space-between", 
+                      cursor: "pointer", 
+                      fontSize: "12px", 
+                      color: "#d1d5db" 
+                    }}
+                  >
+                    <span>{floorName}</span>
+                    <input 
+                      type="checkbox" 
+                      checked={isVisible} 
+                      onChange={() => {
+                        setVisibleLevels(prev => ({
+                          ...prev,
+                          [originalIndex]: !isVisible
+                        }));
+                      }}
+                      style={{
+                        width: "16px",
+                        height: "16px",
+                        borderRadius: "4px",
+                        cursor: "pointer"
+                      }}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
           <button 

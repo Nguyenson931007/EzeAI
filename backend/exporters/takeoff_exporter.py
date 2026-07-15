@@ -294,11 +294,14 @@ class TakeoffExporter:
         single_grouped = []
         double_grouped = []
         sliding_grouped = []
+        window_grouped = []
 
         for (t, w_mm, h_mm), qty in grouped_doors.items():
             t_lower = t.lower()
             item = {"width": w_mm, "height": h_mm, "qty": qty}
-            if "double" in t_lower:
+            if "window" in t_lower:
+                window_grouped.append(item)
+            elif "double" in t_lower:
                 double_grouped.append(item)
             elif "sliding" in t_lower or "slider" in t_lower:
                 sliding_grouped.append(item)
@@ -382,12 +385,45 @@ class TakeoffExporter:
         door_total_row = row
         row += 2
 
+        # ---------- WINDOWS ----------
+        add_section_header(row, "WINDOWS"); row += 1
+
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"] = "Window Type / Size"
+        ws[f"D{row}"] = "Width (mm)"
+        ws[f"E{row}"] = "Height (mm)"
+        ws[f"F{row}"] = "Qty"
+        ws[f"G{row}"] = "Area (m2)"
+        style_range(f"A{row}:G{row}", font=bold, fill=colhead_fill, align=center)
+        rh(row, 18)
+        row += 1
+
+        add_sub_header(row, "Standard Window"); row += 1
+        first_window = row
+        if window_grouped:
+            for item in window_grouped:
+                add_door_data_row(row)
+                ws[f"A{row}"] = f"Window {item['width']}x{item['height']}"
+                ws[f"D{row}"] = round(item["width"])
+                ws[f"E{row}"] = round(item["height"])
+                ws[f"F{row}"] = item["qty"]
+                row += 1
+            add_door_subtotal(row, "Subtotal - Windows", first_window, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Windows", row, row)
+            ws[f"F{row}"] = 0
+            ws[f"G{row}"] = 0.00
+        window_total_row = row
+        row += 2
+
         # ---------- SUMMARY ----------
         add_section_header(row, "SUMMARY", fill=dark_fill); row += 1
         sums = [
             ("Total Wall Area - Both Sides (m2)", f"=G{ext_total_row}+G{int_total_row}"),
             ("Total Door Opening Area (m2)", f"=G{door_total_row}"),
             ("Total Door Quantity (pcs)", f"=F{door_total_row}"),
+            ("Total Window Opening Area (m2)", f"=G{window_total_row}"),
+            ("Total Window Quantity (pcs)", f"=F{window_total_row}"),
         ]
         for label, formula in sums:
             ws.merge_cells(f"A{row}:F{row}")
