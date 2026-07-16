@@ -3563,14 +3563,15 @@ export default function CanvasView({
                 const end2X = p2.x + halfLen * Math.cos(ang2);
                 const end2Y = p2.y + halfLen * Math.sin(ang2);
 
-                const sweepDir = sideFactor === 1 ? '0 0 1' : '0 0 0';
+                const sweepFlag1 = sideFactor === 1 ? 1 : 0;
+                const sweepFlag2 = sideFactor === 1 ? 0 : 1;
 
                 return (
                   <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} strokeDasharray="3,3" />
-                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir} ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${sweepFlag1} ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
                     <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke="#2196F3" strokeWidth={2} />
-                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir === '0 0 1' ? '0 0 0' : '0 0 1'} ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${sweepFlag2} ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
                     <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke="#2196F3" strokeWidth={2} />
                     <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
                   </g>
@@ -3680,14 +3681,15 @@ export default function CanvasView({
                 const end2X = p2.x + halfLen * Math.cos(ang2);
                 const end2Y = p2.y + halfLen * Math.sin(ang2);
 
-                const sweepDir = sideFactor === 1 ? '0 0 1' : '0 0 0';
+                const sweepFlag1 = sideFactor === 1 ? 1 : 0;
+                const sweepFlag2 = sideFactor === 1 ? 0 : 1;
 
                 return (
                   <g style={{ pointerEvents: 'none' }}>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.5} strokeDasharray="3,3" />
-                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir} ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${sweepFlag1} ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
                     <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke="#2196F3" strokeWidth={2} />
-                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir === '0 0 1' ? '0 0 0' : '0 0 1'} ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${sweepFlag2} ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
                     <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke="#2196F3" strokeWidth={2} />
                     <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
                     <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
