@@ -58,4 +58,4 @@ dataset_walls/
 data/roi_training/
 *.pt
 ezefloor_backend.log  
- 
+training/

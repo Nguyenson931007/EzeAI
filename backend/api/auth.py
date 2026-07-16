@@ -144,7 +144,7 @@ def send_credentials_email(email: str, username: str, password: str, action: str
             f"Thông tin đăng nhập:\n"
             f"Username: {username}\n"
             f"Password: {password}\n\n"
-            f"Vui lòng truy cập hệ thống tại: http://localhost:3010 để bắt đầu trải nghiệm.\n\n"
+            f"Vui lòng truy cập hệ thống tại: http://localhost:3011 để bắt đầu trải nghiệm.\n\n"
             f"Trân trọng!"
         )
     else:

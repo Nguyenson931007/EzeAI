@@ -3,7 +3,7 @@ const getBaseUrl = () => {
     return process.env.NEXT_PUBLIC_API_BASE_URL.trim();
   }
   // Bằng cách trả về chuỗi rỗng "", trình duyệt sẽ gọi URL tương đối (relative path).
-  // Yêu cầu sẽ đi qua cổng 3010 của Next.js và được proxy nội bộ về cổng 8090 của Backend.
+  // Yêu cầu sẽ đi qua cổng 3011 của Next.js và được proxy nội bộ về cổng 8090 của Backend.
   // Điều này tránh được lỗi CORS và giúp bạn không cần phải mở cổng 8090 trên Router.
   return "";
 };

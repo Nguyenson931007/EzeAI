@@ -42,10 +42,10 @@ if _cors_env:
     CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
 else:
     CORS_ORIGINS = [
-        "http://localhost:3010",
-        "http://127.0.0.1:3010",
+        "http://localhost:3011",
+        "http://127.0.0.1:3011",
         "http://localhost:8090",
-        "http://117.2.106.202:3010",
+        "http://117.2.106.202:3011",
         "http://117.2.106.202:8090",
     ]
 
