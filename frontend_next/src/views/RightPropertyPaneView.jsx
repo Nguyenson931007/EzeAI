@@ -263,6 +263,62 @@ function ExportButton({ onClick, disabled = false, children }) {
   );
 }
 
+/* — Reusable Smart Pitch Input Component — */
+function PitchInput({ value, onChange, style, className }) {
+  const [tempVal, setTempVal] = React.useState(null);
+  const displayValue = tempVal !== null ? tempVal : (value === 0 ? "0" : (value ?? "0"));
+
+  const handleChange = (e) => {
+    let raw = e.target.value;
+    raw = raw.replace(/[^0-9.]/g, '');
+    const parts = raw.split('.');
+    if (parts.length > 2) {
+      raw = parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (/^0[0-9]/.test(raw)) {
+      raw = raw.replace(/^0+/, '');
+    }
+
+    setTempVal(raw);
+
+    if (raw === "" || raw === ".") {
+      onChange(0);
+    } else {
+      const parsed = parseFloat(raw);
+      if (!isNaN(parsed)) {
+        const clamped = Math.max(0, Math.min(85, parsed));
+        onChange(clamped);
+      }
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onFocus={(e) => e.target.select()}
+      onBlur={() => setTempVal(null)}
+      onChange={handleChange}
+      onClick={(e) => e.stopPropagation()}
+      className={`no-spinner ${className || ''}`}
+      style={{
+        width: '50px',
+        background: 'rgba(255,255,255,0.06)',
+        border: '1px solid rgba(255,255,255,0.2)',
+        borderRadius: '4px',
+        color: '#ffffff',
+        textAlign: 'center',
+        fontWeight: 700,
+        fontSize: '12px',
+        padding: '2px',
+        outline: 'none',
+        ...style
+      }}
+    />
+  );
+}
+
 /* ================================================================
    MAIN PANEL
    ================================================================ */
@@ -273,10 +329,15 @@ export default function RightPropertyPaneView({
   autoMergeCollinearWalls,
   walls = [],
   doors = [],
-  deleteItem
+  deleteItem,
+  selectedRoofId,
+  setSelectedRoofId,
+  updateRoofPitch,
+  deleteRoof
 }) {
   const { showConfirm } = useDialog();
-  const { wasteByPage, setWasteByPage, currentPage, currentProjectName, user } = useAppModel();
+  const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user } = useAppModel();
+  const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
 
   // Takeoff export modal state
   const [showTakeoffModal, setShowTakeoffModal] = React.useState(false);
@@ -293,6 +354,7 @@ export default function RightPropertyPaneView({
   const [isWallSummaryExpanded, setIsWallSummaryExpanded] = React.useState(true);
   const [isFloorSummaryExpanded, setIsFloorSummaryExpanded] = React.useState(true);
   const [isDoorSummaryExpanded, setIsDoorSummaryExpanded] = React.useState(true);
+  const [isWindowSummaryExpanded, setIsWindowSummaryExpanded] = React.useState(true);
 
   // 1. Calculations for Walls
   const wallData = React.useMemo(() => {
@@ -362,7 +424,15 @@ export default function RightPropertyPaneView({
   const totalWaste = wasteAmtInternal + wasteAmtExternal;
   const totalWithWaste = totalRaw + totalWaste;
 
-  // 3. Calculations for Doors
+  // 3. Calculations for Doors & Windows
+  const actualDoors = React.useMemo(() => {
+    return doors.filter(d => d.type !== 'window' && d.class !== 'window');
+  }, [doors]);
+
+  const actualWindows = React.useMemo(() => {
+    return doors.filter(d => d.type === 'window' || d.class === 'window');
+  }, [doors]);
+
   const doorData = React.useMemo(() => {
     const groups = {
       privacy: { label: "Privacy", color: "#2196F3", doors: [] },
@@ -371,16 +441,27 @@ export default function RightPropertyPaneView({
       entrance: { label: "Entrance", color: "#f59e0b", doors: [] },
     };
 
-    doors.forEach((d) => {
+    actualDoors.forEach((d) => {
       const hw = d.hardware_type || "privacy";
       const key = groups[hw] ? hw : "privacy";
       groups[key].doors.push(d);
     });
 
     return groups;
-  }, [doors]);
+  }, [actualDoors]);
 
-  const totalDoorCount = doors.length;
+  const totalDoorCount = actualDoors.length;
+  const totalWindowCount = actualWindows.length;
+
+  // 4. Calculations for Roof Area Summary
+  const pageRoofs = roofsByPage[currentPage] || [];
+  const roofCalculations = pageRoofs.map(roof => {
+    const footprintM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
+    const pitchRad = (roof.pitchAngle || 0) * (Math.PI / 180);
+    const trueAreaM2 = pitchRad > 0 ? footprintM2 / Math.cos(pitchRad) : footprintM2;
+    return { ...roof, footprintM2, trueAreaM2 };
+  });
+  const totalRoofArea = roofCalculations.reduce((acc, r) => acc + r.trueAreaM2, 0);
 
   const selectedWallLengthM = React.useMemo(() => {
     if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return null;
@@ -457,8 +538,14 @@ export default function RightPropertyPaneView({
       const mappedDoors = doors.map(d => {
         let t = d.penetration_type || d.penetrationType || "";
         let cls = d.class || "";
+        let type = d.type || "";
         let doorType = "Single Door";
-        if (cls.includes("double") || t.includes("double")) {
+
+        const isWindow = type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'));
+
+        if (isWindow) {
+          doorType = "Window";
+        } else if (cls.includes("double") || t.includes("double")) {
           doorType = "Double Door";
         } else if (cls.includes("sliding") || t.includes("sliding") || cls.includes("slider") || t.includes("slider")) {
           doorType = "Sliding Door";
@@ -754,286 +841,509 @@ export default function RightPropertyPaneView({
             </div>
           </>
         ) : selectedType === "door" && selectedDoor ? (
-          <>
-            <div className="panel-field">
-              <span className="panel-label">Door ID</span>
-              <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
-                {selectedDoor.id}
-              </div>
-            </div>
+          (() => {
+            const isSelectedWindow = selectedDoor.type === 'window' ||
+              selectedDoor.class === 'window' ||
+              selectedDoor.doorTypeId === 'win_standard' ||
+              (selectedDoor.doorName && selectedDoor.doorName.startsWith('W-'));
 
-            <div className="panel-field">
-              <span className="panel-label">Door Name</span>
-              <input
-                className="panel-input"
-                value={selectedDoor.door_name || ""}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, door_name: e.target.value })}
-              />
-            </div>
+            if (isSelectedWindow) {
+              return (
+                <>
+                  <div className="panel-field">
+                    <span className="panel-label">Window ID</span>
+                    <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
+                      {selectedDoor.id}
+                    </div>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Door Type</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.doorTypeId || selectedDoor.penetration_type || selectedDoor.penetrationType || "int_hinged_single"}
-                onChange={(e) => {
-                  const typeId = e.target.value;
-                  const def = DOOR_TYPE_REGISTRY[typeId];
-                  updateDoor && updateDoor({
-                    ...selectedDoor,
-                    doorTypeId: typeId,
-                    penetration_type: def?.renderClass || 'single_door',
-                    class: def?.renderClass || 'single_door',
-                    type: def?.doorType || 'single'
-                  });
-                }}
-              >
-                {getDoorTypeOptions().map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Window Name</span>
+                    <input
+                      className="panel-input"
+                      value={selectedDoor.door_name || ""}
+                      onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, door_name: e.target.value })}
+                    />
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Hardware Type</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.hardwareType || selectedDoor.hardware_type || "passage"}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hardwareType: e.target.value, hardware_type: e.target.value })}
-              >
-                {HARDWARE_TYPES.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Window Type</span>
+                    <select
+                      className="panel-select"
+                      value={selectedDoor.doorTypeId || selectedDoor.penetration_type || selectedDoor.penetrationType || "win_standard"}
+                      onChange={(e) => {
+                        const typeId = e.target.value;
+                        const def = DOOR_TYPE_REGISTRY[typeId];
+                        updateDoor && updateDoor({
+                          ...selectedDoor,
+                          doorTypeId: typeId,
+                          penetration_type: def?.renderClass || 'window',
+                          class: def?.renderClass || 'window',
+                          type: def?.doorType || 'window'
+                        });
+                      }}
+                    >
+                      {getDoorTypeOptions().filter(o => {
+                        const def = DOOR_TYPE_REGISTRY[o.value];
+                        return def?.doorType === 'window' || def?.renderClass === 'window' || o.value.includes('win_');
+                      }).map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Material</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.material || "timber"}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, material: e.target.value })}
-              >
-                {MATERIAL_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Material</span>
+                    <select
+                      className="panel-select"
+                      value={selectedDoor.material || "glass"}
+                      onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, material: e.target.value })}
+                    >
+                      <option value="glass">Glass</option>
+                      <option value="aluminum">Aluminum</option>
+                      <option value="timber">Timber</option>
+                    </select>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Fire Rating</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.fireRating || "none"}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, fireRating: e.target.value })}
-              >
-                {FIRE_RATING_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Status</span>
+                    <select
+                      className="panel-select"
+                      value={selectedDoor.status || "active"}
+                      onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, status: e.target.value })}
+                    >
+                      <option value="active">Active</option>
+                      <option value="deleted">Deleted</option>
+                      <option value="superseded">Superseded</option>
+                    </select>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Status</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.status || "active"}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, status: e.target.value })}
-              >
-                <option value="active">Active</option>
-                <option value="deleted">Deleted</option>
-                <option value="superseded">Superseded</option>
-              </select>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Width (mm)</span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ flex: 1 }}
+                        value={selectedDoor.width_mm || 1200}
+                        onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
+                      />
+                      <select
+                        className="panel-select"
+                        style={{ width: '100px' }}
+                        value={selectedDoor.width_mm || ""}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) });
+                          }
+                        }}
+                      >
+                        <option value="">Presets</option>
+                        <option value={600}>600</option>
+                        <option value={900}>900</option>
+                        <option value={1200}>1200</option>
+                        <option value={1500}>1500</option>
+                        <option value={1800}>1800</option>
+                        <option value={2400}>2400</option>
+                      </select>
+                    </div>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Width (mm)</span>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="number"
-                  className="panel-input"
-                  style={{ flex: 1 }}
-                  value={selectedDoor.width_mm || 760}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
-                />
-                <select
-                  className="panel-select"
-                  style={{ width: '100px' }}
-                  value={selectedDoor.width_mm || ""}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) });
-                    }
-                  }}
-                >
-                  <option value="">Presets</option>
-                  <option value={520}>520</option>
-                  <option value={620}>620</option>
-                  <option value={720}>720</option>
-                  <option value={760}>760</option>
-                  <option value={820}>820</option>
-                  <option value={870}>870</option>
-                  <option value={920}>920</option>
-                  <option value={1020}>1020</option>
-                  <option value={1520}>1520</option>
-                  <option value={1640}>1640</option>
-                  <option value={1800}>1800</option>
-                  <option value={2400}>2400</option>
-                  <option value={5000}>5000</option>
-                </select>
-              </div>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Height (mm)</span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ flex: 1 }}
+                        value={selectedDoor.height_mm || 1200}
+                        onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
+                      />
+                      <select
+                        className="panel-select"
+                        style={{ width: '100px' }}
+                        value={selectedDoor.height_mm || ""}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) });
+                          }
+                        }}
+                      >
+                        <option value="">Presets</option>
+                        <option value={600}>600</option>
+                        <option value={900}>900</option>
+                        <option value={1200}>1200</option>
+                        <option value={1500}>1500</option>
+                        <option value={1800}>1800</option>
+                        <option value={2100}>2100</option>
+                      </select>
+                    </div>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Height (mm)</span>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="number"
-                  className="panel-input"
-                  style={{ flex: 1 }}
-                  value={selectedDoor.height_mm || 1980}
-                  onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
-                />
-                <select
-                  className="panel-select"
-                  style={{ width: '100px' }}
-                  value={selectedDoor.height_mm || ""}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) });
-                    }
-                  }}
-                >
-                  <option value="">Presets</option>
-                  <option value={1980}>1980</option>
-                  <option value={2040}>2040</option>
-                  <option value={2100}>2100</option>
-                  <option value={2200}>2200</option>
-                  <option value={2340}>2340</option>
-                  <option value={2400}>2400</option>
-                </select>
-              </div>
-            </div>
+                  <div className="panel-field">
+                    <span className="panel-label">Rotate & Align</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        className="rp-action-btn"
+                        style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
+                        onClick={() => {
+                          if (selectedDoor.points && selectedDoor.points.length === 2) {
+                            const newPoints = [selectedDoor.points[1], selectedDoor.points[0]];
+                            updateDoor && updateDoor({
+                              ...selectedDoor,
+                              points: newPoints
+                            });
+                          }
+                        }}
+                        title="Rotate window 180 degrees"
+                      >
+                        🔄 Đảo Đầu (180°)
+                      </button>
+                      <button
+                        className="rp-action-btn"
+                        style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
+                        onClick={() => {
+                          if (selectedDoor.points && selectedDoor.points.length === 2) {
+                            const p1 = selectedDoor.points[0];
+                            const p2 = selectedDoor.points[1];
+                            const dx = p2.x - p1.x;
+                            const dy = p2.y - p1.y;
+                            const angle = Math.atan2(dy, dx);
+                            const step = Math.PI / 2;
+                            const snappedAngle = Math.round(angle / step) * step;
+                            const dist = Math.hypot(dx, dy);
+                            const snappedP2 = {
+                              x: p1.x + dist * Math.cos(snappedAngle),
+                              y: p1.y + dist * Math.sin(snappedAngle)
+                            };
+                            updateDoor && updateDoor({
+                              ...selectedDoor,
+                              points: [p1, snappedP2],
+                              polygon: null,
+                              mask_polygon: null
+                            });
+                          }
+                        }}
+                        title="Align window straight on nearest 90 axis"
+                      >
+                        📐 Làm Thẳng 90°
+                      </button>
+                    </div>
+                  </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Hinge Side</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.hinge_side || selectedDoor.hingeSide || "left"}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hinge_side: e.target.value, hingeSide: e.target.value })}
-              >
-                <option value="left">Left Hinge</option>
-                <option value="right">Right Hinge</option>
-              </select>
-            </div>
+                  <div style={{ marginTop: 12 }}>
+                    <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
+                      e.stopPropagation();
+                      if (await showConfirm("Are you sure you want to delete this window?")) {
+                        deleteDoor && deleteDoor(selectedDoor.id);
+                      }
+                    }}
+                    >
+                      Delete Selected Window
+                    </button>
+                  </div>
+                </>
+              );
+            }
 
-            <div className="panel-field">
-              <span className="panel-label">Swing</span>
-              <select
-                className="panel-select"
-                value={selectedDoor.swing_direction || selectedDoor.swing || "inward"}
-                onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, swing_direction: e.target.value, swing: e.target.value })}
-              >
-                <option value="inward">Inward Swing</option>
-                <option value="outward">Outward Swing</option>
-              </select>
-            </div>
+            return (
+              <>
+                <div className="panel-field">
+                  <span className="panel-label">Door ID</span>
+                  <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
+                    {selectedDoor.id}
+                  </div>
+                </div>
 
-            <div className="panel-field">
-              <span className="panel-label">Xoay & Lật Cửa (Rotate & Flip)</span>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                <button
-                  className="rp-action-btn"
-                  style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                  onClick={() => {
-                    const currentHinge = selectedDoor.hinge_side || selectedDoor.hingeSide || "left";
-                    const nextHinge = currentHinge === "left" ? "right" : "left";
-                    updateDoor && updateDoor({
-                      ...selectedDoor,
-                      hinge_side: nextHinge,
-                      hingeSide: nextHinge
-                    });
-                  }}
-                  title="Lật lề cửa Trái ↔ Phải"
-                >
-                  ↔️ Lật Trái/Phải
-                </button>
-                <button
-                  className="rp-action-btn"
-                  style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                  onClick={() => {
-                    const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
-                    const nextSwing = currentSwing === "inward" ? "outward" : "inward";
-                    updateDoor && updateDoor({
-                      ...selectedDoor,
-                      swing_direction: nextSwing,
-                      swing: nextSwing
-                    });
-                  }}
-                  title="Lật chiều mở Trong ↔ Ngoài"
-                >
-                  ↕️ Lật Trong/Ngoài
-                </button>
-                <button
-                  className="rp-action-btn"
-                  style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                  onClick={() => {
-                    if (selectedDoor.points && selectedDoor.points.length === 2) {
-                      const newPoints = [selectedDoor.points[1], selectedDoor.points[0]];
+                <div className="panel-field">
+                  <span className="panel-label">Door Name</span>
+                  <input
+                    className="panel-input"
+                    value={selectedDoor.door_name || ""}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, door_name: e.target.value })}
+                  />
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Door Type</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.doorTypeId || selectedDoor.penetration_type || selectedDoor.penetrationType || "int_hinged_single"}
+                    onChange={(e) => {
+                      const typeId = e.target.value;
+                      const def = DOOR_TYPE_REGISTRY[typeId];
                       updateDoor && updateDoor({
                         ...selectedDoor,
-                        points: newPoints
+                        doorTypeId: typeId,
+                        penetration_type: def?.renderClass || 'single_door',
+                        class: def?.renderClass || 'single_door',
+                        type: def?.doorType || 'single'
                       });
-                    }
-                  }}
-                  title="Xoay cửa 180 độ bằng cách đảo ngược hai điểm đầu cuối"
-                >
-                  🔄 Đảo Đầu (180°)
-                </button>
-                <button
-                  className="rp-action-btn"
-                  style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
-                  onClick={() => {
-                    if (selectedDoor.points && selectedDoor.points.length === 2) {
-                      const p1 = selectedDoor.points[0];
-                      const p2 = selectedDoor.points[1];
-                      const dx = p2.x - p1.x;
-                      const dy = p2.y - p1.y;
-                      const angle = Math.atan2(dy, dx);
-                      const step = Math.PI / 2;
-                      const snappedAngle = Math.round(angle / step) * step;
-                      const dist = Math.hypot(dx, dy);
-                      const snappedP2 = {
-                        x: p1.x + dist * Math.cos(snappedAngle),
-                        y: p1.y + dist * Math.sin(snappedAngle)
-                      };
-                      updateDoor && updateDoor({
-                        ...selectedDoor,
-                        points: [p1, snappedP2],
-                        polygon: null,
-                        mask_polygon: null
-                      });
-                    }
-                  }}
-                  title="Làm thẳng cửa theo trục 90 độ gần nhất"
-                >
-                  📐 Làm Thẳng 90°
-                </button>
-              </div>
-            </div>
+                    }}
+                  >
+                    <optgroup label="External Penetrations">
+                      {getDoorTypeOptions().filter(o => {
+                        const def = DOOR_TYPE_REGISTRY[o.value];
+                        const isWin = def?.doorType === 'window' || def?.renderClass === 'window' || o.value.includes('win_');
+                        return o.category === 'external' && !isWin;
+                      }).map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Internal Penetrations">
+                      {getDoorTypeOptions().filter(o => {
+                        const def = DOOR_TYPE_REGISTRY[o.value];
+                        const isWin = def?.doorType === 'window' || def?.renderClass === 'window' || o.value.includes('win_');
+                        return o.category === 'internal' && !isWin;
+                      }).map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
 
-            <div style={{ marginTop: 12 }}>
-              <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
-                e.stopPropagation();
-                if (await showConfirm("Are you sure you want to delete this door?")) {
-                  deleteDoor && deleteDoor(selectedDoor.id);
-                }
-              }}
-              >
-                Delete Selected Door
-              </button>
-            </div>
-          </>
+                <div className="panel-field">
+                  <span className="panel-label">Hardware Type</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.hardwareType || selectedDoor.hardware_type || "passage"}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hardwareType: e.target.value, hardware_type: e.target.value })}
+                  >
+                    {HARDWARE_TYPES.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Material</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.material || "timber"}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, material: e.target.value })}
+                  >
+                    {MATERIAL_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Fire Rating</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.fireRating || "none"}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, fireRating: e.target.value })}
+                  >
+                    {FIRE_RATING_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Status</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.status || "active"}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, status: e.target.value })}
+                  >
+                    <option value="active">Active</option>
+                    <option value="deleted">Deleted</option>
+                    <option value="superseded">Superseded</option>
+                  </select>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Width (mm)</span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="number"
+                      className="panel-input"
+                      style={{ flex: 1 }}
+                      value={selectedDoor.width_mm || 760}
+                      onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
+                    />
+                    <select
+                      className="panel-select"
+                      style={{ width: '100px' }}
+                      value={selectedDoor.width_mm || ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) });
+                        }
+                      }}
+                    >
+                      <option value="">Presets</option>
+                      <option value={520}>520</option>
+                      <option value={620}>620</option>
+                      <option value={720}>720</option>
+                      <option value={760}>760</option>
+                      <option value={820}>820</option>
+                      <option value={870}>870</option>
+                      <option value={920}>920</option>
+                      <option value={1020}>1020</option>
+                      <option value={1520}>1520</option>
+                      <option value={1640}>1640</option>
+                      <option value={1800}>1800</option>
+                      <option value={2400}>2400</option>
+                      <option value={5000}>5000</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Height (mm)</span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="number"
+                      className="panel-input"
+                      style={{ flex: 1 }}
+                      value={selectedDoor.height_mm || 1980}
+                      onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
+                    />
+                    <select
+                      className="panel-select"
+                      style={{ width: '100px' }}
+                      value={selectedDoor.height_mm || ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) });
+                        }
+                      }}
+                    >
+                      <option value="">Presets</option>
+                      <option value={1980}>1980</option>
+                      <option value={2040}>2040</option>
+                      <option value={2100}>2100</option>
+                      <option value={2200}>2200</option>
+                      <option value={2340}>2340</option>
+                      <option value={2400}>2400</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Hinge Side</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.hinge_side || selectedDoor.hingeSide || "left"}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, hinge_side: e.target.value, hingeSide: e.target.value })}
+                  >
+                    <option value="left">Left Hinge</option>
+                    <option value="right">Right Hinge</option>
+                  </select>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Swing</span>
+                  <select
+                    className="panel-select"
+                    value={selectedDoor.swing_direction || selectedDoor.swing || "inward"}
+                    onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, swing_direction: e.target.value, swing: e.target.value })}
+                  >
+                    <option value="inward">Inward Swing</option>
+                    <option value="outward">Outward Swing</option>
+                  </select>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Xoay & Lật Cửa (Rotate & Flip)</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                    <button
+                      className="rp-action-btn"
+                      style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
+                      onClick={() => {
+                        const currentHinge = selectedDoor.hinge_side || selectedDoor.hingeSide || "left";
+                        const nextHinge = currentHinge === "left" ? "right" : "left";
+                        updateDoor && updateDoor({
+                          ...selectedDoor,
+                          hinge_side: nextHinge,
+                          hingeSide: nextHinge
+                        });
+                      }}
+                      title="Lật lề cửa Trái ↔ Phải"
+                    >
+                      ↔️ Lật Trái/Phải
+                    </button>
+                    <button
+                      className="rp-action-btn"
+                      style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
+                      onClick={() => {
+                        const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
+                        const nextSwing = currentSwing === "inward" ? "outward" : "inward";
+                        updateDoor && updateDoor({
+                          ...selectedDoor,
+                          swing_direction: nextSwing,
+                          swing: nextSwing
+                        });
+                      }}
+                      title="Lật chiều mở Trong ↔ Ngoài"
+                    >
+                      ↕️ Lật Trong/Ngoài
+                    </button>
+                    <button
+                      className="rp-action-btn"
+                      style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
+                      onClick={() => {
+                        if (selectedDoor.points && selectedDoor.points.length === 2) {
+                          const newPoints = [selectedDoor.points[1], selectedDoor.points[0]];
+                          updateDoor && updateDoor({
+                            ...selectedDoor,
+                            points: newPoints
+                          });
+                        }
+                      }}
+                      title="Xoay cửa 180 độ bằng cách đảo ngược hai điểm đầu cuối"
+                    >
+                      🔄 Đảo Đầu (180°)
+                    </button>
+                    <button
+                      className="rp-action-btn"
+                      style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
+                      onClick={() => {
+                        if (selectedDoor.points && selectedDoor.points.length === 2) {
+                          const p1 = selectedDoor.points[0];
+                          const p2 = selectedDoor.points[1];
+                          const dx = p2.x - p1.x;
+                          const dy = p2.y - p1.y;
+                          const angle = Math.atan2(dy, dx);
+                          const step = Math.PI / 2;
+                          const snappedAngle = Math.round(angle / step) * step;
+                          const dist = Math.hypot(dx, dy);
+                          const snappedP2 = {
+                            x: p1.x + dist * Math.cos(snappedAngle),
+                            y: p1.y + dist * Math.sin(snappedAngle)
+                          };
+                          updateDoor && updateDoor({
+                            ...selectedDoor,
+                            points: [p1, snappedP2],
+                            polygon: null,
+                            mask_polygon: null
+                          });
+                        }
+                      }}
+                      title="Làm thẳng cửa theo trục 90 độ gần nhất"
+                    >
+                      📐 Làm Thẳng 90°
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
+                    e.stopPropagation();
+                    if (await showConfirm("Are you sure you want to delete this door?")) {
+                      deleteDoor && deleteDoor(selectedDoor.id);
+                    }
+                  }}
+                  >
+                    Delete Selected Door
+                  </button>
+                </div>
+              </>
+            );
+          })()
         ) : (
           <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, or door to edit properties.</div>
         )}
@@ -1274,6 +1584,98 @@ export default function RightPropertyPaneView({
         )}
       </CollapsibleSection>
 
+      {/* ── ROOF AREA SUMMARY COLLAPSIBLE GROUP ── */}
+      <CollapsibleSection
+        title="Roof Summary"
+        isExpanded={isRoofSummaryExpanded}
+        onToggle={() => setIsRoofSummaryExpanded(!isRoofSummaryExpanded)}
+        totalCount={pageRoofs.length}
+      >
+        {pageRoofs.length > 0 ? (
+          <div className="rp-floor-container">
+            <div className="rp-floor-title">
+              <span style={{ fontSize: "14px" }}>🏠</span>
+              <span>Roof Area Summary</span>
+            </div>
+
+            {roofCalculations.map((roof, idx) => {
+              const isSelected = selectedRoofId === roof.id;
+              return (
+                <div
+                  key={roof.id || idx}
+                  className={`rp-area-card${isSelected ? " rp-area-card--active" : ""}`}
+                  onClick={() => setSelectedRoofId && setSelectedRoofId(isSelected ? null : roof.id)}
+                  style={{ cursor: "pointer", borderLeft: isSelected ? "4px solid #f59e0b" : undefined }}
+                >
+                  <div className="rp-area-card__top">
+                    <div className="rp-area-card__left">
+                      <span className="rp-area-card__dot" style={{ background: "#f59e0b" }} />
+                      <div className="rp-area-card__label-container">
+                        <span className="rp-area-card__label" style={{ fontWeight: 700 }}>
+                          {roof.name || `Roof ${idx + 1}`}
+                        </span>
+                        <span className="rp-area-card__sublabel">
+                          Footprint: {scaleValue ? `${roof.footprintM2.toFixed(2)} m²` : "No Scale"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                      <span className="rp-area-card__value" style={{ fontSize: "15px", fontWeight: 800, color: "#f59e0b" }}>
+                        {scaleValue ? `${roof.trueAreaM2.toFixed(2)} m²` : "No Scale"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px", paddingTop: "6px", borderTop: "1px dashed rgba(255,255,255,0.08)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+                      <span>Pitch Slope:</span>
+                      <PitchInput
+                        value={roof.pitchAngle || 0}
+                        onChange={(val) => updateRoofPitch && updateRoofPitch(roof.id, val)}
+                      />
+                      <span>°</span>
+                    </div>
+
+                    {deleteRoof && (
+                      <button
+                        title="Delete Roof"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteRoof(roof.id);
+                        }}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "#ef4444",
+                          cursor: "pointer",
+                          fontSize: "13px",
+                          opacity: 0.8
+                        }}
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Total Roof Area Card */}
+            <div className="rp-totals-card" style={{ background: "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.25)" }}>
+              <div className="rp-totals-row rp-totals-row--grand">
+                <span className="rp-totals-row__icon" style={{ color: "#f59e0b" }}>🏠</span>
+                <span className="rp-totals-row__label" style={{ fontWeight: 800 }}>Total Roof Area</span>
+                <span className="rp-totals-row__value" style={{ color: "#f59e0b", fontSize: "18px" }}>
+                  {scaleValue ? `${totalRoofArea.toFixed(2)} m²` : "No Scale"}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="panel-hint" style={{ padding: "8px 0" }}>No roofs drawn yet. Click 'Roof' in the top Ribbon to draw.</div>
+        )}
+      </CollapsibleSection>
+
       {/* ── DOOR SUMMARY COLLAPSIBLE GROUP ── */}
       <CollapsibleSection
         title="Door Summary"
@@ -1316,6 +1718,33 @@ export default function RightPropertyPaneView({
           </div>
         ) : (
           <div className="panel-hint" style={{ padding: "8px 0" }}>No doors detected yet. Draw doors or run AI to generate doors.</div>
+        )}
+      </CollapsibleSection>
+
+      {/* ── WINDOW SUMMARY COLLAPSIBLE GROUP ── */}
+      <CollapsibleSection
+        title="Window Summary"
+        isExpanded={isWindowSummaryExpanded}
+        onToggle={() => setIsWindowSummaryExpanded(!isWindowSummaryExpanded)}
+        totalCount={totalWindowCount}
+      >
+        {totalWindowCount > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {/* Totals KPI card */}
+            <div>
+              <SectionHeader>Totals</SectionHeader>
+              <SummaryCard accent="blue">
+                <StatRow
+                  label="Total Windows"
+                  value={totalWindowCount}
+                  color="#2196f3"
+                  bold
+                />
+              </SummaryCard>
+            </div>
+          </div>
+        ) : (
+          <div className="panel-hint" style={{ padding: "8px 0" }}>No windows drawn yet. Click 'Window' in the top Ribbon to draw.</div>
         )}
       </CollapsibleSection>
 

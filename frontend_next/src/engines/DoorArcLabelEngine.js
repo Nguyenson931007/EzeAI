@@ -122,12 +122,16 @@ export function getDoorBoundingBox(d) {
   const type = d.type || "single";
   const pad = 5;
 
-  if (type === "sliding") {
+  const typeLower = type.toLowerCase();
+  const classLower = (d.class || d.class_name || "").toLowerCase();
+  const isWindow = typeLower === "window" || classLower === "window";
+
+  if (type === "sliding" || isWindow) {
     const ux = dx / len;
     const uy = dy / len;
     const nx = -uy;
     const ny = ux;
-    const halfT = 6; // 12px thickness
+    const halfT = isWindow ? 10 : 6; // 20px thickness for window selection, 12px for sliding door
     const p1_ext = { x: p1.x - ux * pad, y: p1.y - uy * pad };
     const p2_ext = { x: p2.x + ux * pad, y: p2.y + uy * pad };
     return [

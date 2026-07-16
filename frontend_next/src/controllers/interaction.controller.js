@@ -12,11 +12,22 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
+
+export const RoofInteractionState = {
+  IDLE: "IDLE",
+  DRAWING_ROOF: "DRAWING_ROOF",
+  HOVER_VERTEX: "HOVER_VERTEX",
+  HOVER_EDGE: "HOVER_EDGE",
+  HOVER_BODY: "HOVER_BODY",
+  DRAG_VERTEX: "DRAG_VERTEX",
+  DRAG_BODY: "DRAG_BODY",
+  PANNING: "PANNING"
+};
 
 // Helper function to snap a coordinate to other walls (centerline projection or endpoint vertex)
 function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWallSnapEnabled = true) {
@@ -69,8 +80,10 @@ export function useInteractionController(svgRef) {
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
+    roofsByPage, setRoofsByPage,
     currentPage, realScale, setRealScale,
-    activeTab
+    activeTab,
+    pdfOffsetsByPage, setPdfOffsetsByPage
   } = useAppModel();
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
@@ -94,6 +107,13 @@ export function useInteractionController(svgRef) {
 
   const [drawing, setDrawing] = useState(false);
   const [currentPoly, setCurrentPoly] = useState([]);
+  const [isDrawingRoof, setIsDrawingRoof] = useState(false);
+  const [roofInteractionState, setRoofInteractionState] = useState(RoofInteractionState.IDLE);
+  const [selectedRoofId, setSelectedRoofId] = useState(null);
+  const [hoveredRoofTarget, setHoveredRoofTarget] = useState(null);
+  const [activeRoofDragTarget, setActiveRoofDragTarget] = useState(null);
+  const [roofHistory, setRoofHistory] = useState([]);
+  const [roofFuture, setRoofFuture] = useState([]);
   const [currentMouse, setCurrentMouse] = useState(null);
 
   const doorController = useDoorController({
@@ -167,7 +187,7 @@ export function useInteractionController(svgRef) {
     setInteractionMode("select");
   }
 
-  function mergeCollinearWalls(wallsList, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120, ignoreExemptions = false) {
+  function mergeCollinearWalls(wallsList, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120, ignoreExemptions = false) {
     if (isWallMergeDisabled) return wallsList;
 
     // Identify exempt walls (currently selected or touching the selected vertex)
@@ -344,7 +364,16 @@ export function useInteractionController(svgRef) {
         setIsMeasuring(false);
         setMeasurePoints([]);
         setIsAddingPoint(false);
-        setIsDrawingDoor(false);
+        if (doorController) {
+          doorController.cancelDoorDraw();
+        } else {
+          setIsDrawingDoor(false);
+        }
+        setIsDrawingRoof(false);
+        setRoofInteractionState(RoofInteractionState.IDLE);
+        setSelectedRoofId(null);
+        setHoveredRoofTarget(null);
+        setActiveRoofDragTarget(null);
         setCurrentDoor([]);
         setSelectedId(null);
         setSelectedType(null);
@@ -423,18 +452,30 @@ export function useInteractionController(svgRef) {
         deleteItem();
       }
 
+      if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
+        if (selectedWallVertex) {
+          e.preventDefault();
+          separateJunction(selectedWallVertex);
+        }
+      }
+
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyZ" || e.key === "z")) {
         e.preventDefault();
-        if (e.shiftKey) {
-          redo();
+        if (isDrawingRoof && currentPoly.length > 0) {
+          setCurrentPoly(prev => prev.slice(0, -1));
+        } else if (e.shiftKey) {
+          if (roofFuture.length > 0) redoRoof();
+          else redo();
         } else {
-          undo();
+          if (roofHistory.length > 0) undoRoof();
+          else undo();
         }
       }
 
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || e.key === "y")) {
         e.preventDefault();
-        redo();
+        if (roofFuture.length > 0) redoRoof();
+        else redo();
       }
     };
 
@@ -451,7 +492,7 @@ export function useInteractionController(svgRef) {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse]);
+  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse, currentPage]);
 
   // Zoom Handler
   useEffect(() => {
@@ -900,6 +941,12 @@ export function useInteractionController(svgRef) {
   }
 
   function deleteItem() {
+    if (selectedRoofId) {
+      deleteRoof(selectedRoofId);
+      setSelectedRoofId(null);
+      return;
+    }
+
     if (selectedType === 'door') {
       if (selectedId) {
         doorController.deleteDoor(selectedId);
@@ -923,15 +970,18 @@ export function useInteractionController(svgRef) {
     const hasRooms = rooms.length > 0;
     const hasWalls = (wallsByPage[currentPage] || []).length > 0;
     const hasDoors = (doorsByPage[currentPage] || []).length > 0;
-    if (!hasRooms && !hasWalls && !hasDoors) return;
+    const hasRoofs = (roofsByPage[currentPage] || []).length > 0;
+    if (!hasRooms && !hasWalls && !hasDoors && !hasRoofs) return;
     if (!skipConfirm) {
-      const confirmed = await showConfirm("Delete all rooms, walls, and doors on this page?");
+      const confirmed = await showConfirm("Delete all rooms, walls, doors, and roofs on this page?");
       if (!confirmed) return;
     }
     pushHistory([]);
     setWallsByPage(prev => ({ ...prev, [currentPage]: [] }));
     setDoorsByPage(prev => ({ ...prev, [currentPage]: [] }));
+    pushRoofHistory([]);
     setSelectedId(null);
+    setSelectedRoofId(null);
   }
 
 
@@ -1015,6 +1065,14 @@ export function useInteractionController(svgRef) {
       return;
     }
 
+    // Intercept roof selection to prevent room selection from overriding selectedRoofId
+    if (hoveredRoofTarget) {
+      setSelectedRoofId(hoveredRoofTarget.roofId);
+      setSelectedId(null);
+      setSelectedType(null);
+      return;
+    }
+
     if (interactionMode === "pull-wall-step" && pullStepInfo && pullStepPreview) {
       e.stopPropagation();
       applyWallStep(pullStepInfo.wallId, pullStepInfo.splitPt, pullStepPreview.newPt);
@@ -1056,6 +1114,22 @@ export function useInteractionController(svgRef) {
         setExtRectStart(null);
         setInteractionMode("select");
       }
+      return;
+    }
+
+    // Roof drawing: click-to-close on first point
+    if (isDrawingRoof) {
+      if (currentPoly.length >= 2) {
+        const first = currentPoly[0];
+        const dist = Math.hypot(p.x - first.x, p.y - first.y);
+        if (dist < 15) {
+          finishRoof();
+          return;
+        }
+      }
+      const last = currentPoly[currentPoly.length - 1];
+      const point = (isShiftDown || isSnapMode) && last ? snap(last, p) : p;
+      setCurrentPoly(prev => [...prev, point]);
       return;
     }
 
@@ -1320,6 +1394,8 @@ export function useInteractionController(svgRef) {
     setSelectedType(found ? 'room' : null);
     setSelectedPointIndex(null); // Default to no point selected
     setSelectedWallIds([]); // Clear wall selection when clicking rooms or empty canvas
+    setSelectedWallVertex(null);
+    setSelectedVertices([]);
 
     // Vertex Selection (Check if user clicked exactly on a point)
     if (found) {
@@ -1351,6 +1427,78 @@ export function useInteractionController(svgRef) {
     pushHistory([...rooms, newRoom]);
     setCurrentPoly([]);
     setDrawing(false);
+  }
+
+  function pushRoofHistory(newRoofs) {
+    setRoofHistory(h => [...h, JSON.stringify(roofsByPage)]);
+    setRoofFuture([]);
+    setRoofsByPage(prev => ({
+      ...prev,
+      [currentPage]: newRoofs
+    }));
+  }
+
+  function undoRoof() {
+    if (!roofHistory.length) return;
+    const prev = JSON.parse(roofHistory[roofHistory.length - 1]);
+    setRoofFuture(f => [JSON.stringify(roofsByPage), ...f]);
+    setRoofsByPage(prev || {});
+    setRoofHistory(h => h.slice(0, -1));
+  }
+
+  function redoRoof() {
+    if (!roofFuture.length) return;
+    const next = JSON.parse(roofFuture[0]);
+    setRoofHistory(h => [...h, JSON.stringify(roofsByPage)]);
+    setRoofsByPage(next || {});
+    setRoofFuture(f => f.slice(1));
+  }
+
+  function updateRoofPitch(roofId, pitchAngle) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, pitchAngle: Math.max(0, Math.min(85, pitchAngle)) } : r);
+    pushRoofHistory(updated);
+  }
+
+  function updateRoofType(roofId, roofType) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, roofType } : r);
+    pushRoofHistory(updated);
+  }
+
+  function deleteRoof(roofId) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.filter(r => r.id !== roofId);
+    if (selectedRoofId === roofId) {
+      setSelectedRoofId(null);
+    }
+    pushRoofHistory(updated);
+  }
+
+  function finishRoof() {
+    if (currentPoly.length < 3) return;
+
+    // Validate polygon before committing
+    const validation = validateRoofPolygon(currentPoly, scaleValue);
+    if (!validation.valid) {
+      showAlert(validation.error);
+      return;
+    }
+
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const roofName = `Roof ${String.fromCharCode(65 + (pageRoofs.length % 26))}`;
+    const newRoof = {
+      id: `roof_${Date.now()}`,
+      name: roofName,
+      polygon: [...currentPoly],
+      pitchAngle: 0,
+    };
+
+    pushRoofHistory([...pageRoofs, newRoof]);
+    setSelectedRoofId(newRoof.id);
+    setCurrentPoly([]);
+    setIsDrawingRoof(false);
+    setRoofInteractionState(RoofInteractionState.IDLE);
   }
 
 
@@ -1843,6 +1991,32 @@ export function useInteractionController(svgRef) {
       return; // Don't do anything else during drag
     }
 
+    // ===== ROOF DRAG ACTIVE (VERTEX OR BODY) =====
+    if (activeRoofDragTarget) {
+      const pRaw = getMouse(e);
+      const pageRoofs = roofsByPage[currentPage] || [];
+
+      if (activeRoofDragTarget.type === 'vertex') {
+        const updatedRoofs = pageRoofs.map(r => {
+          if (r.id !== activeRoofDragTarget.roofId) return r;
+          const newPoly = r.polygon.map((v, idx) => idx === activeRoofDragTarget.vertexIndex ? { x: pRaw.x, y: pRaw.y } : v);
+          return { ...r, polygon: newPoly };
+        });
+        setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
+        setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
+      } else if (activeRoofDragTarget.type === 'body') {
+        const dx = pRaw.x - activeRoofDragTarget.startMousePos.x;
+        const dy = pRaw.y - activeRoofDragTarget.startMousePos.y;
+        const newPoly = translatePolygon(activeRoofDragTarget.initialPolygon, dx, dy);
+        const updatedRoofs = pageRoofs.map(r => r.id === activeRoofDragTarget.roofId ? { ...r, polygon: newPoly } : r);
+        setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
+        setRoofInteractionState(RoofInteractionState.DRAG_BODY);
+      }
+
+      setCurrentMouse(pRaw);
+      return;
+    }
+
     // ===== MOVE VERTEX (DOUBLE RIGHT-CLICK) =====
     if (interactionMode === "move-vertex" && movingVertex) {
       const pRaw = getMouse(e);
@@ -1882,7 +2056,7 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    // ===== PANNING =====
+    // ===== PANNING / ALIGN PDF =====
     if (panStart.current) {
       const dx = e.clientX - panStart.current.x;
       const dy = e.clientY - panStart.current.y;
@@ -1890,7 +2064,69 @@ export function useInteractionController(svgRef) {
         ignoreClickRef.current = true;
         setIsPanning(true);
       }
-      setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+
+      if (interactionMode === "align-pdf") {
+        const svgDx = dx / scale;
+        const svgDy = dy / scale;
+        setPdfOffsetsByPage(prev => {
+          const currentOffset = prev[currentPage] || { x: 0, y: 0 };
+          return {
+            ...prev,
+            [currentPage]: {
+              x: currentOffset.x + svgDx,
+              y: currentOffset.y + svgDy
+            }
+          };
+        });
+
+        // Shift walls
+        setWallsByPage(prev => {
+          const pageWalls = prev[currentPage] || [];
+          const shifted = pageWalls.map(w => {
+            if (!w.centerline) return w;
+            const shiftedCl = w.centerline.map(pt => [pt[0] + svgDx, pt[1] + svgDy]);
+            return {
+              ...w,
+              centerline: shiftedCl,
+              polygon: w.polygon ? w.polygon.map(pt => [pt[0] + svgDx, pt[1] + svgDy]) : null
+            };
+          });
+          return { ...prev, [currentPage]: shifted };
+        });
+
+        // Shift doors
+        setDoorsByPage(prev => {
+          const pageDoors = prev[currentPage] || [];
+          const shifted = pageDoors.map(d => {
+            if (!d.points) return d;
+            const shiftedPts = d.points.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
+            const shiftedCenter = d.centerPoint ? { x: d.centerPoint.x + svgDx, y: d.centerPoint.y + svgDy } : null;
+            return {
+              ...d,
+              points: shiftedPts,
+              centerPoint: shiftedCenter
+            };
+          });
+          return { ...prev, [currentPage]: shifted };
+        });
+
+        // Shift rooms
+        setRoomsByPage(prev => {
+          const pageRooms = prev[currentPage] || [];
+          const shifted = pageRooms.map(r => {
+            if (!r.polygon) return r;
+            const shiftedPoly = r.polygon.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
+            return {
+              ...r,
+              polygon: shiftedPoly
+            };
+          });
+          return { ...prev, [currentPage]: shifted };
+        });
+      } else {
+        setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      }
+
       panStart.current = { x: e.clientX, y: e.clientY };
       return;
     } else {
@@ -2004,6 +2240,51 @@ export function useInteractionController(svgRef) {
     }
     setCurrentMouse(snappedP);
 
+    // ===== ROOF PRIORITY-BASED HOVER DETECTION (Pruned by Bounding Box) =====
+    if (!isDrawingRoof && !drawing && !isMeasuring && !isDistancing && !activeRoofDragTarget) {
+      const pageRoofs = roofsByPage[currentPage] || [];
+      let foundHover = null;
+
+      for (let i = pageRoofs.length - 1; i >= 0; i--) {
+        const roof = pageRoofs[i];
+        const bbox = getBoundingBox(roof.polygon);
+        const tol = 15 / scale;
+
+        // Bounding box spatial filter
+        if (p.x < bbox.minX - tol || p.x > bbox.maxX + tol || p.y < bbox.minY - tol || p.y > bbox.maxY + tol) {
+          continue;
+        }
+
+        // Priority 1: Vertex Hover
+        const vHit = nearestVertex(roof.polygon, p, 10, scale);
+        if (vHit) {
+          foundHover = { type: 'vertex', roofId: roof.id, index: vHit.index, point: vHit.point };
+          setRoofInteractionState(RoofInteractionState.HOVER_VERTEX);
+          break;
+        }
+
+        // Priority 2: Edge Hover
+        const eHit = nearestEdge(roof.polygon, p, 8, scale);
+        if (eHit) {
+          foundHover = { type: 'edge', roofId: roof.id, edgeIndex: eHit.edgeIndex, projectionPoint: eHit.projectionPoint };
+          setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+          break;
+        }
+
+        // Priority 3: Body Hover
+        if (pointInPolygon(p, roof.polygon)) {
+          foundHover = { type: 'body', roofId: roof.id };
+          setRoofInteractionState(RoofInteractionState.HOVER_BODY);
+          break;
+        }
+      }
+
+      setHoveredRoofTarget(foundHover);
+      if (!foundHover && roofInteractionState !== RoofInteractionState.DRAWING_ROOF && roofInteractionState !== RoofInteractionState.PANNING) {
+        setRoofInteractionState(RoofInteractionState.IDLE);
+      }
+    }
+
     if (rect) {
       setRect(r => ({ ...r, x2: p.x, y2: p.y }));
     }
@@ -2012,15 +2293,29 @@ export function useInteractionController(svgRef) {
   function onMouseDown(e) {
     if (doorController.showTypeSelector) return;
     if (isDrawingDoor) {
-      if (e.button === 0) {
-        const p = getMouse(e);
-        doorController.onDoorMouseDown(p);
+      const pageDoors = doorsByPage[currentPage] || [];
+      const isHoveringDoor = pageDoors.some(d => d.id === hoverId);
+
+      if (hoverId && isHoveringDoor) {
+        setIsDrawingDoor(false);
+        doorController.cancelDoorDraw();
+      } else {
+        if (e.button === 0) {
+          const p = getMouse(e);
+          doorController.onDoorMouseDown(p);
+        }
+        return;
       }
-      return;
     }
 
     // Never start panning if a drag is active
     if (dragging) return;
+
+    if (interactionMode === "align-pdf" && e.button === 0) {
+      panStart.current = { x: e.clientX, y: e.clientY };
+      ignoreClickRef.current = true;
+      return;
+    }
 
     // Prevent starting normal drag-panning during draw-wall and cut-wall modes
     if ((interactionMode === "draw-wall" || interactionMode === "cut-wall") && e.button !== 1 && !isSpaceDown) {
@@ -2028,6 +2323,73 @@ export function useInteractionController(svgRef) {
     }
 
     const p = getMouse(e);
+
+    // ROOF INTERACTION MOUSE DOWN (Vertex/Body drag, 1-click edge insert, 2-click vertex delete)
+    if (!isDrawingRoof && hoveredRoofTarget && e.button === 0) {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+
+      const pageRoofs = roofsByPage[currentPage] || [];
+      const targetRoof = pageRoofs.find(r => r.id === hoveredRoofTarget.roofId);
+
+      if (targetRoof) {
+        // Topology Mutation: Double-Click or Alt+Shift+Click to Delete Vertex Point
+        if (hoveredRoofTarget.type === 'vertex' && (e.detail === 2 || (e.altKey && e.shiftKey))) {
+          const updatedPoly = removeVertex(targetRoof.polygon, hoveredRoofTarget.index);
+          const updatedRoofs = pageRoofs.map(r => r.id === targetRoof.id ? { ...r, polygon: updatedPoly } : r);
+          pushRoofHistory(updatedRoofs);
+          return;
+        }
+
+        // Topology Mutation: Single-Click or Alt+Click on Edge to Insert New Vertex Point
+        if (hoveredRoofTarget.type === 'edge') {
+          setSelectedRoofId(targetRoof.id);
+          setSelectedId(null);
+          setSelectedType(null);
+          const updatedPoly = insertVertex(targetRoof.polygon, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint);
+          const updatedRoofs = pageRoofs.map(r => r.id === targetRoof.id ? { ...r, polygon: updatedPoly } : r);
+          pushRoofHistory(updatedRoofs);
+          return;
+        }
+
+        // Drag Setup: Vertex Drag
+        if (hoveredRoofTarget.type === 'vertex') {
+          setSelectedRoofId(targetRoof.id);
+          setSelectedId(null);
+          setSelectedType(null);
+          setActiveRoofDragTarget({
+            type: 'vertex',
+            roofId: targetRoof.id,
+            vertexIndex: hoveredRoofTarget.index,
+            startMousePos: p,
+            initialPolygon: [...targetRoof.polygon]
+          });
+          setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
+          return;
+        }
+
+        // Drag Setup: Body Drag
+        if (hoveredRoofTarget.type === 'body') {
+          setSelectedRoofId(targetRoof.id);
+          setSelectedId(null);
+          setSelectedType(null);
+          setActiveRoofDragTarget({
+            type: 'body',
+            roofId: targetRoof.id,
+            startMousePos: p,
+            initialPolygon: targetRoof.polygon.map(pt => ({ ...pt }))
+          });
+          setRoofInteractionState(RoofInteractionState.DRAG_BODY);
+          return;
+        }
+      }
+    }
+
+    // Clear roof selection when clicking empty space
+    if (!isDrawingRoof && !hoveredRoofTarget && e.button === 0) {
+      setSelectedRoofId(null);
+    }
 
     if (interactionMode === "marquee" || e.ctrlKey || isCtrlDown) {
       setRect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y, isMarquee: true });
@@ -2064,11 +2426,19 @@ export function useInteractionController(svgRef) {
   }
 
   function onMouseUp(e) {
-    if (doorController.showTypeSelector) return;
-    if (isDrawingDoor && isDraggingDoorRef.current) {
+    if (activeRoofDragTarget) {
+      pushRoofHistory(roofsByPage[currentPage] || []);
+      setActiveRoofDragTarget(null);
+      setRoofInteractionState(RoofInteractionState.IDLE);
+    }
+
+    if (typeof doorController !== 'undefined' && doorController?.showTypeSelector) return;
+    if (isDrawingDoor && typeof isDraggingDoorRef !== 'undefined' && isDraggingDoorRef?.current) {
       const p = getMouse(e);
-      doorController.onDoorMouseUp(p, isShiftDown, isSnapMode);
-      return;
+      if (doorController?.onDoorMouseUp) {
+        doorController.onDoorMouseUp(p, isShiftDown, isSnapMode);
+        return;
+      }
     }
 
     if (dragging) {
@@ -2156,8 +2526,9 @@ export function useInteractionController(svgRef) {
         setRect(null);
       } else {
         // Finalize ALT+drag as ROI selection
-        const x = Math.min(rect.x1, rect.x2);
-        const y = Math.min(rect.y1, rect.y2);
+        const offsetVal = pdfOffsetsByPage[currentPage] || { x: 0, y: 0 };
+        const x = Math.min(rect.x1, rect.x2) - offsetVal.x;
+        const y = Math.min(rect.y1, rect.y2) - offsetVal.y;
         const w = Math.abs(rect.x2 - rect.x1);
         const h = Math.abs(rect.y2 - rect.y1);
         if (w > 20 && h > 20) {
@@ -2218,6 +2589,14 @@ export function useInteractionController(svgRef) {
     isPanning,
     drawing, setDrawing,
     isDrawingDoor, setIsDrawingDoor,
+    isDrawingRoof, setIsDrawingRoof,
+    roofInteractionState, setRoofInteractionState,
+    selectedRoofId, setSelectedRoofId,
+    hoveredRoofTarget, setHoveredRoofTarget,
+    activeRoofDragTarget,
+    roofHistory, roofFuture,
+    updateRoofPitch, updateRoofType, deleteRoof,
+    undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
     currentMouse,
@@ -2244,9 +2623,9 @@ export function useInteractionController(svgRef) {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishDoor, updateDoor, makeCurve,
-    deleteDoor: doorController.deleteDoor,
-    doorController,
+    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
+    deleteDoor: typeof doorController !== 'undefined' ? doorController.deleteDoor : deleteDoor,
+    doorController: typeof doorController !== 'undefined' ? doorController : null,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     selectWall, deleteWalls, updateWallsProperty, pxToMm, mmToPx, autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -2360,5 +2739,7 @@ export function useInteractionController(svgRef) {
 
     const finalized = recalculateAllWallsPolygons(updatedWalls);
     pushHistory(null, finalized, doorsByPage[currentPage] || []);
+    setSelectedWallVertex(null);
+    setSelectedVertices([]);
   }
 }

@@ -697,6 +697,29 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     // Spread original door data (preserves all existing fields)
     ...door,
 
+    // Ensure normalized geometry coordinates are numeric
+    points: (door.points && door.points.length >= 2) ? [
+      {
+        x: Number(Array.isArray(door.points[0]) ? door.points[0][0] : door.points[0].x),
+        y: Number(Array.isArray(door.points[0]) ? door.points[0][1] : door.points[0].y)
+      },
+      {
+        x: Number(Array.isArray(door.points[1]) ? door.points[1][0] : door.points[1].x),
+        y: Number(Array.isArray(door.points[1]) ? door.points[1][1] : door.points[1].y)
+      }
+    ] : (door.points || []),
+    centerPoint: { x: Number(centerPoint.x), y: Number(centerPoint.y) },
+    polygon: door.polygon ? door.polygon.map(pt => {
+      const px = Array.isArray(pt) ? pt[0] : pt.x;
+      const py = Array.isArray(pt) ? pt[1] : pt.y;
+      return { x: Number(px), y: Number(py) };
+    }) : null,
+    mask_polygon: door.mask_polygon ? door.mask_polygon.map(pt => {
+      const px = Array.isArray(pt) ? pt[0] : pt.x;
+      const py = Array.isArray(pt) ? pt[1] : pt.y;
+      return { x: Number(px), y: Number(py) };
+    }) : null,
+
     // Ensure normalized field aliases
     type: doorDef.doorType,
     class: doorDef.renderClass,

@@ -185,6 +185,8 @@ export default function App() {
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
+    pdfOffsetsByPage, setPdfOffsetsByPage,
+    roofsByPage, setRoofsByPage,
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId
   } = useAppModel();
@@ -228,6 +230,12 @@ export default function App() {
     isPanning,
     drawing, setDrawing,
     isDrawingDoor, setIsDrawingDoor,
+    isDrawingRoof, setIsDrawingRoof,
+    roofInteractionState, setRoofInteractionState,
+    selectedRoofId, setSelectedRoofId,
+    hoveredRoofTarget, setHoveredRoofTarget,
+    updateRoofPitch, updateRoofType, deleteRoof,
+    undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
     currentMouse,
@@ -260,7 +268,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishDoor, updateDoor, deleteDoor,
+    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -388,7 +396,9 @@ export default function App() {
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
     user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
     setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
-    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage
+    currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
+    pdfOffsetsByPage, setPdfOffsetsByPage,
+    roofsByPage, setRoofsByPage
   );
 
   // Pass down context for global access
@@ -694,6 +704,7 @@ export default function App() {
         autoFitExtEnvelope={autoFitExtEnvelope}
         isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
         doorController={doorController}
+        isDrawingRoof={isDrawingRoof} setIsDrawingRoof={setIsDrawingRoof}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -768,7 +779,7 @@ export default function App() {
             />
           )}
 
-          {isDrawingDoor && !show3D && (
+          {isDrawingDoor && !show3D && doorPreset?.id !== 'win_standard' && (
             <DoorTypePanel
               onSelectPreset={(preset) => {
                 setDoorPreset(preset);
@@ -783,6 +794,7 @@ export default function App() {
               wallsByPage={wallsByPage}
               doorsByPage={processedDoorsByPage}
               roomsByPage={roomsByPage}
+              roofsByPage={roofsByPage}
               currentPage={currentPage}
               realScale={realScale}
               image={image}
@@ -798,12 +810,23 @@ export default function App() {
               scale={scale}
               drawing={drawing}
               isDrawingDoor={isDrawingDoor}
+              isDrawingRoof={isDrawingRoof}
+              roofInteractionState={roofInteractionState}
+              selectedRoofId={selectedRoofId}
+              setSelectedRoofId={setSelectedRoofId}
+              hoveredRoofTarget={hoveredRoofTarget}
+              updateRoofPitch={updateRoofPitch}
+              updateRoofType={updateRoofType}
+              deleteRoof={deleteRoof}
               currentPoly={currentPoly}
               currentDoor={currentDoor}
               currentMouse={currentMouse}
               rooms={rooms}
               walls={wallsByPage[currentPage] || []}
+              underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
               doors={processedDoorsByPage[currentPage] || []}
+              pdfOffset={pdfOffsetsByPage[currentPage] || { x: 0, y: 0 }}
+              setPdfOffsetsByPage={setPdfOffsetsByPage}
               scaleValue={scaleValue}
               realScale={realScale}
               highlightType={highlightType}
@@ -946,6 +969,10 @@ export default function App() {
                 autoMergeCollinearWalls={autoMergeCollinearWalls}
                 walls={wallsByPage[currentPage] || []}
                 doors={processedDoorsByPage[currentPage] || []}
+                selectedRoofId={selectedRoofId}
+                setSelectedRoofId={setSelectedRoofId}
+                updateRoofPitch={updateRoofPitch}
+                deleteRoof={deleteRoof}
               />
             )
           )}

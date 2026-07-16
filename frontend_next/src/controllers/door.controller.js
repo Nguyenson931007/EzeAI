@@ -119,6 +119,76 @@ export function useDoorController({
     setShowTypeSelector(false);
   }, [initDoorSequence]);
 
+  const finalizeDoor = useCallback((p1, p2, doorTypeId, parentWall) => {
+    const walls = getCurrentWalls();
+    const doors = getCurrentDoors();
+
+    // Create BIM-compliant door
+    const newDoor = createDoorFromGeometry(
+      p1, p2,
+      doorTypeId,
+      parentWall,
+      currentPage,
+      realScale,
+      {
+        door_name: undefined, // will use doorName
+      }
+    );
+
+    // Set legacy door_name from doorName
+    newDoor.door_name = newDoor.doorName;
+
+    // Snap to wall (using legacy function for compatibility)
+    const snappedDoor = snapDoorToWalls(newDoor, walls, 40);
+
+    // Re-find parent wall after snap (position may have changed)
+    if (!snappedDoor.parentWallId) {
+      const center = {
+        x: (snappedDoor.points[0].x + snappedDoor.points[1].x) / 2,
+        y: (snappedDoor.points[0].y + snappedDoor.points[1].y) / 2,
+      };
+      const foundWall = findParentWall(center, walls);
+      if (foundWall) {
+        snappedDoor.parentWallId = foundWall.id;
+      }
+    }
+
+    // Validate placement
+    const parentWallObj = walls.find(w => w.id === snappedDoor.parentWallId);
+    const doorsOnSameWall = doors.filter(d => d.parentWallId === snappedDoor.parentWallId);
+    const validation = validateDoorPlacement(snappedDoor, parentWallObj, doorsOnSameWall);
+
+    // If validation fails, still create the door but log warnings
+    if (!validation.valid) {
+      console.warn('[DoorController] Placement warnings:', validation.errors);
+    }
+
+    // Compute metrics
+    if (parentWallObj && realScale) {
+      const metrics = computeDoorMetrics(snappedDoor, parentWallObj, realScale);
+      snappedDoor.distanceFrom = {
+        side: 'left',
+        valueMm: metrics.distLeftMm,
+      };
+    }
+
+    // Update state
+    const newDoors = [...doors, snappedDoor];
+
+    // Heal and cut walls
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
+    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
+
+    pushHistory(null, cutWalls, newDoors);
+
+    // Reset drawing state (keep drawing mode active, do not set isDrawingDoor to false)
+    // setIsDrawingDoor(false);
+    setCurrentDoorPoints([]);
+    setDoorPreview(null);
+    setPendingDoor(null);
+    setShowTypeSelector(false);
+  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, setIsDrawingDoor]);
+
   /**
    * Step 2: Records the first click point (mousedown).
    * Snaps to nearest wall centerline.
@@ -175,8 +245,14 @@ export function useDoorController({
       const projected = projectDoorOntoWall(startPoint, endPoint, snapResult.wall);
       endPoint = projected.p2;
 
-      // If we have a preset with specific width, enforce it
-      if (doorPreset && doorPreset.width && realScale) {
+      // If we have a preset with specific width, enforce it (except for window presets)
+      const isWindowPreset = doorPreset && (
+        doorPreset.renderClass === 'window' ||
+        doorPreset.class === 'window' ||
+        doorPreset.doorType === 'window' ||
+        doorPreset.id === 'win_standard'
+      );
+      if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
         const desiredPx = doorPreset.width / realScale;
         const dir = { x: projected.p2.x - projected.p1.x, y: projected.p2.y - projected.p1.y };
         const len = Math.hypot(dir.x, dir.y);
@@ -190,11 +266,12 @@ export function useDoorController({
     }
 
     // Update preview
+    const activeTypeId = doorPreset?.id || selectedTypeId;
     const previewDoor = {
       id: '__preview__',
       points: [startPoint, endPoint],
-      type: doorPreset ? (DOOR_TYPE_REGISTRY[selectedTypeId]?.doorType || 'single') : 'single',
-      class: doorPreset ? (DOOR_TYPE_REGISTRY[selectedTypeId]?.renderClass || 'single_door') : 'single_door',
+      type: doorPreset ? (DOOR_TYPE_REGISTRY[activeTypeId]?.doorType || 'single') : 'single',
+      class: doorPreset ? (DOOR_TYPE_REGISTRY[activeTypeId]?.renderClass || 'single_door') : 'single_door',
       hingeSide: 'left',
       swing: 'inward',
       angle: 90,
@@ -258,8 +335,14 @@ export function useDoorController({
       finalP2 = projected.p2;
     }
 
-    // If we have a preset with specific width, enforce it
-    if (doorPreset && doorPreset.width && realScale) {
+    // If we have a preset with specific width, enforce it (except for window presets)
+    const isWindowPreset = doorPreset && (
+      doorPreset.renderClass === 'window' ||
+      doorPreset.class === 'window' ||
+      doorPreset.doorType === 'window' ||
+      doorPreset.id === 'win_standard'
+    );
+    if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
       const desiredPx = doorPreset.width / realScale;
       const dx = finalP2.x - finalP1.x;
       const dy = finalP2.y - finalP1.y;
@@ -277,39 +360,10 @@ export function useDoorController({
       ? (doorPreset.id || selectedTypeId)
       : selectedTypeId;
 
-    // If there's a doorPreset already set (from the old DoorTypePanel workflow),
-    // skip the type selector and finalize immediately
-    if (doorPreset) {
-      finalizeDoor(finalP1, finalP2, initialTypeId, parentWall);
-      return true;
-    }
-
-    // Create pending door for the type selector
-    const pending = {
-      p1: finalP1,
-      p2: finalP2,
-      parentWall: parentWall,
-      initialTypeId: initialTypeId,
-      screenPosition: { x: (finalP1.x + finalP2.x) / 2, y: (finalP1.y + finalP2.y) / 2 },
-    };
-
-    setPendingDoor(pending);
-    setSelectedTypeId(initialTypeId);
-
-    // Show preview with pending geometry
-    setDoorPreview({
-      id: '__preview__',
-      points: [finalP1, finalP2],
-      type: DOOR_TYPE_REGISTRY[initialTypeId]?.doorType || 'single',
-      class: DOOR_TYPE_REGISTRY[initialTypeId]?.renderClass || 'single_door',
-      hingeSide: 'left',
-      swing: 'inward',
-      angle: 90,
-    });
-
-    setShowTypeSelector(true);
+    // Finalize the door immediately using the active preset or selectedTypeId, bypassing the type selector completely
+    finalizeDoor(finalP1, finalP2, initialTypeId, parentWall);
     return true;
-  }, [isDrawingDoor, currentDoorPoints, doorPreset, selectedTypeId, realScale, getCurrentWalls, getCurrentDoors]);
+  }, [isDrawingDoor, currentDoorPoints, doorPreset, selectedTypeId, realScale, getCurrentWalls, getCurrentDoors, finalizeDoor]);
 
   /**
    * Step 4: User selects a door type from the popup.
@@ -347,75 +401,7 @@ export function useDoorController({
   /**
    * Internal: Creates the final door object and updates state.
    */
-  const finalizeDoor = useCallback((p1, p2, doorTypeId, parentWall) => {
-    const walls = getCurrentWalls();
-    const doors = getCurrentDoors();
 
-    // Create BIM-compliant door
-    const newDoor = createDoorFromGeometry(
-      p1, p2,
-      doorTypeId,
-      parentWall,
-      currentPage,
-      realScale,
-      {
-        door_name: undefined, // will use doorName
-      }
-    );
-
-    // Set legacy door_name from doorName
-    newDoor.door_name = newDoor.doorName;
-
-    // Snap to wall (using legacy function for compatibility)
-    const snappedDoor = snapDoorToWalls(newDoor, walls, 40);
-
-    // Re-find parent wall after snap (position may have changed)
-    if (!snappedDoor.parentWallId) {
-      const center = {
-        x: (snappedDoor.points[0].x + snappedDoor.points[1].x) / 2,
-        y: (snappedDoor.points[0].y + snappedDoor.points[1].y) / 2,
-      };
-      const foundWall = findParentWall(center, walls);
-      if (foundWall) {
-        snappedDoor.parentWallId = foundWall.id;
-      }
-    }
-
-    // Validate placement
-    const parentWallObj = walls.find(w => w.id === snappedDoor.parentWallId);
-    const doorsOnSameWall = doors.filter(d => d.parentWallId === snappedDoor.parentWallId);
-    const validation = validateDoorPlacement(snappedDoor, parentWallObj, doorsOnSameWall);
-
-    // If validation fails, still create the door but log warnings
-    if (!validation.valid) {
-      console.warn('[DoorController] Placement warnings:', validation.errors);
-    }
-
-    // Compute metrics
-    if (parentWallObj && realScale) {
-      const metrics = computeDoorMetrics(snappedDoor, parentWallObj, realScale);
-      snappedDoor.distanceFrom = {
-        side: 'left',
-        valueMm: metrics.distLeftMm,
-      };
-    }
-
-    // Update state
-    const newDoors = [...doors, snappedDoor];
-
-    // Heal and cut walls
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
-    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
-
-    pushHistory(null, cutWalls, newDoors);
-
-    // Reset drawing state
-    setCurrentDoorPoints([]);
-    setDoorPreview(null);
-    setPendingDoor(null);
-    setShowTypeSelector(false);
-    setIsDrawingDoor(false);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls]);
 
   /**
    * Cancel door drawing at any point.

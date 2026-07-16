@@ -17,6 +17,7 @@ import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
+import { useAppModel } from "@/models/app.context";
 import { 
   distancePointToSegment, 
   pointInPolygon, 
@@ -77,13 +78,13 @@ const getDoorBoundingBox = (d) => {
 // ==========================================
 // 1. FloorImageLayer (Memoized)
 // ==========================================
-const FloorImageLayer = React.memo(({ image, w, h, showPDF }) => {
+const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, y: 0 } }) => {
   if (!image) return null;
   return (
     <image
       href={image}
-      x={0}
-      y={0}
+      x={pdfOffset.x}
+      y={pdfOffset.y}
       width={w}
       height={h}
       style={{
@@ -94,7 +95,14 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF }) => {
       }}
     />
   );
-}, (prev, next) => prev.image === next.image && prev.w === next.w && prev.h === next.h && prev.showPDF === next.showPDF);
+}, (prev, next) => 
+  prev.image === next.image && 
+  prev.w === next.w && 
+  prev.h === next.h && 
+  prev.showPDF === next.showPDF &&
+  prev.pdfOffset?.x === next.pdfOffset?.x &&
+  prev.pdfOffset?.y === next.pdfOffset?.y
+);
 
 // ==========================================
 // 2. RoomPolygonLayer (Memoized)
@@ -243,6 +251,108 @@ const RoomPolygonLayer = React.memo(({
     prev.dragging === next.dragging
   );
 });
+
+// ==========================================
+// 2.5 UnderlayWallLayer (Memoized)
+// ==========================================
+const UnderlayWallLayer = React.memo(({ walls }) => {
+  if (!walls || walls.length === 0) return null;
+
+  const chains = [];
+  const validWalls = walls.filter(w => w.centerline && w.centerline.length === 2);
+  const visited = new Set();
+
+  while (visited.size < validWalls.length) {
+    const startWall = validWalls.find(w => !visited.has(w.id));
+    if (!startWall) break;
+
+    visited.add(startWall.id);
+    let pts = [
+      { x: startWall.centerline[0][0], y: startWall.centerline[0][1] },
+      { x: startWall.centerline[1][0], y: startWall.centerline[1][1] }
+    ];
+    let thickness = startWall.thickness_px || 20;
+    let className = startWall.class_name || "exterior_wall";
+    let wallIds = [startWall.id];
+
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      const tail = pts[pts.length - 1];
+      const head = pts[0];
+
+      for (const w of validWalls) {
+        if (visited.has(w.id)) continue;
+        if ((w.class_name || "exterior_wall") !== className) continue;
+        const wThick = w.thickness_px || 20;
+        if (Math.abs(wThick - thickness) > 5) continue;
+
+        const p1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const p2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+        // Connect to tail
+        if (Math.hypot(p1.x - tail.x, p1.y - tail.y) < 8.0) {
+          pts.push(p2);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        } else if (Math.hypot(p2.x - tail.x, p2.y - tail.y) < 8.0) {
+          pts.push(p1);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        }
+        // Connect to head
+        else if (Math.hypot(p1.x - head.x, p1.y - head.y) < 8.0) {
+          pts.unshift(p2);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        } else if (Math.hypot(p2.x - head.x, p2.y - head.y) < 8.0) {
+          pts.unshift(p1);
+          visited.add(w.id);
+          wallIds.push(w.id);
+          expanded = true;
+          break;
+        }
+      }
+    }
+
+    chains.push({
+      points: pts,
+      thickness,
+      className,
+      wallIds
+    });
+  }
+
+  return (
+    <g id="UnderlayWallLayer" opacity={0.25} pointerEvents="none">
+      {chains.map((chain, chainIdx) => {
+        const isClosed = chain.points.length > 2 && Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x, chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+        let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
+        if (isClosed) pathData += " Z";
+
+        return (
+          <path
+            key={`underlay-${chainIdx}`}
+            d={pathData}
+            fill="none"
+            stroke="#64748b"
+            strokeWidth={chain.thickness}
+            strokeDasharray="4,4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      })}
+    </g>
+  );
+});
+UnderlayWallLayer.displayName = "UnderlayWallLayer";
 
 // ==========================================
 // 3. WallLayer (Memoized)
@@ -1682,19 +1792,24 @@ const OCRLabelLayer = React.memo(({
 // ==========================================
 // 6. ROIOverlayLayer (Memoized)
 // ==========================================
-const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize }) => {
+const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 0, y: 0 } }) => {
   if (!roiRect) return null;
+
+  const rx = roiRect.x + pdfOffset.x;
+  const ry = roiRect.y + pdfOffset.y;
+  const px = pdfOffset.x;
+  const py = pdfOffset.y;
 
   return (
     <g id="ROIOverlayLayer">
       {/* Dimmed region outside ROI */}
       <path
-        d={`M0,0 H${imgSize.w} V${imgSize.h} H0 Z M${roiRect.x},${roiRect.y} V${roiRect.y + roiRect.h} H${roiRect.x + roiRect.w} V${roiRect.y} Z`}
+        d={`M${px},${py} H${px + imgSize.w} V${py + imgSize.h} H${px} Z M${rx},${ry} V${ry + roiRect.h} H${rx + roiRect.w} V${ry} Z`}
         fill="rgba(0,0,0,0.38)" fillRule="evenodd" pointerEvents="none"
       />
       {/* Marching ants border */}
       <rect
-        x={roiRect.x} y={roiRect.y}
+        x={rx} y={ry}
         width={roiRect.w} height={roiRect.h}
         fill="none" stroke="#3b82f6" strokeWidth={2.5 / scale}
         strokeDasharray={`${8/scale} ${4/scale}`}
@@ -1702,19 +1817,19 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize }) => {
       />
       {/* Glow border */}
       <rect
-        x={roiRect.x} y={roiRect.y}
+        x={rx} y={ry}
         width={roiRect.w} height={roiRect.h}
         fill="none" stroke="rgba(59,130,246,0.3)" strokeWidth={6 / scale}
         pointerEvents="none"
       />
       {/* Size label */}
       <rect
-        x={roiRect.x} y={roiRect.y - 22/scale}
+        x={rx} y={ry - 22/scale}
         width={135/scale} height={18/scale}
         rx={4/scale} fill="rgba(22,28,45,0.9)" pointerEvents="none"
       />
       <text
-        x={roiRect.x + 6/scale} y={roiRect.y - 8/scale}
+        x={rx + 6/scale} y={ry - 8/scale}
         fontSize={11 / scale} fill="#60a5fa" fontWeight="700" fontFamily="Inter, sans-serif"
         pointerEvents="none"
       >
@@ -1722,7 +1837,69 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize }) => {
       </text>
     </g>
   );
-}, (prev, next) => prev.roiRect === next.roiRect && prev.scale === next.scale && prev.imgSize === next.imgSize);
+}, (prev, next) => 
+  prev.roiRect === next.roiRect && 
+  prev.scale === next.scale && 
+  prev.imgSize === next.imgSize &&
+  prev.pdfOffset?.x === next.pdfOffset?.x &&
+  prev.pdfOffset?.y === next.pdfOffset?.y
+);
+
+/* — Reusable Smart Pitch Input Component — */
+function PitchInput({ value, onChange, style, className }) {
+  const [tempVal, setTempVal] = React.useState(null);
+  const displayValue = tempVal !== null ? tempVal : (value === 0 ? "0" : (value ?? "0"));
+
+  const handleChange = (e) => {
+    let raw = e.target.value;
+    raw = raw.replace(/[^0-9.]/g, '');
+    const parts = raw.split('.');
+    if (parts.length > 2) {
+      raw = parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (/^0[0-9]/.test(raw)) {
+      raw = raw.replace(/^0+/, '');
+    }
+
+    setTempVal(raw);
+
+    if (raw === "" || raw === ".") {
+      onChange(0);
+    } else {
+      const parsed = parseFloat(raw);
+      if (!isNaN(parsed)) {
+        const clamped = Math.max(0, Math.min(85, parsed));
+        onChange(clamped);
+      }
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onFocus={(e) => e.target.select()}
+      onBlur={() => setTempVal(null)}
+      onChange={handleChange}
+      onClick={(e) => e.stopPropagation()}
+      className={`no-spinner ${className || ''}`}
+      style={{
+        width: '44px',
+        background: 'rgba(255,255,255,0.2)',
+        border: '1px solid rgba(255,255,255,0.4)',
+        borderRadius: '4px',
+        color: '#ffffff',
+        textAlign: 'center',
+        fontWeight: 700,
+        fontSize: '12px',
+        padding: '1px 2px',
+        outline: 'none',
+        ...style
+      }}
+    />
+  );
+}
 
 
 export default function CanvasView({
@@ -1733,11 +1910,22 @@ export default function CanvasView({
   scale,
   drawing,
   isDrawingDoor,
+  isDrawingRoof,
+  roofInteractionState,
+  selectedRoofId,
+  setSelectedRoofId,
+  hoveredRoofTarget,
+  updateRoofPitch,
+  updateRoofType,
+  deleteRoof,
   currentPoly,
   currentDoor,
   currentMouse,
   rooms,
   walls,
+  underlayWalls = [],
+  pdfOffset = { x: 0, y: 0 },
+  setPdfOffsetsByPage,
   doors,
   scaleValue,
   realScale,
@@ -1831,6 +2019,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
+  const { roofsByPage, setRoofsByPage } = useAppModel();
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -2308,6 +2497,52 @@ export default function CanvasView({
             >
               {showPDF ? "ON" : "OFF"}
             </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (setInteractionMode) {
+                  setInteractionMode(prev => prev === "align-pdf" ? "select" : "align-pdf");
+                }
+              }}
+              style={{
+                background: interactionMode === "align-pdf" ? "linear-gradient(135deg, #eab308 0%, #ca8a04 100%)" : "rgba(255, 255, 255, 0.1)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                color: "#ffffff",
+                padding: "4px 10px",
+                borderRadius: "6px",
+                fontSize: "11px",
+                fontWeight: "800",
+                cursor: "pointer",
+                transition: "all 0.2s ease-in-out",
+                boxShadow: interactionMode === "align-pdf" ? "0 0 10px rgba(234, 179, 8, 0.4)" : "none"
+              }}
+            >
+              {interactionMode === "align-pdf" ? "ALIGNING" : "ALIGN"}
+            </button>
+          </div>
+        )}
+
+        {interactionMode === "align-pdf" && (
+          <div
+            className="glassmorphic"
+            style={{
+              position: "absolute",
+              top: "20px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 100,
+              padding: "8px 16px",
+              borderRadius: "8px",
+              border: "1px solid rgba(234, 179, 8, 0.3)",
+              background: "rgba(251, 191, 36, 0.15)",
+              color: "#fef08a",
+              fontWeight: "600",
+              fontSize: "12px",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.2)"
+            }}
+          >
+            ✋ Drag anywhere to align PDF background with walls
           </div>
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
@@ -2449,11 +2684,13 @@ export default function CanvasView({
             height: "100%",
             cursor: isPanning ? "grab"
               : drawing ? "crosshair"
-                : isDistancing ? "crosshair"
-                  : isMeasuring ? "crosshair"
-                    : isAddingPoint ? "crosshair"
-                      : interactionMode === "draw-ext-rect" ? "crosshair"
-                        : "default"
+                : isDrawingRoof ? "crosshair"
+                  : isDistancing ? "crosshair"
+                    : isMeasuring ? "crosshair"
+                      : isAddingPoint ? "crosshair"
+                        : interactionMode === "draw-ext-rect" ? "crosshair"
+                          : interactionMode === "align-pdf" ? "move"
+                          : "default"
           }}
           onClick={(e) => {
             if (editingRoomId) return;
@@ -2492,7 +2729,10 @@ export default function CanvasView({
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
             
             {/* Memoized Layer 1: Base Floor Image */}
-            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} />
+            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
+
+            {/* Underlay Ghost Walls of Previous Page */}
+            <UnderlayWallLayer walls={underlayWalls} />
             
             {/* Snap Guides */}
             {(isShiftDown || isSnapMode) && currentMouse && (() => {
@@ -2550,6 +2790,182 @@ export default function CanvasView({
               </g>
             )}
 
+            {/* Roof Drawing Preview */}
+            {isDrawingRoof && (currentPoly.length > 0 || currentMouse) && (
+              <g style={{ pointerEvents: 'none' }}>
+                <polygon
+                  points={[...currentPoly, currentMouse].filter(Boolean).map(p => `${p.x},${p.y}`).join(" ")}
+                  fill="rgba(245,158,11,0.15)"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  strokeDasharray="6,3"
+                />
+                {currentPoly.map((p, i) => (
+                  <circle
+                    key={`roof-preview-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={4}
+                    fill={i === 0 ? "#ef4444" : "#f59e0b"}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  />
+                ))}
+                {/* Visual close indicator: larger ring on first point when mouse is near */}
+                {currentPoly.length >= 2 && currentMouse && Math.hypot(
+                  currentMouse.x - currentPoly[0].x, currentMouse.y - currentPoly[0].y
+                ) < 15 && (
+                  <circle
+                    cx={currentPoly[0].x}
+                    cy={currentPoly[0].y}
+                    r={10}
+                    fill="rgba(239,68,68,0.3)"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                  />
+                )}
+                {currentMouse && (
+                  <circle
+                    cx={currentMouse.x}
+                    cy={currentMouse.y}
+                    r={3}
+                    fill="#f59e0b"
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    opacity={0.8}
+                  />
+                )}
+              </g>
+            )}
+
+            {/* Committed Roof Polygons Layer */}
+            {(roofsByPage[currentPage] || []).map(roof => {
+              const c = centroid(roof.polygon);
+              const isSelected = selectedRoofId === roof.id;
+              const isHovered = hoveredRoofTarget?.roofId === roof.id;
+
+              const areaM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
+              const pitchRad = (roof.pitchAngle || 0) * (Math.PI / 180);
+              const trueArea = pitchRad > 0 ? areaM2 / Math.cos(pitchRad) : areaM2;
+
+              return (
+                <g key={roof.id}>
+                  {/* Roof Base Polygon */}
+                  <polygon
+                    points={roof.polygon.map(p => `${p.x},${p.y}`).join(" ")}
+                    fill={isSelected ? "rgba(245,158,11,0.28)" : isHovered ? "rgba(245,158,11,0.22)" : "rgba(245,158,11,0.15)"}
+                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "rgba(245,158,11,0.8)"}
+                    strokeWidth={isSelected ? 3 : isHovered ? 2.5 : 2}
+                    strokeDasharray={isSelected ? "none" : "8,4"}
+                    style={{ cursor: "pointer" }}
+                  />
+
+                  {/* Priority 2: Edge Hover Highlight */}
+                  {isHovered && hoveredRoofTarget?.type === 'edge' && (() => {
+                    const eIdx = hoveredRoofTarget.edgeIndex;
+                    const p1 = roof.polygon[eIdx];
+                    const p2 = roof.polygon[(eIdx + 1) % roof.polygon.length];
+                    return (
+                      <g pointerEvents="none">
+                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
+                        {hoveredRoofTarget.projectionPoint && (
+                          <circle cx={hoveredRoofTarget.projectionPoint.x} cy={hoveredRoofTarget.projectionPoint.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+                        )}
+                      </g>
+                    );
+                  })()}
+
+                  {/* Priority 1 & Handles: Vertices */}
+                  {(isSelected || isHovered) && roof.polygon.map((v, idx) => {
+                    const isVertexHovered = isHovered && hoveredRoofTarget?.type === 'vertex' && hoveredRoofTarget?.index === idx;
+                    return (
+                      <circle
+                        key={`roof-v-${roof.id}-${idx}`}
+                        cx={v.x}
+                        cy={v.y}
+                        r={isVertexHovered ? 7 : 5}
+                        fill={isVertexHovered ? "#ef4444" : "#f59e0b"}
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                        style={{ cursor: "grab" }}
+                      />
+                    );
+                  })}
+
+                  {/* Informative Canvas Area Overlay Badge */}
+                  <foreignObject
+                    x={c.x - 110}
+                    y={c.y - 45}
+                    width={220}
+                    height={90}
+                    style={{ overflow: 'visible', pointerEvents: 'auto' }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isSelected ? 'rgba(217, 119, 6, 0.92)' : 'rgba(30, 41, 59, 0.88)',
+                        border: isSelected ? '2px solid #fef3c7' : '1px solid rgba(245, 158, 11, 0.5)',
+                        borderRadius: '10px',
+                        padding: '6px 12px',
+                        color: '#ffffff',
+                        boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+                        backdropFilter: 'blur(4px)',
+                        fontSize: '13px',
+                        userSelect: 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Title: Roof Name */}
+                      <div style={{ fontWeight: 700, fontSize: '13px', color: '#fef3c7', letterSpacing: '0.5px' }}>
+                        🏠 {roof.name || "Roof"}
+                      </div>
+
+                      {/* 3D True Surface Area (Large text) */}
+                      <div style={{ fontWeight: 800, fontSize: '20px', color: '#ffffff', margin: '2px 0' }}>
+                        {scaleValue ? `${trueArea.toFixed(2)} m²` : "No Scale"}
+                      </div>
+
+                      {/* Inline Pitch Angle Input Control */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: 0.95 }}>
+                        <span>Pitch:</span>
+                        <PitchInput
+                          value={roof.pitchAngle || 0}
+                          onChange={(val) => updateRoofPitch(roof.id, val)}
+                        />
+                        <span>°</span>
+                      </div>
+
+                      {/* Roof Type Selection Dropdown */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', marginTop: '4px' }}>
+                        <span>Type:</span>
+                        <select
+                          value={roof.roofType || "hip"}
+                          onChange={(e) => updateRoofType(roof.id, e.target.value)}
+                          style={{
+                            fontSize: '11px',
+                            background: 'rgba(255,255,255,0.2)',
+                            border: '1px solid rgba(255,255,255,0.4)',
+                            borderRadius: '4px',
+                            color: '#ffffff',
+                            padding: '1px 2px',
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value="hip" style={{ color: '#000' }}>Hipped (4 mái)</option>
+                          <option value="gable_horiz" style={{ color: '#000' }}>Gable Horiz (Đầu hồi ngang)</option>
+                          <option value="gable_vert" style={{ color: '#000' }}>Gable Vert (Đầu hồi dọc)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </foreignObject>
+                </g>
+              );
+            })}
 
 
             {/* Wall Drawing Preview */}
@@ -3022,7 +3438,7 @@ export default function CanvasView({
             })}
 
             {/* Memoized Layer 6: ROI Overlay region */}
-            <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} />
+            <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} pdfOffset={pdfOffset} />
 
             {/* Cut Wall Preview Dot */}
             {cutPreviewPoint && (
@@ -3392,17 +3808,6 @@ export default function CanvasView({
         onClose={() => setDoorEditDialog({ visible: false, door: null })}
       />
 
-      {/* ===== DOOR TYPE SELECTOR POPUP ===== */}
-      <DoorTypeSelector
-        visible={doorController?.showTypeSelector || false}
-        position={doorController?.pendingDoor?.screenPosition}
-        selectedTypeId={doorController?.selectedTypeId || 'int_hinged_single'}
-        onSelect={doorController?.selectDoorType}
-        onConfirm={doorController?.confirmDoorType}
-        onCancel={doorController?.cancelDoorDraw}
-        scale={scale}
-        offset={offset}
-      />
     </div>
   );
 }

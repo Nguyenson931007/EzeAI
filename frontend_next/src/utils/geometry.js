@@ -792,7 +792,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   });
 }
 
-export function mergeCollinearWalls(walls, perpDistThresh = 30, angleThresh = 0.90, gapThresh = 120) {
+export function mergeCollinearWalls(walls, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120) {
   if (!walls || walls.length < 2) return walls;
 
   let merged = true;
@@ -1082,10 +1082,18 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
   let bestDist = Math.min(maxDist, 12); // Limit maximum snap distance to 12px to keep doors close to detected model positions
   let bestProj = null;
 
+  const doorAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
   for (const w of walls) {
     if (!w.centerline || w.centerline.length !== 2) continue;
     const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
     const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+    // Snapping angle guard: only snap if the door and wall centerline are nearly parallel (within 45 degrees)
+    const wallAngle = Math.atan2(b.y - a.y, b.x - a.x);
+    const angleDiff = Math.abs(Math.sin(doorAngle - wallAngle));
+    if (angleDiff > 0.707) continue;
+
     const proj = distancePointToSegment(C, a, b);
     if (proj.dist < bestDist) {
       bestDist = proj.dist;
@@ -1156,6 +1164,7 @@ export function mapFloorName(name, index) {
   if (norm === 'third_floor' || norm === 'floor_2') return 'Tầng 3';
   if (norm === 'fourth_floor' || norm === 'floor_3') return 'Tầng 4';
   if (norm === 'fifth_floor' || norm === 'floor_4') return 'Tầng 5';
+  if (norm === 'roof') return 'Mái';
   
   const match = norm.match(/^floor_(\d+)$/);
   if (match) {
@@ -1183,5 +1192,135 @@ export function convertNameToClass(name, index) {
   if (norm === 'tầng 5' || norm === 'tang 5' || norm === 'fifth floor') {
     return 'fifth_floor';
   }
+  if (norm === 'mái' || norm === 'mai' || norm === 'roof') {
+    return 'roof';
+  }
   return name.toLowerCase().replace(/[\s]+/g, '_');
+}
+
+// ================================================================
+// ROOF & POLYGON INTERACTION GEOMETRY UTILITIES
+// ================================================================
+
+export function getBoundingBox(polygon) {
+  if (!polygon || polygon.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of polygon) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+export function nearestVertex(polygon, point, thresholdPx = 10, scale = 1) {
+  if (!polygon || polygon.length === 0) return null;
+  const tol = thresholdPx / (scale || 1);
+  let minDist = tol;
+  let bestIdx = -1;
+  let bestPt = null;
+
+  for (let i = 0; i < polygon.length; i++) {
+    const v = polygon[i];
+    const dist = Math.hypot(point.x - v.x, point.y - v.y);
+    if (dist < minDist) {
+      minDist = dist;
+      bestIdx = i;
+      bestPt = v;
+    }
+  }
+
+  if (bestIdx !== -1) {
+    return { index: bestIdx, point: bestPt, distance: minDist };
+  }
+  return null;
+}
+
+export function nearestEdge(polygon, point, thresholdPx = 8, scale = 1) {
+  if (!polygon || polygon.length < 3) return null;
+  const tol = thresholdPx / (scale || 1);
+  let minDist = tol;
+  let bestEdgeIdx = -1;
+  let bestProj = null;
+
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    const proj = distancePointToSegment(point, a, b);
+    if (proj.dist < minDist) {
+      minDist = proj.dist;
+      bestEdgeIdx = i;
+      bestProj = { x: proj.x, y: proj.y };
+    }
+  }
+
+  if (bestEdgeIdx !== -1) {
+    return { edgeIndex: bestEdgeIdx, projectionPoint: bestProj, distance: minDist };
+  }
+  return null;
+}
+
+export function insertVertex(polygon, edgeIndex, newPoint) {
+  if (!polygon || edgeIndex < 0 || edgeIndex >= polygon.length) return polygon;
+  const next = [...polygon];
+  next.splice(edgeIndex + 1, 0, { x: newPoint.x, y: newPoint.y });
+  return next;
+}
+
+export function removeVertex(polygon, vertexIndex) {
+  if (!polygon || polygon.length <= 3) return polygon; // Maintain at least 3 vertices
+  if (vertexIndex < 0 || vertexIndex >= polygon.length) return polygon;
+  return polygon.filter((_, idx) => idx !== vertexIndex);
+}
+
+export function translatePolygon(polygon, dx, dy) {
+  if (!polygon) return [];
+  return polygon.map(p => ({ x: p.x + dx, y: p.y + dy }));
+}
+
+export function checkSegmentIntersection(p1, p2, p3, p4) {
+  const ccw = (a, b, c) => (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
+  return (ccw(p1, p3, p4) !== ccw(p2, p3, p4)) && (ccw(p1, p2, p3) !== ccw(p1, p2, p4));
+}
+
+export function isSelfIntersecting(polygon) {
+  if (!polygon || polygon.length < 4) return false;
+  const n = polygon.length;
+  for (let i = 0; i < n; i++) {
+    const a1 = polygon[i];
+    const a2 = polygon[(i + 1) % n];
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // Ignore consecutive connecting segment
+      const b1 = polygon[j];
+      const b2 = polygon[(j + 1) % n];
+      if (checkSegmentIntersection(a1, a2, b1, b2)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function validateRoofPolygon(polygon, scaleValue) {
+  if (!polygon || polygon.length < 3) {
+    return { valid: false, error: "A roof polygon must have at least 3 vertices." };
+  }
+  // Check duplicate consecutive points
+  for (let i = 0; i < polygon.length; i++) {
+    const next = polygon[(i + 1) % polygon.length];
+    if (Math.hypot(polygon[i].x - next.x, polygon[i].y - next.y) < 1) {
+      return { valid: false, error: "Polygon contains duplicate consecutive vertices." };
+    }
+  }
+  // Check self-intersection
+  if (isSelfIntersecting(polygon)) {
+    return { valid: false, error: "Roof polygon cannot cross or intersect itself." };
+  }
+  // Check minimum area
+  const areaM2 = polygonAreaM2(polygon, scaleValue || 0.05);
+  if (scaleValue && areaM2 < 0.01) {
+    return { valid: false, error: "Roof polygon area is too small." };
+  }
+  return { valid: true };
 }
