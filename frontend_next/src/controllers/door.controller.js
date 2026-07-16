@@ -230,7 +230,7 @@ export function useDoorController({
         const wall = snap.wall;
         const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
         const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
-        
+
         const wdx = wp2.x - wp1.x;
         const wdy = wp2.y - wp1.y;
         const wLen = Math.hypot(wdx, wdy);
@@ -244,7 +244,7 @@ export function useDoorController({
           const cy = proj.y;
 
           const widthPx = doorPreset.width / realScale;
-          
+
           const p1 = {
             x: cx - ux * (widthPx / 2),
             y: cy - uy * (widthPx / 2)
@@ -519,8 +519,8 @@ export function useDoorController({
 
     // 3. Distance change (move along wall)
     if (updatedDoor.distance_from &&
-        (updatedDoor.distance_from.value !== oldDoor.distance_from?.value ||
-         updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
+      (updatedDoor.distance_from.value !== oldDoor.distance_from?.value ||
+        updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
       updatedDoor = moveDoorAlongWallByDistance(updatedDoor, walls, realScale);
     }
 

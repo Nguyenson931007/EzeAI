@@ -8,11 +8,27 @@ const nextConfig = {
 
     return [
       // Main API routes
-      { source: "/api/:path*", destination: `${backendUrl}/:path*` },
+      { source: "/api/:path*", destination: `${backendUrl}/api/:path*` },
+
+      // Auth endpoints
+      { source: "/login", destination: `${backendUrl}/login` },
+      { source: "/signup", destination: `${backendUrl}/signup` },
+      { source: "/logout", destination: `${backendUrl}/logout` },
+
+      // User management endpoints
+      { source: "/users", destination: `${backendUrl}/users` },
+      { source: "/users/:path*", destination: `${backendUrl}/users/:path*` },
+
+      // Jobs endpoints
+      { source: "/jobs", destination: `${backendUrl}/jobs` },
+      { source: "/jobs/:path*", destination: `${backendUrl}/jobs/:path*` },
+      { source: "/all-jobs", destination: `${backendUrl}/all-jobs` },
 
       // AI inference endpoints
       { source: "/predict_seg", destination: `${backendUrl}/predict_seg` },
+      { source: "/predict_seg_stream", destination: `${backendUrl}/predict_seg_stream` },
       { source: "/predict_seg_roi", destination: `${backendUrl}/predict_seg_roi` },
+      { source: "/predict_wall_stream", destination: `${backendUrl}/predict_wall_stream` },
 
       { source: "/predict_door", destination: `${backendUrl}/predict_door` },
       { source: "/predict_door_roi", destination: `${backendUrl}/predict_door_roi` },

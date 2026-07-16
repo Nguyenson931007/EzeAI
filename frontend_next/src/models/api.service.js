@@ -2,10 +2,10 @@ const getBaseUrl = () => {
   if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) {
     return process.env.NEXT_PUBLIC_API_BASE_URL.trim();
   }
-  if (typeof window !== "undefined") {
-    return `http://${window.location.hostname}:8090`;
-  }
-  return "http://localhost:8090";
+  // Bằng cách trả về chuỗi rỗng "", trình duyệt sẽ gọi URL tương đối (relative path).
+  // Yêu cầu sẽ đi qua cổng 3011 của Next.js và được proxy nội bộ về cổng 8090 của Backend.
+  // Điều này tránh được lỗi CORS và giúp bạn không cần phải mở cổng 8090 trên Router.
+  return "";
 };
 
 export const BASE_URL = getBaseUrl();

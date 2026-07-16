@@ -41,7 +41,7 @@ function getHardwareType(door, pageRooms, pageWalls, realScale) {
   const isDouble = dType === "double" || dClass.includes("double") || dClass.includes("2x") || dName.includes("2x");
   const isTriple = dClass.includes("triple") || dClass.includes("3x") || dName.includes("3x");
   const isDummyName = dName.includes("robe") || dName.includes("linen") || dName.includes("pantry") || dName.includes("cupboard") || dName.includes("closet");
-  
+
   if (isDouble || isTriple || isDummyName) {
     return "dummy";
   }
@@ -74,7 +74,7 @@ function getHardwareType(door, pageRooms, pageWalls, realScale) {
         if (!w.centerline || w.centerline.length < 2) return;
         const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
         const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-        
+
         const dx = wp2.x - wp1.x;
         const dy = wp2.y - wp1.y;
         const L2 = dx * dx + dy * dy;
@@ -99,7 +99,7 @@ function getHardwareType(door, pageRooms, pageWalls, realScale) {
     if (pageRooms && pageRooms.length > 0) {
       pageRooms.forEach(r => {
         if (!r.polygon || r.polygon.length === 0) return;
-        
+
         // Check if inside room
         if (pointInPolygon({ x: cx, y: cy }, r.polygon)) {
           minDistRoom = 0;
@@ -122,7 +122,7 @@ function getHardwareType(door, pageRooms, pageWalls, realScale) {
 
     if (nearestRoom) {
       const rName = (nearestRoom.name || nearestRoom.label || nearestRoom.room_name || "").toLowerCase();
-      
+
       if (rName.includes("entry") || rName.includes("entrance") || rName.includes("porch") || rName.includes("verandah") || rName.includes("garage") || rName.includes("external") || rName.includes("alfresco")) {
         return "entrance";
       }
@@ -360,12 +360,12 @@ export default function App() {
     return newObj;
   }, [doorsByPage, roomsByPage, wallsByPage, realScale]);
 
-  const boqPages = useMemo(() => 
+  const boqPages = useMemo(() =>
     pages.map((p, idx) => ({
       ...p,
       objects: Array.isArray(roomsByPage[idx]) ? roomsByPage[idx] : [],
       doors: Array.isArray(processedDoorsByPage[idx]) ? processedDoorsByPage[idx] : []
-    })), 
+    })),
     [pages, roomsByPage, processedDoorsByPage]
   );
 
@@ -476,17 +476,17 @@ export default function App() {
 
   const zoomToBbox = (pageIndex, bbox) => {
     if (!pages[pageIndex]) return;
-    
+
     if (currentPage !== pageIndex) {
       setCurrentPage(pageIndex);
       setImage(pages[pageIndex].image);
       setImgSize({ w: pages[pageIndex].w, h: pages[pageIndex].h });
     }
-    
+
     setTimeout(() => {
       const container = svgRef.current?.parentElement;
       if (!container) return;
-      
+
       const cw = container.clientWidth;
       const ch = container.clientHeight;
       const [x1, y1, x2, y2] = bbox;
@@ -494,11 +494,11 @@ export default function App() {
       const cy = (y1 + y2) / 2;
       const bboxW = x2 - x1;
       const bboxH = y2 - y1;
-      
+
       const scaleX = cw / (bboxW || 1);
       const scaleY = ch / (bboxH || 1);
       const newScale = Math.min(3.0, Math.max(1.0, Math.min(scaleX, scaleY) * 0.45));
-      
+
       setScale(newScale);
       setOffset({
         x: cw / 2 - cx * newScale,
@@ -562,15 +562,15 @@ export default function App() {
 
   function confirmImport() {
     if (importSelectedPages.length === 0) return;
-    
-    const selectedData = importSelectedPages.sort((a,b) => a - b).map(idx => pendingPages[idx]);
-    
+
+    const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => pendingPages[idx]);
+
     if (isAddingPagesMode) {
       // Shifting existing page data to their new indices
       const newRoomsByPage = {};
       const newWallsByPage = {};
       const newDoorsByPage = {};
-      
+
       selectedData.forEach((newPage, newIdx) => {
         const oldIdx = pages.findIndex(p => p.image === newPage.image);
         if (oldIdx !== -1) {
@@ -579,13 +579,13 @@ export default function App() {
           if (doorsByPage[oldIdx]) newDoorsByPage[newIdx] = doorsByPage[oldIdx];
         }
       });
-      
+
       setRoomsByPage(newRoomsByPage);
       setWallsByPage(newWallsByPage);
       setDoorsByPage(newDoorsByPage);
-      
+
       setPages(selectedData);
-      
+
       const stillExists = selectedData.some(p => p.image === image);
       if (!stillExists) {
         setCurrentPage(0);

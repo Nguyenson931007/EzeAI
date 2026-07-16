@@ -2188,7 +2188,7 @@ export default function CanvasView({
       const headers = { "Content-Type": "application/json" };
       if (userObj.username) headers["X-Username"] = userObj.username;
 
-      const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "http://localhost:8090";
+      const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "";
       const res = await fetch(`${BASE_URL}/api/ocr-corrections`, {
         method: "POST",
         credentials: "include",
