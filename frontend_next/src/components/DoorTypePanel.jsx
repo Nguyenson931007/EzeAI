@@ -65,7 +65,8 @@ function getDoorSVGIcon(doorClass) {
 
 export default function DoorTypePanel({
   onSelectPreset,
-  activePreset
+  activePreset,
+  mode = 'door'
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedSection, setExpandedSection] = useState('internal'); // 'external' or 'internal' or 'all'
@@ -82,6 +83,19 @@ export default function DoorTypePanel({
       [itemId]: !prev[itemId]
     }));
   };
+
+  // Filter preset categories based on mode (door vs window)
+  const filteredCategories = PRESET_CATEGORIES.map(category => {
+    const items = category.items.filter(item => {
+      const isWindow = item.class === 'window' || item.id === 'win_standard';
+      if (mode === 'window') {
+        return isWindow;
+      } else {
+        return !isWindow;
+      }
+    });
+    return { ...category, items };
+  }).filter(category => category.items.length > 0);
 
   return (
     <div 
@@ -100,12 +114,12 @@ export default function DoorTypePanel({
       {/* Search Header */}
       <div style={{ padding: '16px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <h3 style={{ margin: '0 0 10px 0', fontSize: '15px', fontWeight: 600, color: '#e2e8f0' }}>
-          Penetrations
+          {mode === 'window' ? 'Window Presets' : 'Door Presets'}
         </h3>
         <div style={{ position: 'relative' }}>
           <input
             type="text"
-            placeholder="Search door types..."
+            placeholder={mode === 'window' ? "Search window types..." : "Search door types..."}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
@@ -130,7 +144,7 @@ export default function DoorTypePanel({
 
       {/* Accordion Lists */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }}>
-        {PRESET_CATEGORIES.map(category => {
+        {filteredCategories.map(category => {
           // Apply search filtering
           const filteredItems = category.items.filter(item => 
             item.name.toLowerCase().includes(searchTerm.toLowerCase())

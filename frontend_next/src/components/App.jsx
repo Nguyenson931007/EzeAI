@@ -780,12 +780,24 @@ export default function App() {
           )}
 
           {isDrawingDoor && !show3D && (
-            <DoorTypePanel
-              onSelectPreset={(preset) => {
-                setDoorPreset(preset);
+            <div
+              style={{
+                opacity: currentDoor && currentDoor.length > 0 ? 0.15 : 1,
+                pointerEvents: currentDoor && currentDoor.length > 0 ? 'none' : 'auto',
+                transition: 'opacity 0.25s ease-in-out, transform 0.25s ease-in-out',
+                zIndex: 10,
+                display: 'flex',
+                height: '100%'
               }}
-              activePreset={doorPreset}
-            />
+            >
+              <DoorTypePanel
+                onSelectPreset={(preset) => {
+                  setDoorPreset(preset);
+                }}
+                activePreset={doorPreset}
+                mode={doorPreset?.id === 'win_standard' || doorPreset?.class === 'window' ? 'window' : 'door'}
+              />
+            </div>
           )}
 
           {show3D ? (

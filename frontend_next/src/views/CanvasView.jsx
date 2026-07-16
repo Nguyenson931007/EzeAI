@@ -3490,7 +3490,10 @@ export default function CanvasView({
               }
 
               // Use current doorPreview class/type if available
-              const doorClass = doorController?.doorPreview?.class || 'single_door';
+              const doorClass = doorController?.doorPreview?.class || 
+                                doorController?.doorPreset?.class || 
+                                doorController?.doorPreset?.renderClass || 
+                                'single_door';
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
               const isDouble = doorClass.includes('double');
               const isWindow = doorClass.includes('window');

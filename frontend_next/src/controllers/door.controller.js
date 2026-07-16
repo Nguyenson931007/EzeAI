@@ -181,13 +181,13 @@ export function useDoorController({
 
     pushHistory(null, cutWalls, newDoors);
 
-    // Reset drawing state
-    setIsDrawingDoor(false);
+    // Reset drawing state (keep drawing tool active)
+    // setIsDrawingDoor(false);
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);
     setShowTypeSelector(false);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, setIsDrawingDoor]);
+  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls]);
 
   /**
    * Step 2: Records the first click point (mousedown).
