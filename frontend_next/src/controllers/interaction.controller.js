@@ -14,7 +14,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
 import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon } from "@/utils/geometry";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
-import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
+import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
 
@@ -2298,6 +2298,10 @@ export function useInteractionController(svgRef) {
     }
 
     if (rect) {
+      const dist = Math.hypot(p.x - rect.x1, p.y - rect.y1);
+      if (dist > 5) {
+        ignoreClickRef.current = true;
+      }
       setRect(r => ({ ...r, x2: p.x, y2: p.y }));
     }
   }
@@ -2423,15 +2427,46 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    // If clicking on empty area (no vertex, no room), start panning
+    // If clicking on empty area (no vertex, no room), start marquee selection or panning depending on space key
     if (!drawing && !isMeasuring && !isDistancing) {
       const nearVertex = rooms.some(r =>
         r.polygon.some(pt => Math.hypot(p.x - pt.x, p.y - pt.y) < 25 / scale)
       );
 
-      const insideRoom = rooms.some(r => pointInPolygon(p, r.polygon));
+      if (!nearVertex) {
+        if (interactionMode === "select" && !isSpaceDown && e.button === 0) {
+          // Check if near any wall centerline or door to avoid starting marquee on them
+          let isNearWallOrDoor = false;
+          const pageWalls = wallsByPage[currentPage] || [];
+          for (const w of pageWalls) {
+            if (w.centerline && w.centerline.length === 2) {
+              const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+              const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+              const proj = distancePointToSegment(p, a, b);
+              if (proj.dist < 15) {
+                isNearWallOrDoor = true;
+                break;
+              }
+            }
+          }
+          if (!isNearWallOrDoor) {
+            const pageDoors = doorsByPage[currentPage] || [];
+            for (const d of pageDoors) {
+              const bbox = getDoorBoundingBox(d) || [];
+              if (bbox.length >= 3 && pointInPolygon(p, bbox)) {
+                isNearWallOrDoor = true;
+                break;
+              }
+            }
+          }
 
-      if (!nearVertex && !insideRoom) {
+          if (!isNearWallOrDoor) {
+            setRect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y, isMarquee: true });
+            return;
+          }
+        }
+
+        // Default: start drag-panning
         panStart.current = { x: e.clientX, y: e.clientY };
       }
     }
@@ -2511,6 +2546,12 @@ export function useInteractionController(svgRef) {
     setIsPanning(false);
     if (rect) {
       if (rect.isMarquee) {
+        const dx = Math.abs(rect.x2 - rect.x1);
+        const dy = Math.abs(rect.y2 - rect.y1);
+        if (dx < 5 && dy < 5) {
+          setRect(null);
+          return;
+        }
         const minX = Math.min(rect.x1, rect.x2);
         const maxX = Math.max(rect.x1, rect.x2);
         const minY = Math.min(rect.y1, rect.y2);

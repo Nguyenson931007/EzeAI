@@ -1,5 +1,6 @@
 import React from 'react';
 import { getDoorCenterline } from '@/utils/geometry';
+import { getDoorBoundingBox } from '@/engines/DoorArcLabelEngine';
 
 export default function AIDoor({
   door: d,
@@ -30,6 +31,9 @@ export default function AIDoor({
       return { x: Number(x), y: Number(y) };
     })
     .filter(p => p && !isNaN(p.x) && !isNaN(p.y));
+
+  const bbox = getDoorBoundingBox(d) || [];
+  const clickPolyPoints = bbox.length >= 3 ? bbox : polyPoints;
 
   if (polyPoints.length < 3) return null;
 
@@ -78,6 +82,47 @@ export default function AIDoor({
     }
     if (nearestWall) {
       slidingHeight = nearestWall.thickness_px || 15;
+    }
+  }
+
+  const isGarage = d.class === "garage_door" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || d.type === "garage" || d.doorTypeId === "ext_garage";
+
+  // Garage Door Calculations
+  let garageWidth = 0;
+  let garageHeight = 15; // default fallback thickness
+  let garageAngle = 0;
+  let garageCx = cxAvg;
+  let garageCy = cyAvg;
+
+  if (isGarage) {
+    const centerline = getDoorCenterline(d, walls);
+    if (centerline) {
+      const p1 = centerline.p1;
+      const p2 = centerline.p2;
+      garageWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      garageAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      garageCx = (p1.x + p2.x) / 2;
+      garageCy = (p1.y + p2.y) / 2;
+
+      let minDist = Infinity;
+      let nearestWall = null;
+      for (const w of walls) {
+        if (!w.centerline || w.centerline.length !== 2) continue;
+        const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+        const wdx = wp2.x - wp1.x;
+        const wdy = wp2.y - wp1.y;
+        const wLen = Math.hypot(wdx, wdy);
+        if (wLen === 0) continue;
+        const dist = Math.abs(wdx * (garageCy - wp1.y) - wdy * (garageCx - wp1.x)) / wLen;
+        if (dist < minDist) {
+          minDist = dist;
+          nearestWall = w;
+        }
+      }
+      if (nearestWall) {
+        garageHeight = nearestWall.thickness_px || 15;
+      }
     }
   }
 
@@ -813,7 +858,7 @@ export default function AIDoor({
     >
       {/* Clickable Overlay (Raw mask polygon with transparent styling for click/drag) */}
       <polygon
-        points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
+        points={clickPolyPoints.map(p => `${p.x},${p.y}`).join(" ")}
         fill="transparent"
         stroke="transparent"
         strokeWidth={0}
@@ -822,8 +867,8 @@ export default function AIDoor({
           if (startDrag) {
             e.stopPropagation();
             if (!isSelected) {
-              setSelectedId(d.id);
-              setSelectedType("door");
+               setSelectedId(d.id);
+               setSelectedType("door");
             }
             startDrag(d.id, null, 'door-move');
           }
@@ -856,8 +901,50 @@ export default function AIDoor({
         />
       )}
 
+      {/* For Garage Doors */}
+      {isGarage && (
+        <g>
+          {/* Main garage door opening rect */}
+          <rect
+            x={-garageWidth / 2}
+            y={-garageHeight / 2}
+            width={garageWidth}
+            height={garageHeight}
+            transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
+            fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.15)" : "rgba(168, 85, 247, 0.08)")}
+            stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+            strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
+            style={{ pointerEvents: 'none' }}
+          />
+          {/* Panel line 1 */}
+          <line
+            x1={-garageWidth / 2}
+            y1={-garageHeight / 6}
+            x2={garageWidth / 2}
+            y2={-garageHeight / 6}
+            transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
+            stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+            strokeWidth={1}
+            opacity={0.6}
+            style={{ pointerEvents: 'none' }}
+          />
+          {/* Panel line 2 */}
+          <line
+            x1={-garageWidth / 2}
+            y1={garageHeight / 6}
+            x2={garageWidth / 2}
+            y2={garageHeight / 6}
+            transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
+            stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+            strokeWidth={1}
+            opacity={0.6}
+            style={{ pointerEvents: 'none' }}
+          />
+        </g>
+      )}
+
       {/* For Swing Doors (Single and Double) */}
-      {!isSliding && (
+      {!isSliding && !isGarage && (
         <>
           {/* Jambs */}
           {renderJambs()}

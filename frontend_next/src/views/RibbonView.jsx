@@ -220,17 +220,9 @@ export default function RibbonView({
                   <span className="icon">🏠</span><span className="label">Roof</span>
                 </button>
                 <button
-<<<<<<< HEAD
-                  className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'door' ? "active" : ""}`}
-                  onClick={() => {
-                    const isActive = isDrawingDoor && doorController?.doorPanelMode === 'door';
-
-                    if (isActive) {
-=======
                   className={`ribbon-btn ${showPenetrations && (!doorController || doorController.doorPreset?.id !== 'win_standard') ? "active" : ""}`}
                   onClick={() => {
                     if (showPenetrations && (!doorController || doorController.doorPreset?.id !== 'win_standard')) {
->>>>>>> be9cfba (refactor: update door drawing state and penetration UI behavior)
                       if (doorController) doorController.cancelDoorDraw();
                       else setIsDrawingDoor(false);
                     } else {
