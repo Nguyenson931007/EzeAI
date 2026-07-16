@@ -779,7 +779,7 @@ export default function App() {
             />
           )}
 
-          {isDrawingDoor && !show3D && (
+          {isDrawingDoor && !show3D && doorPreset?.id !== 'win_standard' && (
             <DoorTypePanel
               onSelectPreset={(preset) => {
                 setDoorPreset(preset);

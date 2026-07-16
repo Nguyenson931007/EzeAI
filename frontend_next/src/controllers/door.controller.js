@@ -181,8 +181,8 @@ export function useDoorController({
 
     pushHistory(null, cutWalls, newDoors);
 
-    // Reset drawing state
-    setIsDrawingDoor(false);
+    // Reset drawing state (keep drawing mode active, do not set isDrawingDoor to false)
+    // setIsDrawingDoor(false);
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);

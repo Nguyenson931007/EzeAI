@@ -364,7 +364,11 @@ export function useInteractionController(svgRef) {
         setIsMeasuring(false);
         setMeasurePoints([]);
         setIsAddingPoint(false);
-        setIsDrawingDoor(false);
+        if (doorController) {
+          doorController.cancelDoorDraw();
+        } else {
+          setIsDrawingDoor(false);
+        }
         setIsDrawingRoof(false);
         setRoofInteractionState(RoofInteractionState.IDLE);
         setSelectedRoofId(null);
