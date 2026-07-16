@@ -131,7 +131,8 @@ export function useInteractionController(svgRef) {
     isDrawingDoor, setIsDrawingDoor,
     currentDoor, setCurrentDoor,
     doorPreset, setDoorPreset,
-    isDraggingDoorRef
+    isDraggingDoorRef,
+    showPenetrations, setShowPenetrations
   } = doorController;
 
   const [history, setHistory] = useState([]);
@@ -2600,6 +2601,7 @@ export function useInteractionController(svgRef) {
     isPanning,
     drawing, setDrawing,
     isDrawingDoor, setIsDrawingDoor,
+    showPenetrations, setShowPenetrations,
     isDrawingRoof, setIsDrawingRoof,
     roofInteractionState, setRoofInteractionState,
     selectedRoofId, setSelectedRoofId,

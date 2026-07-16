@@ -65,6 +65,7 @@ export function useDoorController({
 }) {
   // ── Drawing State ──
   const [isDrawingDoor, setIsDrawingDoor] = useState(false);
+  const [showPenetrations, setShowPenetrations] = useState(false);
   const [currentDoorPoints, setCurrentDoorPoints] = useState([]); // [{x,y}] during drawing
   const [doorPreview, setDoorPreview] = useState(null); // Preview door object for rendering
   const [pendingDoor, setPendingDoor] = useState(null); // Door awaiting type confirmation
@@ -124,6 +125,7 @@ export function useDoorController({
   const startDoorDraw = useCallback(() => {
     initDoorSequence();
     setIsDrawingDoor(true);
+    setShowPenetrations(true);
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);
@@ -199,7 +201,12 @@ export function useDoorController({
 
     pushHistory(null, cutWalls, newDoors);
 
+<<<<<<< HEAD
     // Reset drawing state (keep drawing tool active and left panel visible)
+=======
+    // Reset drawing state (end door drawing mode, but keep showPenetrations panel active)
+    setIsDrawingDoor(false);
+>>>>>>> be9cfba (refactor: update door drawing state and penetration UI behavior)
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);
@@ -472,6 +479,7 @@ export function useDoorController({
     setShowTypeSelector(false);
     isDraggingDoorRef.current = false;
     setDoorPreset(null);
+    setShowPenetrations(false);
   }, []);
 
   // ──────────────────────────────────────────────────────────
@@ -823,6 +831,8 @@ export function useDoorController({
     // Drawing state
     isDrawingDoor,
     setIsDrawingDoor,
+    showPenetrations,
+    setShowPenetrations,
     currentDoorPoints,
     setCurrentDoorPoints,
     doorPreview,

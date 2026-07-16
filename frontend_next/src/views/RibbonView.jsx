@@ -10,6 +10,7 @@ export default function RibbonView({
   createDefaultExtEnvelope,
   autoFitExtEnvelope,
   isDrawingDoor, setIsDrawingDoor,
+  showPenetrations, setShowPenetrations,
   doorController,
   isDrawingRoof, setIsDrawingRoof,
   setSelectedRoofId,
@@ -202,7 +203,7 @@ export default function RibbonView({
             {/* DRAW */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); }}>
+                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); if (doorController) doorController.setShowPenetrations(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button>
                 <button
@@ -212,17 +213,24 @@ export default function RibbonView({
                     setDrawing(false);
                     setCurrentPoly([]);
                     setIsDrawingDoor(false);
+                    if (doorController) doorController.setShowPenetrations(false);
                   }}
                   title="Vẽ polygon để tính diện tích mái"
                 >
                   <span className="icon">🏠</span><span className="label">Roof</span>
                 </button>
                 <button
+<<<<<<< HEAD
                   className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'door' ? "active" : ""}`}
                   onClick={() => {
                     const isActive = isDrawingDoor && doorController?.doorPanelMode === 'door';
 
                     if (isActive) {
+=======
+                  className={`ribbon-btn ${showPenetrations && (!doorController || doorController.doorPreset?.id !== 'win_standard') ? "active" : ""}`}
+                  onClick={() => {
+                    if (showPenetrations && (!doorController || doorController.doorPreset?.id !== 'win_standard')) {
+>>>>>>> be9cfba (refactor: update door drawing state and penetration UI behavior)
                       if (doorController) doorController.cancelDoorDraw();
                       else setIsDrawingDoor(false);
                     } else {
@@ -283,6 +291,7 @@ export default function RibbonView({
                   className={`ribbon-btn ${interactionMode === "draw-ext-rect" ? "active" : ""}`}
                   onClick={() => {
                     setIsDrawingDoor(false);
+                    if (doorController) doorController.setShowPenetrations(false);
                     if (interactionMode === "draw-ext-rect") {
                       setInteractionMode && setInteractionMode("select");
                     } else {
@@ -322,10 +331,10 @@ export default function RibbonView({
             {/* MEASURE TOOLS */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn ${isMeasuring ? "active" : ""}`} onClick={() => { setIsMeasuring(true); setMeasurePoints([]); setIsDistancing(false); setDistancePoints([]); setIsDrawingDoor(false); }}>
+                <button className={`ribbon-btn ${isMeasuring ? "active" : ""}`} onClick={() => { setIsMeasuring(true); setMeasurePoints([]); setIsDistancing(false); setDistancePoints([]); setIsDrawingDoor(false); if (doorController) doorController.setShowPenetrations(false); }}>
                   <span className="icon">📏</span><span className="label">Scale</span>
                 </button>
-                <button className={`ribbon-btn ${isDistancing ? "active" : ""}`} onClick={() => { if (!scaleValue) { showAlert("Bạn phải scale trước khi đo kích thước!"); return; } setIsDistancing(v => !v); setDistancePoints([]); setIsMeasuring(false); setIsDrawingDoor(false); }}>
+                <button className={`ribbon-btn ${isDistancing ? "active" : ""}`} onClick={() => { if (!scaleValue) { showAlert("Bạn phải scale trước khi đo kích thước!"); return; } setIsDistancing(v => !v); setDistancePoints([]); setIsMeasuring(false); setIsDrawingDoor(false); if (doorController) doorController.setShowPenetrations(false); }}>
                   <span className="icon">📏📐</span><span className="label">Dist</span>
                 </button>
 
