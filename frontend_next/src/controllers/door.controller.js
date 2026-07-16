@@ -269,14 +269,18 @@ export function useDoorController({
       const projected = projectDoorOntoWall(startPoint, endPoint, snapResult.wall);
       endPoint = projected.p2;
 
-      // If we have a preset with specific width, enforce it (except for window presets)
-      const isWindowPreset = doorPreset && (
+      // If we have a preset with specific width, enforce it (except for window and garage presets)
+      const isWindowOrGaragePreset = doorPreset && (
         doorPreset.renderClass === 'window' ||
         doorPreset.class === 'window' ||
         doorPreset.doorType === 'window' ||
-        doorPreset.id === 'win_standard'
+        doorPreset.id === 'win_standard' ||
+        doorPreset.renderClass === 'garage_door' ||
+        doorPreset.class === 'garage_door' ||
+        doorPreset.doorType === 'garage' ||
+        doorPreset.id === 'ext_garage'
       );
-      if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
+      if (doorPreset && doorPreset.width && realScale && !isWindowOrGaragePreset) {
         const desiredPx = doorPreset.width / realScale;
         const dir = { x: projected.p2.x - projected.p1.x, y: projected.p2.y - projected.p1.y };
         const len = Math.hypot(dir.x, dir.y);
@@ -359,14 +363,18 @@ export function useDoorController({
       finalP2 = projected.p2;
     }
 
-    // If we have a preset with specific width, enforce it (except for window presets)
-    const isWindowPreset = doorPreset && (
+    // If we have a preset with specific width, enforce it (except for window and garage presets)
+    const isWindowOrGaragePreset = doorPreset && (
       doorPreset.renderClass === 'window' ||
       doorPreset.class === 'window' ||
       doorPreset.doorType === 'window' ||
-      doorPreset.id === 'win_standard'
+      doorPreset.id === 'win_standard' ||
+      doorPreset.renderClass === 'garage_door' ||
+      doorPreset.class === 'garage_door' ||
+      doorPreset.doorType === 'garage' ||
+      doorPreset.id === 'ext_garage'
     );
-    if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
+    if (doorPreset && doorPreset.width && realScale && !isWindowOrGaragePreset) {
       const desiredPx = doorPreset.width / realScale;
       const dx = finalP2.x - finalP1.x;
       const dy = finalP2.y - finalP1.y;

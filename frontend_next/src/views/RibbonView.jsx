@@ -147,7 +147,7 @@ export default function RibbonView({
                   <span className="icon">💾</span> <span className="label">Save</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => handleSaveJob(true)} title="Save project as new name">
-                  <span className="icon">💾📂</span> <span className="label">Save As</span>
+                  <span className="icon">📂</span> <span className="label">Save As</span>
                 </button>
               </div>
               <span className="ribbon-group-title">FILE</span>
