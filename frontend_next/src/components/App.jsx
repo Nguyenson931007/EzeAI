@@ -705,6 +705,9 @@ export default function App() {
         isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
         doorController={doorController}
         isDrawingRoof={isDrawingRoof} setIsDrawingRoof={setIsDrawingRoof}
+        setSelectedRoofId={setSelectedRoofId}
+        setSelectedId={setSelectedId}
+        setSelectedType={setSelectedType}
         isMeasuring={isMeasuring} setIsMeasuring={setIsMeasuring} setMeasurePoints={setMeasurePoints}
         isDistancing={isDistancing} setIsDistancing={setIsDistancing} setDistancePoints={setDistancePoints} setDistanceResults={setDistanceResults}
         isSnapMode={isSnapMode} setIsSnapMode={setIsSnapMode}
@@ -793,9 +796,13 @@ export default function App() {
               <DoorTypePanel
                 onSelectPreset={(preset) => {
                   setDoorPreset(preset);
+                  if (preset) {
+                    const isWindow = preset.renderClass === 'window' || preset.class === 'window' || preset.id?.startsWith('win_');
+                    doorController.setDoorPanelMode(isWindow ? 'window' : 'door');
+                  }
                 }}
                 activePreset={doorPreset}
-                mode={doorPreset?.id === 'win_standard' || doorPreset?.class === 'window' ? 'window' : 'door'}
+                mode={doorController?.doorPanelMode || 'door'}
               />
             </div>
           )}

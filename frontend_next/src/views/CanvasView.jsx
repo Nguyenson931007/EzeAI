@@ -27,6 +27,7 @@ import {
   calculateWallPolygon 
 } from "@/utils/geometry";
 import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
+import { snapPointToWall } from "@/engines/DoorGeometryEngine";
 
 
 // Review/Confidence Color Mapping
@@ -561,7 +562,7 @@ const WallLayer = React.memo(({
       })}
 
       {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
-      {(walls || []).map(w => {
+      {(walls || []).map((w, idx) => {
         const isSelected = selectedWallIds.includes(w.id);
         const isHovered = w.id === hoverId;
         const isDraggingThis = dragging && dragging.id === w.id;
@@ -579,7 +580,7 @@ const WallLayer = React.memo(({
 
         return (
           <polygon
-            key={w.id}
+            key={`${w.id}-${idx}`}
             points={pointsStr}
             fill={fillColor}
             stroke={strokeColor}
@@ -640,12 +641,12 @@ const WallLayer = React.memo(({
       ))}
 
       {/* 2. Render selected wall vertex handles on top of everything */}
-      {interactionMode !== "cut-wall" && (walls || []).map(w => {
+      {interactionMode !== "cut-wall" && (walls || []).map((w, idx) => {
         const isSelected = selectedWallIds.includes(w.id);
         if (!isSelected || !w.centerline || w.centerline.length !== 2) return null;
 
         return (
-          <g key={`handles-${w.id}`}>
+          <g key={`handles-${w.id}-${idx}`}>
             {w.centerline.map((pt, i) => {
               const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
               const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) || 
@@ -781,7 +782,7 @@ const DoorLayer = React.memo(({
 
   return (
     <g id="DoorLayer">
-      {(doors || []).map(d => {
+      {(doors || []).map((d, idx) => {
         try {
           const isSelected = selectedId === d.id && selectedType === "door";
           const isHovered = d.id === hoverId;
@@ -828,7 +829,7 @@ const DoorLayer = React.memo(({
           if (isAIDoor) {
             return (
               <AIDoor
-                key={d.id}
+                key={`${d.id}-${idx}`}
                 door={d}
                 isSelected={isSelected}
                 isHovered={isHovered}
@@ -1079,7 +1080,7 @@ const DoorLayer = React.memo(({
           };
 
           return (
-            <g key={d.id} 
+            <g key={`${d.id}-${idx}`} 
                onClick={(e) => {
                  if (interactionMode === "draw-wall") return;
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
@@ -1211,7 +1212,7 @@ const DoorLayer = React.memo(({
               })}
 
               {/* Floating interactive flip control panel (manual doors only) */}
-              {isSelected && hasBBox && (
+              {isSelected && hasBBox && type !== "window" && (
                 <foreignObject
                   x={bboxX + bboxW / 2 - 60}
                   y={bboxY - 32}
@@ -3473,8 +3474,143 @@ export default function CanvasView({
               </g>
             )}
 
+            {/* Cursor Hover Silhouette Preview (Ghost/Silhouette) */}
+            {isDrawingDoor && (!currentDoor || currentDoor.length === 0) && currentMouse && (() => {
+              if (!doorController?.doorPreset) return null;
+              const snap = snapPointToWall(currentMouse, walls || [], 60);
+              if (!snap.wall || !realScale) return null;
+
+              const wall = snap.wall;
+              const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+              const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+              const wdx = wp2.x - wp1.x;
+              const wdy = wp2.y - wp1.y;
+              const wLen = Math.hypot(wdx, wdy);
+              if (wLen < 0.1) return null;
+
+              const ux = wdx / wLen;
+              const uy = wdy / wLen;
+
+              const proj = distancePointToSegment(currentMouse, wp1, wp2);
+              const cx = proj.x;
+              const cy = proj.y;
+
+              const activePreset = doorController?.doorPreset;
+              const presetWidth = activePreset?.width || 820;
+              const widthPx = presetWidth / realScale;
+
+              const p1 = {
+                x: cx - ux * (widthPx / 2),
+                y: cy - uy * (widthPx / 2)
+              };
+              const p2 = {
+                x: cx + ux * (widthPx / 2),
+                y: cy + uy * (widthPx / 2)
+              };
+
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const len = Math.hypot(dx, dy);
+
+              const doorClass = activePreset?.class || activePreset?.renderClass || 'single_door';
+              const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
+              const isDouble = doorClass.includes('double');
+              const isWindow = doorClass.includes('window');
+
+              const previewOpacity = 0.4;
+
+              if (isWindow) {
+                const angle = Math.atan2(dy, dx);
+                const nx = -Math.sin(angle);
+                const ny = Math.cos(angle);
+                const thickness = 4;
+                return (
+                  <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} />
+                    <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke="#2196F3" strokeWidth={1} />
+                    <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke="#2196F3" strokeWidth={1} />
+                    <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
+                    <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
+                    <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                  </g>
+                );
+              }
+
+              if (isSliding) {
+                const angle = Math.atan2(dy, dx);
+                const sideFactor = (doorController?.previewSwing || 'inward') === 'inward' ? 1 : -1;
+                const offsetX = -Math.sin(angle) * 3 * sideFactor;
+                const offsetY = Math.cos(angle) * 3 * sideFactor;
+                return (
+                  <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={4} />
+                    <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke="#2196F3" strokeWidth={1} />
+                    <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                  </g>
+                );
+              }
+
+              if (isDouble) {
+                const halfLen = len / 2;
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                const sideFactor = (doorController?.previewSwing || 'inward') === 'inward' ? 1 : -1;
+                const openAngleRad = (Math.PI / 2) * sideFactor;
+                const ang1 = Math.atan2(midY - p1.y, midX - p1.x) + openAngleRad;
+                const end1X = p1.x + halfLen * Math.cos(ang1);
+                const end1Y = p1.y + halfLen * Math.sin(ang1);
+                const ang2 = Math.atan2(midY - p2.y, midX - p2.x) - openAngleRad;
+                const end2X = p2.x + halfLen * Math.cos(ang2);
+                const end2Y = p2.y + halfLen * Math.sin(ang2);
+
+                const sweepDir = sideFactor === 1 ? '0 0 1' : '0 0 0';
+
+                return (
+                  <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} strokeDasharray="3,3" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir} ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke="#2196F3" strokeWidth={2} />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir === '0 0 1' ? '0 0 0' : '0 0 1'} ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke="#2196F3" strokeWidth={2} />
+                    <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                  </g>
+                );
+              }
+
+              const hingeSideStr = doorController?.previewHingeSide || 'left';
+              const swingStr = doorController?.previewSwing || 'inward';
+
+              const geom = calculateDoorGeometry({
+                p1,
+                p2,
+                type: 'single',
+                hingeSide: hingeSideStr,
+                swing: swingStr,
+                angle: 90
+              });
+
+              if (!geom) return null;
+
+              const isRightHinge = hingeSideStr === "right";
+              const isInward = swingStr === "inward";
+              const sweepFlag = (isRightHinge ? (isInward ? 0 : 1) : (isInward ? 1 : 0));
+
+              return (
+                <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} strokeDasharray="3,3" />
+                  <path 
+                    d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
+                    fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2"
+                  />
+                  <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke="#2196F3" strokeWidth={2.5} />
+                  <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                </g>
+              );
+            })()}
+
             {/* Door Drawing Preview */}
-            {isDrawingDoor && currentDoor.length > 0 && currentMouse && (() => {
+            {isDrawingDoor && currentDoor && currentDoor.length > 0 && currentMouse && (() => {
+              if (!doorController?.doorPreset) return null;
               const p1 = currentDoor[0];
               const p2 = currentMouse;
               const dx = p2.x - p1.x;
@@ -3518,8 +3654,9 @@ export default function CanvasView({
 
               if (isSliding) {
                 const angle = Math.atan2(dy, dx);
-                const offsetX = -Math.sin(angle) * 3;
-                const offsetY = Math.cos(angle) * 3;
+                const sideFactor = (doorController?.previewSwing || 'inward') === 'inward' ? 1 : -1;
+                const offsetX = -Math.sin(angle) * 3 * sideFactor;
+                const offsetY = Math.cos(angle) * 3 * sideFactor;
                 return (
                   <g style={{ pointerEvents: 'none' }}>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={4} />
@@ -3534,7 +3671,8 @@ export default function CanvasView({
                 const halfLen = len / 2;
                 const midX = (p1.x + p2.x) / 2;
                 const midY = (p1.y + p2.y) / 2;
-                const openAngleRad = Math.PI / 2;
+                const sideFactor = (doorController?.previewSwing || 'inward') === 'inward' ? 1 : -1;
+                const openAngleRad = (Math.PI / 2) * sideFactor;
                 const ang1 = Math.atan2(midY - p1.y, midX - p1.x) + openAngleRad;
                 const end1X = p1.x + halfLen * Math.cos(ang1);
                 const end1Y = p1.y + halfLen * Math.sin(ang1);
@@ -3542,12 +3680,14 @@ export default function CanvasView({
                 const end2X = p2.x + halfLen * Math.cos(ang2);
                 const end2Y = p2.y + halfLen * Math.sin(ang2);
 
+                const sweepDir = sideFactor === 1 ? '0 0 1' : '0 0 0';
+
                 return (
                   <g style={{ pointerEvents: 'none' }}>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.5} strokeDasharray="3,3" />
-                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 1 ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir} ${end1X} ${end1Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
                     <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke="#2196F3" strokeWidth={2} />
-                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 0 ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
+                    <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 ${sweepDir === '0 0 1' ? '0 0 0' : '0 0 1'} ${end2X} ${end2Y}`} fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2" />
                     <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke="#2196F3" strokeWidth={2} />
                     <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
                     <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
@@ -3556,22 +3696,29 @@ export default function CanvasView({
               }
 
               // Single swing door preview
+              const hingeSideStr = doorController?.previewHingeSide || 'left';
+              const swingStr = doorController?.previewSwing || 'inward';
+
               const geom = calculateDoorGeometry({
                 p1,
                 p2,
                 type: 'single',
-                hingeSide: 'left',
-                swing: 'inward',
+                hingeSide: hingeSideStr,
+                swing: swingStr,
                 angle: 90
               });
 
               if (!geom) return null;
 
+              const isRightHinge = hingeSideStr === "right";
+              const isInward = swingStr === "inward";
+              const sweepFlag = (isRightHinge ? (isInward ? 0 : 1) : (isInward ? 1 : 0));
+
               return (
                 <g style={{ pointerEvents: 'none' }}>
                   <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.5} strokeDasharray="3,3" />
                   <path 
-                    d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 1 ${geom.arcEnd.x} ${geom.arcEnd.y}`}
+                    d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
                     fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2"
                   />
                   <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke="#2196F3" strokeWidth={2.5} />

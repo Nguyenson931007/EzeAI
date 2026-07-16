@@ -87,7 +87,7 @@ export default function DoorTypePanel({
   // Filter preset categories based on mode (door vs window)
   const filteredCategories = PRESET_CATEGORIES.map(category => {
     const items = category.items.filter(item => {
-      const isWindow = item.class === 'window' || item.id === 'win_standard';
+      const isWindow = item.class === 'window' || item.id?.startsWith('win_');
       if (mode === 'window') {
         return isWindow;
       } else {

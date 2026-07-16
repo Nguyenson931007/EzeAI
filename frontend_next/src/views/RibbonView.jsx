@@ -12,6 +12,9 @@ export default function RibbonView({
   isDrawingDoor, setIsDrawingDoor,
   doorController,
   isDrawingRoof, setIsDrawingRoof,
+  setSelectedRoofId,
+  setSelectedId,
+  setSelectedType,
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
   isSnapMode, setIsSnapMode,
@@ -215,28 +218,30 @@ export default function RibbonView({
                   <span className="icon">🏠</span><span className="label">Roof</span>
                 </button>
                 <button
-                  className={`ribbon-btn ${isDrawingDoor && (!doorController || doorController.doorPreset?.id !== 'win_standard') ? "active" : ""}`}
+                  className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'door' ? "active" : ""}`}
                   onClick={() => {
-                    if (isDrawingDoor && (!doorController || doorController.doorPreset?.id !== 'win_standard')) {
+                    const isActive = isDrawingDoor && doorController?.doorPanelMode === 'door';
+
+                    if (isActive) {
                       if (doorController) doorController.cancelDoorDraw();
                       else setIsDrawingDoor(false);
                     } else {
+                      // Deselect other states and reset tools
+                      setDrawing(false);
+                      setIsDrawingRoof(false);
+                      if (setSelectedRoofId) setSelectedRoofId(null);
+                      if (setSelectedId) setSelectedId(null);
+                      if (setSelectedType) setSelectedType(null);
+                      if (setCurrentPoly) setCurrentPoly([]);
+                      if (setInteractionMode) setInteractionMode("select");
+
                       if (doorController) {
                         doorController.startDoorDraw();
-                        doorController.setDoorPreset({
-                          id: 'int_hinged_single',
-                          width: 810,
-                          label: 'Internal Hinged Door',
-                          category: 'internal',
-                          renderClass: 'single_door',
-                          doorType: 'single'
-                        });
+                        doorController.setDoorPanelMode('door');
+                        doorController.setDoorPreset(null); // start in choosing phase
                       } else {
                         setIsDrawingDoor(true);
                       }
-                      setDrawing(false);
-                      if (setCurrentPoly) setCurrentPoly([]);
-                      if (setInteractionMode) setInteractionMode("select");
                     }
                   }}
                   title="Vẽ cửa đi thủ công bằng cách kéo thả"
@@ -244,32 +249,30 @@ export default function RibbonView({
                   <span className="icon">🚪</span><span className="label">Door</span>
                 </button>
                 <button
-                  className={`ribbon-btn ${isDrawingDoor && doorController?.doorPreset?.id === 'win_standard' ? "active" : ""}`}
+                  className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'window' ? "active" : ""}`}
                   onClick={() => {
-                    if (isDrawingDoor && doorController?.doorPreset?.id === 'win_standard') {
-                      if (doorController) {
-                        doorController.cancelDoorDraw();
-                        doorController.setDoorPreset(null);
-                      } else {
-                        setIsDrawingDoor(false);
-                      }
+                    const isActive = isDrawingDoor && doorController?.doorPanelMode === 'window';
+
+                    if (isActive) {
+                      if (doorController) doorController.cancelDoorDraw();
+                      else setIsDrawingDoor(false);
                     } else {
+                      // Deselect other states and reset tools
+                      setDrawing(false);
+                      setIsDrawingRoof(false);
+                      if (setSelectedRoofId) setSelectedRoofId(null);
+                      if (setSelectedId) setSelectedId(null);
+                      if (setSelectedType) setSelectedType(null);
+                      if (setCurrentPoly) setCurrentPoly([]);
+                      if (setInteractionMode) setInteractionMode("select");
+
                       if (doorController) {
                         doorController.startDoorDraw();
-                        doorController.setDoorPreset({
-                          id: 'win_standard',
-                          width: 1200,
-                          label: 'Standard Window',
-                          category: 'internal',
-                          renderClass: 'window',
-                          doorType: 'window'
-                        });
+                        doorController.setDoorPanelMode('window');
+                        doorController.setDoorPreset(null); // start in choosing phase
                       } else {
                         setIsDrawingDoor(true);
                       }
-                      setDrawing(false);
-                      if (setCurrentPoly) setCurrentPoly([]);
-                      if (setInteractionMode) setInteractionMode("select");
                     }
                   }}
                   title="Vẽ cửa sổ thủ công bằng cách kéo thả"

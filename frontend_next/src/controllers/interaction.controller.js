@@ -437,7 +437,7 @@ export function useInteractionController(svgRef) {
         } else if (drawing) {
           e.preventDefault();
           finishPolygon();
-        } else if (isDrawingDoor) {
+        } else if (isDrawingDoor && doorPreset) {
           e.preventDefault();
           finishDoor();
         }
@@ -452,6 +452,17 @@ export function useInteractionController(svgRef) {
         if (selectedWallVertex) {
           e.preventDefault();
           separateJunction(selectedWallVertex);
+        }
+      }
+
+      if (e.code === "KeyR" || e.key === "r" || e.key === "R") {
+        if (isDrawingDoor && doorPreset) {
+          e.preventDefault();
+          if (e.ctrlKey || e.metaKey) {
+            doorController?.flipHingeState();
+          } else {
+            doorController?.flipSwingState();
+          }
         }
       }
 
@@ -488,7 +499,7 @@ export function useInteractionController(svgRef) {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse, currentPage]);
+  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse, currentPage, doorController]);
 
   // Zoom Handler
   useEffect(() => {
@@ -1136,7 +1147,7 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    if (isDrawingDoor) {
+    if (isDrawingDoor && doorPreset) {
       const last = currentDoor[currentDoor.length - 1];
       let snappedP = p;
       if ((isShiftDown || isSnapMode) && last) {
@@ -2231,7 +2242,7 @@ export function useInteractionController(svgRef) {
       }
     }
 
-    if (isDrawingDoor) {
+    if (isDrawingDoor && doorPreset) {
       doorController.onDoorMouseMove(snappedP, isShiftDown, isSnapMode);
     }
     setCurrentMouse(snappedP);
@@ -2288,7 +2299,7 @@ export function useInteractionController(svgRef) {
 
   function onMouseDown(e) {
     if (doorController.showTypeSelector) return;
-    if (isDrawingDoor) {
+    if (isDrawingDoor && doorPreset) {
       const pageDoors = doorsByPage[currentPage] || [];
       const isHoveringDoor = pageDoors.some(d => d.id === hoverId);
 

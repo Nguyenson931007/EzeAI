@@ -38,7 +38,7 @@ import {
   getDoorPoints,
   computeSwingArc,
 } from '@/engines/DoorGeometryEngine';
-import { snapDoorToWalls, cutWallsByDoors } from '@/utils/geometry';
+import { snapDoorToWalls, cutWallsByDoors, distancePointToSegment } from '@/utils/geometry';
 
 /**
  * useDoorController — React hook providing door state and operations.
@@ -72,6 +72,17 @@ export function useDoorController({
   const [selectedTypeId, setSelectedTypeId] = useState('int_hinged_single');
   const [doorPreset, setDoorPreset] = useState(null); // Legacy preset from DoorTypePanel
   const isDraggingDoorRef = useRef(false);
+  const [doorPanelMode, setDoorPanelMode] = useState('door');
+  const [previewHingeSide, setPreviewHingeSide] = useState('left');
+  const [previewSwing, setPreviewSwing] = useState('inward');
+
+  const flipHingeState = useCallback(() => {
+    setPreviewHingeSide(prev => prev === 'left' ? 'right' : 'left');
+  }, []);
+
+  const flipSwingState = useCallback(() => {
+    setPreviewSwing(prev => prev === 'inward' ? 'outward' : 'inward');
+  }, []);
 
   // ── Helpers ──
   const getCurrentDoors = useCallback(() => {
@@ -117,6 +128,8 @@ export function useDoorController({
     setDoorPreview(null);
     setPendingDoor(null);
     setShowTypeSelector(false);
+    setPreviewHingeSide('left');
+    setPreviewSwing('inward');
   }, [initDoorSequence]);
 
   const finalizeDoor = useCallback((p1, p2, doorTypeId, parentWall) => {
@@ -132,6 +145,11 @@ export function useDoorController({
       realScale,
       {
         door_name: undefined, // will use doorName
+        hingeSide: previewHingeSide,
+        hinge_side: previewHingeSide,
+        swingDirection: previewSwing,
+        swing: previewSwing,
+        swing_direction: previewSwing,
       }
     );
 
@@ -181,13 +199,13 @@ export function useDoorController({
 
     pushHistory(null, cutWalls, newDoors);
 
-    // Reset drawing state (keep drawing tool active)
-    // setIsDrawingDoor(false);
+    // Reset drawing state (keep drawing tool active and left panel visible)
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);
     setShowTypeSelector(false);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls]);
+    setDoorPreset(null);
+  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setDoorPreset]);
 
   /**
    * Step 2: Records the first click point (mousedown).
@@ -199,13 +217,53 @@ export function useDoorController({
     // If we're in type-selection mode, ignore canvas clicks
     if (showTypeSelector) return true;
 
+    // If no preset is active (choosing phase), do not allow drawing/placing
+    if (!doorPreset) return false;
+
+    const isPreset = !doorPreset.id?.endsWith('_custom');
+
     const walls = getCurrentWalls();
     const snap = snapPointToWall(canvasPoint, walls, 60);
+
+    if (isPreset) {
+      if (snap.wall && realScale) {
+        const wall = snap.wall;
+        const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+        const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+        
+        const wdx = wp2.x - wp1.x;
+        const wdy = wp2.y - wp1.y;
+        const wLen = Math.hypot(wdx, wdy);
+        if (wLen >= 0.1) {
+          const ux = wdx / wLen;
+          const uy = wdy / wLen;
+
+          // Project clicked point onto wall centerline
+          const proj = distancePointToSegment(canvasPoint, wp1, wp2);
+          const cx = proj.x;
+          const cy = proj.y;
+
+          const widthPx = doorPreset.width / realScale;
+          
+          const p1 = {
+            x: cx - ux * (widthPx / 2),
+            y: cy - uy * (widthPx / 2)
+          };
+          const p2 = {
+            x: cx + ux * (widthPx / 2),
+            y: cy + uy * (widthPx / 2)
+          };
+
+          finalizeDoor(p1, p2, doorPreset.id, wall);
+        }
+      }
+      return true; // consumed the event
+    }
 
     setCurrentDoorPoints([snap.snappedPoint]);
     isDraggingDoorRef.current = true;
     return true; // consumed the event
-  }, [isDrawingDoor, showTypeSelector, getCurrentWalls]);
+  }, [isDrawingDoor, showTypeSelector, doorPreset, realScale, getCurrentWalls, finalizeDoor]);
 
   /**
    * Step 3: Handles mouse movement during drag to update preview.
@@ -777,6 +835,14 @@ export function useDoorController({
     doorPreset,
     setDoorPreset,
     isDraggingDoorRef,
+    doorPanelMode,
+    setDoorPanelMode,
+    previewHingeSide,
+    setPreviewHingeSide,
+    previewSwing,
+    setPreviewSwing,
+    flipHingeState,
+    flipSwingState,
 
     // Drawing workflow
     startDoorDraw,
