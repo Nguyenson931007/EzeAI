@@ -2319,6 +2319,12 @@ export function useInteractionController(svgRef) {
         if (e.button === 0) {
           const p = getMouse(e);
           doorController.onDoorMouseDown(p);
+        } else if (e.button === 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (doorController?.flipHingeState) {
+            doorController.flipHingeState();
+          }
         }
         return;
       }

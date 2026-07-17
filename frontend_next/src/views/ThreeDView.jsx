@@ -592,320 +592,412 @@ export default function ThreeDView({
           }
 
           const doorGroup = new THREE.Group();
-          const frameHeight = hostWallHeightPx * 0.85;
-
-          const frameMat = new THREE.MeshStandardMaterial({
-            color: 0x2e1a0c,
-            roughness: 0.8,
-            metalness: 0.1
-          });
-
-          const postThickness = 3;
-          const frameDepth = wallThickness + 4;
-
-          const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
-          const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
-          leftPost.position.set(-length/2, frameHeight/2, 0);
-          leftPost.castShadow = enableShadows;
-          leftPost.receiveShadow = enableShadows;
-          doorGroup.add(leftPost);
-
-          const rightPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
-          const rightPost = new THREE.Mesh(rightPostGeo, frameMat);
-          rightPost.position.set(length/2, frameHeight/2, 0);
-          rightPost.castShadow = enableShadows;
-          rightPost.receiveShadow = enableShadows;
-          doorGroup.add(rightPost);
-
-          const headerGeo = new THREE.BoxGeometry(length, postThickness, frameDepth);
-          const header = new THREE.Mesh(headerGeo, frameMat);
-          header.position.set(0, frameHeight - postThickness/2, 0);
-          header.castShadow = enableShadows;
-          header.receiveShadow = enableShadows;
-          doorGroup.add(header);
-
           const dClass = door.class || "";
-          const isDouble = dClass.includes("double") || (door.door_name && door.door_name.toLowerCase().includes("2x"));
-          const isSliding = dClass.includes("sliding") || dClass.includes("slider") || dClass.includes("cavity");
-          const isBifold = dClass.includes("bifold") || dClass.includes("fold");
-          const isGarage = dClass.includes("garage") || dClass.includes("roller");
+          const isWindow = dClass.includes("window") || (door.door_name && door.door_name.toLowerCase().includes("window")) || door.doorTypeId === "win_standard";
 
-          const slabHeight = frameHeight - postThickness;
-          const slabThick = 4;
-          const slabMat = new THREE.MeshStandardMaterial({
-            color: 0x5c3a21,
-            roughness: 0.85,
-            metalness: 0.1,
-            side: THREE.DoubleSide
-          });
-
-          const detailMat = new THREE.MeshStandardMaterial({
-            color: 0x422817,
-            roughness: 0.9,
-            metalness: 0.1
-          });
-
-          const addHandleToPanel = (panel, dx, dy, dz, lever = false) => {
-            const handleGroup = new THREE.Group();
-            const plateGeo = new THREE.BoxGeometry(1.2, 5, 0.4);
-            const plate = new THREE.Mesh(plateGeo, frameMat);
-            plate.position.set(0, 0, 0);
-            handleGroup.add(plate);
-
-            if (lever) {
-              const neckGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 8);
-              const neck = new THREE.Mesh(neckGeo, frameMat);
-              neck.rotation.x = Math.PI / 2;
-              neck.position.set(0, 0, 0.75);
-              handleGroup.add(neck);
-
-              const barGeo = new THREE.BoxGeometry(3.5, 0.6, 0.4);
-              const bar = new THREE.Mesh(barGeo, frameMat);
-              bar.position.set(1.5, 0, 1.5);
-              handleGroup.add(bar);
-            } else {
-              const knobGeo = new THREE.CylinderGeometry(1, 1, 1.2, 12);
-              const knob = new THREE.Mesh(knobGeo, frameMat);
-              knob.rotation.x = Math.PI / 2;
-              knob.position.set(0, 0, 0.6);
-              handleGroup.add(knob);
-            }
-            handleGroup.position.set(dx, dy, dz);
-            panel.add(handleGroup);
-          };
-
-          if (isGarage) {
-            const sectionGroup = new THREE.Group();
-            const numSections = 4;
-            const secH = slabHeight / numSections;
-            const pWidth = length - postThickness;
-
-            for (let sIdx = 0; sIdx < numSections; sIdx++) {
-              const mainPanelGeo = new THREE.BoxGeometry(pWidth, secH - 1, 4);
-              const panel = new THREE.Mesh(mainPanelGeo, slabMat);
-              panel.position.set(0, sIdx * secH + secH/2, 0);
-              panel.castShadow = enableShadows;
-              panel.receiveShadow = enableShadows;
-              sectionGroup.add(panel);
-
-              if (secH > 10) {
-                const grooveGeo = new THREE.BoxGeometry(pWidth - 10, 1, 4.2);
-                const groove = new THREE.Mesh(grooveGeo, detailMat);
-                groove.position.set(0, sIdx * secH + secH/2, 0);
-                sectionGroup.add(groove);
-              }
-            }
-            doorGroup.add(sectionGroup);
-          } else if (isSliding) {
-            const pWidth = (length - postThickness) / 2;
-            const fixedGroup = new THREE.Group();
-            const b1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-            const b2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-            const b3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-            const b4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-            b1.position.set(-pWidth/2, slabHeight/2, 0);
-            b2.position.set(pWidth/2, slabHeight/2, 0);
-            b3.position.set(0, 1, 0);
-            b4.position.set(0, slabHeight - 1, 0);
-            fixedGroup.add(b1, b2, b3, b4);
-            const glassGeo = new THREE.BoxGeometry(pWidth - 4, slabHeight - 4, 1);
-            const glassMat = new THREE.MeshPhysicalMaterial({
-              color: 0xffffff, transparent: true, opacity: 0.25,
-              roughness: 0.1, transmission: 0.9, thickness: 1.0
+          if (isWindow) {
+            const sillHeight = hostWallHeightPx * 0.375;
+            const headerHeight = hostWallHeightPx * 0.875;
+            const windowHeight = headerHeight - sillHeight;
+            
+            const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+            const fillerMat = new THREE.MeshStandardMaterial({
+              color: wallColor,
+              roughness: 0.75,
+              metalness: 0.15
             });
-            const glass = new THREE.Mesh(glassGeo, glassMat);
-            glass.position.set(0, slabHeight/2, 0);
-            fixedGroup.add(glass);
-            fixedGroup.position.set(-pWidth/2, 0, -2);
-            doorGroup.add(fixedGroup);
 
-            const activeGroup = new THREE.Group();
-            const ab1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-            const ab2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-            const ab3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-            const ab4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-            ab1.position.set(-pWidth/2, slabHeight/2, 0);
-            ab2.position.set(pWidth/2, slabHeight/2, 0);
-            ab3.position.set(0, 1, 0);
-            ab4.position.set(0, slabHeight - 1, 0);
-            activeGroup.add(ab1, ab2, ab3, ab4);
-            const glassActive = new THREE.Mesh(glassGeo, glassMat);
-            glassActive.position.set(0, slabHeight/2, 0);
-            activeGroup.add(glassActive);
+            // 1. Bottom Wall Filler
+            if (sillHeight > 0.1) {
+              const bottomWallGeo = new THREE.BoxGeometry(length, sillHeight, wallThickness);
+              const bottomWallMesh = new THREE.Mesh(bottomWallGeo, fillerMat);
+              bottomWallMesh.position.set(0, sillHeight / 2, 0);
+              bottomWallMesh.castShadow = enableShadows;
+              bottomWallMesh.receiveShadow = enableShadows;
+              doorGroup.add(bottomWallMesh);
+            }
 
-            addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, slabThick/2, false);
-            addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, -slabThick/2, false);
+            // 2. Top Wall Filler
+            const topWallHeight = hostWallHeightPx - headerHeight;
+            if (topWallHeight > 0.1) {
+              const topWallGeo = new THREE.BoxGeometry(length, topWallHeight, wallThickness);
+              const topWallMesh = new THREE.Mesh(topWallGeo, fillerMat);
+              topWallMesh.position.set(0, headerHeight + topWallHeight / 2, 0);
+              topWallMesh.castShadow = enableShadows;
+              topWallMesh.receiveShadow = enableShadows;
+              doorGroup.add(topWallMesh);
+            }
 
-            const openProgress = 0.5;
-            const slideOffsetX = openProgress * (pWidth - 4);
-            activeGroup.position.set(pWidth/2 - slideOffsetX, 0, 2);
-            doorGroup.add(activeGroup);
-          } else if (isBifold) {
-            const pWidth = (length - postThickness) / 4;
-            const bifoldContainer = new THREE.Group();
+            // 3. Window Frame
+            const frameThickness = 2.5;
+            const frameDepth = wallThickness + 2;
+            const windowFrameMat = new THREE.MeshStandardMaterial({
+              color: 0x334155, // anthracite dark gray
+              roughness: 0.5,
+              metalness: 0.8
+            });
 
-            const p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            p1Mesh.position.set(pWidth/2, slabHeight/2, 0);
-            p1Mesh.castShadow = enableShadows;
-            p1Mesh.receiveShadow = enableShadows;
+            // Left Post
+            const leftPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
+            const leftPost = new THREE.Mesh(leftPostGeo, windowFrameMat);
+            leftPost.position.set(-length/2 + frameThickness/2, sillHeight + windowHeight/2, 0);
+            leftPost.castShadow = enableShadows;
+            leftPost.receiveShadow = enableShadows;
+            doorGroup.add(leftPost);
 
-            const b1Group = new THREE.Group();
-            b1Group.add(p1Mesh);
+            // Right Post
+            const rightPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
+            const rightPost = new THREE.Mesh(rightPostGeo, windowFrameMat);
+            rightPost.position.set(length/2 - frameThickness/2, sillHeight + windowHeight/2, 0);
+            rightPost.castShadow = enableShadows;
+            rightPost.receiveShadow = enableShadows;
+            doorGroup.add(rightPost);
 
-            const p2Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            p2Mesh.position.set(pWidth/2, slabHeight/2, 0);
-            p2Mesh.castShadow = enableShadows;
-            p2Mesh.receiveShadow = enableShadows;
+            // Top Frame
+            const topFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
+            const topFrame = new THREE.Mesh(topFrameGeo, windowFrameMat);
+            topFrame.position.set(0, headerHeight - frameThickness/2, 0);
+            topFrame.castShadow = enableShadows;
+            topFrame.receiveShadow = enableShadows;
+            doorGroup.add(topFrame);
 
-            const b2Group = new THREE.Group();
-            b2Group.position.set(pWidth, 0, 0);
-            b2Group.add(p2Mesh);
-            b1Group.add(b2Group);
+            // Bottom Frame
+            const bottomFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
+            const bottomFrame = new THREE.Mesh(bottomFrameGeo, windowFrameMat);
+            bottomFrame.position.set(0, sillHeight + frameThickness/2, 0);
+            bottomFrame.castShadow = enableShadows;
+            bottomFrame.receiveShadow = enableShadows;
+            doorGroup.add(bottomFrame);
 
-            const p3Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            p3Mesh.position.set(-pWidth/2, slabHeight/2, 0);
-            p3Mesh.castShadow = enableShadows;
-            p3Mesh.receiveShadow = enableShadows;
-
-            const b3Group = new THREE.Group();
-            b3Group.add(p3Mesh);
-
-            const p4Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            p4Mesh.position.set(-pWidth/2, slabHeight/2, 0);
-            p4Mesh.castShadow = enableShadows;
-            p4Mesh.receiveShadow = enableShadows;
-
-            const b4Group = new THREE.Group();
-            b4Group.position.set(-pWidth, 0, 0);
-            b4Group.add(p4Mesh);
-            b3Group.add(b4Group);
-
-            const foldAngleRad = (45 * Math.PI) / 180;
-            b1Group.rotation.y = foldAngleRad;
-            b2Group.rotation.y = -foldAngleRad * 2;
-
-            b3Group.rotation.y = -foldAngleRad;
-            b4Group.rotation.y = foldAngleRad * 2;
-
-            b1Group.position.set(-length/2 + postThickness/2, 0, 0);
-            b3Group.position.set(length/2 - postThickness/2, 0, 0);
-
-            bifoldContainer.add(b1Group);
-            bifoldContainer.add(b3Group);
-            doorGroup.add(bifoldContainer);
-          } else if (isDouble) {
-            const pWidth = (length - postThickness) / 2;
-            const openAngleRad = (35 * Math.PI) / 180;
-
-            const leftPivot = new THREE.Group();
-            leftPivot.position.set(-length/2 + postThickness/2, 0, 0);
-            const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            leftSlab.position.set(pWidth/2, slabHeight/2, 0);
-            leftSlab.castShadow = enableShadows;
-            leftSlab.receiveShadow = enableShadows;
-
-            const leftGroup = new THREE.Group();
-            leftGroup.add(leftSlab);
-            const detailGeo = new THREE.BoxGeometry(pWidth - 10, slabHeight/2 - 10, 0.6);
-            const topDetailL = new THREE.Mesh(detailGeo, detailMat);
-            topDetailL.position.set(pWidth/2, slabHeight*0.75 - 5, slabThick/2 + 0.1);
-            const bottomDetailL = new THREE.Mesh(detailGeo, detailMat);
-            bottomDetailL.position.set(pWidth/2, slabHeight/4, slabThick/2 + 0.1);
-            leftGroup.add(topDetailL);
-            leftGroup.add(bottomDetailL);
-
-            addHandleToPanel(leftGroup, pWidth - 4, slabHeight/2, slabThick/2, true);
-            addHandleToPanel(leftGroup, pWidth - 4, slabHeight/2, -slabThick/2, true);
-
-            leftPivot.add(leftGroup);
-            leftPivot.rotation.y = openAngleRad;
-            doorGroup.add(leftPivot);
-
-            const rightPivot = new THREE.Group();
-            rightPivot.position.set(length/2 - postThickness/2, 0, 0);
-            const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
-            rightSlab.castShadow = enableShadows;
-            rightSlab.receiveShadow = enableShadows;
-
-            const rightGroup = new THREE.Group();
-            rightGroup.add(rightSlab);
-            const topDetailR = new THREE.Mesh(detailGeo, detailMat);
-            topDetailR.position.set(-pWidth/2, slabHeight*0.75 - 5, slabThick/2 + 0.1);
-            const bottomDetailR = new THREE.Mesh(detailGeo, detailMat);
-            bottomDetailR.position.set(-pWidth/2, slabHeight/4, slabThick/2 + 0.1);
-            rightGroup.add(topDetailR);
-            rightGroup.add(bottomDetailR);
-
-            addHandleToPanel(rightGroup, -pWidth + 4, slabHeight/2, slabThick/2, true);
-            addHandleToPanel(rightGroup, -pWidth + 4, slabHeight/2, -slabThick/2, true);
-
-            rightPivot.add(rightGroup);
-            rightPivot.rotation.y = -openAngleRad;
-            doorGroup.add(rightPivot);
+            // 4. Glass Pane
+            const glassGeo = new THREE.BoxGeometry(length - frameThickness * 2, windowHeight - frameThickness * 2, 1);
+            const glassMat = new THREE.MeshPhysicalMaterial({
+              color: 0xbae6fd, // cyan-200
+              transparent: true,
+              opacity: 0.4,
+              roughness: 0.1,
+              metalness: 0.9,
+              transmission: 0.9,
+              thickness: 1.0
+            });
+            const glassMesh = new THREE.Mesh(glassGeo, glassMat);
+            glassMesh.position.set(0, sillHeight + windowHeight/2, 0);
+            doorGroup.add(glassMesh);
           } else {
-            const hingeSide = door.hingeSide || door.hinge_side || "left";
-            const swing = door.swing || door.swing_direction || "inward";
-            const angleVal = door.angle || door.opening_angle || 35;
-            const openAngleRad = (angleVal * Math.PI) / 180;
+            const frameHeight = hostWallHeightPx * 0.85;
 
-            const pWidth = length - postThickness;
-            const pivotGroup = new THREE.Group();
-            const hingeFactor = hingeSide === "left" ? 1 : -1;
-            const sideFactor = swing === "inward" ? -1 : 1;
+            const frameMat = new THREE.MeshStandardMaterial({
+              color: 0x2e1a0c,
+              roughness: 0.8,
+              metalness: 0.1
+            });
 
-            const pivotX = hingeSide === "left" ? -length/2 + postThickness/2 : length/2 - postThickness/2;
-            pivotGroup.position.set(pivotX, 0, 0);
+            const postThickness = 3;
+            const frameDepth = wallThickness + 4;
 
-            const slab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-            const slabCenterX = hingeSide === "left" ? pWidth/2 : -pWidth/2;
-            slab.position.set(slabCenterX, slabHeight/2, 0);
-            slab.castShadow = enableShadows;
-            slab.receiveShadow = enableShadows;
+            const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
+            const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
+            leftPost.position.set(-length/2, frameHeight/2, 0);
+            leftPost.castShadow = enableShadows;
+            leftPost.receiveShadow = enableShadows;
+            doorGroup.add(leftPost);
 
-            const panelGroup = new THREE.Group();
-            panelGroup.add(slab);
+            const rightPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
+            const rightPost = new THREE.Mesh(rightPostGeo, frameMat);
+            rightPost.position.set(length/2, frameHeight/2, 0);
+            rightPost.castShadow = enableShadows;
+            rightPost.receiveShadow = enableShadows;
+            doorGroup.add(rightPost);
 
-            const detailGeo = new THREE.BoxGeometry(pWidth - 12, slabHeight/2 - 12, 0.6);
-            const topDetailA = new THREE.Mesh(detailGeo, detailMat);
-            const dxSlab = slabCenterX;
-            topDetailA.position.set(dxSlab, slabHeight*0.75 - 6, slabThick/2 + 0.1);
-            const bottomDetailA = new THREE.Mesh(detailGeo, detailMat);
-            bottomDetailA.position.set(dxSlab, slabHeight/4, slabThick/2 + 0.1);
-            panelGroup.add(topDetailA);
-            panelGroup.add(bottomDetailA);
+            const headerGeo = new THREE.BoxGeometry(length, postThickness, frameDepth);
+            const header = new THREE.Mesh(headerGeo, frameMat);
+            header.position.set(0, frameHeight - postThickness/2, 0);
+            header.castShadow = enableShadows;
+            header.receiveShadow = enableShadows;
+            doorGroup.add(header);
 
-            const topDetailB = new THREE.Mesh(detailGeo, detailMat);
-            topDetailB.position.set(dxSlab, slabHeight*0.75 - 6, -slabThick/2 - 0.1);
-            const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
-            bottomDetailB.position.set(dxSlab, slabHeight/4, -slabThick/2 - 0.1);
-            panelGroup.add(topDetailB);
-            panelGroup.add(bottomDetailB);
+            const isDouble = dClass.includes("double") || (door.door_name && door.door_name.toLowerCase().includes("2x"));
+            const isSliding = dClass.includes("sliding") || dClass.includes("slider") || dClass.includes("cavity");
+            const isBifold = dClass.includes("bifold") || dClass.includes("fold");
+            const isGarage = dClass.includes("garage") || dClass.includes("roller");
 
-            const dxHandle = hingeSide === "left" ? pWidth - 6 : -pWidth + 6;
-            addHandleToPanel(panelGroup, dxHandle, 0, slabThick/2, true);
-            addHandleToPanel(panelGroup, dxHandle, 0, -slabThick/2, true);
+            const slabHeight = frameHeight - postThickness;
+            const slabThick = 4;
+            const slabMat = new THREE.MeshStandardMaterial({
+              color: 0x5c3a21,
+              roughness: 0.85,
+              metalness: 0.1,
+              side: THREE.DoubleSide
+            });
 
-            pivotGroup.add(panelGroup);
-            pivotGroup.rotation.y = hingeFactor * sideFactor * openAngleRad;
-            doorGroup.add(pivotGroup);
-          }
+            const detailMat = new THREE.MeshStandardMaterial({
+              color: 0x422817,
+              roughness: 0.9,
+              metalness: 0.1
+            });
 
-          const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-          const fillerMat = new THREE.MeshStandardMaterial({
-            color: wallColor,
-            roughness: 0.75,
-            metalness: 0.15
-          });
+            const addHandleToPanel = (panel, dx, dy, dz, lever = false) => {
+              const handleGroup = new THREE.Group();
+              const plateGeo = new THREE.BoxGeometry(1.2, 5, 0.4);
+              const plate = new THREE.Mesh(plateGeo, frameMat);
+              plate.position.set(0, 0, 0);
+              handleGroup.add(plate);
 
-          const headerHeight = Math.max(0, hostWallHeightPx - frameHeight);
-          if (headerHeight > 0.1) {
-            const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
-            const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
-            headerMesh.position.set(0, frameHeight + headerHeight / 2, 0);
-            headerMesh.castShadow = enableShadows;
-            headerMesh.receiveShadow = enableShadows;
-            doorGroup.add(headerMesh);
+              if (lever) {
+                const neckGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 8);
+                const neck = new THREE.Mesh(neckGeo, frameMat);
+                neck.rotation.x = Math.PI / 2;
+                neck.position.set(0, 0, 0.75);
+                handleGroup.add(neck);
+
+                const barGeo = new THREE.BoxGeometry(3.5, 0.6, 0.4);
+                const bar = new THREE.Mesh(barGeo, frameMat);
+                bar.position.set(1.5, 0, 1.5);
+                handleGroup.add(bar);
+              } else {
+                const knobGeo = new THREE.CylinderGeometry(1, 1, 1.2, 12);
+                const knob = new THREE.Mesh(knobGeo, frameMat);
+                knob.rotation.x = Math.PI / 2;
+                knob.position.set(0, 0, 0.6);
+                handleGroup.add(knob);
+              }
+              handleGroup.position.set(dx, dy, dz);
+              panel.add(handleGroup);
+            };
+
+            if (isGarage) {
+              const sectionGroup = new THREE.Group();
+              const numSections = 4;
+              const secH = slabHeight / numSections;
+              const pWidth = length - postThickness;
+
+              for (let sIdx = 0; sIdx < numSections; sIdx++) {
+                const mainPanelGeo = new THREE.BoxGeometry(pWidth, secH - 1, 4);
+                const panel = new THREE.Mesh(mainPanelGeo, slabMat);
+                panel.position.set(0, sIdx * secH + secH/2, 0);
+                panel.castShadow = enableShadows;
+                panel.receiveShadow = enableShadows;
+                sectionGroup.add(panel);
+
+                if (secH > 10) {
+                  const grooveGeo = new THREE.BoxGeometry(pWidth - 10, 1, 4.2);
+                  const groove = new THREE.Mesh(grooveGeo, detailMat);
+                  groove.position.set(0, sIdx * secH + secH/2, 0);
+                  sectionGroup.add(groove);
+                }
+              }
+              doorGroup.add(sectionGroup);
+            } else if (isSliding) {
+              const pWidth = (length - postThickness) / 2;
+              const fixedGroup = new THREE.Group();
+              const b1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+              const b2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+              const b3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+              const b4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+              b1.position.set(-pWidth/2, slabHeight/2, 0);
+              b2.position.set(pWidth/2, slabHeight/2, 0);
+              b3.position.set(0, 1, 0);
+              b4.position.set(0, slabHeight - 1, 0);
+              fixedGroup.add(b1, b2, b3, b4);
+              const glassGeo = new THREE.BoxGeometry(pWidth - 4, slabHeight - 4, 1);
+              const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff, transparent: true, opacity: 0.25,
+                roughness: 0.1, transmission: 0.9, thickness: 1.0
+              });
+              const glass = new THREE.Mesh(glassGeo, glassMat);
+              glass.position.set(0, slabHeight/2, 0);
+              fixedGroup.add(glass);
+              fixedGroup.position.set(-pWidth/2, 0, -2);
+              doorGroup.add(fixedGroup);
+
+              const activeGroup = new THREE.Group();
+              const ab1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+              const ab2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+              const ab3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+              const ab4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
+              ab1.position.set(-pWidth/2, slabHeight/2, 0);
+              ab2.position.set(pWidth/2, slabHeight/2, 0);
+              ab3.position.set(0, 1, 0);
+              ab4.position.set(0, slabHeight - 1, 0);
+              activeGroup.add(ab1, ab2, ab3, ab4);
+              const glassActive = new THREE.Mesh(glassGeo, glassMat);
+              glassActive.position.set(0, slabHeight/2, 0);
+              activeGroup.add(glassActive);
+
+              addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, slabThick/2, false);
+              addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, -slabThick/2, false);
+
+              const openProgress = 0.5;
+              const slideOffsetX = openProgress * (pWidth - 4);
+              activeGroup.position.set(pWidth/2 - slideOffsetX, 0, 2);
+              doorGroup.add(activeGroup);
+            } else if (isBifold) {
+              const pWidth = (length - postThickness) / 4;
+              const bifoldContainer = new THREE.Group();
+
+              const p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              p1Mesh.position.set(pWidth/2, slabHeight/2, 0);
+              p1Mesh.castShadow = enableShadows;
+              p1Mesh.receiveShadow = enableShadows;
+
+              const b1Group = new THREE.Group();
+              b1Group.add(p1Mesh);
+
+              const p2Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              p2Mesh.position.set(pWidth/2, slabHeight/2, 0);
+              p2Mesh.castShadow = enableShadows;
+              p2Mesh.receiveShadow = enableShadows;
+
+              const b2Group = new THREE.Group();
+              b2Group.position.set(pWidth, 0, 0);
+              b2Group.add(p2Mesh);
+              b1Group.add(b2Group);
+
+              const p3Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              p3Mesh.position.set(-pWidth/2, slabHeight/2, 0);
+              p3Mesh.castShadow = enableShadows;
+              p3Mesh.receiveShadow = enableShadows;
+
+              const b3Group = new THREE.Group();
+              b3Group.add(p3Mesh);
+
+              const p4Mesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              p4Mesh.position.set(-pWidth/2, slabHeight/2, 0);
+              p4Mesh.castShadow = enableShadows;
+              p4Mesh.receiveShadow = enableShadows;
+
+              const b4Group = new THREE.Group();
+              b4Group.position.set(-pWidth, 0, 0);
+              b4Group.add(p4Mesh);
+              b3Group.add(b4Group);
+
+              const foldAngleRad = (45 * Math.PI) / 180;
+              b1Group.rotation.y = foldAngleRad;
+              b2Group.rotation.y = -foldAngleRad * 2;
+
+              b3Group.rotation.y = -foldAngleRad;
+              b4Group.rotation.y = foldAngleRad * 2;
+
+              b1Group.position.set(-length/2 + postThickness/2, 0, 0);
+              b3Group.position.set(length/2 - postThickness/2, 0, 0);
+
+              bifoldContainer.add(b1Group);
+              bifoldContainer.add(b3Group);
+              doorGroup.add(bifoldContainer);
+            } else if (isDouble) {
+              const pWidth = (length - postThickness) / 2;
+              const openAngleRad = (35 * Math.PI) / 180;
+
+              const leftPivot = new THREE.Group();
+              leftPivot.position.set(-length/2 + postThickness/2, 0, 0);
+              const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              leftSlab.position.set(pWidth/2, slabHeight/2, 0);
+              leftSlab.castShadow = enableShadows;
+              leftSlab.receiveShadow = enableShadows;
+
+              const leftGroup = new THREE.Group();
+              leftGroup.add(leftSlab);
+              const detailGeo = new THREE.BoxGeometry(pWidth - 10, slabHeight/2 - 10, 0.6);
+              const topDetailL = new THREE.Mesh(detailGeo, detailMat);
+              topDetailL.position.set(pWidth/2, slabHeight*0.75 - 5, slabThick/2 + 0.1);
+              const bottomDetailL = new THREE.Mesh(detailGeo, detailMat);
+              bottomDetailL.position.set(pWidth/2, slabHeight/4, slabThick/2 + 0.1);
+              leftGroup.add(topDetailL);
+              leftGroup.add(bottomDetailL);
+
+              addHandleToPanel(leftGroup, pWidth - 4, slabHeight/2, slabThick/2, true);
+              addHandleToPanel(leftGroup, pWidth - 4, slabHeight/2, -slabThick/2, true);
+
+              leftPivot.add(leftGroup);
+              leftPivot.rotation.y = openAngleRad;
+              doorGroup.add(leftPivot);
+
+              const rightPivot = new THREE.Group();
+              rightPivot.position.set(length/2 - postThickness/2, 0, 0);
+              const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
+              rightSlab.castShadow = enableShadows;
+              rightSlab.receiveShadow = enableShadows;
+
+              const rightGroup = new THREE.Group();
+              rightGroup.add(rightSlab);
+              const topDetailR = new THREE.Mesh(detailGeo, detailMat);
+              topDetailR.position.set(-pWidth/2, slabHeight*0.75 - 5, slabThick/2 + 0.1);
+              const bottomDetailR = new THREE.Mesh(detailGeo, detailMat);
+              bottomDetailR.position.set(-pWidth/2, slabHeight/4, slabThick/2 + 0.1);
+              rightGroup.add(topDetailR);
+              rightGroup.add(bottomDetailR);
+
+              addHandleToPanel(rightGroup, -pWidth + 4, slabHeight/2, slabThick/2, true);
+              addHandleToPanel(rightGroup, -pWidth + 4, slabHeight/2, -slabThick/2, true);
+
+              rightPivot.add(rightGroup);
+              rightPivot.rotation.y = -openAngleRad;
+              doorGroup.add(rightPivot);
+            } else {
+              const hingeSide = door.hingeSide || door.hinge_side || "left";
+              const swing = door.swing || door.swing_direction || "inward";
+              const angleVal = door.angle || door.opening_angle || 35;
+              const openAngleRad = (angleVal * Math.PI) / 180;
+
+              const pWidth = length - postThickness;
+              const pivotGroup = new THREE.Group();
+              const hingeFactor = hingeSide === "left" ? 1 : -1;
+              const sideFactor = swing === "inward" ? -1 : 1;
+
+              const pivotX = hingeSide === "left" ? -length/2 + postThickness/2 : length/2 - postThickness/2;
+              pivotGroup.position.set(pivotX, 0, 0);
+
+              const slab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              const slabCenterX = hingeSide === "left" ? pWidth/2 : -pWidth/2;
+              slab.position.set(slabCenterX, slabHeight/2, 0);
+              slab.castShadow = enableShadows;
+              slab.receiveShadow = enableShadows;
+
+              const panelGroup = new THREE.Group();
+              panelGroup.add(slab);
+
+              const detailGeo = new THREE.BoxGeometry(pWidth - 12, slabHeight/2 - 12, 0.6);
+              const topDetailA = new THREE.Mesh(detailGeo, detailMat);
+              const dxSlab = slabCenterX;
+              topDetailA.position.set(dxSlab, slabHeight*0.75 - 6, slabThick/2 + 0.1);
+              const bottomDetailA = new THREE.Mesh(detailGeo, detailMat);
+              bottomDetailA.position.set(dxSlab, slabHeight/4, slabThick/2 + 0.1);
+              panelGroup.add(topDetailA);
+              panelGroup.add(bottomDetailA);
+
+              const topDetailB = new THREE.Mesh(detailGeo, detailMat);
+              topDetailB.position.set(dxSlab, slabHeight*0.75 - 6, -slabThick/2 - 0.1);
+              const bottomDetailB = new THREE.Mesh(detailGeo, detailMat);
+              bottomDetailB.position.set(dxSlab, slabHeight/4, -slabThick/2 - 0.1);
+              panelGroup.add(topDetailB);
+              panelGroup.add(bottomDetailB);
+
+              const dxHandle = hingeSide === "left" ? pWidth - 6 : -pWidth + 6;
+              addHandleToPanel(panelGroup, dxHandle, 0, slabThick/2, true);
+              addHandleToPanel(panelGroup, dxHandle, 0, -slabThick/2, true);
+
+              pivotGroup.add(panelGroup);
+              pivotGroup.rotation.y = hingeFactor * sideFactor * openAngleRad;
+              doorGroup.add(pivotGroup);
+            }
+
+            const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
+            const fillerMat = new THREE.MeshStandardMaterial({
+              color: wallColor,
+              roughness: 0.75,
+              metalness: 0.15
+            });
+
+            const headerHeight = Math.max(0, hostWallHeightPx - frameHeight);
+            if (headerHeight > 0.1) {
+              const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
+              const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
+              headerMesh.position.set(0, frameHeight + headerHeight / 2, 0);
+              headerMesh.castShadow = enableShadows;
+              headerMesh.receiveShadow = enableShadows;
+              doorGroup.add(headerMesh);
+            }
           }
 
           if (leftJambMesh) {

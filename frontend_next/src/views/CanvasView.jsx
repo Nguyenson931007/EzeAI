@@ -28,6 +28,7 @@ import {
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall } from "@/engines/DoorGeometryEngine";
+import { resolveDoorTypeId, DOOR_TYPE_REGISTRY } from "@/models/DoorTypeRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -1237,7 +1238,7 @@ const DoorLayer = React.memo(({
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
-              ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || d.doorTypeId === "ext_garage" ? (
+              ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage" ? (
                 <>
                   {renderGarageDoor()}
                   <text 
@@ -2184,7 +2185,46 @@ export default function CanvasView({
   const handleDoorChangeType = (newClass) => {
     const d = doorContextMenu.door;
     if (d && updateDoor) {
-      updateDoor({ ...d, class: newClass });
+      const isExternal = newClass.includes('ext') || (d.doorName || d.door_name || '').includes('External');
+      const category = isExternal ? 'external' : 'internal';
+      const newTypeId = resolveDoorTypeId(newClass, category);
+      const doorDef = DOOR_TYPE_REGISTRY[newTypeId];
+      
+      const updated = {
+        ...d,
+        class: newClass,
+        class_name: newClass, // Sync legacy alias
+        doorTypeId: newTypeId,
+        type: doorDef ? doorDef.doorType : d.type,
+      };
+
+      // If converting to garage door and width is small, we adjust it to a default garage width
+      if (newClass.includes('garage') && d.width_mm < 2000 && doorDef) {
+        updated.width_mm = doorDef.defaultWidth;
+        if (realScale) {
+          const widthPx = doorDef.defaultWidth / realScale;
+          const p1 = d.points[0];
+          const p2 = d.points[1];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0.1) {
+            updated.points = [
+              p1,
+              {
+                x: p1.x + (dx / len) * widthPx,
+                y: p1.y + (dy / len) * widthPx
+              }
+            ];
+            updated.centerPoint = {
+              x: (p1.x + updated.points[1].x) / 2,
+              y: (p1.y + updated.points[1].y) / 2
+            };
+          }
+        }
+      }
+
+      updateDoor(updated);
     }
   };
 
@@ -2772,6 +2812,11 @@ export default function CanvasView({
           onMouseDown={(e) => {
             if (editingRoomId) return;
             if (onMouseDown) onMouseDown(e);
+          }}
+          onContextMenu={(e) => {
+            if (isDrawingDoor && doorController?.doorPreset) {
+              e.preventDefault();
+            }
           }}
         >
           <defs>
@@ -3576,6 +3621,7 @@ export default function CanvasView({
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
               const isDouble = doorClass.includes('double');
               const isWindow = doorClass.includes('window');
+              const isGarage = doorClass.includes('garage');
 
               const previewOpacity = 0.4;
 
@@ -3591,6 +3637,48 @@ export default function CanvasView({
                     <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke="#2196F3" strokeWidth={1} />
                     <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
                     <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
+                    <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                  </g>
+                );
+              }
+
+              if (isGarage) {
+                const angle = Math.atan2(dy, dx);
+                const thickness = wall.thickness_px || 20;
+                const angleDeg = angle * 180 / Math.PI;
+
+                return (
+                  <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                    <rect
+                      x={-len / 2}
+                      y={-thickness / 2}
+                      width={len}
+                      height={thickness}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      fill="rgba(76, 175, 80, 0.15)"
+                      stroke="#4CAF50"
+                      strokeWidth={2}
+                    />
+                    <line
+                      x1={-len / 2}
+                      y1={-thickness / 6}
+                      x2={len / 2}
+                      y2={-thickness / 6}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      stroke="#4CAF50"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
+                    <line
+                      x1={-len / 2}
+                      y1={thickness / 6}
+                      x2={len / 2}
+                      y2={thickness / 6}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      stroke="#4CAF50"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
                     <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
                   </g>
                 );

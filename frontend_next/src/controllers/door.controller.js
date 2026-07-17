@@ -226,10 +226,44 @@ export function useDoorController({
     const walls = getCurrentWalls();
     const snap = snapPointToWall(canvasPoint, walls, 60);
 
+    if (snap.wall) {
+      // Immediate 1-click creation!
+      const wall = snap.wall;
+      const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+      const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+      const wdx = wp2.x - wp1.x;
+      const wdy = wp2.y - wp1.y;
+      const wLen = Math.hypot(wdx, wdy);
+      if (wLen > 0.1) {
+        const ux = wdx / wLen;
+        const uy = wdy / wLen;
+
+        const proj = distancePointToSegment(canvasPoint, wp1, wp2);
+        const cx = proj.x;
+        const cy = proj.y;
+
+        const activePreset = doorPreset;
+        const presetWidth = activePreset.width || DOOR_TYPE_REGISTRY[activePreset.id]?.defaultWidth || 820;
+        const widthPx = presetWidth / realScale;
+
+        const p1 = {
+          x: cx - ux * (widthPx / 2),
+          y: cy - uy * (widthPx / 2)
+        };
+        const p2 = {
+          x: cx + ux * (widthPx / 2),
+          y: cy + uy * (widthPx / 2)
+        };
+
+        finalizeDoor(p1, p2, activePreset.id, wall);
+        return true;
+      }
+    }
+
     setCurrentDoorPoints([snap.snappedPoint]);
     isDraggingDoorRef.current = true;
     return true; // consumed the event
-  }, [isDrawingDoor, showTypeSelector, doorPreset, getCurrentWalls]);
+  }, [isDrawingDoor, showTypeSelector, doorPreset, getCurrentWalls, realScale, finalizeDoor]);
 
   /**
    * Step 3: Handles mouse movement during drag to update preview.
