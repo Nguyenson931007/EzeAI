@@ -609,7 +609,7 @@ export const useAIController = (
         if (saved) activeThicknesses = JSON.parse(saved);
       } catch (e) {}
     }
-    const { ext = 90, int = 70, part = 70, defaultHeight = 2400 } = activeThicknesses || {};
+    const { ext = 90, int = 70, part = 70, defaultHeight = 2700 } = activeThicknesses || {};
 
     const job = startROIJob();
     try {
