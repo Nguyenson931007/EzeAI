@@ -1798,7 +1798,7 @@ export function useInteractionController(svgRef) {
               }) : null
             };
 
-            const snappedDoor = snapDoorToWalls(shiftedDoor, currentWalls, 999999);
+            const snappedDoor = snapDoorToWalls(shiftedDoor, currentWalls, 999999, true);
             updatedSnappedDoor = snappedDoor;
             return snappedDoor;
           }
@@ -2509,7 +2509,7 @@ export function useInteractionController(svgRef) {
           const pageDoors = doorsByPage[currentPage] || [];
           const targetDoor = pageDoors.find(d => d.id === dragging.id);
           if (targetDoor) {
-            const snappedDoor = snapDoorToWalls(targetDoor, pageWalls, 999999);
+            const snappedDoor = snapDoorToWalls(targetDoor, pageWalls, 999999, true);
             const updatedDoors = pageDoors.map(d => d.id === dragging.id ? snappedDoor : d);
 
             // Heal all walls by merging collinear ones (this heals the old door cuts)

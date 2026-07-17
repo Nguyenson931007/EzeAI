@@ -1066,7 +1066,7 @@ export function getDoorCenterline(door, walls = []) {
   return { p1: polyPoints[0], p2: polyPoints[1 % n] };
 }
 
-export function snapDoorToWalls(door, walls, maxDist = 40) {
+export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false) {
   if (!walls || walls.length === 0) return door;
 
   let p1, p2;
@@ -1085,7 +1085,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40) {
   const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
 
   let bestWall = null;
-  let bestDist = Math.min(maxDist, 12); // Limit maximum snap distance to 12px to keep doors close to detected model positions
+  let bestDist = forceWallLock ? maxDist : Math.min(maxDist, 12); // Limit maximum snap distance to 12px unless forceWallLock is true
   let bestProj = null;
 
   const doorAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
