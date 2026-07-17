@@ -937,7 +937,7 @@ export function useInteractionController(svgRef) {
       });
 
       // Merge collinear walls automatically after snapping
-      const merged = mergeCollinearWalls(updatedWalls, 15, 0.98, 5);
+      const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
       const pageDoors = doorsByPage[currentPage] || [];
       const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
       const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
@@ -2527,7 +2527,7 @@ export function useInteractionController(svgRef) {
           });
 
           // Automatically merge collinear/overlapping walls
-          const merged = mergeCollinearWalls(updatedWalls, 15, 0.98, 5);
+          const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
           // Cut the merged walls by the current doors list
           const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
           // Recalculate all wall junctions to cleanly snap and connect corners

@@ -792,7 +792,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   });
 }
 
-export function mergeCollinearWalls(walls, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120) {
+export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120) {
   if (!walls || walls.length < 2) return walls;
 
   let merged = true;
