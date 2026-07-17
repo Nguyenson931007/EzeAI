@@ -1192,6 +1192,17 @@ export default function ThreeDView({
       }
     });
 
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      if (controls) controls.dispose();
+      if (renderer) {
+        if (containerRef.current && renderer.domElement) {
+          containerRef.current.removeChild(renderer.domElement);
+        }
+        renderer.dispose();
+      }
+      disposeObject3D(scene);
+    };
   }, [pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, wallHeightMm, floorDepthMm, showGrid, showFloors, showDoors, showRoofs, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
 
   // Reset Camera View
@@ -1278,31 +1289,6 @@ export default function ThreeDView({
           >
             ✕ Exit 3D
           </button>
-        </div>
-
-        {/* Height Slider */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
-            <span>Wall Height</span>
-            <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>
-              {wallHeightMm >= 1000 ? `${(wallHeightMm / 1000).toFixed(2)}m` : `${wallHeightMm}mm`}
-            </span>
-          </div>
-          <input 
-            type="range" 
-            min="1000" 
-            max="5000" 
-            step="100"
-            value={wallHeightMm} 
-            onChange={(e) => setWallHeightMm(Number(e.target.value))}
-            style={{
-              width: "100%",
-              height: "4px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              accentColor: "#3b82f6"
-            }}
-          />
         </div>
 
         {/* Floor Depth Slider */}
