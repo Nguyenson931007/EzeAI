@@ -513,6 +513,7 @@ export function useDoorController({
     if (!oldDoor) return;
 
     let updatedDoor = { ...newDoorData, modifiedAt: new Date().toISOString() };
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
 
     // 1. Rotation change
     if (updatedDoor.rotation !== undefined && updatedDoor.rotation !== (oldDoor.rotation || 0)) {
@@ -530,7 +531,7 @@ export function useDoorController({
     if (updatedDoor.distance_from &&
       (updatedDoor.distance_from.value !== oldDoor.distance_from?.value ||
         updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
-      updatedDoor = moveDoorAlongWallByDistance(updatedDoor, walls, realScale);
+      updatedDoor = moveDoorAlongWallByDistance(updatedDoor, healedWalls, realScale);
     }
 
     // 4. Height recalculation if door type changed
@@ -552,7 +553,6 @@ export function useDoorController({
     updatedDoor.geometryVersion = (oldDoor.geometryVersion || 1) + 1;
 
     const updatedDoors = doors.map(d => d.id === newDoorData.id ? updatedDoor : d);
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
     const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
 
     pushHistory(null, cutWalls, updatedDoors);
