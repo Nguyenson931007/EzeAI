@@ -18,7 +18,8 @@ export default function AIDoor({
   setSelectedType,
   walls = [],
   onDoorContextMenu,
-  realScale
+  realScale,
+  onEdit
 }) {
   const maskPoly = (d.polygon && d.polygon.length >= 3)
     ? d.polygon
@@ -850,8 +851,12 @@ export default function AIDoor({
       onClick={(e) => {
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
         e.stopPropagation();
-        setSelectedId(d.id);
-        setSelectedType("door");
+        if (isSelected && onEdit) {
+          onEdit();
+        } else {
+          setSelectedId(d.id);
+          setSelectedType("door");
+        }
       }}
       onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
       style={{ cursor: 'pointer' }}

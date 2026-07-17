@@ -835,6 +835,7 @@ const DoorLayer = React.memo(({
                 walls={walls}
                 onDoorContextMenu={onDoorContextMenu}
                 realScale={realScale}
+                onEdit={() => setDoorEditDialog({ visible: true, door: d })}
               />
             );
           }
@@ -950,6 +951,8 @@ const DoorLayer = React.memo(({
             const offsetY = Math.cos(angle) * 3;
             return (
               <g>
+                {/* Invisible hitbox line for easier clicking */}
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={24} style={{ cursor: 'pointer' }} />
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
                 <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
               </g>
@@ -1166,8 +1169,12 @@ const DoorLayer = React.memo(({
                  if (interactionMode === "draw-wall") return;
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  e.stopPropagation();
-                 setSelectedId(d.id);
-                 setSelectedType("door");
+                 if (selectedId === d.id) {
+                   setDoorEditDialog({ visible: true, door: d });
+                 } else {
+                   setSelectedId(d.id);
+                   setSelectedType("door");
+                 }
                }}
                onMouseDown={(e) => {
                  if (interactionMode === "draw-wall") return;
