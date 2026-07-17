@@ -792,7 +792,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   });
 }
 
-export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120) {
+export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {
   if (!walls || walls.length < 2) return walls;
 
   let merged = true;
@@ -813,6 +813,12 @@ export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.9
 
         // 1. Must have same class_name
         if (w1.class_name !== w2.class_name) continue;
+
+        if (onlySameBaseId) {
+          const baseId1 = w1.id ? w1.id.split('-A-')[0].split('-B-')[0] : '';
+          const baseId2 = w2.id ? w2.id.split('-A-')[0].split('-B-')[0] : '';
+          if (baseId1 !== baseId2) continue;
+        }
 
         // 2. Check thickness difference (must be close, e.g. within 5px)
         const t1 = w1.thickness_px || 20;

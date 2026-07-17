@@ -891,7 +891,7 @@ export const useAIController = (
         // Snap detected doors to existing walls!
         // Merge cut walls back into continuous segments so snap can find walls
         // even when the door midpoint sits in the gap between two cut segments.
-        const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls]) : [];
+        const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true) : [];
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => snapDoorToWalls(d, uncutWalls, 80))
           : detectedDoors;
