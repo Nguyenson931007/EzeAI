@@ -777,7 +777,8 @@ const DoorLayer = React.memo(({
   setHoverId,
   walls = [],
   onDoorContextMenu,
-  interactionMode
+  interactionMode,
+  onEditDoor
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
 
@@ -835,7 +836,7 @@ const DoorLayer = React.memo(({
                 walls={walls}
                 onDoorContextMenu={onDoorContextMenu}
                 realScale={realScale}
-                onEdit={() => setDoorEditDialog({ visible: true, door: d })}
+                onEdit={() => onEditDoor && onEditDoor(d)}
               />
             );
           }
@@ -1170,7 +1171,7 @@ const DoorLayer = React.memo(({
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  e.stopPropagation();
                  if (selectedId === d.id) {
-                   setDoorEditDialog({ visible: true, door: d });
+                   if (onEditDoor) onEditDoor(d);
                  } else {
                    setSelectedId(d.id);
                    setSelectedType("door");
@@ -1390,7 +1391,7 @@ const DoorLayer = React.memo(({
                         title="Edit Door Details"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setDoorEditDialog({ visible: true, door: d });
+                          if (onEditDoor) onEditDoor(d);
                         }}
                         style={{
                           background: 'none',
@@ -3281,6 +3282,7 @@ export default function CanvasView({
               setHoverId={setHoverId}
               onDoorContextMenu={handleDoorContextMenu}
               interactionMode={interactionMode}
+              onEditDoor={(door) => setDoorEditDialog({ visible: true, door })}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}
