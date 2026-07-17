@@ -188,7 +188,7 @@ export default function DoorEditDialog({
     
     setHeightMm(door.height_mm || 1980);
     setWidthMm(door.width_mm || 760);
-    setApplyToAll(false);
+    setApplyToAll(true);
   }, [door, walls, realScale]);
 
   if (!visible || !door) return null;
