@@ -674,7 +674,7 @@ export const useAIController = (
 
             // Filter out false positive walls (overlaps with doors)
             const doors = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
-            let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
+            let cleanWalls = detectedWalls; // Keep walls under doors so they merge and snap correctly, cutWallsByDoors will handle cuts
             const currentRoomsForFilter = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
@@ -1119,7 +1119,7 @@ export const useAIController = (
             : ((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || []);
 
           // Filter false positive walls that overlap entirely with doors
-          let cleanWalls = rawWalls.filter(w => !_overlapsWithAnyDoor(w, currentDoors));
+          let cleanWalls = rawWalls; // Keep walls under doors so they merge and snap correctly, cutWallsByDoors will handle cuts
           const currentRoomsForSmart = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
           cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForSmart, wallData.width, wallData.height);
 
