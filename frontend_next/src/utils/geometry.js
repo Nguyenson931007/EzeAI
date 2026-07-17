@@ -1069,6 +1069,16 @@ export function getDoorCenterline(door, walls = []) {
 export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false) {
   if (!walls || walls.length === 0) return door;
 
+  let wallsToSnap = walls;
+  if (door.parentWallId) {
+    const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
+    const targetBaseId = getBaseWallId(door.parentWallId);
+    const parentSegments = walls.filter(w => getBaseWallId(w.id) === targetBaseId);
+    if (parentSegments.length > 0) {
+      wallsToSnap = mergeCollinearWalls(parentSegments, 12, 0.98, 999999, true);
+    }
+  }
+
   let p1, p2;
   if (door.points && door.points.length === 2) {
     const pt0 = door.points[0];
@@ -1076,7 +1086,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
     p1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
     p2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
   } else {
-    const centerline = getDoorCenterline(door, walls);
+    const centerline = getDoorCenterline(door, wallsToSnap);
     if (!centerline) return door;
     p1 = centerline.p1;
     p2 = centerline.p2;
@@ -1090,7 +1100,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
 
   const doorAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
 
-  for (const w of walls) {
+  for (const w of wallsToSnap) {
     if (!w.centerline || w.centerline.length !== 2) continue;
     const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
     const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
