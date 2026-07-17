@@ -180,6 +180,8 @@ export default function DoorEditDialog({
   // Derive the "Penetration" read-only label
   const doorDef = DOOR_TYPE_REGISTRY[penetrationType];
   const typeLabel = doorDef?.label || 'Custom Door';
+  const isExternal = penetrationType.startsWith('ext_');
+  const prefix = isExternal ? 'ext_' : 'int_';
 
   // Convert distance to display
   const distanceMmDisplay = distanceValue > 0
