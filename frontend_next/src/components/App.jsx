@@ -900,6 +900,7 @@ export default function App() {
               currentPage={currentPage}
               pages={pages}
               handleClick={handleClick}
+              checkAndResetIgnoreClick={checkAndResetIgnoreClick}
               finishPolygon={finishPolygon}
               finishDoor={finishDoor}
               onMouseMove={onMouseMove}

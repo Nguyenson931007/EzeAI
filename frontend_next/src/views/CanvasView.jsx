@@ -778,7 +778,8 @@ const DoorLayer = React.memo(({
   walls = [],
   onDoorContextMenu,
   interactionMode,
-  onEditDoor
+  onEditDoor,
+  checkAndResetIgnoreClick
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
   const lastMouseDownSelectedId = React.useRef(null);
@@ -838,6 +839,7 @@ const DoorLayer = React.memo(({
                 onDoorContextMenu={onDoorContextMenu}
                 realScale={realScale}
                 onEdit={() => onEditDoor && onEditDoor(d)}
+                checkAndResetIgnoreClick={checkAndResetIgnoreClick}
               />
             );
           }
@@ -1168,16 +1170,20 @@ const DoorLayer = React.memo(({
           return (
             <g key={`${d.id}-${idx}`} 
                onClick={(e) => {
-                 if (interactionMode === "draw-wall") return;
-                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                 e.stopPropagation();
-                 if (lastMouseDownSelectedId.current === d.id && selectedType === "door") {
-                   if (onEditDoor) onEditDoor(d);
-                 } else {
-                   setSelectedId(d.id);
-                   setSelectedType("door");
-                 }
-               }}
+                  if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) {
+                    e.stopPropagation();
+                    return;
+                  }
+                  if (interactionMode === "draw-wall") return;
+                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                  e.stopPropagation();
+                  if (lastMouseDownSelectedId.current === d.id && selectedType === "door") {
+                    if (onEditDoor) onEditDoor(d);
+                  } else {
+                    setSelectedId(d.id);
+                    setSelectedType("door");
+                  }
+                }}
                onMouseDown={(e) => {
                  lastMouseDownSelectedId.current = selectedId;
                  if (interactionMode === "draw-wall") return;
@@ -2073,6 +2079,7 @@ export default function CanvasView({
   currentPage,
   pages,
   handleClick,
+  checkAndResetIgnoreClick,
   finishPolygon,
   finishDoor,
   onMouseMove,
@@ -3285,6 +3292,7 @@ export default function CanvasView({
               onDoorContextMenu={handleDoorContextMenu}
               interactionMode={interactionMode}
               onEditDoor={(door) => setDoorEditDialog({ visible: true, door })}
+              checkAndResetIgnoreClick={checkAndResetIgnoreClick}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}

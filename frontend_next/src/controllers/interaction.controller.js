@@ -96,6 +96,13 @@ export function useInteractionController(svgRef) {
   const [isDraggingPan, setIsDraggingPan] = useState(false);
   const panStart = useRef(null);
   const ignoreClickRef = useRef(false);
+  const checkAndResetIgnoreClick = () => {
+    if (ignoreClickRef.current) {
+      ignoreClickRef.current = false;
+      return true;
+    }
+    return false;
+  };
 
   const [rect, setRect] = useState(null);
   const [hoverId, setHoverId] = useState(null);
@@ -2683,7 +2690,7 @@ export function useInteractionController(svgRef) {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
+    handleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
     deleteDoor: typeof doorController !== 'undefined' ? doorController.deleteDoor : deleteDoor,
     doorController: typeof doorController !== 'undefined' ? doorController : null,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
