@@ -169,13 +169,13 @@ export default function RibbonView({
                 >
                   <span className="icon">🔗</span><span className="label">Merge Aligned</span>
                 </button>
-                {/* <button
+                <button
                   className={`ribbon-btn ${isWallSnapEnabled ? "active" : ""}`}
                   onClick={() => setIsWallSnapEnabled && setIsWallSnapEnabled(prev => !prev)}
                   title="Bật/Tắt chế độ hít góc/gộp hai đầu nút tường (Toggle Endpoint Snap)"
-                > */}
-                {/* <span className="icon">🧲</span><span className="label">{isWallSnapEnabled ? "Snap On" : "Snap Off"}</span> */}
-                {/* </button> */}
+                >
+                  <span className="icon">🧲</span><span className="label">{isWallSnapEnabled ? "Snap On" : "Snap Off"}</span>
+                </button>
                 <button
                   className={`ribbon-btn ${interactionMode === "marquee" ? "active" : ""}`}
                   onClick={() => setInteractionMode && setInteractionMode(prev => prev === "marquee" ? "select" : "marquee")}
@@ -220,17 +220,11 @@ export default function RibbonView({
                   <span className="icon">🏠</span><span className="label">Roof</span>
                 </button>
                 <button
-<<<<<<< HEAD
                   className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'door' ? "active" : ""}`}
                   onClick={() => {
                     const isActive = isDrawingDoor && doorController?.doorPanelMode === 'door';
 
                     if (isActive) {
-=======
-                  className={`ribbon-btn ${showPenetrations && (!doorController || doorController.doorPreset?.id !== 'win_standard') ? "active" : ""}`}
-                  onClick={() => {
-                    if (showPenetrations && (!doorController || doorController.doorPreset?.id !== 'win_standard')) {
->>>>>>> be9cfba (refactor: update door drawing state and penetration UI behavior)
                       if (doorController) doorController.cancelDoorDraw();
                       else setIsDrawingDoor(false);
                     } else {

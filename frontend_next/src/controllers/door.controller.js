@@ -201,12 +201,10 @@ export function useDoorController({
 
     pushHistory(null, cutWalls, newDoors);
 
-<<<<<<< HEAD
-    // Reset drawing state (keep drawing tool active and left panel visible)
-=======
+
+
     // Reset drawing state (end door drawing mode, but keep showPenetrations panel active)
     setIsDrawingDoor(false);
->>>>>>> be9cfba (refactor: update door drawing state and penetration UI behavior)
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);

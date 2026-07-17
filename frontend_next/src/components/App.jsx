@@ -784,7 +784,6 @@ export default function App() {
             />
           )}
 
-<<<<<<< HEAD
           {isDrawingDoor && !show3D && (
             <div
               style={{
@@ -794,18 +793,6 @@ export default function App() {
                 zIndex: 10,
                 display: 'flex',
                 height: '100%'
-=======
-          {showPenetrations && !show3D && (
-            <DoorTypePanel
-              onSelectPreset={(preset) => {
-                if (doorController) {
-                  doorController.startDoorDraw();
-                  doorController.setDoorPreset(preset);
-                } else {
-                  setDoorPreset(preset);
-                  setIsDrawingDoor(true);
-                }
->>>>>>> be9cfba (refactor: update door drawing state and penetration UI behavior)
               }}
             >
               <DoorTypePanel
