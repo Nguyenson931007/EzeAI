@@ -196,7 +196,7 @@ export function useDoorController({
     const newDoors = [...doors, snappedDoor];
 
     // Heal and cut walls
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 600, true, true) : walls;
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
     const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
 
     pushHistory(null, cutWalls, newDoors);
@@ -496,7 +496,7 @@ export function useDoorController({
     const newDoors = doors.filter(d => d.id !== doorId);
 
     // Heal walls (re-merge segments that were cut for this door)
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 600, true, true) : walls;
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
     const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
 
     pushHistory(null, cutWalls, newDoors);
@@ -513,7 +513,7 @@ export function useDoorController({
     if (!oldDoor) return;
 
     let updatedDoor = { ...newDoorData, modifiedAt: new Date().toISOString() };
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 600, true, true) : walls;
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
 
     // 1. Rotation change
     if (updatedDoor.rotation !== undefined && updatedDoor.rotation !== (oldDoor.rotation || 0)) {
@@ -755,7 +755,7 @@ export function useDoorController({
     const walls = getCurrentWalls();
     if (doors.length === 0 || walls.length === 0) return;
 
-    const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls], 12, 0.98, 600, true, true) : walls;
+    const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls], 12, 0.98, 999999, true, true) : walls;
     const snappedDoors = doors.map(d => {
       const snapped = snapDoorToWalls(d, uncutWalls, 80);
       // Update parentWallId (always re-associate to current uncut wall ID to prevent stale references)

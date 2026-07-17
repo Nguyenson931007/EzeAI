@@ -1818,7 +1818,7 @@ export function useInteractionController(svgRef) {
         }));
 
         if (updatedSnappedDoor) {
-          const healedWalls = mergeCollinearWalls(currentWalls, 12, 0.98, 600, true, true);
+          const healedWalls = mergeCollinearWalls(currentWalls, 12, 0.98, 999999, true, true);
           const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
           const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
 
@@ -2520,7 +2520,7 @@ export function useInteractionController(svgRef) {
             const updatedDoors = pageDoors.map(d => d.id === dragging.id ? snappedDoor : d);
 
             // Heal all walls by merging collinear ones (this heals the old door cuts)
-            const healedWalls = mergeCollinearWalls(pageWalls, 12, 0.98, 600, true, true);
+            const healedWalls = mergeCollinearWalls(pageWalls, 12, 0.98, 999999, true, true);
             // Cut the healed walls by the updated doors list
             const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
 
@@ -2644,7 +2644,7 @@ export function useInteractionController(svgRef) {
     if (currentDoors.length === 0 || currentWalls.length === 0) return;
 
     // Merge cut walls back to uncut walls for snapping
-    const uncutWalls = mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true, true);
+    const uncutWalls = mergeCollinearWalls([...currentWalls], 12, 0.98, 999999, true, true);
 
     // Snap all doors to these uncut walls
     const snappedDoors = currentDoors.map(d => {
