@@ -362,6 +362,16 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
         continue;
       }
 
+      if (door.parentWallId) {
+        const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
+        const doorBaseId = getBaseWallId(door.parentWallId);
+        const wallBaseId = getBaseWallId(w.id);
+        if (doorBaseId !== wallBaseId) {
+          nextWalls.push(w);
+          continue;
+        }
+      }
+
       const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
       const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
 
@@ -1066,7 +1076,7 @@ export function getDoorCenterline(door, walls = []) {
   return { p1: polyPoints[0], p2: polyPoints[1 % n] };
 }
 
-export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false) {
+export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false, otherDoors = []) {
   if (!walls || walls.length === 0) return door;
 
   let wallsToSnap = walls;
@@ -1129,16 +1139,95 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
 
     const W = Math.hypot(p2.x - p1.x, p2.y - p1.y);
     
+    // Project original door midpoint C onto the wall to get target t parameter
+    let t = ((C.x - a.x) * dx + (C.y - a.y) * dy) / (L * L);
+    const halfW_ratio = (W / 2) / L;
+
+    // 1. Boundary constraint: Keep door frame entirely within the wall endpoints
+    if (halfW_ratio < 0.5) {
+      t = Math.max(halfW_ratio, Math.min(1 - halfW_ratio, t));
+    } else {
+      t = 0.5;
+    }
+
+    // 2. Collision avoidance with other doors on the same wall
+    if (otherDoors && otherDoors.length > 0) {
+      const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
+      const doorBaseId = door.parentWallId ? getBaseWallId(door.parentWallId) : '';
+      
+      if (doorBaseId) {
+        const siblings = otherDoors.filter(sib => 
+          sib.id !== door.id && 
+          sib.parentWallId && 
+          getBaseWallId(sib.parentWallId) === doorBaseId
+        );
+
+        const blockedIntervals = siblings.map(sib => {
+          let sp1, sp2;
+          if (sib.points && sib.points.length === 2) {
+            const pt0 = sib.points[0];
+            const pt1 = sib.points[1];
+            sp1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
+            sp2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
+          } else {
+            const sCenterline = getDoorCenterline(sib, wallsToSnap);
+            if (!sCenterline) return null;
+            sp1 = sCenterline.p1;
+            sp2 = sCenterline.p2;
+          }
+          
+          const s_t1 = ((sp1.x - a.x) * dx + (sp1.y - a.y) * dy) / (L * L);
+          const s_t2 = ((sp2.x - a.x) * dx + (sp2.y - a.y) * dy) / (L * L);
+          const s_min = Math.min(s_t1, s_t2);
+          const s_max = Math.max(s_t1, s_t2);
+          
+          return {
+            left: s_min - halfW_ratio,
+            right: s_max + halfW_ratio
+          };
+        }).filter(Boolean);
+
+        for (let iter = 0; iter < 3; iter++) {
+          let resolved = true;
+          for (const interval of blockedIntervals) {
+            if (t > interval.left && t < interval.right) {
+              const distToLeft = Math.abs(t - interval.left);
+              const distToRight = Math.abs(t - interval.right);
+              if (distToLeft < distToRight) {
+                t = interval.left;
+              } else {
+                t = interval.right;
+              }
+              resolved = false;
+            }
+          }
+          if (resolved) break;
+        }
+
+        // Re-clamp boundary just in case collision resolution pushed it out of bounds
+        if (halfW_ratio < 0.5) {
+          t = Math.max(halfW_ratio, Math.min(1 - halfW_ratio, t));
+        } else {
+          t = 0.5;
+        }
+      }
+    }
+
+    const clampedProj = {
+      x: a.x + t * dx,
+      y: a.y + t * dy
+    };
+
     // Project original p1 and p2 onto the wall centerline to see their relative order to start vertex 'a'
     const t_p1 = (p1.x - a.x) * u.x + (p1.y - a.y) * u.y;
     const t_p2 = (p2.x - a.x) * u.x + (p2.y - a.y) * u.y;
     
     const new_p1 = t_p1 < t_p2
-      ? { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y }
-      : { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y };
+      ? { x: clampedProj.x - (W / 2) * u.x, y: clampedProj.y - (W / 2) * u.y }
+      : { x: clampedProj.x + (W / 2) * u.x, y: clampedProj.y + (W / 2) * u.y };
     const new_p2 = t_p1 < t_p2
-      ? { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y }
-      : { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y };
+      ? { x: clampedProj.x + (W / 2) * u.x, y: clampedProj.y + (W / 2) * u.y }
+      : { x: clampedProj.x - (W / 2) * u.x, y: clampedProj.y - (W / 2) * u.y };
 
     const isOpposite = t_p1 > t_p2;
 
@@ -1157,8 +1246,8 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
       const ry = py - C.y;
       const rotX = rx * Math.cos(d_theta) - ry * Math.sin(d_theta);
       const rotY = rx * Math.sin(d_theta) + ry * Math.cos(d_theta);
-      const newX = rotX + bestProj.x;
-      const newY = rotY + bestProj.y;
+      const newX = rotX + clampedProj.x;
+      const newY = rotY + clampedProj.y;
       return Array.isArray(pt) ? [newX, newY] : { x: newX, y: newY };
     };
 
