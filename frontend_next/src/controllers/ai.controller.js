@@ -9,7 +9,7 @@ import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
-import { migrateLegacyDoor } from "@/models/DoorTypeRegistry";
+import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
 
 /**
@@ -682,7 +682,16 @@ export const useAIController = (
             const mergedWalls = mergeCollinearWalls(allWalls);
 
             // Snap existing doors to the newly detected merged walls!
-            const snappedDoors = doors.map(d => snapDoorToWalls(d, mergedWalls, 80));
+            const snappedDoors = doors.map(d => {
+              const snapped = snapDoorToWalls(d, mergedWalls, 80);
+              const center = {
+                x: (snapped.points[0].x + snapped.points[1].x) / 2,
+                y: (snapped.points[0].y + snapped.points[1].y) / 2,
+              };
+              const pw = findParentWall(center, mergedWalls);
+              if (pw) snapped.parentWallId = pw.id;
+              return snapped;
+            });
             if (setDoorsByPage) {
               setDoorsByPage(prev => ({
                 ...prev,
@@ -1129,7 +1138,16 @@ export const useAIController = (
           const mergedWalls = mergeCollinearWalls(allWalls);
 
           // Snap doors to the newly detected merged walls!
-          const snappedDoors = currentDoors.map(d => snapDoorToWalls(d, mergedWalls, 80));
+          const snappedDoors = currentDoors.map(d => {
+            const snapped = snapDoorToWalls(d, mergedWalls, 80);
+            const center = {
+              x: (snapped.points[0].x + snapped.points[1].x) / 2,
+              y: (snapped.points[0].y + snapped.points[1].y) / 2,
+            };
+            const pw = findParentWall(center, mergedWalls);
+            if (pw) snapped.parentWallId = pw.id;
+            return snapped;
+          });
           detectedDoors = snappedDoors;
 
           // Update doors state with snapped doors
