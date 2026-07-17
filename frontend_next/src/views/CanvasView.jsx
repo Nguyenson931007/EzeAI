@@ -952,7 +952,7 @@ const DoorLayer = React.memo(({
             return (
               <g>
                 {/* Invisible hitbox line for easier clicking */}
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="transparent" strokeWidth={24} style={{ cursor: 'pointer' }} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(0, 0, 0, 0.01)" strokeWidth={24} style={{ cursor: 'pointer' }} pointerEvents="stroke" />
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
                 <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
               </g>
@@ -1280,44 +1280,117 @@ const DoorLayer = React.memo(({
               ))))}
 
               {/* Floating interactive flip control panel (manual doors only) */}
-              {isSelected && type !== "window" && (
-                <foreignObject
-                  x={(p1.x + p2.x) / 2 - 60}
-                  y={(p1.y + p2.y) / 2 - 32}
-                  width={120}
-                  height={30}
-                  style={{ overflow: 'visible' }}
-                >
-                  <div 
-                    style={{
-                      display: 'inline-flex',
-                      gap: '4px',
-                      background: 'rgba(15, 23, 42, 0.9)',
-                      backdropFilter: 'blur(8px)',
-                      border: '1px solid rgba(255, 87, 34, 0.5)',
-                      borderRadius: '20px',
-                      padding: '3px 8px',
-                      boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      pointerEvents: 'auto'
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
+              {isSelected && type !== "window" && (() => {
+                const isDouble = type === "double";
+                const isSingle = type === "single";
+                const objWidth = isSingle ? 170 : (isDouble ? 110 : 60);
+
+                return (
+                  <foreignObject
+                    x={(p1.x + p2.x) / 2 - objWidth / 2}
+                    y={(p1.y + p2.y) / 2 - 32}
+                    width={objWidth}
+                    height={30}
+                    style={{ overflow: 'visible' }}
                   >
-                    {/* Hinge flip (only for single doors) */}
-                    {type === "single" && (
+                    <div 
+                      style={{
+                        display: 'inline-flex',
+                        gap: '4px',
+                        background: 'rgba(15, 23, 42, 0.9)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(255, 87, 34, 0.5)',
+                        borderRadius: '20px',
+                        padding: '3px 8px',
+                        boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        pointerEvents: 'auto'
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      {/* Hinge flip (only for single doors) */}
+                      {type === "single" && (
+                        <button
+                          title="Flip Hinge Direction"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (updateDoor) {
+                              const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+                              updateDoor({
+                                ...d,
+                                hingeSide: newHinge,
+                                hinge_side: newHinge
+                              });
+                            }
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#fff',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontWeight: 'bold',
+                            borderRadius: '12px',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                          onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                        >
+                          ⇄ Hinge
+                        </button>
+                      )}
+                      {type === "single" && (
+                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
+                      )}
+                      {/* Swing flip (for single and double doors) */}
+                      {type !== "sliding" && (
+                        <button
+                          title="Flip Swing Direction"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (updateDoor) {
+                              const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+                              updateDoor({
+                                ...d,
+                                swing: newSwing,
+                                swing_direction: newSwing
+                              });
+                            }
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#fff',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontWeight: 'bold',
+                            borderRadius: '12px',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                          onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                        >
+                          ⇅ Swing
+                        </button>
+                      )}
+                      {/* Edit button (for all doors) */}
+                      {(type === "single" || type === "double") && (
+                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
+                      )}
                       <button
-                        title="Flip Hinge Direction"
+                        title="Edit Door Details"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (updateDoor) {
-                            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
-                            updateDoor({
-                              ...d,
-                              hingeSide: newHinge,
-                              hinge_side: newHinge
-                            });
-                          }
+                          setDoorEditDialog({ visible: true, door: d });
                         }}
                         style={{
                           background: 'none',
@@ -1336,50 +1409,12 @@ const DoorLayer = React.memo(({
                         onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                         onMouseOut={(e) => e.currentTarget.style.background = 'none'}
                       >
-                        ⇄ Hinge
+                        ✏️ Edit
                       </button>
-                    )}
-                    {type === "single" && (
-                      <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
-                    )}
-                    {/* Swing flip (for single and double doors) */}
-                    {type !== "sliding" && (
-                      <button
-                        title="Flip Swing Direction"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (updateDoor) {
-                            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
-                            updateDoor({
-                              ...d,
-                              swing: newSwing,
-                              swing_direction: newSwing
-                            });
-                          }
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#fff',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          fontWeight: 'bold',
-                          borderRadius: '12px',
-                          transition: 'background 0.2s'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                      >
-                        ⇅ Swing
-                      </button>
-                    )}
-                  </div>
-                </foreignObject>
-              )}
+                    </div>
+                  </foreignObject>
+                );
+              })()}
             </g>
           );
         } catch (err) {

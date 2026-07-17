@@ -864,8 +864,8 @@ export default function AIDoor({
       {/* Clickable Overlay (Raw mask polygon with transparent styling for click/drag) */}
       <polygon
         points={clickPolyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-        fill="transparent"
-        stroke="transparent"
+        fill="rgba(0, 0, 0, 0.01)"
+        stroke="none"
         strokeWidth={0}
         onMouseDown={(e) => {
           if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
