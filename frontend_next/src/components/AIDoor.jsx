@@ -572,10 +572,10 @@ export default function AIDoor({
 
           const xs = [hingeX, o1_proj.x, o2_proj.x, ...arcPoints.map(p => p.x)];
           const ys = [hingeY, o1_proj.y, o2_proj.y, ...arcPoints.map(p => p.y)];
-          const minX = Math.min(...xs) - 5;
-          const minY = Math.min(...ys) - 5;
-          const maxX = Math.max(...xs) + 5;
-          const maxY = Math.max(...ys) + 5;
+          const minX = Math.min(...xs) - 12;
+          const minY = Math.min(...ys) - 12;
+          const maxX = Math.max(...xs) + 12;
+          const maxY = Math.max(...ys) + 12;
 
           clickPolyPoints = [
             { x: minX, y: minY },
@@ -1098,12 +1098,17 @@ export default function AIDoor({
       {/* OCR Width Dimension Label (Editable) */}
       {widthLabel && (
         <g 
-          style={{ pointerEvents: 'auto', cursor: 'text' }}
+          style={{ pointerEvents: 'auto', cursor: isSelected ? 'text' : 'pointer' }}
           onClick={(e) => {
             e.stopPropagation();
-            const nw = prompt("Enter door width (mm):", d.width_mm || "");
-            if (nw !== null && !isNaN(parseInt(nw, 10)) && updateDoor) {
-              updateDoor({...d, width_mm: parseInt(nw, 10), width_source: "manual"});
+            if (!isSelected) {
+              setSelectedId(d.id);
+              setSelectedType("door");
+            } else {
+              const nw = prompt("Enter door width (mm):", d.width_mm || "");
+              if (nw !== null && !isNaN(parseInt(nw, 10)) && updateDoor) {
+                updateDoor({...d, width_mm: parseInt(nw, 10), width_source: "manual"});
+              }
             }
           }}
         >
