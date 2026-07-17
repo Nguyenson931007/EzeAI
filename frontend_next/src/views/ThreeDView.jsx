@@ -33,6 +33,7 @@ export default function ThreeDView({
   const rendererRef = useRef(null);
   const controlsRef = useRef(null);
   const cameraRef = useRef(null);
+  const gridHelperRef = useRef(null);
   
   // Store generated 3D meshes to dynamically update them (e.g. wall height)
   const wallMeshesRef = useRef([]);
@@ -196,11 +197,11 @@ export default function ThreeDView({
     scene.add(pointLight);
 
     // 5. GRID HELPER
-    if (showGrid) {
-      const gridHelper = new THREE.GridHelper(5000, 100, 0x3b82f6, 0x1e293b);
-      gridHelper.position.y = -2;
-      scene.add(gridHelper);
-    }
+    const gridHelper = new THREE.GridHelper(5000, 100, 0x3b82f6, 0x1e293b);
+    gridHelper.position.y = -2;
+    gridHelper.visible = showGrid;
+    scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
 
     // 6. ORBIT CONTROLS
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -285,6 +286,13 @@ export default function ThreeDView({
       doorMeshesRef.current = [];
     };
   }, [center]);
+
+  // Handle Grid Toggle
+  useEffect(() => {
+    if (gridHelperRef.current) {
+      gridHelperRef.current.visible = showGrid;
+    }
+  }, [showGrid]);
 
   // Handle Shadows Toggle
   useEffect(() => {
@@ -1192,18 +1200,7 @@ export default function ThreeDView({
       }
     });
 
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-      if (controls) controls.dispose();
-      if (renderer) {
-        if (containerRef.current && renderer.domElement) {
-          containerRef.current.removeChild(renderer.domElement);
-        }
-        renderer.dispose();
-      }
-      disposeObject3D(scene);
-    };
-  }, [pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, wallHeightMm, floorDepthMm, showGrid, showFloors, showDoors, showRoofs, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
+  }, [pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, wallHeightMm, floorDepthMm, showFloors, showDoors, showRoofs, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
 
   // Reset Camera View
   const handleResetCamera = () => {
