@@ -1710,13 +1710,19 @@ export function useInteractionController(svgRef) {
             polygon: JSON.parse(JSON.stringify(w.polygon)),
             thickness_px: w.thickness_px
           }));
-        } else if (dragging.type === 'door-move') {
+        } else if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
           const currentDoors = doorsByPage[currentPage] || [];
           dragging.startDoors = currentDoors.map(d => ({
             ...d,
             points: JSON.parse(JSON.stringify(d.points || [])),
             polygon: d.polygon ? JSON.parse(JSON.stringify(d.polygon)) : null,
             mask_polygon: d.mask_polygon ? JSON.parse(JSON.stringify(d.mask_polygon)) : null
+          }));
+          const currentWalls = wallsByPage[currentPage] || [];
+          dragging.startWalls = currentWalls.map(w => ({
+            ...w,
+            centerline: JSON.parse(JSON.stringify(w.centerline)),
+            polygon: w.polygon ? JSON.parse(JSON.stringify(w.polygon)) : null
           }));
         }
       }
@@ -1775,7 +1781,7 @@ export function useInteractionController(svgRef) {
       } else if (dragging.type === 'door-move') {
         const dx = pRaw.x - dragging.startMouse.x;
         const dy = pRaw.y - dragging.startMouse.y;
-        const currentWalls = wallsByPage[currentPage] || [];
+        const currentWalls = dragging.startWalls || wallsByPage[currentPage] || [];
         const currentDoors = doorsByPage[currentPage] || [];
 
         let updatedSnappedDoor = null;
@@ -2506,7 +2512,7 @@ export function useInteractionController(svgRef) {
       if (dragging.hasMovedPastThreshold) {
         ignoreClickRef.current = true;
         if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
-          const pageWalls = wallsByPage[currentPage] || [];
+          const pageWalls = dragging.startWalls || wallsByPage[currentPage] || [];
           const pageDoors = doorsByPage[currentPage] || [];
           const targetDoor = pageDoors.find(d => d.id === dragging.id);
           if (targetDoor) {
