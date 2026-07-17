@@ -872,6 +872,7 @@ export default function AIDoor({
         stroke="none"
         strokeWidth={0}
         onMouseDown={(e) => {
+          lastSelectedOnMouseDown.current = isSelected;
           if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
           if (startDrag) {
             e.stopPropagation();

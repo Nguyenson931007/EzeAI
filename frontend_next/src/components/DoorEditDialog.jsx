@@ -188,12 +188,16 @@ export default function DoorEditDialog({
     ? `${Math.floor(distanceValue / 1000)}m ${distanceValue % 1000}mm`
     : '0mm';
 
-  const heightDisplay = heightMm > 0
-    ? `${Math.floor(heightMm / 1000)}m ${heightMm % 1000}mm`
+  const heightVal = parseInt(heightMm) || 0;
+  const heightDisplay = heightVal > 0
+    ? `${Math.floor(heightVal / 1000)}m ${heightVal % 1000}mm`
     : '0mm';
 
   const handleSave = () => {
     const parentWall = getParentWall();
+    const parsedHeight = Math.max(300, Math.min(2420, parseInt(heightMm) || 1980));
+    const parsedWidth = Math.max(300, parseInt(widthMm) || 760);
+
     const updated = {
       ...door,
       doorTypeId: penetrationType,
@@ -206,8 +210,8 @@ export default function DoorEditDialog({
       fireRating: fireRating,
       status: status,
       distance_from: { side: distanceSide, value: distanceValue },
-      height_mm: heightMm,
-      width_mm: widthMm,
+      height_mm: parsedHeight,
+      width_mm: parsedWidth,
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null
     };
@@ -433,7 +437,7 @@ export default function DoorEditDialog({
                 min="300"
                 max="2420"
                 value={heightMm}
-                onChange={(e) => setHeightMm(Math.max(300, Math.min(2420, parseInt(e.target.value) || 300)))}
+                onChange={(e) => setHeightMm(e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}
               />
               <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
@@ -453,11 +457,11 @@ export default function DoorEditDialog({
                 type="number"
                 min="300"
                 value={widthMm}
-                onChange={(e) => setWidthMm(Math.max(300, parseInt(e.target.value) || 300))}
+                onChange={(e) => setWidthMm(e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}
               />
               <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
-                {widthMm}mm
+                {parseInt(widthMm) || 0}mm
               </span>
             </div>
           </div>
