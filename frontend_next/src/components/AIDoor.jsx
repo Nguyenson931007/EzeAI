@@ -21,6 +21,7 @@ export default function AIDoor({
   realScale,
   onEdit
 }) {
+  const lastSelectedOnMouseDown = React.useRef(false);
   const maskPoly = (d.polygon && d.polygon.length >= 3)
     ? d.polygon
     : ((d.mask_polygon && d.mask_polygon.length >= 3) ? d.mask_polygon : []);
@@ -848,10 +849,13 @@ export default function AIDoor({
 
   return (
     <g
+      onMouseDown={() => {
+        lastSelectedOnMouseDown.current = isSelected;
+      }}
       onClick={(e) => {
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
         e.stopPropagation();
-        if (isSelected && onEdit) {
+        if (lastSelectedOnMouseDown.current && onEdit) {
           onEdit();
         } else {
           setSelectedId(d.id);

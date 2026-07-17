@@ -781,6 +781,7 @@ const DoorLayer = React.memo(({
   onEditDoor
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
+  const lastMouseDownSelectedId = React.useRef(null);
 
   return (
     <g id="DoorLayer">
@@ -1170,7 +1171,7 @@ const DoorLayer = React.memo(({
                  if (interactionMode === "draw-wall") return;
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  e.stopPropagation();
-                 if (selectedId === d.id) {
+                 if (lastMouseDownSelectedId.current === d.id && selectedType === "door") {
                    if (onEditDoor) onEditDoor(d);
                  } else {
                    setSelectedId(d.id);
@@ -1178,6 +1179,7 @@ const DoorLayer = React.memo(({
                  }
                }}
                onMouseDown={(e) => {
+                 lastMouseDownSelectedId.current = selectedId;
                  if (interactionMode === "draw-wall") return;
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  if (startDrag) {
