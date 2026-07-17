@@ -758,15 +758,13 @@ export function useDoorController({
     const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls], 12, 0.98, 600, true, true) : walls;
     const snappedDoors = doors.map(d => {
       const snapped = snapDoorToWalls(d, uncutWalls, 80);
-      // Update parentWallId
-      if (!snapped.parentWallId) {
-        const center = {
-          x: (snapped.points[0].x + snapped.points[1].x) / 2,
-          y: (snapped.points[0].y + snapped.points[1].y) / 2,
-        };
-        const pw = findParentWall(center, uncutWalls);
-        if (pw) snapped.parentWallId = pw.id;
-      }
+      // Update parentWallId (always re-associate to current uncut wall ID to prevent stale references)
+      const center = {
+        x: (snapped.points[0].x + snapped.points[1].x) / 2,
+        y: (snapped.points[0].y + snapped.points[1].y) / 2,
+      };
+      const pw = findParentWall(center, uncutWalls);
+      if (pw) snapped.parentWallId = pw.id;
       return snapped;
     });
 

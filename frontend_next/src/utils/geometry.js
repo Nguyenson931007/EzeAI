@@ -1128,14 +1128,19 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
     const u = { x: dx / L, y: dy / L };
 
     const W = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    const isOpposite = (p2.x - p1.x) * u.x + (p2.y - p1.y) * u.y < 0;
-
-    const new_p1 = isOpposite
-      ? { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y }
-      : { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y };
-    const new_p2 = isOpposite
+    
+    // Project original p1 and p2 onto the wall centerline to see their relative order to start vertex 'a'
+    const t_p1 = (p1.x - a.x) * u.x + (p1.y - a.y) * u.y;
+    const t_p2 = (p2.x - a.x) * u.x + (p2.y - a.y) * u.y;
+    
+    const new_p1 = t_p1 < t_p2
       ? { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y }
       : { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y };
+    const new_p2 = t_p1 < t_p2
+      ? { x: bestProj.x + (W / 2) * u.x, y: bestProj.y + (W / 2) * u.y }
+      : { x: bestProj.x - (W / 2) * u.x, y: bestProj.y - (W / 2) * u.y };
+
+    const isOpposite = t_p1 > t_p2;
 
     const theta = Math.atan2(p2.y - p1.y, p2.x - p1.x);
     const theta_wall = Math.atan2(dy, dx);

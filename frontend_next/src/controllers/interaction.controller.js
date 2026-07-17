@@ -17,6 +17,7 @@ import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDo
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
+import { findParentWall } from "@/models/DoorTypeRegistry";
 
 export const RoofInteractionState = {
   IDLE: "IDLE",
@@ -2640,7 +2641,16 @@ export function useInteractionController(svgRef) {
     const uncutWalls = mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true, true);
 
     // Snap all doors to these uncut walls
-    const snappedDoors = currentDoors.map(d => snapDoorToWalls(d, uncutWalls, 80));
+    const snappedDoors = currentDoors.map(d => {
+      const snapped = snapDoorToWalls(d, uncutWalls, 80);
+      const center = {
+        x: (snapped.points[0].x + snapped.points[1].x) / 2,
+        y: (snapped.points[0].y + snapped.points[1].y) / 2,
+      };
+      const pw = findParentWall(center, uncutWalls);
+      if (pw) snapped.parentWallId = pw.id;
+      return snapped;
+    });
 
     // Cut the walls using the snapped doors
     const newWalls = cutWallsByDoors(uncutWalls, snappedDoors, realScale);
