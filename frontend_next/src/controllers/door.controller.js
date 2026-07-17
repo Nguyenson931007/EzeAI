@@ -759,12 +759,20 @@ export function useDoorController({
     const snappedDoors = doors.map(d => {
       const snapped = snapDoorToWalls(d, uncutWalls, 80);
       // Update parentWallId (always re-associate to current uncut wall ID to prevent stale references)
-      const center = {
-        x: (snapped.points[0].x + snapped.points[1].x) / 2,
-        y: (snapped.points[0].y + snapped.points[1].y) / 2,
-      };
-      const pw = findParentWall(center, uncutWalls);
-      if (pw) snapped.parentWallId = pw.id;
+      if (snapped.points && snapped.points.length >= 2) {
+        const pt0 = snapped.points[0];
+        const pt1 = snapped.points[1];
+        const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+        const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+        const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+        const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+        const center = {
+          x: (px0 + px1) / 2,
+          y: (py0 + py1) / 2,
+        };
+        const pw = findParentWall(center, uncutWalls);
+        if (pw) snapped.parentWallId = pw.id;
+      }
       return snapped;
     });
 
