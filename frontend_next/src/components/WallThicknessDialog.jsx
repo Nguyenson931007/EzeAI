@@ -38,11 +38,15 @@ function saveConfig(config) {
 export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
   const overlayRef = useRef(null);
   const saved = loadSavedConfig();
+  const initialHeight = saved?.defaultHeight || 2700;
+  const isInitialCustom = !WALL_HEIGHT_OPTIONS.includes(initialHeight);
 
   const [extThickness, setExtThickness] = useState(saved?.ext || 90);
   const [intThickness, setIntThickness] = useState(saved?.int || 70);
   const [partThickness, setPartThickness] = useState(saved?.part || 70);
-  const [defaultHeight, setDefaultHeight] = useState(saved?.defaultHeight || 2400);
+  const [defaultHeight, setDefaultHeight] = useState(isInitialCustom ? 'custom' : initialHeight);
+  const [isCustomHeight, setIsCustomHeight] = useState(isInitialCustom);
+  const [customHeightVal, setCustomHeightVal] = useState(isInitialCustom ? initialHeight : 2700);
 
   // Reload saved values when dialog opens
   useEffect(() => {
@@ -52,19 +56,41 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
         setExtThickness(s.ext || 90);
         setIntThickness(s.int || 70);
         setPartThickness(s.part || 70);
-        setDefaultHeight(s.defaultHeight || 2400);
+        
+        const h = s.defaultHeight || 2700;
+        if (WALL_HEIGHT_OPTIONS.includes(h)) {
+          setDefaultHeight(h);
+          setIsCustomHeight(false);
+        } else {
+          setDefaultHeight('custom');
+          setCustomHeightVal(h);
+          setIsCustomHeight(true);
+        }
       }
     }
   }, [visible]);
 
   if (!visible) return null;
 
+  const handleHeightSelectChange = (e) => {
+    const val = e.target.value;
+    if (val === 'custom') {
+      setDefaultHeight('custom');
+      setIsCustomHeight(true);
+    } else {
+      const num = Number(val);
+      setDefaultHeight(num);
+      setIsCustomHeight(false);
+    }
+  };
+
   const handleConfirm = () => {
+    const finalHeight = isCustomHeight ? Number(customHeightVal) : Number(defaultHeight);
     const config = {
       ext: extThickness,
       int: intThickness,
       part: partThickness,
-      defaultHeight
+      defaultHeight: finalHeight
     };
     saveConfig(config);
     onConfirm(config);
@@ -238,12 +264,29 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
           <select
             style={selectStyle}
             value={defaultHeight}
-            onChange={e => setDefaultHeight(Number(e.target.value))}
+            onChange={handleHeightSelectChange}
           >
             {WALL_HEIGHT_OPTIONS.map(v => (
               <option key={v} value={v}>{v} mm ({(v / 1000).toFixed(1)} m)</option>
             ))}
+            <option value="custom">Custom...</option>
           </select>
+          
+          {isCustomHeight && (
+            <div style={{ marginTop: 8 }}>
+              <input
+                type="number"
+                value={customHeightVal}
+                onChange={e => setCustomHeightVal(Number(e.target.value))}
+                placeholder="Enter custom height (mm)"
+                style={{
+                  ...selectStyle,
+                  backgroundImage: 'none',
+                  cursor: 'text'
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Actions */}
