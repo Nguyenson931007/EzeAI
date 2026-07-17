@@ -147,7 +147,7 @@ export default function RibbonView({
                   <span className="icon">💾</span> <span className="label">Save</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => handleSaveJob(true)} title="Save project as new name">
-                  <span className="icon">💾📂</span> <span className="label">Save As</span>
+                  <span className="icon">📂</span> <span className="label">Save As</span>
                 </button>
               </div>
               <span className="ribbon-group-title">FILE</span>
@@ -220,9 +220,9 @@ export default function RibbonView({
                   <span className="icon">🏠</span><span className="label">Roof</span>
                 </button>
                 <button
-                  className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'door' ? "active" : ""}`}
+                  className={`ribbon-btn ${showPenetrations && doorController?.doorPanelMode === 'door' ? "active" : ""}`}
                   onClick={() => {
-                    const isActive = isDrawingDoor && doorController?.doorPanelMode === 'door';
+                    const isActive = showPenetrations && doorController?.doorPanelMode === 'door';
 
                     if (isActive) {
                       if (doorController) doorController.cancelDoorDraw();
@@ -251,9 +251,9 @@ export default function RibbonView({
                   <span className="icon">🚪</span><span className="label">Door</span>
                 </button>
                 <button
-                  className={`ribbon-btn ${isDrawingDoor && doorController?.doorPanelMode === 'window' ? "active" : ""}`}
+                  className={`ribbon-btn ${showPenetrations && doorController?.doorPanelMode === 'window' ? "active" : ""}`}
                   onClick={() => {
-                    const isActive = isDrawingDoor && doorController?.doorPanelMode === 'window';
+                    const isActive = showPenetrations && doorController?.doorPanelMode === 'window';
 
                     if (isActive) {
                       if (doorController) doorController.cancelDoorDraw();

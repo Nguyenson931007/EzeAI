@@ -1,3 +1,4 @@
+from backend.training.train import DATASET_YAML
 from ultralytics import YOLO
 import torch
 
@@ -14,60 +15,29 @@ print("=" * 60)
 
 # Load pretrained YOLO11 segmentation model
 # Các lựa chọn: yolov8n-seg.pt, yolov8s-seg.pt, yolov8m-seg.pt, yolov8l-seg.pt
-model = YOLO("yolov8m-seg.pt")
+model = YOLO("yolov8s-seg.pt")
 
 model.train(
-
-    # Dataset
-    data="D:/final_data/data.yaml",
-
-    # Save
-    project="runs/segment",
-    name="Wall_2Class",
-    exist_ok=True,
-
-    # Training
+    data=str(DATASET_YAML),
     epochs=250,
-    patience=80,
-    batch=8,
-    imgsz=1024,
-    device=0,
-    workers=8,
-
-    # Performance
+    imgsz=1024,         # Wall segmentations are typically dense, 1024 is robust
+    patience=50,
     cache=True,
-    amp=True,
-
-    # Optimizer
-    optimizer="AdamW",
-    lr0=0.001,
-    lrf=0.01,
-    weight_decay=0.0005,
-    cos_lr=True,
-
-    # Augmentation
-    degrees=0,
+    workers=4,
+    degrees=15.0,       # Allow minor rotation jitter for walls
     translate=0.05,
-    scale=0.30,
-
-    shear=0,
-    perspective=0,
-
+    scale=0.5,          # Scale/zoom augmentation
     fliplr=0.5,
-    flipud=0.0,
-
-    mosaic=0.5,
+    flipud=0.5,         # Wall semantics are up/down invariant, so 0.5 is ideal
+    mosaic=1.0,         # High mosaic helps recognize walls across junctions
     mixup=0.0,
-
-    hsv_h=0.0,
-    hsv_s=0.0,
-    hsv_v=0.0,
-
-    # Validation
-    plots=True,
-    save=True,
-    save_period=10,
-    val=True
+    copy_paste=0.3,     # Copy-paste augmentation for segmentation
+    hsv_h=0.015,        # Small HSV color jitter
+    hsv_s=0.3,
+    hsv_v=0.2,
+    batch=8,
+    name="Wall_Seg",
+    exist_ok=True,
 )
 
 print("Training Finished!")

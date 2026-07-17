@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2, distancePointToSegment } from "@/utils/geometry";
+import { polygonAreaM2, distancePointToSegment, mapFloorName } from "@/utils/geometry";
 
 
 const getX = (p) => (p && p.x !== undefined ? p.x : p?.[0] ?? 0);
@@ -52,12 +52,18 @@ const EMPTY_ARRAY = [];
 
 export default function BOQTable({
   pages = EMPTY_ARRAY,
-
   doors = EMPTY_ARRAY,
   scaleValue,
   wasteInternal = 10,
   wasteExternal = 15,
+  initialPageIndex = 0,
 }) {
+  const [selectedPageIndex, setSelectedPageIndex] = useState(initialPageIndex);
+
+  useEffect(() => {
+    setSelectedPageIndex(initialPageIndex);
+  }, [initialPageIndex]);
+
   const WASTE_FACTOR_INT = 1 + wasteInternal / 100;
   const WASTE_FACTOR_EXT = 1 + wasteExternal / 100;
 
@@ -171,7 +177,11 @@ export default function BOQTable({
 
 
   const enrichedDoors = useMemo(() => {
-    return doors.map(d => {
+    const activeDoors = selectedPageIndex === "all"
+      ? doors
+      : doors.filter(d => d.page_index === selectedPageIndex);
+
+    return activeDoors.map(d => {
       let center = d.center;
       if (!center) {
         const poly = d.polygon || d.mask_polygon || d.points;
@@ -229,7 +239,7 @@ export default function BOQTable({
         height: Number(height.toFixed(2)),
       };
     });
-  }, [pages, doors, scaleValue]);
+  }, [pages, doors, scaleValue, selectedPageIndex]);
 
   const doorCountByRoom = useMemo(() => {
     const map = {};
@@ -247,7 +257,11 @@ export default function BOQTable({
   const baseList = useMemo(() => {
     if (!scaleValue || scaleValue <= 0) return [];
     const rows = [];
-    pages.forEach(p =>
+    const activePages = selectedPageIndex === "all"
+      ? pages
+      : [pages[selectedPageIndex]].filter(Boolean);
+
+    activePages.forEach(p =>
       (p.objects || []).forEach((r) => {
         if (!r?.polygon || r.polygon.length < 3) return;
         if (r.id && String(r.id).startsWith("text-")) return;
@@ -288,7 +302,7 @@ export default function BOQTable({
     });
 
     return Object.values(grouped);
-  }, [pages, scaleValue, doorCountByRoom]);
+  }, [pages, scaleValue, doorCountByRoom, selectedPageIndex]);
   const [viewMode, setViewMode] = useState("detail");
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
@@ -463,7 +477,11 @@ export default function BOQTable({
     // ===== DOORS =====
     const doorSummaries = [];
     const counts = {};
-    pages.forEach(p => {
+    const activePages = selectedPageIndex === "all"
+      ? pages
+      : [pages[selectedPageIndex]].filter(Boolean);
+
+    activePages.forEach(p => {
       (p.doors || []).forEach(d => {
         const cls = d.class || 'single_door';
         counts[cls] = (counts[cls] || 0) + 1;
@@ -538,7 +556,7 @@ export default function BOQTable({
         unit: "tube",
       }
     ];
-  }, [list, wasteInternal, wasteExternal]);
+  }, [list, wasteInternal, wasteExternal, selectedPageIndex, pages]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 8;
@@ -604,6 +622,7 @@ export default function BOQTable({
           <thead style={styles.summaryHead}>
             <tr>
               <th style={{ ...styles.th, textAlign: "center" }}>#</th>
+              <th style={{ ...styles.th, textAlign: "center" }}>Floor</th>
               <th style={{ ...styles.th, textAlign: "center" }}>Room</th>
               <th style={{ ...styles.th, textAlign: "center" }}>Type</th>
               <th style={{ ...styles.th, textAlign: "center" }}>Material</th>
@@ -615,6 +634,9 @@ export default function BOQTable({
             {data.map((r, i) => (
               <tr key={`${r.room_name}_${r.room_wetness}_${r.floor_name}_${i}`}>
                 <td style={{ ...styles.td, ...styles.tdCenter }}>{startIndex + i + 1}</td>
+                <td style={{ ...styles.td, ...styles.tdCenter }}>
+                  {mapFloorName(r.floor_name, pages.findIndex(pg => pg.floor_name === r.floor_name))}
+                </td>
                 <td style={{ ...styles.td, ...styles.tdLeft }}>{r.room_name}</td>
                 <td style={{ ...styles.td, ...styles.tdCenter }}>
                   {r.zone === "deck" ? (
@@ -676,6 +698,7 @@ export default function BOQTable({
         <thead style={styles.summaryHead}>
           <tr>
             <th style={{ ...styles.th, textAlign: "center" }}>Door ID</th>
+            <th style={{ ...styles.th, textAlign: "center" }}>Floor</th>
             <th style={{ ...styles.th, textAlign: "center" }}>Label</th>
             <th style={{ ...styles.th, textAlign: "center" }}>Height</th>
             <th style={{ ...styles.th, textAlign: "center" }}>Width</th>
@@ -694,6 +717,9 @@ export default function BOQTable({
             <tr key={`${r.id}_${i}`} style={styles.rowHover}>
               <td style={{ ...styles.td, ...styles.tdCenter }}>
                 {r.door_name}
+              </td>
+              <td style={{ ...styles.td, ...styles.tdCenter }}>
+                {mapFloorName(r.floor_name, pages.findIndex(pg => pg.floor_name === r.floor_name))}
               </td>
               <td style={{ ...styles.td, ...styles.tdCenter }}>
                 {r.label}
@@ -800,16 +826,18 @@ export default function BOQTable({
   /* ================= CSV Export ================= */
 
   const exportCSV = () => {
-    const header = "Room,Material,Wetness,Area\n";
+    const header = "Floor,Room,Material,Wetness,Area\n";
 
     const rows = list
       .map(r => {
         const material = materials.find(
           m => m.id === r.materialId
         );
+        const pIdx = pages.findIndex(pg => pg.floor_name === r.floor_name);
+        const floorName = mapFloorName(r.floor_name, pIdx >= 0 ? pIdx : 0);
 
-        return `${r.room_name},${material?.name || "3600x800x19mm GP Yellow TNG Flooring"
-          },${r.room_wetness},${formatArea(getArea(r))}`;
+        return `"${floorName}","${r.room_name}","${material?.name || "3600x800x19mm GP Yellow TNG Flooring"
+          }","${r.room_wetness}",${formatArea(getArea(r))}`;
       })
       .join("\n");
 
@@ -820,7 +848,10 @@ export default function BOQTable({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "boq.csv";
+    const floorLabel = selectedPageIndex === "all"
+      ? "All_Floors"
+      : mapFloorName(pages[selectedPageIndex]?.floor_name, selectedPageIndex).replace(/[\s_]+/g, '_');
+    a.download = `boq_${floorLabel}.csv`;
     a.click();
   };
 
@@ -962,7 +993,10 @@ export default function BOQTable({
     const a = document.createElement("a");
     a.href = url;
     const wastePercent = wasteInternal || 10;
-    a.download = `BOQ_Area_Summary_${wastePercent}pct_waste.xlsx`;
+    const floorLabel = selectedPageIndex === "all"
+      ? "All_Floors"
+      : mapFloorName(pages[selectedPageIndex]?.floor_name, selectedPageIndex).replace(/[\s_]+/g, '_');
+    a.download = `BOQ_Area_Summary_${floorLabel}_${wastePercent}pct_waste.xlsx`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -978,6 +1012,45 @@ export default function BOQTable({
   return (
     <div style={styles.card}>
       <h3 style={{ marginBottom: 20 }}>BOQ – Enterprise</h3>
+
+      {/* Floor Selector */}
+      <div style={{
+        marginBottom: 20,
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        background: "#f3f4f6",
+        padding: "10px 14px",
+        borderRadius: 8,
+      }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#4b5563" }}>Chọn tầng:</span>
+        <select
+          value={selectedPageIndex}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSelectedPageIndex(val === "all" ? "all" : parseInt(val, 10));
+          }}
+          style={{
+            background: "white",
+            color: "#111827",
+            border: "1px solid #e5e7eb",
+            borderRadius: 6,
+            padding: "6px 12px",
+            fontSize: 13,
+            outline: "none",
+            cursor: "pointer",
+            fontWeight: 500,
+            flex: 1
+          }}
+        >
+          <option value="all">Tất cả các tầng (Dự án)</option>
+          {pages.map((p, idx) => (
+            <option key={idx} value={idx}>
+              {mapFloorName(p.floor_name, idx)}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* KPI */}
       <div style={styles.kpiRow}>

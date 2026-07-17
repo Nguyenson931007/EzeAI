@@ -26,7 +26,7 @@ import {
   polygonAreaM2 as polygonAreaM2Util, 
   calculateWallPolygon 
 } from "@/utils/geometry";
-import { calculateDoorGeometry } from "@/engines/DoorArcLabelEngine";
+import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall } from "@/engines/DoorGeometryEngine";
 
 
@@ -70,10 +70,10 @@ const getDoorBoundingBox = (d) => {
       { x: x1, y: y2 }
     ];
   }
-  if (d.polygon) {
+  if (d.polygon && d.polygon.length >= 3) {
     return d.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
   }
-  return null;
+  return getDoorBoundingBoxCalculated(d);
 };
 
 // ==========================================
@@ -810,18 +810,7 @@ const DoorLayer = React.memo(({
 
           const type = d.type || "single";
 
-          // Calculate bounding box dynamically
-          const bboxPoly = getDoorBoundingBox(d) || d.polygon;
-          const hasBBox = bboxPoly && bboxPoly.length >= 4;
-          let bboxX, bboxY, bboxW, bboxH;
-          if (hasBBox) {
-            const bxs = bboxPoly.map(p => p.x);
-            const bys = bboxPoly.map(p => p.y);
-            bboxX = Math.min(...bxs);
-            bboxY = Math.min(...bys);
-            bboxW = Math.max(...bxs) - bboxX;
-            bboxH = Math.max(...bys) - bboxY;
-          }
+
 
           // ════════════════════════════════════════
           // AI DOOR: Render directly from segmentation mask
@@ -854,9 +843,7 @@ const DoorLayer = React.memo(({
           // ════════════════════════════════════════
           const angle = Math.atan2(dy, dx);
 
-          // Use the exact segmentation mask if available, otherwise fallback to bounding box
-          const displayPoly = d.mask_polygon || bboxPoly;
-          const hasDisplayPoly = displayPoly && displayPoly.length >= 3;
+
 
           const renderSingleDoor = () => {
             const geom = calculateDoorGeometry({
@@ -876,6 +863,13 @@ const DoorLayer = React.memo(({
 
             return (
               <g>
+                {/* Sector Fill */}
+                <path
+                  d={`M ${geom.arcCenter.x} ${geom.arcCenter.y} L ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y} Z`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(59, 130, 246, 0.03)")}
+                  stroke="transparent"
+                  style={{ pointerEvents: 'auto' }}
+                />
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
                 <path 
                   d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
@@ -927,6 +921,20 @@ const DoorLayer = React.memo(({
 
             return (
               <g>
+                {/* Sector Fill 1 */}
+                <path
+                  d={`M ${p1.x} ${p1.y} L ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y} Z`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(59, 130, 246, 0.03)")}
+                  stroke="transparent"
+                  style={{ pointerEvents: 'auto' }}
+                />
+                {/* Sector Fill 2 */}
+                <path
+                  d={`M ${p2.x} ${p2.y} L ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y} Z`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(59, 130, 246, 0.03)")}
+                  stroke="transparent"
+                  style={{ pointerEvents: 'auto' }}
+                />
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
                 <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} strokeDasharray="3,2" />
                 <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
@@ -965,11 +973,83 @@ const DoorLayer = React.memo(({
             );
           };
 
+          const renderGarageDoor = () => {
+            if (!p1 || !p2 || len <= 0) return null;
+            const ux = dx / len;
+            const uy = dy / len;
+            const nx = -uy;
+            const ny = ux;
+            
+            // Get wall thickness (default 20px)
+            let thickness = 20;
+            if (walls && walls.length > 0) {
+              const cx = (p1.x + p2.x) / 2;
+              const cy = (p1.y + p2.y) / 2;
+              let minDist = 80;
+              walls.forEach(w => {
+                if (!w.centerline || w.centerline.length < 2) return;
+                const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+                const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+                const wdx = wp2.x - wp1.x;
+                const wdy = wp2.y - wp1.y;
+                const L2 = wdx * wdx + wdy * wdy;
+                if (L2 < 0.1) return;
+                let tVal = ((cx - wp1.x) * wdx + (cy - wp1.y) * wdy) / L2;
+                tVal = Math.max(0, Math.min(1, tVal));
+                const dist = Math.hypot(cx - (wp1.x + tVal * wdx), cy - (wp1.y + tVal * wdy));
+                if (dist < minDist) {
+                  minDist = dist;
+                  thickness = w.thickness_px || 20;
+                }
+              });
+            }
+
+            const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+            const cx = (p1.x + p2.x) / 2;
+            const cy = (p1.y + p2.y) / 2;
+
+            return (
+              <g>
+                <rect
+                  x={-len / 2}
+                  y={-thickness / 2}
+                  width={len}
+                  height={thickness}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : "rgba(255, 255, 255, 0.05)"}
+                  stroke={isSelected ? "#FF5722" : "#475569"}
+                  strokeWidth={isSelected ? 3.5 : 2}
+                />
+                <line
+                  x1={-len / 2}
+                  y1={-thickness / 6}
+                  x2={len / 2}
+                  y2={-thickness / 6}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  stroke={isSelected ? "#FF5722" : "#94a3b8"}
+                  strokeWidth={1}
+                  opacity={0.6}
+                />
+                <line
+                  x1={-len / 2}
+                  y1={thickness / 6}
+                  x2={len / 2}
+                  y2={thickness / 6}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  stroke={isSelected ? "#FF5722" : "#94a3b8"}
+                  strokeWidth={1}
+                  opacity={0.6}
+                />
+              </g>
+            );
+          };
+
           const renderManualJambs = () => {
             const doorType = (d.type || "").toLowerCase();
             const doorClass = (d.class_name || "").toLowerCase();
             if (doorType.includes("sliding") || doorType.includes("slider") || 
-                doorClass.includes("sliding") || doorClass.includes("slider")) {
+                doorClass.includes("sliding") || doorClass.includes("slider") ||
+                doorType.includes("garage") || doorClass.includes("garage")) {
               return null;
             }
             if (!p1 || !p2 || len <= 0) return null;
@@ -1108,17 +1188,7 @@ const DoorLayer = React.memo(({
               {/* Door Jamb Rectangles */}
               {renderManualJambs()}
 
-              {/* Bounding Box overlay (Rotated Polygon) */}
-              {hasDisplayPoly && (
-                <polygon
-                  points={displayPoly.map(p => `${p.x},${p.y}`).join(" ")}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.08)" : (isHovered ? "rgba(0, 188, 212, 0.08)" : "rgba(0, 188, 212, 0.04)")}
-                  stroke={isSelected ? "#FF5722" : (isHovered ? "#00e5ff" : "#00BCD4")}
-                  strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 2.0 : 1.5))}
-                  strokeDasharray={isSelected ? "none" : "6,3"}
-                  opacity={0.85}
-                />
-              )}
+
               {type === "double" ? (
                 <>
                   {renderDoubleDoor()}
@@ -1167,6 +1237,22 @@ const DoorLayer = React.memo(({
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
+              ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || d.doorTypeId === "ext_garage" ? (
+                <>
+                  {renderGarageDoor()}
+                  <text 
+                    x={(p1.x + p2.x) / 2} 
+                    y={(p1.y + p2.y) / 2 - 10} 
+                    fontSize="10" 
+                    textAnchor="middle" 
+                    fill={isSelected ? color : "#1e293b"} 
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                  >
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                  </text>
+                </>
               ) : (
                 <>
                   {renderSingleDoor()}
@@ -1183,39 +1269,13 @@ const DoorLayer = React.memo(({
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
-              )))}
-
-              {/* Bounding Box Corner Handles */}
-              {isSelected && hasBBox && bboxPoly.map((p, i) => {
-                const isDraggingThisVertex = dragging && dragging.id === d.id && dragging.index === i && dragging.type === 'door-polygon';
-                return (
-                  <g key={`door-handle-${d.id}-${i}`}>
-                    <circle
-                      cx={p.x}
-                      cy={p.y}
-                      r={isDraggingThisVertex ? 3.5 : 5.5}
-                      fill="#ffffff"
-                      stroke="#FF5722"
-                      strokeWidth={isDraggingThisVertex ? 1.5 : 2}
-                      style={{ cursor: 'move' }}
-                      className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
-                      onMouseDown={(e) => {
-                        if (startDrag) {
-                          e.stopPropagation();
-                          startDrag(d.id, i, 'door-polygon');
-                        }
-                      }}
-                    />
-                    <circle cx={p.x} cy={p.y} r={isDraggingThisVertex ? 1 : 2.0} fill="#FF5722" pointerEvents="none" />
-                  </g>
-                );
-              })}
+              ))))}
 
               {/* Floating interactive flip control panel (manual doors only) */}
-              {isSelected && hasBBox && type !== "window" && (
+              {isSelected && type !== "window" && (
                 <foreignObject
-                  x={bboxX + bboxW / 2 - 60}
-                  y={bboxY - 32}
+                  x={(p1.x + p2.x) / 2 - 60}
+                  y={(p1.y + p2.y) / 2 - 32}
                   width={120}
                   height={30}
                   style={{ overflow: 'visible' }}
@@ -3634,6 +3694,52 @@ export default function CanvasView({
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
               const isDouble = doorClass.includes('double');
               const isWindow = doorClass.includes('window');
+              const isGarage = doorClass.includes('garage');
+
+              if (isGarage) {
+                const angle = Math.atan2(dy, dx);
+                const thickness = 15;
+                const cx = (p1.x + p2.x) / 2;
+                const cy = (p1.y + p2.y) / 2;
+                const angleDeg = angle * 180 / Math.PI;
+
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <rect
+                      x={-len / 2}
+                      y={-thickness / 2}
+                      width={len}
+                      height={thickness}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      fill="rgba(76, 175, 80, 0.15)"
+                      stroke="#4CAF50"
+                      strokeWidth={2}
+                    />
+                    <line
+                      x1={-len / 2}
+                      y1={-thickness / 6}
+                      x2={len / 2}
+                      y2={-thickness / 6}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      stroke="#4CAF50"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
+                    <line
+                      x1={-len / 2}
+                      y1={thickness / 6}
+                      x2={len / 2}
+                      y2={thickness / 6}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      stroke="#4CAF50"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
+                    <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
+                    <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
+                  </g>
+                );
+              }
 
               if (isWindow) {
                 const angle = Math.atan2(dy, dx);

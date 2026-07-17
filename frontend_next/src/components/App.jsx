@@ -784,7 +784,7 @@ export default function App() {
             />
           )}
 
-          {isDrawingDoor && !show3D && (
+          {showPenetrations && !show3D && (
             <div
               style={{
                 opacity: currentDoor && currentDoor.length > 0 ? 0.15 : 1,
@@ -797,10 +797,16 @@ export default function App() {
             >
               <DoorTypePanel
                 onSelectPreset={(preset) => {
-                  setDoorPreset(preset);
-                  if (preset) {
-                    const isWindow = preset.renderClass === 'window' || preset.class === 'window' || preset.id?.startsWith('win_');
-                    doorController.setDoorPanelMode(isWindow ? 'window' : 'door');
+                  if (doorController) {
+                    doorController.startDoorDraw();
+                    doorController.setDoorPreset(preset);
+                    if (preset) {
+                      const isWindow = preset.renderClass === 'window' || preset.class === 'window' || preset.id?.startsWith('win_');
+                      doorController.setDoorPanelMode(isWindow ? 'window' : 'door');
+                    }
+                  } else {
+                    setDoorPreset(preset);
+                    setIsDrawingDoor(true);
                   }
                 }}
                 activePreset={doorPreset}
@@ -1016,6 +1022,7 @@ export default function App() {
                 scaleValue={scaleValue}
                 wasteInternal={wasteByPage[currentPage]?.internal ?? 10}
                 wasteExternal={wasteByPage[currentPage]?.external ?? 15}
+                initialPageIndex={currentPage}
               />
             ) : (
               <div style={{ padding: 20 }}>Vui lòng thiết lập Scale trước khi xem BOQ.</div>

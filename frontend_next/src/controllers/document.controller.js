@@ -47,7 +47,10 @@ export function useDocumentController({
 
   async function loadPDF(file) {
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({
+      data: arrayBuffer,
+      wasmUrl: typeof window !== "undefined" ? window.location.origin + "/wasm/" : undefined
+    }).promise;
     const pagesData = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {

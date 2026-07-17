@@ -201,16 +201,14 @@ export function useDoorController({
 
     pushHistory(null, cutWalls, newDoors);
 
-
-
     // Reset drawing state (end door drawing mode, but keep showPenetrations panel active)
-    setIsDrawingDoor(false);
     setCurrentDoorPoints([]);
     setDoorPreview(null);
     setPendingDoor(null);
     setShowTypeSelector(false);
+    setIsDrawingDoor(false);
     setDoorPreset(null);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setDoorPreset]);
+  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setIsDrawingDoor, setDoorPreset]);
 
   /**
    * Step 2: Records the first click point (mousedown).
@@ -225,50 +223,13 @@ export function useDoorController({
     // If no preset is active (choosing phase), do not allow drawing/placing
     if (!doorPreset) return false;
 
-    const isPreset = !doorPreset.id?.endsWith('_custom');
-
     const walls = getCurrentWalls();
     const snap = snapPointToWall(canvasPoint, walls, 60);
-
-    if (isPreset) {
-      if (snap.wall && realScale) {
-        const wall = snap.wall;
-        const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
-        const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
-
-        const wdx = wp2.x - wp1.x;
-        const wdy = wp2.y - wp1.y;
-        const wLen = Math.hypot(wdx, wdy);
-        if (wLen >= 0.1) {
-          const ux = wdx / wLen;
-          const uy = wdy / wLen;
-
-          // Project clicked point onto wall centerline
-          const proj = distancePointToSegment(canvasPoint, wp1, wp2);
-          const cx = proj.x;
-          const cy = proj.y;
-
-          const widthPx = doorPreset.width / realScale;
-
-          const p1 = {
-            x: cx - ux * (widthPx / 2),
-            y: cy - uy * (widthPx / 2)
-          };
-          const p2 = {
-            x: cx + ux * (widthPx / 2),
-            y: cy + uy * (widthPx / 2)
-          };
-
-          finalizeDoor(p1, p2, doorPreset.id, wall);
-        }
-      }
-      return true; // consumed the event
-    }
 
     setCurrentDoorPoints([snap.snappedPoint]);
     isDraggingDoorRef.current = true;
     return true; // consumed the event
-  }, [isDrawingDoor, showTypeSelector, doorPreset, realScale, getCurrentWalls, finalizeDoor]);
+  }, [isDrawingDoor, showTypeSelector, doorPreset, getCurrentWalls]);
 
   /**
    * Step 3: Handles mouse movement during drag to update preview.
@@ -308,14 +269,18 @@ export function useDoorController({
       const projected = projectDoorOntoWall(startPoint, endPoint, snapResult.wall);
       endPoint = projected.p2;
 
-      // If we have a preset with specific width, enforce it (except for window presets)
-      const isWindowPreset = doorPreset && (
+      // If we have a preset with specific width, enforce it (except for window and garage presets)
+      const isWindowOrGaragePreset = doorPreset && (
         doorPreset.renderClass === 'window' ||
         doorPreset.class === 'window' ||
         doorPreset.doorType === 'window' ||
-        doorPreset.id === 'win_standard'
+        doorPreset.id === 'win_standard' ||
+        doorPreset.renderClass === 'garage_door' ||
+        doorPreset.class === 'garage_door' ||
+        doorPreset.doorType === 'garage' ||
+        doorPreset.id === 'ext_garage'
       );
-      if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
+      if (doorPreset && doorPreset.width && realScale && !isWindowOrGaragePreset) {
         const desiredPx = doorPreset.width / realScale;
         const dir = { x: projected.p2.x - projected.p1.x, y: projected.p2.y - projected.p1.y };
         const len = Math.hypot(dir.x, dir.y);
@@ -398,14 +363,18 @@ export function useDoorController({
       finalP2 = projected.p2;
     }
 
-    // If we have a preset with specific width, enforce it (except for window presets)
-    const isWindowPreset = doorPreset && (
+    // If we have a preset with specific width, enforce it (except for window and garage presets)
+    const isWindowOrGaragePreset = doorPreset && (
       doorPreset.renderClass === 'window' ||
       doorPreset.class === 'window' ||
       doorPreset.doorType === 'window' ||
-      doorPreset.id === 'win_standard'
+      doorPreset.id === 'win_standard' ||
+      doorPreset.renderClass === 'garage_door' ||
+      doorPreset.class === 'garage_door' ||
+      doorPreset.doorType === 'garage' ||
+      doorPreset.id === 'ext_garage'
     );
-    if (doorPreset && doorPreset.width && realScale && !isWindowPreset) {
+    if (doorPreset && doorPreset.width && realScale && !isWindowOrGaragePreset) {
       const desiredPx = doorPreset.width / realScale;
       const dx = finalP2.x - finalP1.x;
       const dy = finalP2.y - finalP1.y;
