@@ -36,7 +36,7 @@ export default function AIDoor({
     .filter(p => p && !isNaN(p.x) && !isNaN(p.y));
 
   const bbox = getDoorBoundingBox(d) || [];
-  const clickPolyPoints = bbox.length >= 3 ? bbox : polyPoints;
+  let clickPolyPoints = bbox.length >= 3 ? bbox : polyPoints;
 
   if (polyPoints.length < 3) return null;
 
@@ -553,6 +553,36 @@ export default function AIDoor({
 
           arcPath = `M ${o1_proj.x} ${o1_proj.y} A ${r} ${r} 0 0 ${sweepFlag} ${o2_proj.x} ${o2_proj.y}`;
           sectorPath = `M ${hingeX} ${hingeY} L ${o1_proj.x} ${o1_proj.y} A ${r} ${r} 0 0 ${sweepFlag} ${o2_proj.x} ${o2_proj.y} Z`;
+
+          const startAng = Math.atan2(o1_proj.y - hingeY, o1_proj.x - hingeX);
+          const endAng = Math.atan2(o2_proj.y - hingeY, o2_proj.x - hingeX);
+          let diff = endAng - startAng;
+          if (sweepFlag === 1 && diff < 0) diff += 2 * Math.PI;
+          if (sweepFlag === 0 && diff > 0) diff -= 2 * Math.PI;
+
+          const arcPoints = [];
+          for (let i = 0; i <= 5; i++) {
+            const t = i / 5;
+            const ang = startAng + diff * t;
+            arcPoints.push({
+              x: hingeX + r * Math.cos(ang),
+              y: hingeY + r * Math.sin(ang)
+            });
+          }
+
+          const xs = [hingeX, o1_proj.x, o2_proj.x, ...arcPoints.map(p => p.x)];
+          const ys = [hingeY, o1_proj.y, o2_proj.y, ...arcPoints.map(p => p.y)];
+          const minX = Math.min(...xs) - 5;
+          const minY = Math.min(...ys) - 5;
+          const maxX = Math.max(...xs) + 5;
+          const maxY = Math.max(...ys) + 5;
+
+          clickPolyPoints = [
+            { x: minX, y: minY },
+            { x: maxX, y: minY },
+            { x: maxX, y: maxY },
+            { x: minX, y: maxY }
+          ];
 
           topEdges = [
             { p1: { x: hingeX, y: hingeY }, p2: o1_proj },
