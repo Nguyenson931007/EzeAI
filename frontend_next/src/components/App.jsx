@@ -269,7 +269,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
+    handleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
