@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import AIDoor from "../components/AIDoor";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
+import WindowEditDialog from "../components/WindowEditDialog";
 import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
@@ -4198,15 +4199,33 @@ export default function CanvasView({
         }}
       />
 
-      {/* ===== DOOR EDIT DIALOG OVERLAY ===== */}
-      <DoorEditDialog
-        visible={doorEditDialog.visible}
-        door={doorEditDialog.door}
-        walls={walls}
-        realScale={realScale}
-        onSave={handleDoorEditSave}
-        onClose={() => setDoorEditDialog({ visible: false, door: null })}
-      />
+      {/* ===== DOOR / WINDOW EDIT DIALOG OVERLAY ===== */}
+      {doorEditDialog.visible && doorEditDialog.door && (() => {
+        const d = doorEditDialog.door;
+        const isWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
+        if (isWindow) {
+          return (
+            <WindowEditDialog
+              visible={doorEditDialog.visible}
+              door={d}
+              walls={walls}
+              realScale={realScale}
+              onSave={handleDoorEditSave}
+              onClose={() => setDoorEditDialog({ visible: false, door: null })}
+            />
+          );
+        }
+        return (
+          <DoorEditDialog
+            visible={doorEditDialog.visible}
+            door={d}
+            walls={walls}
+            realScale={realScale}
+            onSave={handleDoorEditSave}
+            onClose={() => setDoorEditDialog({ visible: false, door: null })}
+          />
+        );
+      })()}
 
     </div>
   );
