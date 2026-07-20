@@ -11,6 +11,7 @@ import {
   MATERIAL_OPTIONS,
   FIRE_RATING_OPTIONS
 } from '@/models/DoorTypeRegistry';
+import { WALL_HEIGHT_OPTIONS } from '@/components/WallThicknessDialog';
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -767,27 +768,43 @@ export default function RightPropertyPaneView({
 
             <div className="panel-field">
               <span className="panel-label">Wall Height</span>
-              <select
-                className="panel-select"
-                value={
-                  selectedWallIds.length > 1
-                    ? "multiple"
-                    : selectedWall?.height || 2400
-                }
-                onChange={(e) => {
-                  if (e.target.value === "multiple") return;
-                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                  updateWallsProperty && updateWallsProperty(targetIds, "height", Number(e.target.value));
-                }}
-              >
-                {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Heights --</option>}
-                <option value={2100}>2100 mm</option>
-                <option value={2400}>2400 mm</option>
-                <option value={2700}>2700 mm</option>
-                <option value={3000}>3000 mm</option>
-                <option value={3300}>3300 mm</option>
-                <option value={3600}>3600 mm</option>
-              </select>
+              {(() => {
+                // Read saved config default
+                let savedDefault = 2700;
+                try {
+                  const saved = localStorage.getItem('ezefloor_wall_thickness_config');
+                  if (saved) { const parsed = JSON.parse(saved); savedDefault = parsed.defaultHeight || 2700; }
+                } catch(e) {}
+                const currentHeight = selectedWallIds.length > 1 ? "multiple" : (selectedWall?.height || savedDefault);
+                const isCustom = currentHeight !== "multiple" && !WALL_HEIGHT_OPTIONS.includes(Number(currentHeight));
+                return (
+                  <>
+                    <select
+                      className="panel-select"
+                      value={isCustom ? "custom" : currentHeight}
+                      onChange={(e) => {
+                        if (e.target.value === "multiple") return;
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                        if (e.target.value === "custom") {
+                          // Prompt for custom value
+                          const val = prompt("Enter custom wall height (mm):", String(currentHeight));
+                          if (val && !isNaN(Number(val)) && Number(val) > 0) {
+                            updateWallsProperty && updateWallsProperty(targetIds, "height", Number(val));
+                          }
+                        } else {
+                          updateWallsProperty && updateWallsProperty(targetIds, "height", Number(e.target.value));
+                        }
+                      }}
+                    >
+                      {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Heights --</option>}
+                      {WALL_HEIGHT_OPTIONS.map(v => (
+                        <option key={v} value={v}>{v} mm ({(v / 1000).toFixed(1)} m)</option>
+                      ))}
+                      <option value="custom">{isCustom ? `Custom: ${currentHeight} mm` : "Custom..."}</option>
+                    </select>
+                  </>
+                );
+              })()}
             </div>
 
             {selectedWallIds.length === 1 && selectedWall && selectedWallLengthM !== null && (

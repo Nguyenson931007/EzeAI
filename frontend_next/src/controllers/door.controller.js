@@ -196,7 +196,7 @@ export function useDoorController({
     const newDoors = [...doors, snappedDoor];
 
     // Heal and cut walls
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 600, true, true) : walls;
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
     const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
 
     pushHistory(null, cutWalls, newDoors);
@@ -496,7 +496,7 @@ export function useDoorController({
     const newDoors = doors.filter(d => d.id !== doorId);
 
     // Heal walls (re-merge segments that were cut for this door)
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 600, true, true) : walls;
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
     const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
 
     pushHistory(null, cutWalls, newDoors);
@@ -513,7 +513,7 @@ export function useDoorController({
     if (!oldDoor) return;
 
     let updatedDoor = { ...newDoorData, modifiedAt: new Date().toISOString() };
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 600, true, true) : walls;
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
 
     // 1. Rotation change
     if (updatedDoor.rotation !== undefined && updatedDoor.rotation !== (oldDoor.rotation || 0)) {
@@ -755,14 +755,20 @@ export function useDoorController({
     const walls = getCurrentWalls();
     if (doors.length === 0 || walls.length === 0) return;
 
-    const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls], 12, 0.98, 600, true, true) : walls;
+    const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls], 12, 0.98, 999999, true, true) : walls;
     const snappedDoors = doors.map(d => {
       const snapped = snapDoorToWalls(d, uncutWalls, 80);
-      // Update parentWallId
-      if (!snapped.parentWallId) {
+      // Update parentWallId (always re-associate to current uncut wall ID to prevent stale references)
+      if (snapped.points && snapped.points.length >= 2) {
+        const pt0 = snapped.points[0];
+        const pt1 = snapped.points[1];
+        const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+        const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+        const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+        const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
         const center = {
-          x: (snapped.points[0].x + snapped.points[1].x) / 2,
-          y: (snapped.points[0].y + snapped.points[1].y) / 2,
+          x: (px0 + px1) / 2,
+          y: (py0 + py1) / 2,
         };
         const pw = findParentWall(center, uncutWalls);
         if (pw) snapped.parentWallId = pw.id;

@@ -9,7 +9,7 @@ import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
-import { migrateLegacyDoor } from "@/models/DoorTypeRegistry";
+import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
 
 /**
@@ -609,7 +609,7 @@ export const useAIController = (
         if (saved) activeThicknesses = JSON.parse(saved);
       } catch (e) {}
     }
-    const { ext = 90, int = 70, part = 70, defaultHeight = 2400 } = activeThicknesses || {};
+    const { ext = 90, int = 70, part = 70, defaultHeight = 2700 } = activeThicknesses || {};
 
     const job = startROIJob();
     try {
@@ -674,7 +674,7 @@ export const useAIController = (
 
             // Filter out false positive walls (overlaps with doors)
             const doors = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
-            let cleanWalls = detectedWalls.filter(w => !_overlapsWithAnyDoor(w, doors));
+            let cleanWalls = detectedWalls; // Keep walls under doors so they merge and snap correctly, cutWallsByDoors will handle cuts
             const currentRoomsForFilter = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
@@ -682,7 +682,24 @@ export const useAIController = (
             const mergedWalls = mergeCollinearWalls(allWalls);
 
             // Snap existing doors to the newly detected merged walls!
-            const snappedDoors = doors.map(d => snapDoorToWalls(d, mergedWalls, 80));
+            const snappedDoors = doors.map(d => {
+              const snapped = snapDoorToWalls(d, mergedWalls, 80);
+              if (snapped.points && snapped.points.length >= 2) {
+                const pt0 = snapped.points[0];
+                const pt1 = snapped.points[1];
+                const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+                const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+                const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+                const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+                const center = {
+                  x: (px0 + px1) / 2,
+                  y: (py0 + py1) / 2,
+                };
+                const pw = findParentWall(center, mergedWalls);
+                if (pw) snapped.parentWallId = pw.id;
+              }
+              return snapped;
+            });
             if (setDoorsByPage) {
               setDoorsByPage(prev => ({
                 ...prev,
@@ -1119,7 +1136,7 @@ export const useAIController = (
             : ((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || []);
 
           // Filter false positive walls that overlap entirely with doors
-          let cleanWalls = rawWalls.filter(w => !_overlapsWithAnyDoor(w, currentDoors));
+          let cleanWalls = rawWalls; // Keep walls under doors so they merge and snap correctly, cutWallsByDoors will handle cuts
           const currentRoomsForSmart = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
           cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForSmart, wallData.width, wallData.height);
 
@@ -1129,7 +1146,24 @@ export const useAIController = (
           const mergedWalls = mergeCollinearWalls(allWalls);
 
           // Snap doors to the newly detected merged walls!
-          const snappedDoors = currentDoors.map(d => snapDoorToWalls(d, mergedWalls, 80));
+          const snappedDoors = currentDoors.map(d => {
+            const snapped = snapDoorToWalls(d, mergedWalls, 80);
+            if (snapped.points && snapped.points.length >= 2) {
+              const pt0 = snapped.points[0];
+              const pt1 = snapped.points[1];
+              const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+              const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+              const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+              const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+              const center = {
+                x: (px0 + px1) / 2,
+                y: (py0 + py1) / 2,
+              };
+              const pw = findParentWall(center, mergedWalls);
+              if (pw) snapped.parentWallId = pw.id;
+            }
+            return snapped;
+          });
           detectedDoors = snappedDoors;
 
           // Update doors state with snapped doors

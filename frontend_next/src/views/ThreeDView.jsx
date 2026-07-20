@@ -18,7 +18,11 @@ export default function ThreeDView({
   imgSize = { w: 800, h: 600 }
 }) {
   const containerRef = useRef(null);
-  const [wallHeight, setWallHeight] = useState(150);
+  const [wallHeightMm, setWallHeightMm] = useState(2700);
+  const [floorDepthMm, setFloorDepthMm] = useState(300);
+  const [showGrid, setShowGrid] = useState(true);
+  const wallHeight = wallHeightMm / (realScale && realScale !== 1.0 ? realScale : 18.0);
+  const floorDepth = floorDepthMm / (realScale && realScale !== 1.0 ? realScale : 18.0);
   const [showFloors, setShowFloors] = useState(true);
   const [showDoors, setShowDoors] = useState(true);
   const [showRoofs, setShowRoofs] = useState(true);
@@ -29,6 +33,7 @@ export default function ThreeDView({
   const rendererRef = useRef(null);
   const controlsRef = useRef(null);
   const cameraRef = useRef(null);
+  const gridHelperRef = useRef(null);
   
   // Store generated 3D meshes to dynamically update them (e.g. wall height)
   const wallMeshesRef = useRef([]);
@@ -194,7 +199,9 @@ export default function ThreeDView({
     // 5. GRID HELPER
     const gridHelper = new THREE.GridHelper(5000, 100, 0x3b82f6, 0x1e293b);
     gridHelper.position.y = -2;
+    gridHelper.visible = showGrid;
     scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
 
     // 6. ORBIT CONTROLS
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -280,6 +287,13 @@ export default function ThreeDView({
     };
   }, [center]);
 
+  // Handle Grid Toggle
+  useEffect(() => {
+    if (gridHelperRef.current) {
+      gridHelperRef.current.visible = showGrid;
+    }
+  }, [showGrid]);
+
   // Handle Shadows Toggle
   useEffect(() => {
     if (rendererRef.current) {
@@ -325,7 +339,7 @@ export default function ThreeDView({
       const pageDoors = doorsByPage[originalIndex] || [];
       const pageRooms = roomsByPage[originalIndex] || [];
       
-      const yOffset = k * wallHeight;
+      const yOffset = k * (wallHeight + floorDepth);
 
       // --- 1. RENDER ROOMS (FLOORS) ---
       if (showFloors) {
@@ -358,7 +372,7 @@ export default function ThreeDView({
             color = 0x3f3f46;
           }
 
-          const extrudeSettings = { depth: 1, bevelEnabled: false };
+          const extrudeSettings = { depth: k > 0 ? floorDepth : 1, bevelEnabled: false };
           const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
           const material = new THREE.MeshStandardMaterial({
             color: color,
@@ -369,7 +383,7 @@ export default function ThreeDView({
 
           const mesh = new THREE.Mesh(geometry, material);
           mesh.rotation.x = Math.PI / 2;
-          mesh.position.set(-imgSize.w / 2, yOffset - 0.5, -imgSize.h / 2);
+          mesh.position.set(-imgSize.w / 2, k > 0 ? yOffset : yOffset - 0.5, -imgSize.h / 2);
           mesh.receiveShadow = enableShadows;
           scene.add(mesh);
           floorMeshesRef.current.push(mesh);
@@ -1186,7 +1200,7 @@ export default function ThreeDView({
       }
     });
 
-  }, [pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, wallHeight, showFloors, showDoors, showRoofs, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
+  }, [pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, wallHeightMm, floorDepthMm, showFloors, showDoors, showRoofs, showPDF, enableShadows, realScale, image, imgSize, visibleLevels, sortedPageIndices]);
 
   // Reset Camera View
   const handleResetCamera = () => {
@@ -1274,27 +1288,32 @@ export default function ThreeDView({
           </button>
         </div>
 
-        {/* Height Slider */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
-            <span>Wall Height</span>
-            <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>{wallHeight}px</span>
+        {/* Floor Depth Slider */}
+        {pages.length > 1 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+              <span>Floor Slab Depth</span>
+              <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>
+                {floorDepthMm >= 1000 ? `${(floorDepthMm / 1000).toFixed(2)}m` : `${floorDepthMm}mm`}
+              </span>
+            </div>
+            <input 
+              type="range" 
+              min="100" 
+              max="1000" 
+              step="50"
+              value={floorDepthMm} 
+              onChange={(e) => setFloorDepthMm(Number(e.target.value))}
+              style={{
+                width: "100%",
+                height: "4px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#3b82f6"
+              }}
+            />
           </div>
-          <input 
-            type="range" 
-            min="50" 
-            max="300" 
-            value={wallHeight} 
-            onChange={(e) => setWallHeight(Number(e.target.value))}
-            style={{
-              width: "100%",
-              height: "4px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              accentColor: "#3b82f6"
-            }}
-          />
-        </div>
+        )}
 
         {/* Toggles */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -1304,6 +1323,21 @@ export default function ThreeDView({
               type="checkbox" 
               checked={showFloors} 
               onChange={() => setShowFloors(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span>Show Grid helper</span>
+            <input 
+              type="checkbox" 
+              checked={showGrid} 
+              onChange={() => setShowGrid(v => !v)}
               style={{
                 width: "16px",
                 height: "16px",
