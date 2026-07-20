@@ -819,6 +819,7 @@ export default function App() {
             <ThreeDView
               pages={pages}
               wallsByPage={wallsByPage}
+              setWallsByPage={setWallsByPage}
               doorsByPage={processedDoorsByPage}
               roomsByPage={roomsByPage}
               roofsByPage={roofsByPage}
