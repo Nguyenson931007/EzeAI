@@ -234,57 +234,57 @@ export const DOOR_TYPE_REGISTRY = {
     ],
     iconType: 'bifold',
   },
-  door_custom: {
-    id: 'door_custom',
-    label: 'Custom Door',
-    shortLabel: 'Custom Door',
-    category: 'internal',
-    renderClass: 'single_door',
-    doorType: 'single',
-    headOffset: 100,
-    defaultWidth: 820,
-    defaultHeight: 2040,
-    minWidth: 400,
-    maxWidth: 3000,
-    presetSizes: [
-      { w: 820, h: 2040, label: 'Custom (Drag to draw)' }
-    ],
-    iconType: 'single',
-  },
-  door_double_custom: {
-    id: 'door_double_custom',
-    label: 'Custom Double Door',
-    shortLabel: 'Custom Double',
-    category: 'internal',
-    renderClass: 'double_door',
-    doorType: 'double',
-    headOffset: 100,
-    defaultWidth: 1600,
-    defaultHeight: 2040,
-    minWidth: 800,
-    maxWidth: 4000,
-    presetSizes: [
-      { w: 1600, h: 2040, label: 'Custom (Drag to draw)' }
-    ],
-    iconType: 'double',
-  },
-  door_sliding_custom: {
-    id: 'door_sliding_custom',
-    label: 'Custom Sliding Door',
-    shortLabel: 'Custom Sliding',
-    category: 'internal',
-    renderClass: 'sliding_door',
-    doorType: 'sliding',
-    headOffset: 50,
-    defaultWidth: 1800,
-    defaultHeight: 2100,
-    minWidth: 800,
-    maxWidth: 4000,
-    presetSizes: [
-      { w: 1800, h: 2100, label: 'Custom (Drag to draw)' }
-    ],
-    iconType: 'sliding',
-  },
+  // door_custom: {
+  //   id: 'door_custom',
+  //   label: 'Custom Door',
+  //   shortLabel: 'Custom Door',
+  //   category: 'internal',
+  //   renderClass: 'single_door',
+  //   doorType: 'single',
+  //   headOffset: 100,
+  //   defaultWidth: 820,
+  //   defaultHeight: 2040,
+  //   minWidth: 400,
+  //   maxWidth: 3000,
+  //   presetSizes: [
+  //     { w: 820, h: 2040, label: 'Custom (Drag to draw)' }
+  //   ],
+  //   iconType: 'single',
+  // },
+  // door_double_custom: {
+  //   id: 'door_double_custom',
+  //   label: 'Custom Double Door',
+  //   shortLabel: 'Custom Double',
+  //   category: 'internal',
+  //   renderClass: 'double_door',
+  //   doorType: 'double',
+  //   headOffset: 100,
+  //   defaultWidth: 1600,
+  //   defaultHeight: 2040,
+  //   minWidth: 800,
+  //   maxWidth: 4000,
+  //   presetSizes: [
+  //     { w: 1600, h: 2040, label: 'Custom (Drag to draw)' }
+  //   ],
+  //   iconType: 'double',
+  // },
+  // door_sliding_custom: {
+  //   id: 'door_sliding_custom',
+  //   label: 'Custom Sliding Door',
+  //   shortLabel: 'Custom Sliding',
+  //   category: 'internal',
+  //   renderClass: 'sliding_door',
+  //   doorType: 'sliding',
+  //   headOffset: 50,
+  //   defaultWidth: 1800,
+  //   defaultHeight: 2100,
+  //   minWidth: 800,
+  //   maxWidth: 4000,
+  //   presetSizes: [
+  //     { w: 1800, h: 2100, label: 'Custom (Drag to draw)' }
+  //   ],
+  //   iconType: 'sliding',
+  // },
   win_standard: {
     id: 'win_standard',
     label: 'Standard Window',
@@ -304,23 +304,23 @@ export const DOOR_TYPE_REGISTRY = {
     ],
     iconType: 'window',
   },
-  win_custom: {
-    id: 'win_custom',
-    label: 'Custom Window',
-    shortLabel: 'Custom Win',
-    category: 'internal',
-    renderClass: 'window',
-    doorType: 'window',
-    headOffset: 200,
-    defaultWidth: 1200,
-    defaultHeight: 1200,
-    minWidth: 200,
-    maxWidth: 6000,
-    presetSizes: [
-      { w: 1200, h: 1200, label: 'Custom (Drag to draw)' }
-    ],
-    iconType: 'window',
-  },
+  // win_custom: {
+  //   id: 'win_custom',
+  //   label: 'Custom Window',
+  //   shortLabel: 'Custom Win',
+  //   category: 'internal',
+  //   renderClass: 'window',
+  //   doorType: 'window',
+  //   headOffset: 200,
+  //   defaultWidth: 1200,
+  //   defaultHeight: 1200,
+  //   minWidth: 200,
+  //   maxWidth: 6000,
+  //   presetSizes: [
+  //     { w: 1200, h: 1200, label: 'Custom (Drag to draw)' }
+  //   ],
+  //   iconType: 'window',
+  // },
 };
 
 // ──────────────────────────────────────────────────────────────
