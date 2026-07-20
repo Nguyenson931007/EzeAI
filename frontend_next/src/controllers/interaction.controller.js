@@ -12,11 +12,13 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls } from "@/utils/geometry";
+import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
+import { findParentWall } from "@/models/DoorTypeRegistry";
 
 export const RoofInteractionState = {
   IDLE: "IDLE",
@@ -96,6 +98,13 @@ export function useInteractionController(svgRef) {
   const [isDraggingPan, setIsDraggingPan] = useState(false);
   const panStart = useRef(null);
   const ignoreClickRef = useRef(false);
+  const checkAndResetIgnoreClick = () => {
+    if (ignoreClickRef.current) {
+      ignoreClickRef.current = false;
+      return true;
+    }
+    return false;
+  };
 
   const [rect, setRect] = useState(null);
   const [hoverId, setHoverId] = useState(null);
@@ -188,7 +197,7 @@ export function useInteractionController(svgRef) {
     setInteractionMode("select");
   }
 
-  function mergeCollinearWalls(wallsList, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120, ignoreExemptions = false) {
+  function mergeCollinearWalls(wallsList, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120, ignoreExemptions = false, onlySameBaseId = false) {
     if (isWallMergeDisabled) return wallsList;
 
     // Identify exempt walls (currently selected or touching the selected vertex)
@@ -214,7 +223,7 @@ export function useInteractionController(svgRef) {
     const mergeableWalls = wallsList.filter(w => !exemptIds.has(w.id));
 
     // Merge the mergeable walls
-    const mergedMergeable = originalMergeCollinearWalls(mergeableWalls, perpDistThresh, angleThresh, gapThresh);
+    const mergedMergeable = originalMergeCollinearWalls(mergeableWalls, perpDistThresh, angleThresh, gapThresh, onlySameBaseId);
 
     // Combine them back
     return [...exemptWalls, ...mergedMergeable];
@@ -752,6 +761,30 @@ export function useInteractionController(svgRef) {
       });
     }
 
+    if (field === "height") {
+      const pageDoors = doorsByPage[currentPage] || [];
+      const updatedDoors = pageDoors.map(d => {
+        if (!d.parentWallId) return d;
+        if (wallIds.some(wId => getBaseWallId(wId) === getBaseWallId(d.parentWallId))) {
+          const newWallHeight = Number(value);
+          const newDoorHeight = Math.max(300, newWallHeight - 360);
+          return {
+            ...d,
+            height_mm: newDoorHeight,
+            area_mm2: (d.width_mm || 820) * newDoorHeight,
+            perimeter_mm: 2 * ((d.width_mm || 820) + newDoorHeight)
+          };
+        }
+        return d;
+      });
+      setDoorsByPage(prev => ({
+        ...prev,
+        [currentPage]: updatedDoors
+      }));
+      pushHistory(null, finalized, updatedDoors);
+      return;
+    }
+
     pushHistory(null, finalized, doorsByPage[currentPage] || []);
   }
 
@@ -937,7 +970,7 @@ export function useInteractionController(svgRef) {
       });
 
       // Merge collinear walls automatically after snapping
-      const merged = mergeCollinearWalls(updatedWalls, 15, 0.98, 5);
+      const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
       const pageDoors = doorsByPage[currentPage] || [];
       const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
       const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
@@ -1680,7 +1713,34 @@ export function useInteractionController(svgRef) {
       });
     }
 
-    setDragging({ id, index, type, connections, startPt, startSelectedVertices });
+    const currentDoors = doorsByPage[currentPage] || [];
+
+    let doorParentWall = null;
+    if (type === 'door-move') {
+      const d = currentDoors.find(dd => dd.id === id);
+      if (d) {
+        if (d.parentWallId) {
+          const baseParentId = getBaseWallId(d.parentWallId);
+          doorParentWall = currentWalls.find(w => getBaseWallId(w.id) === baseParentId);
+        }
+        if (!doorParentWall) {
+          const centerPt = d.centerPoint || (d.points && { x: (d.points[0].x + d.points[1].x)/2, y: (d.points[0].y + d.points[1].y)/2 });
+          doorParentWall = findParentWall(centerPt, currentWalls, 120);
+        }
+      }
+    }
+
+    setDragging({
+      id,
+      index,
+      type,
+      connections,
+      startPt,
+      startSelectedVertices,
+      parentWall: doorParentWall,
+      startWalls: currentWalls.map(w => ({ ...w, centerline: w.centerline ? [...w.centerline.map(p => [...p])] : null })),
+      startDoors: currentDoors.map(d => ({ ...d }))
+    });
   }
 
   function onMouseMove(e) {
@@ -1702,13 +1762,19 @@ export function useInteractionController(svgRef) {
             polygon: JSON.parse(JSON.stringify(w.polygon)),
             thickness_px: w.thickness_px
           }));
-        } else if (dragging.type === 'door-move') {
+        } else if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
           const currentDoors = doorsByPage[currentPage] || [];
           dragging.startDoors = currentDoors.map(d => ({
             ...d,
             points: JSON.parse(JSON.stringify(d.points || [])),
             polygon: d.polygon ? JSON.parse(JSON.stringify(d.polygon)) : null,
             mask_polygon: d.mask_polygon ? JSON.parse(JSON.stringify(d.mask_polygon)) : null
+          }));
+          const currentWalls = wallsByPage[currentPage] || [];
+          dragging.startWalls = currentWalls.map(w => ({
+            ...w,
+            centerline: JSON.parse(JSON.stringify(w.centerline)),
+            polygon: w.polygon ? JSON.parse(JSON.stringify(w.polygon)) : null
           }));
         }
       }
@@ -1765,35 +1831,40 @@ export function useInteractionController(svgRef) {
           newMaxY = Math.max(pSnapped.y, dragging.startBbox.minY + MIN_SZ);
         }
       } else if (dragging.type === 'door-move') {
-        const dx = pRaw.x - dragging.startMouse.x;
-        const dy = pRaw.y - dragging.startMouse.y;
-        const currentWalls = wallsByPage[currentPage] || [];
+        const currentWalls = dragging.startWalls || wallsByPage[currentPage] || [];
         const currentDoors = doorsByPage[currentPage] || [];
 
         let updatedSnappedDoor = null;
         const updatedDoors = currentDoors.map(door => {
           if (door.id === dragging.id) {
-            const startDoor = dragging.startDoors?.find(sd => sd.id === door.id);
-            if (!startDoor) return door;
+            const startDoor = dragging.startDoors?.find(sd => sd.id === door.id) || door;
 
-            const shiftedDoor = {
-              ...startDoor,
-              points: startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy })),
-              polygon: startDoor.polygon ? startDoor.polygon.map(pt => {
-                const px = Array.isArray(pt) ? pt[0] : pt.x;
-                const py = Array.isArray(pt) ? pt[1] : pt.y;
-                return Array.isArray(pt) ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
-              }) : null,
-              mask_polygon: startDoor.mask_polygon ? startDoor.mask_polygon.map(pt => {
-                const px = Array.isArray(pt) ? pt[0] : pt.x;
-                const py = Array.isArray(pt) ? pt[1] : pt.y;
-                return Array.isArray(pt) ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
-              }) : null
-            };
+            let parentWall = null;
+            if (startDoor.parentWallId) {
+              const baseParentId = getBaseWallId(startDoor.parentWallId);
+              parentWall = currentWalls.find(w => getBaseWallId(w.id) === baseParentId);
+            }
+            if (!parentWall) {
+              const centerPt = startDoor.centerPoint || (startDoor.points && { x: (startDoor.points[0].x + startDoor.points[1].x)/2, y: (startDoor.points[0].y + startDoor.points[1].y)/2 });
+              parentWall = findParentWall(centerPt, currentWalls, 120);
+            }
 
-            const snappedDoor = snapDoorToWalls(shiftedDoor, currentWalls, 999999);
-            updatedSnappedDoor = snappedDoor;
-            return snappedDoor;
+            let constrainedDoor = null;
+            if (parentWall) {
+              constrainedDoor = constrainDoorToParentWall(startDoor, parentWall, pRaw);
+              constrainedDoor.parentWallId = parentWall.id;
+            } else {
+              const dx = pRaw.x - (dragging.startMouse?.x || pRaw.x);
+              const dy = pRaw.y - (dragging.startMouse?.y || pRaw.y);
+              const shiftedDoor = {
+                ...startDoor,
+                points: startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }))
+              };
+              constrainedDoor = snapDoorToWalls(shiftedDoor, currentWalls, 999999, true, currentDoors);
+            }
+
+            updatedSnappedDoor = constrainedDoor;
+            return constrainedDoor;
           }
           return door;
         });
@@ -1802,17 +1873,6 @@ export function useInteractionController(svgRef) {
           ...prev,
           [currentPage]: updatedDoors
         }));
-
-        if (updatedSnappedDoor) {
-          const healedWalls = mergeCollinearWalls(currentWalls);
-          const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
-          const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
-
-          setWallsByPage(prev => ({
-            ...prev,
-            [currentPage]: junctionCleanedWalls
-          }));
-        }
       } else if (dragging.type === 'wall-vertex') {
         setWallsByPage(prev => {
           const pageWalls = prev[currentPage] || [];
@@ -2319,6 +2379,12 @@ export function useInteractionController(svgRef) {
         if (e.button === 0) {
           const p = getMouse(e);
           doorController.onDoorMouseDown(p);
+        } else if (e.button === 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (doorController?.flipHingeState) {
+            doorController.flipHingeState();
+          }
         }
         return;
       }
@@ -2492,20 +2558,20 @@ export function useInteractionController(svgRef) {
       if (dragging.hasMovedPastThreshold) {
         ignoreClickRef.current = true;
         if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
-          const pageWalls = wallsByPage[currentPage] || [];
+          const pageWalls = dragging.startWalls || wallsByPage[currentPage] || [];
           const pageDoors = doorsByPage[currentPage] || [];
           const targetDoor = pageDoors.find(d => d.id === dragging.id);
           if (targetDoor) {
-            const snappedDoor = snapDoorToWalls(targetDoor, pageWalls, 999999);
-            const updatedDoors = pageDoors.map(d => d.id === dragging.id ? snappedDoor : d);
-
-            // Heal all walls by merging collinear ones (this heals the old door cuts)
-            const healedWalls = mergeCollinearWalls(pageWalls);
-            // Cut the healed walls by the updated doors list
-            const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
-
-            // Update state and history
-            pushHistory(null, cutWalls, updatedDoors);
+            let parentWall = null;
+            if (targetDoor.parentWallId) {
+              const baseParentId = getBaseWallId(targetDoor.parentWallId);
+              parentWall = pageWalls.find(w => getBaseWallId(w.id) === baseParentId);
+            }
+            const finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, targetDoor.centerPoint || (targetDoor.points && targetDoor.points[0])) : targetDoor;
+            const updatedDoors = pageDoors.map(d => d.id === dragging.id ? finalDoor : d);
+            // Commit transaction: update state and history
+            setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
+            pushHistory(null, pageWalls, updatedDoors);
           }
         } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
           const pageWalls = wallsByPage[currentPage] || [];
@@ -2527,7 +2593,7 @@ export function useInteractionController(svgRef) {
           });
 
           // Automatically merge collinear/overlapping walls
-          const merged = mergeCollinearWalls(updatedWalls, 15, 0.98, 5);
+          const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
           // Cut the merged walls by the current doors list
           const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
           // Recalculate all wall junctions to cleanly snap and connect corners
@@ -2624,10 +2690,27 @@ export function useInteractionController(svgRef) {
     if (currentDoors.length === 0 || currentWalls.length === 0) return;
 
     // Merge cut walls back to uncut walls for snapping
-    const uncutWalls = mergeCollinearWalls([...currentWalls]);
+    const uncutWalls = mergeCollinearWalls([...currentWalls], 12, 0.98, 999999, true, true);
 
     // Snap all doors to these uncut walls
-    const snappedDoors = currentDoors.map(d => snapDoorToWalls(d, uncutWalls, 80));
+    const snappedDoors = currentDoors.map(d => {
+      const snapped = snapDoorToWalls(d, uncutWalls, 80);
+      if (snapped.points && snapped.points.length >= 2) {
+        const pt0 = snapped.points[0];
+        const pt1 = snapped.points[1];
+        const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+        const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+        const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+        const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+        const center = {
+          x: (px0 + px1) / 2,
+          y: (py0 + py1) / 2,
+        };
+        const pw = findParentWall(center, uncutWalls);
+        if (pw) snapped.parentWallId = pw.id;
+      }
+      return snapped;
+    });
 
     // Cut the walls using the snapped doors
     const newWalls = cutWallsByDoors(uncutWalls, snappedDoors, realScale);
@@ -2677,7 +2760,7 @@ export function useInteractionController(svgRef) {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
+    handleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
     deleteDoor: typeof doorController !== 'undefined' ? doorController.deleteDoor : deleteDoor,
     doorController: typeof doorController !== 'undefined' ? doorController : null,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,

@@ -9,6 +9,7 @@ import {
   WALL_TYPE_DEFAULTS
 } from '@/models/DoorTypeRegistry';
 
+import { mergeCollinearWalls } from '@/utils/geometry';
 const PENETRATION_TYPE_OPTIONS = getDoorTypeOptions();
 
 
@@ -63,24 +64,39 @@ export default function DoorEditDialog({
   const [distanceValue, setDistanceValue] = useState(0);
   const [heightMm, setHeightMm] = useState(1980);
   const [widthMm, setWidthMm] = useState(760);
-  const [applyToAll, setApplyToAll] = useState(false);
+  const [applyToAll, setApplyToAll] = useState(true);
   const [computedDistances, setComputedDistances] = useState({ left: 0, right: 0 });
 
+  const healedWalls = React.useMemo(() => {
+    if (!walls || walls.length === 0) return [];
+    return mergeCollinearWalls(walls);
+  }, [walls]);
+
   const getParentWall = () => {
-    if (!door || !walls || walls.length === 0) return null;
+    if (!door || !healedWalls || healedWalls.length === 0) return null;
     if (door.parentWallId) {
-      return walls.find(w => w.id === door.parentWallId) || null;
+      return healedWalls.find(w => w.id === door.parentWallId) || 
+             walls.find(w => w.id === door.parentWallId) || null;
     }
     // Proximity lookup
     const points = door.points || [];
     let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
     let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
-    if (!p1 || !p2) return null;
+    if (!p1 || !p2) {
+      const poly = door.polygon || door.mask_polygon || [];
+      if (poly.length >= 3) {
+        const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+        p1 = pts[0];
+        p2 = pts[1];
+      } else {
+        return null;
+      }
+    }
     const cx = (p1.x + p2.x) / 2;
     const cy = (p1.y + p2.y) / 2;
     let closestWall = null;
     let minDist = 100;
-    walls.forEach(w => {
+    healedWalls.forEach(w => {
       if (!w.centerline || w.centerline.length < 2) return;
       const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
       const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
@@ -99,7 +115,7 @@ export default function DoorEditDialog({
   };
 
   const getActualCurrentDistance = () => {
-    if (!door || !walls || walls.length === 0 || !realScale) return { side: 'left', value: 0 };
+    if (!door || !healedWalls || healedWalls.length === 0 || !realScale) return { side: 'left', value: 0 };
 
     const points = door.points || [];
     let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
@@ -172,7 +188,7 @@ export default function DoorEditDialog({
     
     setHeightMm(door.height_mm || 1980);
     setWidthMm(door.width_mm || 760);
-    setApplyToAll(false);
+    setApplyToAll(true);
   }, [door, walls, realScale]);
 
   if (!visible || !door) return null;
@@ -180,18 +196,24 @@ export default function DoorEditDialog({
   // Derive the "Penetration" read-only label
   const doorDef = DOOR_TYPE_REGISTRY[penetrationType];
   const typeLabel = doorDef?.label || 'Custom Door';
+  const isExternal = penetrationType.startsWith('ext_');
+  const prefix = isExternal ? 'ext_' : 'int_';
 
   // Convert distance to display
   const distanceMmDisplay = distanceValue > 0
     ? `${Math.floor(distanceValue / 1000)}m ${distanceValue % 1000}mm`
     : '0mm';
 
-  const heightDisplay = heightMm > 0
-    ? `${Math.floor(heightMm / 1000)}m ${heightMm % 1000}mm`
+  const heightVal = parseInt(heightMm) || 0;
+  const heightDisplay = heightVal > 0
+    ? `${Math.floor(heightVal / 1000)}m ${heightVal % 1000}mm`
     : '0mm';
 
   const handleSave = () => {
     const parentWall = getParentWall();
+    const parsedHeight = Math.max(300, Math.min(2420, parseInt(heightMm) || 1980));
+    const parsedWidth = Math.max(300, parseInt(widthMm) || 760);
+
     const updated = {
       ...door,
       doorTypeId: penetrationType,
@@ -204,8 +226,8 @@ export default function DoorEditDialog({
       fireRating: fireRating,
       status: status,
       distance_from: { side: distanceSide, value: distanceValue },
-      height_mm: heightMm,
-      width_mm: widthMm,
+      height_mm: parsedHeight,
+      width_mm: parsedWidth,
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null
     };
@@ -431,7 +453,7 @@ export default function DoorEditDialog({
                 min="300"
                 max="2420"
                 value={heightMm}
-                onChange={(e) => setHeightMm(Math.max(300, Math.min(2420, parseInt(e.target.value) || 300)))}
+                onChange={(e) => setHeightMm(e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}
               />
               <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
@@ -451,11 +473,11 @@ export default function DoorEditDialog({
                 type="number"
                 min="300"
                 value={widthMm}
-                onChange={(e) => setWidthMm(Math.max(300, parseInt(e.target.value) || 300))}
+                onChange={(e) => setWidthMm(e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}
               />
               <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
-                {widthMm}mm
+                {parseInt(widthMm) || 0}mm
               </span>
             </div>
           </div>

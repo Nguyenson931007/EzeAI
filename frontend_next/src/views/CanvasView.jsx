@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import AIDoor from "../components/AIDoor";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
+import WindowEditDialog from "../components/WindowEditDialog";
 import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
@@ -24,10 +25,12 @@ import {
   calcDimOffset, 
   centroid, 
   polygonAreaM2 as polygonAreaM2Util, 
-  calculateWallPolygon 
+  calculateWallPolygon,
+  cutWallsByDoors
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall } from "@/engines/DoorGeometryEngine";
+import { resolveDoorTypeId, DOOR_TYPE_REGISTRY } from "@/models/DoorTypeRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -776,9 +779,12 @@ const DoorLayer = React.memo(({
   setHoverId,
   walls = [],
   onDoorContextMenu,
-  interactionMode
+  interactionMode,
+  onEditDoor,
+  checkAndResetIgnoreClick
 }) => {
   if (showLayer !== 'all' && showLayer !== 'door') return null;
+  const lastMouseDownSelectedId = React.useRef(null);
 
   return (
     <g id="DoorLayer">
@@ -834,6 +840,8 @@ const DoorLayer = React.memo(({
                 walls={walls}
                 onDoorContextMenu={onDoorContextMenu}
                 realScale={realScale}
+                onEdit={() => onEditDoor && onEditDoor(d)}
+                checkAndResetIgnoreClick={checkAndResetIgnoreClick}
               />
             );
           }
@@ -949,6 +957,8 @@ const DoorLayer = React.memo(({
             const offsetY = Math.cos(angle) * 3;
             return (
               <g>
+                {/* Invisible hitbox line for easier clicking */}
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(0, 0, 0, 0.01)" strokeWidth={24} style={{ cursor: 'pointer' }} pointerEvents="stroke" />
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
                 <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
               </g>
@@ -1072,9 +1082,16 @@ const DoorLayer = React.memo(({
                 const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
                 const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
                 
-                // thickness calculation
+                // thickness and direction calculation
                 const wdx = wp2.x - wp1.x;
                 const wdy = wp2.y - wp1.y;
+                const wLen = Math.hypot(wdx, wdy);
+                if (wLen < 1e-3) return;
+                
+                // Only consider walls parallel to door vector for jamb extension
+                const isParallel = Math.abs((wdx / wLen) * ux + (wdy / wLen) * uy) > 0.8;
+                if (!isParallel) return;
+
                 const L2 = wdx * wdx + wdy * wdy;
                 const cx = (p1.x + p2.x)/2;
                 const cy = (p1.y + p2.y)/2;
@@ -1162,13 +1179,22 @@ const DoorLayer = React.memo(({
           return (
             <g key={`${d.id}-${idx}`} 
                onClick={(e) => {
-                 if (interactionMode === "draw-wall") return;
-                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                 e.stopPropagation();
-                 setSelectedId(d.id);
-                 setSelectedType("door");
-               }}
+                  if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) {
+                    e.stopPropagation();
+                    return;
+                  }
+                  if (interactionMode === "draw-wall") return;
+                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                  e.stopPropagation();
+                  if (lastMouseDownSelectedId.current === d.id && selectedType === "door") {
+                    if (onEditDoor) onEditDoor(d);
+                  } else {
+                    setSelectedId(d.id);
+                    setSelectedType("door");
+                  }
+                }}
                onMouseDown={(e) => {
+                 lastMouseDownSelectedId.current = selectedId;
                  if (interactionMode === "draw-wall") return;
                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                  if (startDrag) {
@@ -1237,7 +1263,7 @@ const DoorLayer = React.memo(({
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
-              ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || d.doorTypeId === "ext_garage" ? (
+              ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage" ? (
                 <>
                   {renderGarageDoor()}
                   <text 
@@ -1272,44 +1298,117 @@ const DoorLayer = React.memo(({
               ))))}
 
               {/* Floating interactive flip control panel (manual doors only) */}
-              {isSelected && type !== "window" && (
-                <foreignObject
-                  x={(p1.x + p2.x) / 2 - 60}
-                  y={(p1.y + p2.y) / 2 - 32}
-                  width={120}
-                  height={30}
-                  style={{ overflow: 'visible' }}
-                >
-                  <div 
-                    style={{
-                      display: 'inline-flex',
-                      gap: '4px',
-                      background: 'rgba(15, 23, 42, 0.9)',
-                      backdropFilter: 'blur(8px)',
-                      border: '1px solid rgba(255, 87, 34, 0.5)',
-                      borderRadius: '20px',
-                      padding: '3px 8px',
-                      boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      pointerEvents: 'auto'
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
+              {isSelected && type !== "window" && (() => {
+                const isDouble = type === "double";
+                const isSingle = type === "single";
+                const objWidth = isSingle ? 170 : (isDouble ? 110 : 60);
+
+                return (
+                  <foreignObject
+                    x={(p1.x + p2.x) / 2 - objWidth / 2}
+                    y={(p1.y + p2.y) / 2 - 32}
+                    width={objWidth}
+                    height={30}
+                    style={{ overflow: 'visible' }}
                   >
-                    {/* Hinge flip (only for single doors) */}
-                    {type === "single" && (
+                    <div 
+                      style={{
+                        display: 'inline-flex',
+                        gap: '4px',
+                        background: 'rgba(15, 23, 42, 0.9)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(255, 87, 34, 0.5)',
+                        borderRadius: '20px',
+                        padding: '3px 8px',
+                        boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        pointerEvents: 'auto'
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      {/* Hinge flip (only for single doors) */}
+                      {type === "single" && (
+                        <button
+                          title="Flip Hinge Direction"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (updateDoor) {
+                              const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+                              updateDoor({
+                                ...d,
+                                hingeSide: newHinge,
+                                hinge_side: newHinge
+                              });
+                            }
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#fff',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontWeight: 'bold',
+                            borderRadius: '12px',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                          onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                        >
+                          ⇄ Hinge
+                        </button>
+                      )}
+                      {type === "single" && (
+                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
+                      )}
+                      {/* Swing flip (for single and double doors) */}
+                      {type !== "sliding" && (
+                        <button
+                          title="Flip Swing Direction"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (updateDoor) {
+                              const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+                              updateDoor({
+                                ...d,
+                                swing: newSwing,
+                                swing_direction: newSwing
+                              });
+                            }
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#fff',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontWeight: 'bold',
+                            borderRadius: '12px',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                          onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                        >
+                          ⇅ Swing
+                        </button>
+                      )}
+                      {/* Edit button (for all doors) */}
+                      {(type === "single" || type === "double") && (
+                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
+                      )}
                       <button
-                        title="Flip Hinge Direction"
+                        title="Edit Door Details"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (updateDoor) {
-                            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
-                            updateDoor({
-                              ...d,
-                              hingeSide: newHinge,
-                              hinge_side: newHinge
-                            });
-                          }
+                          if (onEditDoor) onEditDoor(d);
                         }}
                         style={{
                           background: 'none',
@@ -1328,50 +1427,12 @@ const DoorLayer = React.memo(({
                         onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                         onMouseOut={(e) => e.currentTarget.style.background = 'none'}
                       >
-                        ⇄ Hinge
+                        ✏️ Edit
                       </button>
-                    )}
-                    {type === "single" && (
-                      <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
-                    )}
-                    {/* Swing flip (for single and double doors) */}
-                    {type !== "sliding" && (
-                      <button
-                        title="Flip Swing Direction"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (updateDoor) {
-                            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
-                            updateDoor({
-                              ...d,
-                              swing: newSwing,
-                              swing_direction: newSwing
-                            });
-                          }
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#fff',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          fontWeight: 'bold',
-                          borderRadius: '12px',
-                          transition: 'background 0.2s'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                      >
-                        ⇅ Swing
-                      </button>
-                    )}
-                  </div>
-                </foreignObject>
-              )}
+                    </div>
+                  </foreignObject>
+                );
+              })()}
             </g>
           );
         } catch (err) {
@@ -2027,6 +2088,7 @@ export default function CanvasView({
   currentPage,
   pages,
   handleClick,
+  checkAndResetIgnoreClick,
   finishPolygon,
   finishDoor,
   onMouseMove,
@@ -2081,6 +2143,11 @@ export default function CanvasView({
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
   const { roofsByPage, setRoofsByPage } = useAppModel();
+
+  // Dynamically cut base walls by active doors for 2D visual rendering
+  const displayWalls = useMemo(() => {
+    return cutWallsByDoors(walls, doors, realScale);
+  }, [walls, doors, realScale]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -2184,7 +2251,46 @@ export default function CanvasView({
   const handleDoorChangeType = (newClass) => {
     const d = doorContextMenu.door;
     if (d && updateDoor) {
-      updateDoor({ ...d, class: newClass });
+      const isExternal = newClass.includes('ext') || (d.doorName || d.door_name || '').includes('External');
+      const category = isExternal ? 'external' : 'internal';
+      const newTypeId = resolveDoorTypeId(newClass, category);
+      const doorDef = DOOR_TYPE_REGISTRY[newTypeId];
+      
+      const updated = {
+        ...d,
+        class: newClass,
+        class_name: newClass, // Sync legacy alias
+        doorTypeId: newTypeId,
+        type: doorDef ? doorDef.doorType : d.type,
+      };
+
+      // If converting to garage door and width is small, we adjust it to a default garage width
+      if (newClass.includes('garage') && d.width_mm < 2000 && doorDef) {
+        updated.width_mm = doorDef.defaultWidth;
+        if (realScale) {
+          const widthPx = doorDef.defaultWidth / realScale;
+          const p1 = d.points[0];
+          const p2 = d.points[1];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0.1) {
+            updated.points = [
+              p1,
+              {
+                x: p1.x + (dx / len) * widthPx,
+                y: p1.y + (dy / len) * widthPx
+              }
+            ];
+            updated.centerPoint = {
+              x: (p1.x + updated.points[1].x) / 2,
+              y: (p1.y + updated.points[1].y) / 2
+            };
+          }
+        }
+      }
+
+      updateDoor(updated);
     }
   };
 
@@ -2773,6 +2879,11 @@ export default function CanvasView({
             if (editingRoomId) return;
             if (onMouseDown) onMouseDown(e);
           }}
+          onContextMenu={(e) => {
+            if (isDrawingDoor && doorController?.doorPreset) {
+              e.preventDefault();
+            }
+          }}
         >
           <defs>
             <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -3145,7 +3256,7 @@ export default function CanvasView({
 
             {/* Memoized Layer 3: Wall Polygons */}
             <WallLayer
-              walls={walls}
+              walls={displayWalls}
               showLayer={showLayer}
               selectedId={selectedId}
               selectedType={selectedType}
@@ -3194,6 +3305,8 @@ export default function CanvasView({
               setHoverId={setHoverId}
               onDoorContextMenu={handleDoorContextMenu}
               interactionMode={interactionMode}
+              onEditDoor={(door) => setDoorEditDialog({ visible: true, door })}
+              checkAndResetIgnoreClick={checkAndResetIgnoreClick}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}
@@ -3576,6 +3689,7 @@ export default function CanvasView({
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
               const isDouble = doorClass.includes('double');
               const isWindow = doorClass.includes('window');
+              const isGarage = doorClass.includes('garage');
 
               const previewOpacity = 0.4;
 
@@ -3591,6 +3705,48 @@ export default function CanvasView({
                     <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke="#2196F3" strokeWidth={1} />
                     <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
                     <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke="#4CAF50" strokeWidth={1.5} />
+                    <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                  </g>
+                );
+              }
+
+              if (isGarage) {
+                const angle = Math.atan2(dy, dx);
+                const thickness = wall.thickness_px || 20;
+                const angleDeg = angle * 180 / Math.PI;
+
+                return (
+                  <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                    <rect
+                      x={-len / 2}
+                      y={-thickness / 2}
+                      width={len}
+                      height={thickness}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      fill="rgba(76, 175, 80, 0.15)"
+                      stroke="#4CAF50"
+                      strokeWidth={2}
+                    />
+                    <line
+                      x1={-len / 2}
+                      y1={-thickness / 6}
+                      x2={len / 2}
+                      y2={-thickness / 6}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      stroke="#4CAF50"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
+                    <line
+                      x1={-len / 2}
+                      y1={thickness / 6}
+                      x2={len / 2}
+                      y2={thickness / 6}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      stroke="#4CAF50"
+                      strokeWidth={1}
+                      opacity={0.6}
+                    />
                     <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
                   </g>
                 );
@@ -4056,15 +4212,33 @@ export default function CanvasView({
         }}
       />
 
-      {/* ===== DOOR EDIT DIALOG OVERLAY ===== */}
-      <DoorEditDialog
-        visible={doorEditDialog.visible}
-        door={doorEditDialog.door}
-        walls={walls}
-        realScale={realScale}
-        onSave={handleDoorEditSave}
-        onClose={() => setDoorEditDialog({ visible: false, door: null })}
-      />
+      {/* ===== DOOR / WINDOW EDIT DIALOG OVERLAY ===== */}
+      {doorEditDialog.visible && doorEditDialog.door && (() => {
+        const d = doorEditDialog.door;
+        const isWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
+        if (isWindow) {
+          return (
+            <WindowEditDialog
+              visible={doorEditDialog.visible}
+              door={d}
+              walls={walls}
+              realScale={realScale}
+              onSave={handleDoorEditSave}
+              onClose={() => setDoorEditDialog({ visible: false, door: null })}
+            />
+          );
+        }
+        return (
+          <DoorEditDialog
+            visible={doorEditDialog.visible}
+            door={d}
+            walls={walls}
+            realScale={realScale}
+            onSave={handleDoorEditSave}
+            onClose={() => setDoorEditDialog({ visible: false, door: null })}
+          />
+        );
+      })()}
 
     </div>
   );

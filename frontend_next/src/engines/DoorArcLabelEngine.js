@@ -120,7 +120,7 @@ export function getDoorBoundingBox(d) {
   }
 
   const type = d.type || "single";
-  const pad = 5;
+  const pad = 12;
 
   const typeLower = type.toLowerCase();
   const classLower = (d.class || d.class_name || "").toLowerCase();
@@ -131,7 +131,7 @@ export function getDoorBoundingBox(d) {
     const uy = dy / len;
     const nx = -uy;
     const ny = ux;
-    const halfT = isWindow ? 10 : 6; // 20px thickness for window selection, 12px for sliding door
+    const halfT = isWindow ? 18 : 15; // 36px thickness for window selection, 30px for sliding door
     const p1_ext = { x: p1.x - ux * pad, y: p1.y - uy * pad };
     const p2_ext = { x: p2.x + ux * pad, y: p2.y + uy * pad };
     return [

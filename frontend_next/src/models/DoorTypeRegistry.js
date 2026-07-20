@@ -16,7 +16,6 @@
  *   - computeDoorMetrics(): Computes area, perimeter, distance from wall endpoints
  *   - migrateLegacyDoor(): Normalizes legacy/AI-detected door objects to new schema
  */
-
 // ──────────────────────────────────────────────────────────────
 //  DOOR TYPE REGISTRY
 // ──────────────────────────────────────────────────────────────
@@ -606,6 +605,9 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
 
     // ── Relationships ──
     parentWallId: parentWall?.id || null,
+    hingeT: parentWall ? projectPointToHingeT({ x: cx, y: cy }, parentWall, widthPx) : 0.5,
+    headerOffset: doorDef.headOffset !== undefined ? doorDef.headOffset : 300,
+    width: widthPx,
     level: level,
 
     // ── Dimensions (mm) ──
@@ -629,11 +631,11 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
     mask_polygon: null,  // Original YOLO mask (AI only)
 
     // ── Door Behavior ──
-    hingeSide: 'left',
-    hinge_side: 'left',   // Legacy alias
-    swingDirection: 'inward',
-    swing: 'inward',      // Legacy alias
-    swing_direction: 'inward', // Legacy alias
+    hingeSide: overrides.hingeSide || overrides.hinge_side || 'left',
+    hinge_side: overrides.hingeSide || overrides.hinge_side || 'left',   // Legacy alias
+    swingDirection: overrides.swingDirection || overrides.swing_direction || overrides.swing || 'inward',
+    swing: overrides.swingDirection || overrides.swing_direction || overrides.swing || 'inward',      // Legacy alias
+    swing_direction: overrides.swingDirection || overrides.swing_direction || overrides.swing || 'inward', // Legacy alias
     openAngle: 90,
     angle: 90,             // Legacy alias
 

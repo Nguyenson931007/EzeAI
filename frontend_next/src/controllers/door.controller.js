@@ -196,10 +196,9 @@ export function useDoorController({
     const newDoors = [...doors, snappedDoor];
 
     // Heal and cut walls
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
-    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
-
-    pushHistory(null, cutWalls, newDoors);
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
+    // Save uncut base walls in state store
+    pushHistory(null, healedWalls, newDoors);
 
     // Reset drawing state (end door drawing mode, but keep showPenetrations panel active)
     setCurrentDoorPoints([]);
@@ -226,10 +225,44 @@ export function useDoorController({
     const walls = getCurrentWalls();
     const snap = snapPointToWall(canvasPoint, walls, 60);
 
+    if (snap.wall) {
+      // Immediate 1-click creation!
+      const wall = snap.wall;
+      const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+      const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+      const wdx = wp2.x - wp1.x;
+      const wdy = wp2.y - wp1.y;
+      const wLen = Math.hypot(wdx, wdy);
+      if (wLen > 0.1) {
+        const ux = wdx / wLen;
+        const uy = wdy / wLen;
+
+        const proj = distancePointToSegment(canvasPoint, wp1, wp2);
+        const cx = proj.x;
+        const cy = proj.y;
+
+        const activePreset = doorPreset;
+        const presetWidth = activePreset.width || DOOR_TYPE_REGISTRY[activePreset.id]?.defaultWidth || 820;
+        const widthPx = presetWidth / realScale;
+
+        const p1 = {
+          x: cx - ux * (widthPx / 2),
+          y: cy - uy * (widthPx / 2)
+        };
+        const p2 = {
+          x: cx + ux * (widthPx / 2),
+          y: cy + uy * (widthPx / 2)
+        };
+
+        finalizeDoor(p1, p2, activePreset.id, wall);
+        return true;
+      }
+    }
+
     setCurrentDoorPoints([snap.snappedPoint]);
     isDraggingDoorRef.current = true;
     return true; // consumed the event
-  }, [isDrawingDoor, showTypeSelector, doorPreset, getCurrentWalls]);
+  }, [isDrawingDoor, showTypeSelector, doorPreset, getCurrentWalls, realScale, finalizeDoor]);
 
   /**
    * Step 3: Handles mouse movement during drag to update preview.
@@ -462,10 +495,8 @@ export function useDoorController({
     const newDoors = doors.filter(d => d.id !== doorId);
 
     // Heal walls (re-merge segments that were cut for this door)
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
-    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
-
-    pushHistory(null, cutWalls, newDoors);
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
+    pushHistory(null, healedWalls, newDoors);
   }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
 
   /**
@@ -479,6 +510,7 @@ export function useDoorController({
     if (!oldDoor) return;
 
     let updatedDoor = { ...newDoorData, modifiedAt: new Date().toISOString() };
+    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
 
     // 1. Rotation change
     if (updatedDoor.rotation !== undefined && updatedDoor.rotation !== (oldDoor.rotation || 0)) {
@@ -496,7 +528,7 @@ export function useDoorController({
     if (updatedDoor.distance_from &&
       (updatedDoor.distance_from.value !== oldDoor.distance_from?.value ||
         updatedDoor.distance_from.side !== oldDoor.distance_from?.side)) {
-      updatedDoor = moveDoorAlongWallByDistance(updatedDoor, walls, realScale);
+      updatedDoor = moveDoorAlongWallByDistance(updatedDoor, healedWalls, realScale);
     }
 
     // 4. Height recalculation if door type changed
@@ -518,10 +550,8 @@ export function useDoorController({
     updatedDoor.geometryVersion = (oldDoor.geometryVersion || 1) + 1;
 
     const updatedDoors = doors.map(d => d.id === newDoorData.id ? updatedDoor : d);
-    const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls) : walls;
-    const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
 
-    pushHistory(null, cutWalls, updatedDoors);
+    pushHistory(null, healedWalls, updatedDoors);
   }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
 
   /**
@@ -721,14 +751,20 @@ export function useDoorController({
     const walls = getCurrentWalls();
     if (doors.length === 0 || walls.length === 0) return;
 
-    const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls]) : walls;
+    const uncutWalls = mergeCollinearWalls ? mergeCollinearWalls([...walls], 12, 0.98, 999999, true, true) : walls;
     const snappedDoors = doors.map(d => {
       const snapped = snapDoorToWalls(d, uncutWalls, 80);
-      // Update parentWallId
-      if (!snapped.parentWallId) {
+      // Update parentWallId (always re-associate to current uncut wall ID to prevent stale references)
+      if (snapped.points && snapped.points.length >= 2) {
+        const pt0 = snapped.points[0];
+        const pt1 = snapped.points[1];
+        const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+        const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+        const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+        const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
         const center = {
-          x: (snapped.points[0].x + snapped.points[1].x) / 2,
-          y: (snapped.points[0].y + snapped.points[1].y) / 2,
+          x: (px0 + px1) / 2,
+          y: (py0 + py1) / 2,
         };
         const pw = findParentWall(center, uncutWalls);
         if (pw) snapped.parentWallId = pw.id;

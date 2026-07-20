@@ -172,15 +172,16 @@ export function computeWallAreas(wall, doors = [], realScale = 1) {
  */
 export function computeAllWallAreas(walls, doors, realScale) {
   const result = new Map();
+  if (!walls || walls.length === 0) return result;
+
+  const getBaseId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
 
   for (const wall of walls) {
-    // Find doors on this wall
-    const wallDoors = doors.filter(d => {
-      // Match by explicit parentWallId
-      if (d.parentWallId === wall.id) return true;
+    // Find doors on this wall (by base ID match or geometric proximity)
+    const wallDoors = (doors || []).filter(d => {
+      if (d.parentWallId && getBaseId(d.parentWallId) === getBaseId(wall.id)) return true;
 
-      // Fallback: check geometric proximity
-      if (d.parentWallId) return false; // has explicit parent, not this wall
+      if (d.parentWallId) return false;
       if (!d.points || d.points.length < 2) return false;
 
       const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
@@ -203,7 +204,7 @@ export function computeAllWallAreas(walls, doors, realScale) {
       const py = wp1.y + t * dy;
       const perpDist = Math.hypot(cx - px, cy - py);
 
-      return perpDist < 30; // within 30px of wall centerline
+      return perpDist < 30;
     });
 
     result.set(wall.id, computeWallAreas(wall, wallDoors, realScale));
