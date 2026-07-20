@@ -31,6 +31,40 @@ export const RoofInteractionState = {
   PANNING: "PANNING"
 };
 
+function isDoorOnWalls(door, wallIds, walls) {
+  if (!door || !wallIds || wallIds.length === 0) return false;
+  if (door.parentWallId) {
+    const dBase = getBaseWallId(door.parentWallId);
+    for (const wId of wallIds) {
+      if (getBaseWallId(wId) === dBase) return true;
+    }
+  }
+
+  // Fallback: check if door center point is within 30px of wall segment
+  const pt0 = door.points?.[0];
+  const pt1 = door.points?.[1];
+  if (!pt0 || !pt1) return false;
+  const px0 = Array.isArray(pt0) ? pt0[0] : (pt0 ? pt0.x : 0);
+  const py0 = Array.isArray(pt0) ? pt0[1] : (pt0 ? pt0.y : 0);
+  const px1 = Array.isArray(pt1) ? pt1[0] : (pt1 ? pt1.x : 0);
+  const py1 = Array.isArray(pt1) ? pt1[1] : (pt1 ? pt1.y : 0);
+  const cx = (px0 + px1) / 2;
+  const cy = (py0 + py1) / 2;
+
+  if (walls && Array.isArray(walls)) {
+    for (const wId of wallIds) {
+      const wall = walls.find(w => w.id === wId);
+      if (wall && wall.centerline && wall.centerline.length === 2) {
+        const segP1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+        const segP2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+        const proj = distancePointToSegment({ x: cx, y: cy }, segP1, segP2);
+        if (proj.dist < 30) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Helper function to snap a coordinate to other walls (centerline projection or endpoint vertex)
 function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWallSnapEnabled = true) {
   if (!isWallSnapEnabled) {
@@ -1762,6 +1796,14 @@ export function useInteractionController(svgRef) {
             polygon: JSON.parse(JSON.stringify(w.polygon)),
             thickness_px: w.thickness_px
           }));
+          const currentDoors = doorsByPage[currentPage] || [];
+          dragging.startDoors = currentDoors.map(d => ({
+            ...d,
+            points: d.points ? JSON.parse(JSON.stringify(d.points)) : null,
+            centerPoint: d.centerPoint ? { ...d.centerPoint } : null,
+            polygon: d.polygon ? JSON.parse(JSON.stringify(d.polygon)) : null,
+            mask_polygon: d.mask_polygon ? JSON.parse(JSON.stringify(d.mask_polygon)) : null
+          }));
         } else if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
           const currentDoors = doorsByPage[currentPage] || [];
           dragging.startDoors = currentDoors.map(d => ({
@@ -2047,6 +2089,61 @@ export function useInteractionController(svgRef) {
             })
           };
         });
+
+        // Also translate all doors located on the moved wall(s)
+        if (setDoorsByPage && dragging.startDoors && (dx !== 0 || dy !== 0)) {
+          const dragWallIds = selectedWallIds.includes(dragging.id) ? selectedWallIds : [dragging.id];
+          setDoorsByPage(prev => {
+            const pageDoors = prev[currentPage] || [];
+            const updatedDoors = pageDoors.map(d => {
+              const startD = dragging.startDoors.find(sd => sd.id === d.id);
+              if (!startD) return d;
+              if (isDoorOnWalls(startD, dragWallIds, dragging.startWalls || pageWalls)) {
+                const sPt0 = startD.points?.[0];
+                const sPt1 = startD.points?.[1];
+                const px0 = Array.isArray(sPt0) ? sPt0[0] : (sPt0 ? sPt0.x : 0);
+                const py0 = Array.isArray(sPt0) ? sPt0[1] : (sPt0 ? sPt0.y : 0);
+                const px1 = Array.isArray(sPt1) ? sPt1[0] : (sPt1 ? sPt1.x : 0);
+                const py1 = Array.isArray(sPt1) ? sPt1[1] : (sPt1 ? sPt1.y : 0);
+
+                const newPoints = [
+                  { x: px0 + dx, y: py0 + dy },
+                  { x: px1 + dx, y: py1 + dy }
+                ];
+                const sCenter = startD.centerPoint || { x: (px0 + px1) / 2, y: (py0 + py1) / 2 };
+                const newCenter = { x: sCenter.x + dx, y: sCenter.y + dy };
+
+                let newPolygon = null;
+                if (startD.polygon) {
+                  newPolygon = startD.polygon.map(pt => ({
+                    x: (pt.x ?? pt[0]) + dx,
+                    y: (pt.y ?? pt[1]) + dy
+                  }));
+                }
+                let newMaskPoly = null;
+                if (startD.mask_polygon) {
+                  newMaskPoly = startD.mask_polygon.map(pt => ({
+                    x: (pt.x ?? pt[0]) + dx,
+                    y: (pt.y ?? pt[1]) + dy
+                  }));
+                }
+
+                return {
+                  ...startD,
+                  points: newPoints,
+                  centerPoint: newCenter,
+                  polygon: newPolygon || startD.polygon,
+                  mask_polygon: newMaskPoly || startD.mask_polygon
+                };
+              }
+              return d;
+            });
+            return {
+              ...prev,
+              [currentPage]: updatedDoors
+            };
+          });
+        }
       } else {
         setRoomsByPage(prev => {
           const pageRooms = prev[currentPage] || [];

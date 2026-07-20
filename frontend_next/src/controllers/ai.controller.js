@@ -169,25 +169,17 @@ function _mergeOverlappingDoors(existingDoors, newDoors) {
       // Center distance
       const centerDist = Math.sqrt((newCx - eCx) ** 2 + (newCy - eCy) ** 2);
 
-      if (centerDist < 40 || iou > 0.3 || overlapCoeff > 0.5) {
+      if (centerDist < 50 || iou > 0.2 || overlapCoeff > 0.35) {
         overlapIdx = i;
         break;
       }
     }
 
     if (overlapIdx >= 0) {
-      // Overlap detected → keep the longer door
-      const existingLen = _doorLength(merged[overlapIdx]);
-      if (newLen > existingLen) {
-        console.log(
-          `[Door Merge] Replacing shorter door (${existingLen.toFixed(0)}px) with longer one (${newLen.toFixed(0)}px)`
-        );
-        merged[overlapIdx] = newDoor;
-      } else {
-        console.log(
-          `[Door Merge] Keeping existing longer door (${existingLen.toFixed(0)}px), discarding new (${newLen.toFixed(0)}px)`
-        );
-      }
+      // Overlap detected → ALWAYS preserve existing (custom / user-edited) door and discard new AI detection
+      console.log(
+        `[Door Merge] Overlap detected. Preserving existing door (ID: ${merged[overlapIdx].id}), discarding duplicate AI detection.`
+      );
     } else {
       // No overlap → truly new door
       merged.push(newDoor);
@@ -305,6 +297,7 @@ export const useAIController = (
   useEffect(() => {
     roomsByPageRef.current = roomsByPage;
   }, [roomsByPage]);
+  const doorDetectRunCountRef = useRef({});
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
   const [inferenceTiming, setInferenceTiming] = useState("");
   const [activeScanRoom, setActiveScanRoom] = useState(null);
@@ -877,6 +870,17 @@ export const useAIController = (
 
       if (doorsArray && doorsArray.length > 0) {
         const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
+        const existingDoors = (doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [];
+
+        const runCount = (doorDetectRunCountRef.current[currentPage] || 0) + 1;
+        doorDetectRunCountRef.current[currentPage] = runCount;
+
+        if (runCount > 3) {
+          console.log(`[Door AI] Detect run #${runCount} for page ${currentPage} exceeds limit of 3 runs. Running logs only, no new doors added.`);
+          finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
+          return;
+        }
+
         const detectedDoors = doorsArray.map(d => {
           const migrated = migrateLegacyDoor(d, currentWalls, currentPage, realScale);
           const shiftedPoints = migrated.points ? migrated.points.map(pt => ({
