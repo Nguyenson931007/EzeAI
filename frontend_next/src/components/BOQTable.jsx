@@ -40,8 +40,8 @@ function buildRoomKey(name, wetness, floor) {
 
 function buildDoorCode(d) {
   const label = d.label || "Door";
-  const w = Math.round((d.width || 0.82) * 1000);
-  const h = Math.round((d.height || 2.34) * 1000);
+  const w = d.width_mm || Math.round((d.width || 0.82) * 1000);
+  const h = d.height_mm || Math.round((d.height || 2.34) * 1000);
   const hinge = d.hinge || "LH";
   return `${label}-${w}x${h}-${hinge}`;
 }
@@ -344,8 +344,8 @@ export default function BOQTable({
     return enrichedDoors.map((d, i) => {
       const room = d.primaryRoom?.room_name || d.label || "floor_0";
       const wet = d.primaryRoom?.wetness || "dry";
-      const w = Math.round((d.width ?? 0.82) * 1000);
-      const h = Math.round((d.height ?? 2.34) * 1000);
+      const w = d.width_mm || Math.round((d.width ?? 0.82) * 1000);
+      const h = d.height_mm || Math.round((d.height ?? 2.34) * 1000);
       
       return {
         id: d.id || `door_${i}`,

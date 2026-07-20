@@ -889,7 +889,7 @@ const DoorLayer = React.memo(({
                 {isSelected && (
                   <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
                     <rect
-                      x={-24} y={-8} width={48} height={16} rx={2}
+                      x={-28} y={-8} width={56} height={16} rx={2}
                       fill="rgba(255, 255, 255, 0.95)"
                       filter="url(#glow)"
                       stroke={color} strokeWidth={0.5}
@@ -904,7 +904,7 @@ const DoorLayer = React.memo(({
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                     >
-                      {d.width || Math.round(geom.widthPx * (realScale || 20))}
+                      {d.width_mm ? `${d.width_mm}mm` : `${Math.round(geom.widthPx * (realScale || 18))}mm`}
                     </text>
                   </g>
                 )}
@@ -1228,7 +1228,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
                   </text>
                 </>
               ) : (type === "sliding" ? (
@@ -1244,7 +1244,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
                   </text>
                 </>
               ) : (type === "window" ? (
@@ -1260,7 +1260,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
                   </text>
                 </>
               ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage" ? (
@@ -1276,7 +1276,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
                   </text>
                 </>
               ) : (
@@ -1292,7 +1292,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
+                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
                   </text>
                 </>
               ))))}
