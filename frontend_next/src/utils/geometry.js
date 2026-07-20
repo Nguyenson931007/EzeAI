@@ -328,16 +328,140 @@ export function overlapsWithAnyDoor(wall, doors) {
   return false;
 }
 
+export function getBaseWallId(id) {
+  if (!id) return '';
+  return id.split('-A-')[0].split('-B-')[0];
+}
+
+export function restoreBaseWalls(walls) {
+  if (!walls || walls.length === 0) return [];
+
+  const groups = new Map();
+
+  for (const w of walls) {
+    if (!w || !w.id) continue;
+    const baseId = getBaseWallId(w.id);
+    if (!groups.has(baseId)) {
+      groups.set(baseId, []);
+    }
+    groups.get(baseId).push(w);
+  }
+
+  const restoredWalls = [];
+
+  for (const [baseId, segmentList] of groups.entries()) {
+    if (segmentList.length === 1 && segmentList[0].id === baseId) {
+      restoredWalls.push(segmentList[0]);
+      continue;
+    }
+
+    const first = segmentList[0];
+    const allPts = [];
+
+    for (const seg of segmentList) {
+      if (seg.centerline && seg.centerline.length === 2) {
+        allPts.push({ x: seg.centerline[0][0], y: seg.centerline[0][1] });
+        allPts.push({ x: seg.centerline[1][0], y: seg.centerline[1][1] });
+      }
+    }
+
+    if (allPts.length < 2) {
+      restoredWalls.push({ ...first, id: baseId });
+      continue;
+    }
+
+    let maxDist = -1;
+    let pMin = allPts[0];
+    let pMax = allPts[1];
+
+    for (let i = 0; i < allPts.length; i++) {
+      for (let j = i + 1; j < allPts.length; j++) {
+        const d = Math.hypot(allPts[j].x - allPts[i].x, allPts[j].y - allPts[i].y);
+        if (d > maxDist) {
+          maxDist = d;
+          pMin = allPts[i];
+          pMax = allPts[j];
+        }
+      }
+    }
+
+    const restoredWall = {
+      ...first,
+      id: baseId,
+      centerline: [
+        [pMin.x, pMin.y],
+        [pMax.x, pMax.y]
+      ]
+    };
+    restoredWalls.push(restoredWall);
+  }
+
+  return recalculateAllWallsPolygons(restoredWalls);
+}
+
+/**
+ * Sorts doors along a wall centerline by their parametric position t [0..1].
+ */
+export function sortDoorsByT(doors, wall) {
+  if (!doors || doors.length <= 1 || !wall || !wall.centerline || wall.centerline.length !== 2) {
+    return doors || [];
+  }
+
+  const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+  const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+  const dx = wp2.x - wp1.x;
+  const dy = wp2.y - wp1.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-3) return doors;
+
+  return [...doors].sort((a, b) => {
+    const getCenter = (d) => {
+      if (d.points && d.points.length >= 2) {
+        const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+        const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+        return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      }
+      return d.centerPoint || wp1;
+    };
+    const cA = getCenter(a);
+    const cB = getCenter(b);
+    const tA = ((cA.x - wp1.x) * dx + (cA.y - wp1.y) * dy) / len2;
+    const tB = ((cB.x - wp1.x) * dx + (cB.y - wp1.y) * dy) / len2;
+    return tA - tB;
+  });
+}
+
 export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false) {
   // Wall cutting is always enabled — the forceCut parameter is kept for API compatibility
   // but no longer gates the operation.
 
   if (!walls || walls.length === 0) return [];
-  if (!doors || doors.length === 0) return walls;
+  const baseWalls = restoreBaseWalls(walls);
+  if (!doors || doors.length === 0) return baseWalls;
 
-  let currentWalls = [...walls];
-
+  // Group doors by parent wall and sort by t
+  const doorsByWall = new Map();
   for (const door of doors) {
+    const pId = getBaseWallId(door.parentWallId) || 'unassigned';
+    if (!doorsByWall.has(pId)) doorsByWall.set(pId, []);
+    doorsByWall.get(pId).push(door);
+  }
+
+  // Sorted doors list
+  const sortedDoors = [];
+  for (const wall of baseWalls) {
+    const wallDoors = doorsByWall.get(wall.id) || [];
+    const sorted = sortDoorsByT(wallDoors, wall);
+    sortedDoors.push(...sorted);
+  }
+  // Include unassigned/unmapped doors
+  if (doorsByWall.has('unassigned')) {
+    sortedDoors.push(...doorsByWall.get('unassigned'));
+  }
+
+  let currentWalls = [...baseWalls];
+
+  for (const door of sortedDoors) {
     // Get frame line endpoints p1 and p2 of the door
     let dp1 = null;
     let dp2 = null;

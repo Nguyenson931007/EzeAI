@@ -709,7 +709,7 @@ export const useAIController = (
 
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: recalculateAllWallsPolygons(_cutWallsByDoors(mergedWalls, snappedDoors, realScale))
+              [currentPage]: recalculateAllWallsPolygons(mergedWalls)
             }));
           }
 
@@ -1172,8 +1172,8 @@ export const useAIController = (
             [currentPage]: snappedDoors
           }));
 
-          // Cut walls at door positions using snapped doors and recalculate polygons immediately
-          detectedWalls = recalculateAllWallsPolygons(_cutWallsByDoors(mergedWalls, snappedDoors, realScale));
+          // Store uncut base walls in state; cutWallsByDoors will dynamically calculate rendering polygons
+          detectedWalls = recalculateAllWallsPolygons(mergedWalls);
 
           setWallsByPage(prev => ({
             ...prev,

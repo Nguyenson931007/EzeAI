@@ -27,7 +27,7 @@ export default function AIDoor({
     ? d.polygon
     : ((d.mask_polygon && d.mask_polygon.length >= 3) ? d.mask_polygon : []);
 
-  const polyPoints = maskPoly
+  let polyPoints = maskPoly
     .map(p => {
       const x = Array.isArray(p) ? p[0] : (p ? p.x : undefined);
       const y = Array.isArray(p) ? p[1] : (p ? p.y : undefined);
@@ -38,7 +38,29 @@ export default function AIDoor({
   const bbox = getDoorBoundingBox(d) || [];
   let clickPolyPoints = bbox.length >= 3 ? bbox : polyPoints;
 
-  if (polyPoints.length < 3) return null;
+  if (clickPolyPoints.length < 3 && d.points && d.points.length >= 2) {
+    const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+    const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+    const thickness = 30;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const nx = (-dy / len) * (thickness / 2);
+      const ny = (dx / len) * (thickness / 2);
+      clickPolyPoints = [
+        { x: p1.x + nx, y: p1.y + ny },
+        { x: p2.x + nx, y: p2.y + ny },
+        { x: p2.x - nx, y: p2.y - ny },
+        { x: p1.x - nx, y: p1.y - ny }
+      ];
+      if (polyPoints.length < 3) {
+        polyPoints = clickPolyPoints;
+      }
+    }
+  }
+
+  if (clickPolyPoints.length < 3) return null;
 
   // Calculate centroid for label placement
   const cxSum = polyPoints.reduce((s, p) => s + p.x, 0);
@@ -145,50 +167,57 @@ export default function AIDoor({
   let doubleEdges = [];
 
   if (polyPoints.length >= 3 && !isSliding) {
-    // Use raw mask polygon from YOLO if available to find the correct hinges in the wall opening.
-    // This prevents the frame line from being flipped to the wrong side of the door.
-    const hingeSourcePoints = (d.mask_polygon && d.mask_polygon.length >= 3)
-      ? d.mask_polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p)
-      : polyPoints;
-
-    // 1. Find the longest straight segment composed of consecutive boundary edges of the polygon.
-    // This represents the physical frame line (longest straight edge along the wall opening).
-    let bestH1 = hingeSourcePoints[0];
-    let bestH2 = hingeSourcePoints[1];
+    // Determine frame endpoints h1, h2: prioritize d.points (CAD centerline) if available
+    let bestH1 = null;
+    let bestH2 = null;
     let maxBoundaryLen = 0;
-    const nSource = hingeSourcePoints.length;
 
-    for (let i = 0; i < nSource; i++) {
-      for (let j = 0; j < nSource; j++) {
-        if (i === j) continue;
-        const pA = hingeSourcePoints[i];
-        const pB = hingeSourcePoints[j];
-        const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
-        if (len < 10) continue;
+    if (d.points && d.points.length >= 2) {
+      bestH1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+      bestH2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+      maxBoundaryLen = Math.hypot(bestH2.x - bestH1.x, bestH2.y - bestH1.y);
+    } else {
+      // Fallback to searching raw mask polygon boundary edges
+      const hingeSourcePoints = (d.mask_polygon && d.mask_polygon.length >= 3)
+        ? d.mask_polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p)
+        : polyPoints;
 
-        let isCollinear = true;
-        const dx = pB.x - pA.x;
-        const dy = pB.y - pA.y;
+      bestH1 = hingeSourcePoints[0];
+      bestH2 = hingeSourcePoints[1];
+      const nSource = hingeSourcePoints.length;
 
-        // Walk along the boundary from i to j and check if all intermediate vertices are collinear
-        let curr = i;
-        while (curr !== j) {
-          const next = (curr + 1) % nSource;
-          const pC = hingeSourcePoints[next];
-          const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
-          const dist = Math.abs(cross) / len;
-          if (dist > 3.0) { // Max 3px alignment tolerance
-            isCollinear = false;
-            break;
+      for (let i = 0; i < nSource; i++) {
+        for (let j = 0; j < nSource; j++) {
+          if (i === j) continue;
+          const pA = hingeSourcePoints[i];
+          const pB = hingeSourcePoints[j];
+          const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+          if (len < 10) continue;
+
+          let isCollinear = true;
+          const dx = pB.x - pA.x;
+          const dy = pB.y - pA.y;
+
+          // Walk along boundary and check collinearity
+          let curr = i;
+          while (curr !== j) {
+            const next = (curr + 1) % nSource;
+            const pC = hingeSourcePoints[next];
+            const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
+            const dist = Math.abs(cross) / len;
+            if (dist > 3.0) {
+              isCollinear = false;
+              break;
+            }
+            curr = next;
           }
-          curr = next;
-        }
 
-        if (isCollinear) {
-          if (len > maxBoundaryLen) {
-            maxBoundaryLen = len;
-            bestH1 = pA;
-            bestH2 = pB;
+          if (isCollinear) {
+            if (len > maxBoundaryLen) {
+              maxBoundaryLen = len;
+              bestH1 = pA;
+              bestH2 = pB;
+            }
           }
         }
       }
@@ -197,51 +226,6 @@ export default function AIDoor({
     const h1 = bestH1;
     const h2 = bestH2;
     const w = maxBoundaryLen;
-
-    // 2. Geometric Auto-Detection (User's Parallel Edge Idea):
-    // List all polygon boundary edges. Exclude the edges lying on the frame line h1 -> h2.
-    // Filter remaining edges that are longer than 0.35 * w (potential door leaves).
-    // If we have at least 2 such edges and the 2 longest are parallel to each other,
-    // it is a double door. If they are perpendicular, or only 1 exists, it is a single door.
-    let isDoubleGeom = false;
-    if (w > 0) {
-      const edges = polyPoints.map((p, i) => {
-        const next = polyPoints[(i + 1) % polyPoints.length];
-        return { p1: p, p2: next, len: Math.hypot(next.x - p.x, next.y - p.y) };
-      });
-
-      const leafCandidates = [];
-      const dxF = h2.x - h1.x;
-      const dyF = h2.y - h1.y;
-
-      edges.forEach(e => {
-        const dist1 = Math.abs(dxF * (e.p1.y - h1.y) - dyF * (e.p1.x - h1.x)) / w;
-        const dist2 = Math.abs(dxF * (e.p2.y - h1.y) - dyF * (e.p2.x - h1.x)) / w;
-        const isOnFrame = dist1 < 5.0 && dist2 < 5.0;
-
-        if (!isOnFrame && e.len >= 0.35 * w) {
-          leafCandidates.push(e);
-        }
-      });
-
-      if (leafCandidates.length >= 2) {
-        leafCandidates.sort((a, b) => b.len - a.len);
-        const e1 = leafCandidates[0];
-        const e2 = leafCandidates[1];
-
-        const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-        const v2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
-
-        const dot = v1.x * v2.x + v1.y * v2.y;
-        if (Math.abs(dot) >= 0.8) {
-          isDoubleGeom = true;
-        }
-      }
-    }
-
-    if (isDoubleGeom) {
-      isDouble = true;
-    }
 
     if (isDouble) {
       const r = w / 2;

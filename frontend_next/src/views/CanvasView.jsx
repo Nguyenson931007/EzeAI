@@ -25,7 +25,8 @@ import {
   calcDimOffset, 
   centroid, 
   polygonAreaM2 as polygonAreaM2Util, 
-  calculateWallPolygon 
+  calculateWallPolygon,
+  cutWallsByDoors
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall } from "@/engines/DoorGeometryEngine";
@@ -1081,9 +1082,16 @@ const DoorLayer = React.memo(({
                 const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
                 const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
                 
-                // thickness calculation
+                // thickness and direction calculation
                 const wdx = wp2.x - wp1.x;
                 const wdy = wp2.y - wp1.y;
+                const wLen = Math.hypot(wdx, wdy);
+                if (wLen < 1e-3) return;
+                
+                // Only consider walls parallel to door vector for jamb extension
+                const isParallel = Math.abs((wdx / wLen) * ux + (wdy / wLen) * uy) > 0.8;
+                if (!isParallel) return;
+
                 const L2 = wdx * wdx + wdy * wdy;
                 const cx = (p1.x + p2.x)/2;
                 const cy = (p1.y + p2.y)/2;
@@ -2135,6 +2143,11 @@ export default function CanvasView({
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
   const { roofsByPage, setRoofsByPage } = useAppModel();
+
+  // Dynamically cut base walls by active doors for 2D visual rendering
+  const displayWalls = useMemo(() => {
+    return cutWallsByDoors(walls, doors, realScale);
+  }, [walls, doors, realScale]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -3243,7 +3256,7 @@ export default function CanvasView({
 
             {/* Memoized Layer 3: Wall Polygons */}
             <WallLayer
-              walls={walls}
+              walls={displayWalls}
               showLayer={showLayer}
               selectedId={selectedId}
               selectedType={selectedType}

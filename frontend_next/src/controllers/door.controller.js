@@ -197,9 +197,8 @@ export function useDoorController({
 
     // Heal and cut walls
     const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
-    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
-
-    pushHistory(null, cutWalls, newDoors);
+    // Save uncut base walls in state store
+    pushHistory(null, healedWalls, newDoors);
 
     // Reset drawing state (end door drawing mode, but keep showPenetrations panel active)
     setCurrentDoorPoints([]);
@@ -497,9 +496,7 @@ export function useDoorController({
 
     // Heal walls (re-merge segments that were cut for this door)
     const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
-    const cutWalls = cutWallsByDoors(healedWalls, newDoors, realScale);
-
-    pushHistory(null, cutWalls, newDoors);
+    pushHistory(null, healedWalls, newDoors);
   }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
 
   /**
@@ -553,9 +550,8 @@ export function useDoorController({
     updatedDoor.geometryVersion = (oldDoor.geometryVersion || 1) + 1;
 
     const updatedDoors = doors.map(d => d.id === newDoorData.id ? updatedDoor : d);
-    const cutWalls = cutWallsByDoors(healedWalls, updatedDoors, realScale);
 
-    pushHistory(null, cutWalls, updatedDoors);
+    pushHistory(null, healedWalls, updatedDoors);
   }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
 
   /**

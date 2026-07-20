@@ -205,5 +205,41 @@
     "apply_to_all": true,
     "source": "human_verified",
     "timestamp": "2026-06-01T06:36:35.122452"
+  },
+  {
+    "original": "ROOM 16",
+    "normalized_key": "ROOM 16",
+    "corrected": "WIP",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-07-17T07:16:37.565145"
+  },
+  {
+    "original": "ROOM 12",
+    "normalized_key": "ROOM 12",
+    "corrected": "ENS",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-07-17T07:16:47.241376"
+  },
+  {
+    "original": "ROOM 4",
+    "normalized_key": "ROOM 4",
+    "corrected": "L'DRY",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-07-17T07:16:57.830340"
+  },
+  {
+    "original": "ROOM 7",
+    "normalized_key": "ROOM 7",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-07-17T07:17:11.245883"
   }
 ]
