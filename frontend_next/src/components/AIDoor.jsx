@@ -874,12 +874,13 @@ export default function AIDoor({
         }
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
         e.stopPropagation();
-        if (lastSelectedOnMouseDown.current && onEdit) {
-          onEdit();
-        } else {
-          setSelectedId(d.id);
-          setSelectedType("door");
-        }
+        setSelectedId(d.id);
+        setSelectedType("door");
+      }}
+      onDoubleClick={(e) => {
+        if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+        e.stopPropagation();
+        if (onEdit) onEdit();
       }}
       onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
       style={{ cursor: 'pointer' }}
@@ -923,9 +924,10 @@ export default function AIDoor({
           width={slidingWidth}
           height={slidingHeight}
           transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`}
-          fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
-          stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
-          strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
+          fill="rgba(255, 87, 34, 0.25)"
+          stroke="#FF5722"
+          strokeWidth={1.5}
+          rx={2}
           style={{ pointerEvents: 'none' }}
         />
       )}
@@ -1151,8 +1153,8 @@ export default function AIDoor({
         </text>
       </g>
 
-      {/* Flip Buttons when selected */}
-      {isSelected && updateDoor && (
+      {/* Flip Buttons when selected (hidden during drag) */}
+      {isSelected && !dragging && updateDoor && (
         <g style={{ pointerEvents: 'auto' }}>
           {/* Horizontal Flip Button */}
           <g 
