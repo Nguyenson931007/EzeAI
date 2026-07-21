@@ -582,20 +582,7 @@ function nextWindowName() {
  * @param {number} level - Floor/page index
  * @param {number} realScale - mm-per-pixel scale factor
  * @param {Object} [overrides={}] - Optional field overrides
- * @returns {Object} Complete door object
  */
-function projectPointToHingeT(pt, wall) {
-  if (!wall || !wall.centerline || wall.centerline.length !== 2) return 0.5;
-  const A = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
-  const B = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
-  const AB = { x: B.x - A.x, y: B.y - A.y };
-  const AP = { x: pt.x - A.x, y: pt.y - A.y };
-  const L2 = AB.x * AB.x + AB.y * AB.y;
-  if (L2 < 1e-9) return 0.5;
-  let t = (AP.x * AB.x + AP.y * AB.y) / L2;
-  return Math.max(0, Math.min(1, t));
-}
-
 export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, realScale, overrides = {}) {
   const doorDef = DOOR_TYPE_REGISTRY[doorTypeId] || DOOR_TYPE_REGISTRY.int_hinged_single;
   const wallClass = parentWall?.class_name || 'interior_wall';
