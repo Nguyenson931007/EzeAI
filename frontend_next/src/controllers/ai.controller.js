@@ -639,7 +639,9 @@ export const useAIController = (
             let detectedWalls = event.walls.map(w => {
               const class_name = getWallClass(w);
               const wall_type = getWallType(w);
-              let thickness = w.thickness || (wall_type === "ext" ? 90 : 70);
+              const defaultThickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
+              const thickness = w.thickness || defaultThickness;
+              const thickness_px = w.thickness_px || (realScale && realScale > 0 ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15));
               const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
                 pt[0] + pdfOffset.x,
                 pt[1] + pdfOffset.y
@@ -655,6 +657,7 @@ export const useAIController = (
                 wall_type: wall_type,
                 class_name: class_name,
                 thickness: thickness,
+                thickness_px: thickness_px,
                 height: defaultHeight, // Per-wall height property
                 review_state: "AI_GENERATED"
               };
@@ -1092,8 +1095,17 @@ export const useAIController = (
 
       let detectedWalls = [];
       try {
+        let activeThicknesses = wallThicknesses;
+        if (!activeThicknesses) {
+          try {
+            const saved = localStorage.getItem('ezefloor_wall_thickness_config');
+            if (saved) activeThicknesses = JSON.parse(saved);
+          } catch (e) {}
+        }
+        const { ext = 90, int = 70, part = 70, defaultHeight = 2700 } = activeThicknesses || {};
+
         const wallConf = String(useAIConfigStore.getState().config?.walls ?? '0.001');
-        const wallData = await ApiService.detectWallSeg(blob, wallConf, realScale);
+        const wallData = await ApiService.detectWallSeg(blob, wallConf, realScale, activeThicknesses);
 
         if (abortController.signal.aborted) return;
 
@@ -1101,7 +1113,9 @@ export const useAIController = (
           let rawWalls = wallData.walls.map(w => {
             const class_name = getWallClass(w);
             const wall_type = getWallType(w);
-            let thickness = w.thickness || (wall_type === "ext" ? 90 : 70);
+            const defaultThickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
+            const thickness = w.thickness || defaultThickness;
+            const thickness_px = w.thickness_px || (realScale && realScale > 0 ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15));
             const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
               pt[0] + pdfOffset.x,
               pt[1] + pdfOffset.y
@@ -1117,6 +1131,8 @@ export const useAIController = (
               wall_type: wall_type,
               class_name: class_name,
               thickness: thickness,
+              thickness_px: thickness_px,
+              height: defaultHeight,
               review_state: 'AI_GENERATED'
             };
           });

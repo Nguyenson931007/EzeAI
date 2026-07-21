@@ -748,6 +748,9 @@ async def wall_segment(
     confidence: float = Form(0.10),
     imgsz: int = Form(1280),
     real_scale: Optional[float] = Form(1.0),
+    ext_thickness: Optional[int] = Form(90),
+    int_thickness: Optional[int] = Form(70),
+    part_thickness: Optional[int] = Form(70),
     username: str = Depends(validate_session)
 ):
     """
@@ -759,6 +762,12 @@ async def wall_segment(
 
     content = await file.read()
     filename = file.filename or "plan.png"
+
+    wall_thicknesses = {
+        "ext": ext_thickness or 90,
+        "int": int_thickness or 70,
+        "part": part_thickness or 70
+    }
 
     try:
         if filename.lower().endswith(".pdf"):
@@ -777,7 +786,8 @@ async def wall_segment(
                 confidence=confidence,
                 imgsz=imgsz,
                 real_scale=real_scale or 1.0,
-                filename=filename
+                filename=filename,
+                wall_thicknesses=wall_thicknesses
             )
             return result
 

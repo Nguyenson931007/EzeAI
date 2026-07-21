@@ -264,11 +264,16 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async detectWallSeg(imageBlob, confidence = "0.25", realScale = 1.0) {
+  async detectWallSeg(imageBlob, confidence = "0.25", realScale = 1.0, wallThicknesses = null) {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
     fd.append("real_scale", realScale || 1.0);
+    if (wallThicknesses) {
+      fd.append("ext_thickness", wallThicknesses.ext || 90);
+      fd.append("int_thickness", wallThicknesses.int || 70);
+      fd.append("part_thickness", wallThicknesses.part || 70);
+    }
     const res = await fetch(`${BASE_URL}/api/wall-segment`, {
       method: "POST",
       headers: getHeaders(null),
