@@ -26,7 +26,8 @@ import {
   centroid, 
   polygonAreaM2 as polygonAreaM2Util, 
   calculateWallPolygon,
-  cutWallsByDoors
+  cutWallsByDoors,
+  getBaseWallId
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry } from "@/engines/DoorGeometryEngine";
