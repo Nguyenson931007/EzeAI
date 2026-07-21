@@ -25,7 +25,6 @@ Dependencies:
 
 import logging
 import re
-import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
@@ -62,8 +61,8 @@ _IGNORE_KEYWORDS = re.compile(
 _MIN_WIDTH_MM = 500
 _MAX_WIDTH_MM = 5000
 
-# Rotation angles for multi-orientation OCR (0° horizontal, 90° vertical)
-_ORIENTATIONS = [0, 90]
+# Rotation angles for multi-orientation OCR
+_ORIENTATIONS = [0, 90, 180, 270]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -81,8 +80,8 @@ def enrich_doors_with_ocr_width(
         Phase 1: OCR inside the door polygon (tight crop with small padding)
         Phase 2: OCR in the expanded buffer region around the door
 
-    Multi-orientation: Each crop is checked at 0° and 90° to detect
-    horizontal and vertical text common in architectural drawings.
+    Multi-orientation: Each crop is rotated 0°/90°/180°/270° to detect
+    vertical text common in architectural drawings.
 
     Args:
         image_np: Full floor plan image as numpy array (H, W, 3) in RGB.
@@ -97,14 +96,8 @@ def enrich_doors_with_ocr_width(
         return doors
 
     img_h, img_w = image_np.shape[:2]
-    t_start = time.time()
 
     for door in doors:
-        if time.time() - t_start > 12.0:
-            logger.warning("[door_width_ocr] Total OCR time exceeded 12s budget, applying geometry fallback for remaining doors")
-            _apply_geometry_fallback(door)
-            continue
-
         try:
             _process_single_door(door, image_np, img_w, img_h, buffer_px)
         except Exception as e:

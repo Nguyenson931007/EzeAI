@@ -27,7 +27,9 @@ import {
   polygonAreaM2 as polygonAreaM2Util, 
   calculateWallPolygon,
   cutWallsByDoors,
-  getBaseWallId
+  getBaseWallId,
+  getWallClass,
+  getWallType
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry } from "@/engines/DoorGeometryEngine";
@@ -398,8 +400,8 @@ const WallLayer = React.memo(({
 
   // Calculate junctions where int_wall or part_wall touches ext_wall centerline
   const junctionHighlights = [];
-  const extWalls = validWalls.filter(w => w.class_name === "exterior_wall");
-  const intOrPartWalls = validWalls.filter(w => w.class_name === "interior_wall" || w.class_name === "partition_wall");
+  const extWalls = validWalls.filter(w => getWallClass(w) === "exterior_wall");
+  const intOrPartWalls = validWalls.filter(w => getWallClass(w) !== "exterior_wall");
 
   intOrPartWalls.forEach(intWall => {
     intWall.centerline.forEach(pt => {
@@ -426,7 +428,7 @@ const WallLayer = React.memo(({
       { x: startWall.centerline[1][0], y: startWall.centerline[1][1] }
     ];
     let thickness = startWall.thickness_px || 20;
-    let className = startWall.class_name || "exterior_wall";
+    let className = getWallClass(startWall);
     let wallIds = [startWall.id];
 
     let expanded = true;
@@ -437,7 +439,7 @@ const WallLayer = React.memo(({
 
       for (const w of validWalls) {
         if (visited.has(w.id)) continue;
-        if ((w.class_name || "exterior_wall") !== className) continue;
+        if (getWallClass(w) !== className) continue;
         const wThick = w.thickness_px || 20;
         if (Math.abs(wThick - thickness) > 5) continue;
 
@@ -491,13 +493,13 @@ const WallLayer = React.memo(({
         let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
         if (isClosed) pathData += " Z";
 
-        const cls = (chain.className || "").toLowerCase();
-        let strokeColor = "#a855f7"; // purple default
-        if (cls.includes("ext") || cls.includes("external")) {
+        const cls = getWallClass({ class_name: chain.className });
+        let strokeColor = "#a855f7"; // purple default for exterior
+        if (cls === "exterior_wall") {
           strokeColor = "#a855f7";
-        } else if (cls.includes("int") || cls.includes("internal")) {
+        } else if (cls === "interior_wall") {
           strokeColor = "#b45309";
-        } else if (cls.includes("part") || cls.includes("partition")) {
+        } else if (cls === "partition_wall") {
           strokeColor = "#eab308";
         }
 
@@ -541,13 +543,13 @@ const WallLayer = React.memo(({
         let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
         if (isClosed) pathData += " Z";
 
-        const cls = (chain.className || "").toLowerCase();
+        const cls = getWallClass({ class_name: chain.className });
         let fillColor = "rgba(168, 85, 247, 0.15)";
-        if (cls.includes("ext") || cls.includes("external")) {
+        if (cls === "exterior_wall") {
           fillColor = "rgba(168, 85, 247, 0.15)";
-        } else if (cls.includes("int") || cls.includes("internal")) {
+        } else if (cls === "interior_wall") {
           fillColor = "rgba(180, 83, 9, 0.15)";
-        } else if (cls.includes("part") || cls.includes("partition")) {
+        } else if (cls === "partition_wall") {
           fillColor = "rgba(234, 179, 8, 0.15)";
         }
 

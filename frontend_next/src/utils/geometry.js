@@ -1,3 +1,30 @@
+export function getWallClass(w) {
+  if (!w) return "interior_wall";
+  const c = (w.class_name || "").toLowerCase();
+  const t = (w.wall_type || "").toLowerCase();
+
+  if (
+    c === "exterior_wall" || c === "ext" || c.includes("ext") || c.includes("external") ||
+    t === "ext" || t === "exterior_wall" || t.includes("ext") || t.includes("external")
+  ) {
+    return "exterior_wall";
+  }
+  if (
+    c === "partition_wall" || c === "part" || c.includes("part") || c.includes("partition") ||
+    t === "part" || t === "partition_wall" || t.includes("part") || t.includes("partition")
+  ) {
+    return "partition_wall";
+  }
+  return "interior_wall";
+}
+
+export function getWallType(w) {
+  const cls = getWallClass(w);
+  if (cls === "exterior_wall") return "ext";
+  if (cls === "partition_wall") return "part";
+  return "int";
+}
+
 export function polygonAreaM2(polygon, scale) {
   if (!polygon || polygon.length < 3) return 0;
 
@@ -396,9 +423,11 @@ export function restoreBaseWalls(walls) {
       }
     }
 
+    const targetSeg = customTypeSeg || first;
     const restoredWall = {
       ...first,
-      ...(customTypeSeg ? { wall_type: customTypeSeg.wall_type, class_name: customTypeSeg.class_name } : {}),
+      class_name: getWallClass(targetSeg),
+      wall_type: getWallType(targetSeg),
       id: baseId,
       height: restoredHeight,
       height_mm: restoredHeightMm,

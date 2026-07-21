@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
@@ -637,15 +637,9 @@ export const useAIController = (
 
           if (event.walls) {
             let detectedWalls = event.walls.map(w => {
-              let wall_type = "int";
-              let thickness = w.thickness || 70;
-              if (w.class_name === "exterior_wall") {
-                wall_type = "ext";
-              } else if (w.class_name === "partition_wall") {
-                wall_type = "part";
-              } else if (w.class_name === "interior_wall") {
-                wall_type = "int";
-              }
+              const class_name = getWallClass(w);
+              const wall_type = getWallType(w);
+              let thickness = w.thickness || (wall_type === "ext" ? 90 : 70);
               const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
                 pt[0] + pdfOffset.x,
                 pt[1] + pdfOffset.y
@@ -658,6 +652,7 @@ export const useAIController = (
                 ...w,
                 centerline: shiftedCenterline,
                 polygon: shiftedPoly,
+                class_name,
                 wall_type,
                 thickness,
                 height: defaultHeight, // Per-wall height property
@@ -1104,18 +1099,9 @@ export const useAIController = (
 
         if (wallData && wallData.walls) {
           let rawWalls = wallData.walls.map(w => {
-            let wall_type = "int";
-            let thickness = 70;
-            if (w.class_name === "exterior_wall") {
-              wall_type = "ext";
-              thickness = 90;
-            } else if (w.class_name === "partition_wall") {
-              wall_type = "part";
-              thickness = 70;
-            } else if (w.class_name === "interior_wall") {
-              wall_type = "int";
-              thickness = 70;
-            }
+            const class_name = getWallClass(w);
+            const wall_type = getWallType(w);
+            let thickness = wall_type === "ext" ? 90 : 70;
             const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
               pt[0] + pdfOffset.x,
               pt[1] + pdfOffset.y
@@ -1128,6 +1114,7 @@ export const useAIController = (
               ...w,
               centerline: shiftedCenterline,
               polygon: shiftedPoly,
+              class_name,
               wall_type,
               thickness,
               review_state: 'AI_GENERATED'

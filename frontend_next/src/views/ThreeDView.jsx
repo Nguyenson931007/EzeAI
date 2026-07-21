@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType } from "@/utils/geometry";
 
 export default function ThreeDView({
   pages = [],
@@ -578,12 +578,12 @@ export default function ThreeDView({
 
         // Determine wall color based on mode
         let colorHex = "#94a3b8";
-        const wClass = wall.class_name || (wall.wall_type === "ext" ? "exterior_wall" : "interior_wall");
-        const wType = wall.wall_type || (wClass === "exterior_wall" ? "ext" : (wClass === "partition_wall" ? "part" : "int"));
+        const wClass = getWallClass(wall);
+        const wType = getWallType(wall);
 
         if (wallColorMode === "type") {
-          if (wType === "ext" || wClass === "exterior_wall") colorHex = extWallColor;
-          else if (wType === "part" || wClass === "partition_wall") colorHex = partWallColor;
+          if (wType === "ext") colorHex = extWallColor;
+          else if (wType === "part") colorHex = partWallColor;
           else colorHex = intWallColor;
         } else if (wallColorMode === "height") {
           if (wallHeightMmVal < 2500) colorHex = heightTier1Color;
@@ -691,7 +691,7 @@ export default function ThreeDView({
                 wallThickness = nearestWall.thickness_px || thickness;
                 const wallHeightMmVal = nearestWall.height || nearestWall.height_mm || wallHeightMm;
                 hostWallHeightPx = wallHeightMmVal / scaleFactor;
-                hostWallClass = nearestWall.class_name || (nearestWall.wall_type === "ext" ? "exterior_wall" : "interior_wall");
+                hostWallClass = getWallClass(nearestWall);
 
                 const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
                 const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };

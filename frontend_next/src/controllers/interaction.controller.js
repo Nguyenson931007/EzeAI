@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType } from "@/utils/geometry";
 import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
@@ -421,9 +421,11 @@ export function useInteractionController(svgRef) {
           if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
             const wallId = `man_wall_${Date.now()}`;
             const thickness = drawingWall.thickness || 20;
+            const wTypeVal = drawingWall.wallType || "interior_wall";
             const newWall = {
               id: wallId,
-              class_name: drawingWall.wallType || "interior_wall",
+              class_name: getWallClass({ class_name: wTypeVal }),
+              wall_type: getWallType({ class_name: wTypeVal }),
               centerline: [
                 [drawingWall.startX, drawingWall.startY],
                 [endX, endY]
@@ -1092,9 +1094,11 @@ export function useInteractionController(svgRef) {
       if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
         const wallId = `man_wall_${Date.now()}`;
         const thickness = drawingWall.thickness || 20;
+        const wTypeVal = drawingWall.wallType || "interior_wall";
         const newWall = {
           id: wallId,
-          class_name: drawingWall.wallType || "interior_wall",
+          class_name: getWallClass({ class_name: wTypeVal }),
+          wall_type: getWallType({ class_name: wTypeVal }),
           centerline: [
             [drawingWall.startX, drawingWall.startY],
             [endX, endY]

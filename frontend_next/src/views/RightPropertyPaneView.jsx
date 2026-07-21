@@ -1,6 +1,6 @@
 import React from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { BASE_URL } from "@/models/api.service";
@@ -390,7 +390,7 @@ export default function RightPropertyPaneView({
       const heightM = heightMm / 1000;
       const areaM2 = lengthM != null ? lengthM * heightM : null;
 
-      const type = w.class_name || w.wall_type || "interior_wall";
+      const type = getWallClass(w);
       const key = groups[type] ? type : "interior_wall";
 
       groups[key].walls.push({ id: w.id, lengthM, heightM, areaM2, thicknessMm: w.thickness || 90 });
@@ -542,7 +542,7 @@ export default function RightPropertyPaneView({
         }
         return {
           id: String(w.id),
-          class_name: w.class_name || w.wall_type || "interior_wall",
+          class_name: getWallClass(w),
           length_mm: lengthMm,
           height_mm: w.height ?? savedDefault,
           thickness_mm: w.thickness || 90
@@ -738,7 +738,7 @@ export default function RightPropertyPaneView({
                 value={
                   selectedWallIds.length > 1
                     ? "multiple"
-                    : selectedWall?.class_name || selectedWall?.wall_type || "interior_wall"
+                    : (selectedWall ? getWallClass(selectedWall) : "interior_wall")
                 }
                 onChange={(e) => {
                   if (e.target.value === "multiple") return;
