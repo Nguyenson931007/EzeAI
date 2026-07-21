@@ -14,7 +14,7 @@ Module này là giao lộ kết nối giữa giao diện Front-end và các dị
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from typing import Optional, List as TypingList
+from typing import Optional, List as TypingList, Any
 import io
 import os
 import sys
