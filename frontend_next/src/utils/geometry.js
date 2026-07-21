@@ -330,7 +330,7 @@ export function overlapsWithAnyDoor(wall, doors) {
 
 export function getBaseWallId(id) {
   if (!id) return '';
-  return id.split('-A-')[0].split('-B-')[0];
+  return id.split('-A-')[0].split('-B-')[0].split('-C-')[0].split('-D-')[0].split('-door_')[0].split('-sub-')[0];
 }
 
 export function restoreBaseWalls(walls) {
@@ -356,6 +356,12 @@ export function restoreBaseWalls(walls) {
     }
 
     const first = segmentList[0];
+    // Find custom/modified height from any segment in segmentList
+    const customSeg = segmentList.find(s => s.height || s.height_mm);
+    const restoredHeight = customSeg ? (customSeg.height || customSeg.height_mm) : first.height;
+    const restoredHeightMm = customSeg ? (customSeg.height_mm || customSeg.height) : first.height_mm;
+    const customTypeSeg = segmentList.find(s => s.wall_type || s.class_name);
+
     const allPts = [];
 
     for (const seg of segmentList) {
@@ -366,7 +372,12 @@ export function restoreBaseWalls(walls) {
     }
 
     if (allPts.length < 2) {
-      restoredWalls.push({ ...first, id: baseId });
+      restoredWalls.push({
+        ...first,
+        id: baseId,
+        height: restoredHeight,
+        height_mm: restoredHeightMm
+      });
       continue;
     }
 
@@ -387,7 +398,10 @@ export function restoreBaseWalls(walls) {
 
     const restoredWall = {
       ...first,
+      ...(customTypeSeg ? { wall_type: customTypeSeg.wall_type, class_name: customTypeSeg.class_name } : {}),
       id: baseId,
+      height: restoredHeight,
+      height_mm: restoredHeightMm,
       centerline: [
         [pMin.x, pMin.y],
         [pMax.x, pMax.y]
