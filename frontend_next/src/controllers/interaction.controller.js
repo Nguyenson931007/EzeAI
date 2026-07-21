@@ -310,7 +310,7 @@ export function useInteractionController(svgRef) {
       const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
       const isHorizontal = Math.abs(p2.x - p1.x) > Math.abs(p2.y - p1.y);
       const thickness = wall.thickness_px || 20;
-      const className = wall.class_name || "exterior_wall";
+      const className = getWallClass(wall);
 
       const W1_id = `man_wall_${Date.now()}_1`;
       const W_conn_id = `man_wall_${Date.now()}_conn`;
@@ -421,11 +421,9 @@ export function useInteractionController(svgRef) {
           if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
             const wallId = `man_wall_${Date.now()}`;
             const thickness = drawingWall.thickness || 20;
-            const wTypeVal = drawingWall.wallType || "interior_wall";
             const newWall = {
               id: wallId,
-              class_name: getWallClass({ class_name: wTypeVal }),
-              wall_type: getWallType({ class_name: wTypeVal }),
+              class_name: drawingWall.wallType || "interior_wall",
               centerline: [
                 [drawingWall.startX, drawingWall.startY],
                 [endX, endY]
@@ -1094,11 +1092,9 @@ export function useInteractionController(svgRef) {
       if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
         const wallId = `man_wall_${Date.now()}`;
         const thickness = drawingWall.thickness || 20;
-        const wTypeVal = drawingWall.wallType || "interior_wall";
         const newWall = {
           id: wallId,
-          class_name: getWallClass({ class_name: wTypeVal }),
-          wall_type: getWallType({ class_name: wTypeVal }),
+          class_name: drawingWall.wallType || "interior_wall",
           centerline: [
             [drawingWall.startX, drawingWall.startY],
             [endX, endY]

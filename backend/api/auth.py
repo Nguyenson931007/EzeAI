@@ -371,7 +371,7 @@ def validate_session_endpoint(
 # ── Dependency Xác thực Phiên làm việc (Session Validation) ──
 
 def validate_session(
-    auth_username: Optional[str] = Header(None, alias="X-Username"), 
+    auth_username: str = Header(..., alias="X-Username"), 
     session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
     session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
 ):
@@ -386,11 +386,11 @@ def validate_session(
     print(f"[AUTH] Đang xác thực phiên cho người dùng: {auth_username}")
     print(f"[AUTH] Có cookie token: {bool(session_token_cookie)}, Có header token: {bool(session_token_header)}")
     
-    if not auth_username or not session_token:
-        logger.warning(f"[AUTH] Thiếu username hoặc session token cho người dùng {auth_username}")
+    if not session_token:
+        logger.warning(f"[AUTH] Thiếu session token cho người dùng {auth_username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Yêu cầu chưa được xác thực: Thiếu thông tin phiên đăng nhập."
+            detail="Yêu cầu chưa được xác thực: Thiếu session token."
         )
         
     conn = get_db_connection()

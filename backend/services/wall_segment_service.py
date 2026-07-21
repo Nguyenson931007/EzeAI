@@ -27,7 +27,6 @@ _wall_model: YOLO = None
 _model_lock = threading.Lock()
 _wall_model_last: YOLO = None
 _model_last_lock = threading.Lock()
-_predict_lock = threading.Lock()
 
 def _get_model() -> YOLO:
     """Gets or loads the singleton wall segmentation YOLO model."""
@@ -80,15 +79,14 @@ def _run_yolo_inference(
     Runs YOLO segmentation inference with a given model and returns raw detected walls.
     Shared helper used by both predict() and predict_stream() for primary and ensemble models.
     """
-    with _predict_lock:
-        results = model.predict(
-            source=img_inference,
-            conf=float(confidence),
-            imgsz=imgsz,
-            retina_masks=True,
-            device=device,
-            verbose=False
-        )
+    results = model.predict(
+        source=img_inference,
+        conf=float(confidence),
+        imgsz=imgsz,
+        retina_masks=True,
+        device=device,
+        verbose=False
+    )
 
     detected_walls = []
 

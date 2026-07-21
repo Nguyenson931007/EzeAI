@@ -1,16 +1,16 @@
 export function getWallClass(w) {
   if (!w) return "interior_wall";
-  const c = (w.class_name || "").toLowerCase();
-  const t = (w.wall_type || "").toLowerCase();
+  const c = typeof w === "string" ? w.toLowerCase() : ((w.class_name || w.wall_type || "").toLowerCase());
+  const t = typeof w === "object" && w ? (w.wall_type || "").toLowerCase() : "";
 
   if (
-    c === "exterior_wall" || c === "ext" || c.includes("ext") || c.includes("external") ||
+    c === "exterior_wall" || c === "ext_wall" || c === "ext" || c.includes("ext") || c.includes("external") ||
     t === "ext" || t === "exterior_wall" || t.includes("ext") || t.includes("external")
   ) {
     return "exterior_wall";
   }
   if (
-    c === "partition_wall" || c === "part" || c.includes("part") || c.includes("partition") ||
+    c === "partition_wall" || c === "part_wall" || c === "part" || c.includes("part") || c.includes("partition") ||
     t === "part" || t === "partition_wall" || t.includes("part") || t.includes("partition")
   ) {
     return "partition_wall";
@@ -588,6 +588,8 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
         if (lenA > 10.0) {
           nextWalls.push({
             ...w,
+            class_name: getWallClass(w),
+            wall_type: getWallType(w),
             id: `${baseId}-A-${door.id}`,
             centerline: [
               [wp1.x, wp1.y],
@@ -601,6 +603,8 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
         if (lenB > 10.0) {
           nextWalls.push({
             ...w,
+            class_name: getWallClass(w),
+            wall_type: getWallType(w),
             id: `${baseId}-B-${door.id}`,
             centerline: [
               [farProj.x, farProj.y],

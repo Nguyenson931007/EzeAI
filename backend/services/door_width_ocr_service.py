@@ -69,10 +69,13 @@ _ORIENTATIONS = [0, 90, 180, 270]
 # Public API
 # ─────────────────────────────────────────────────────────────
 
+import time
+
 def enrich_doors_with_ocr_width(
     image_np: np.ndarray,
     doors: List[Dict[str, Any]],
     buffer_px: int = 120,
+    max_time_sec: float = 6.0,
 ) -> List[Dict[str, Any]]:
     """Enriches each door dict with OCR-derived width dimensions.
 
@@ -87,6 +90,7 @@ def enrich_doors_with_ocr_width(
         image_np: Full floor plan image as numpy array (H, W, 3) in RGB.
         doors: List of door dicts from YOLO segmentation.
         buffer_px: Pixels to expand search in Phase 2.
+        max_time_sec: Maximum time allowed for all OCR operations (default: 6.0s).
 
     Returns:
         The same door list with added fields:
@@ -96,8 +100,13 @@ def enrich_doors_with_ocr_width(
         return doors
 
     img_h, img_w = image_np.shape[:2]
+    t0 = time.time()
 
     for door in doors:
+        if time.time() - t0 > max_time_sec:
+            logger.info("OCR width extraction reached max time limit (%.1fs). Falling back for remaining doors.", max_time_sec)
+            _apply_geometry_fallback(door)
+            continue
         try:
             _process_single_door(door, image_np, img_w, img_h, buffer_px)
         except Exception as e:
@@ -141,7 +150,7 @@ def _process_single_door(
     inner_crop = image_np[iy1:iy2, ix1:ix2]
 
     if inner_crop.size > 0:
-        inner_items = _run_multi_orientation_ocr(inner_crop)
+        inner_items = _run_multi_orientation_ocr(inner_crop, ix1, iy1)
         inner_candidates = _filter_dimension_candidates(inner_items, ix1, iy1)
 
         if inner_candidates:
@@ -170,7 +179,7 @@ def _process_single_door(
     outer_crop = image_np[sy1:sy2, sx1:sx2]
 
     if outer_crop.size > 0:
-        outer_items = _run_multi_orientation_ocr(outer_crop)
+        outer_items = _run_multi_orientation_ocr(outer_crop, sx1, sy1)
         outer_candidates = _filter_dimension_candidates(outer_items, sx1, sy1)
 
         if outer_candidates:
@@ -197,12 +206,8 @@ def _process_single_door(
 # Multi-orientation OCR
 # ─────────────────────────────────────────────────────────────
 
-def _run_multi_orientation_ocr(crop_np: np.ndarray) -> List[Dict[str, Any]]:
-    """Runs EasyOCR on a crop at 4 orientations (0°, 90°, 180°, 270°).
-
-    Merges all results, de-duplicating by text content.
-    Returns list of {text, conf, bbox} where bbox is in local crop coords.
-    """
+def _run_multi_orientation_ocr(crop_np: np.ndarray, offset_x: int = 0, offset_y: int = 0) -> List[Dict[str, Any]]:
+    """Runs EasyOCR on a crop at orientations (0°, 90°, 180°, 270°), stopping early if a candidate is found."""
     all_items = []
     seen_texts = set()
     crop_h, crop_w = crop_np.shape[:2]
@@ -216,13 +221,11 @@ def _run_multi_orientation_ocr(crop_np: np.ndarray) -> List[Dict[str, Any]]:
             if not text:
                 continue
 
-            # De-duplicate: skip if we've already seen this exact text
             text_key = text.upper()
             if text_key in seen_texts:
                 continue
             seen_texts.add(text_key)
 
-            # Transform bbox back to original (0°) coordinates
             local_bbox = item.get("bbox", {})
             original_bbox = _transform_bbox_back(local_bbox, angle, crop_w, crop_h)
 
@@ -232,6 +235,10 @@ def _run_multi_orientation_ocr(crop_np: np.ndarray) -> List[Dict[str, Any]]:
                 "bbox": original_bbox,
                 "orientation": angle,
             })
+
+        # Early termination: if we found a valid dimension candidate at 0° or 90°, skip remaining angles
+        if all_items and _filter_dimension_candidates(all_items, offset_x, offset_y):
+            break
 
     return all_items
 

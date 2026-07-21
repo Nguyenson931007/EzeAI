@@ -14,18 +14,17 @@ MODEL_CANDIDATES = {
     ],
 
     "door": [
-        # BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+        BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+        BASE_DIR / "models" / "Doors" / "best.pt",
         BASE_DIR / "backend" / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
-        # BASE_DIR / "backend" / "runs" / "detect" / "Door_model" / "weights" / "best.pt",
         BASE_DIR / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
-        # BASE_DIR / "runs" / "detect" / "Door_model" / "weights" / "best.pt",
-        # BASE_DIR / "models" / "door_detection.pt",
     ],
     "door_seg": [
+        BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+        BASE_DIR / "models" / "Doors" / "best.pt",
         BASE_DIR / "backend" / "models" / "Door_Seg" / "weights" / "best.pt",
         BASE_DIR / "backend" / "runs" / "segment" / "Door_Seg_v2" / "weights" / "best.pt",
         BASE_DIR / "runs" / "segment" / "Door_Seg_v2" / "weights" / "best.pt",
-        # Fallback to existing room model that also detects doors
         BASE_DIR / "backend" / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
         BASE_DIR / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
     ],

@@ -250,10 +250,11 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async detectDoorSeg(imageBlob, confidence = "0.25") {
+  async detectDoorSeg(imageBlob, confidence = "0.25", realScale = 1.0) {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
+    if (realScale) fd.append("real_scale", realScale);
     const res = await fetch(`${BASE_URL}/api/door-segment`, {
       method: "POST",
       headers: getHeaders(null),

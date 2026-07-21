@@ -649,12 +649,12 @@ export const useAIController = (
                 pt[1] + pdfOffset.y
               ]) : null;
               return {
-                ...w,
+                id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                 centerline: shiftedCenterline,
                 polygon: shiftedPoly,
-                class_name,
-                wall_type,
-                thickness,
+                wall_type: wall_type,
+                class_name: class_name,
+                thickness: thickness,
                 height: defaultHeight, // Per-wall height property
                 review_state: "AI_GENERATED"
               };
@@ -1101,7 +1101,7 @@ export const useAIController = (
           let rawWalls = wallData.walls.map(w => {
             const class_name = getWallClass(w);
             const wall_type = getWallType(w);
-            let thickness = wall_type === "ext" ? 90 : 70;
+            let thickness = w.thickness || (wall_type === "ext" ? 90 : 70);
             const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
               pt[0] + pdfOffset.x,
               pt[1] + pdfOffset.y
@@ -1111,12 +1111,12 @@ export const useAIController = (
               pt[1] + pdfOffset.y
             ]) : null;
             return {
-              ...w,
+              id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
               centerline: shiftedCenterline,
               polygon: shiftedPoly,
-              class_name,
-              wall_type,
-              thickness,
+              wall_type: wall_type,
+              class_name: class_name,
+              thickness: thickness,
               review_state: 'AI_GENERATED'
             };
           });

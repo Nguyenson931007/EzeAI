@@ -493,8 +493,8 @@ const WallLayer = React.memo(({
         let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
         if (isClosed) pathData += " Z";
 
-        const cls = getWallClass({ class_name: chain.className });
-        let strokeColor = "#a855f7"; // purple default for exterior
+        const cls = getWallClass(chain.className);
+        let strokeColor = "#a855f7"; // purple default
         if (cls === "exterior_wall") {
           strokeColor = "#a855f7";
         } else if (cls === "interior_wall") {
@@ -543,7 +543,7 @@ const WallLayer = React.memo(({
         let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
         if (isClosed) pathData += " Z";
 
-        const cls = getWallClass({ class_name: chain.className });
+        const cls = getWallClass(chain.className);
         let fillColor = "rgba(168, 85, 247, 0.15)";
         if (cls === "exterior_wall") {
           fillColor = "rgba(168, 85, 247, 0.15)";
