@@ -566,9 +566,9 @@ const WallLayer = React.memo(({
 
       {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
       {(walls || []).map((w, idx) => {
-        const isSelected = selectedWallIds.includes(w.id);
-        const isHovered = w.id === hoverId;
-        const isDraggingThis = dragging && dragging.id === w.id;
+        const isSelected = selectedWallIds.some(id => id === w.id || getBaseWallId(id) === getBaseWallId(w.id));
+        const isHovered = w.id === hoverId || getBaseWallId(w.id) === getBaseWallId(hoverId);
+        const isDraggingThis = dragging && (dragging.id === w.id || getBaseWallId(dragging.id) === getBaseWallId(w.id));
         const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
 
         let fillColor = "rgba(0, 0, 0, 0)"; // fully transparent for hit test
@@ -583,7 +583,7 @@ const WallLayer = React.memo(({
 
         return (
           <polygon
-            key={`${w.id}-${idx}`}
+            key={`hitbox-${w.id}-${idx}`}
             points={pointsStr}
             fill={fillColor}
             stroke={strokeColor}

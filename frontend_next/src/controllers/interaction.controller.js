@@ -658,10 +658,13 @@ export function useInteractionController(svgRef) {
   }
 
   function deleteWalls(wallIds) {
-    if (!wallIds || wallIds.length === 0) return;
     const pageWalls = wallsByPage[currentPage] || [];
-    const newWalls = pageWalls.filter(w => !wallIds.includes(w.id) || w.locked);
-    if (newWalls.length === pageWalls.length) return;
+    const targetBaseIds = wallIds.map(id => getBaseWallId(id));
+    const newWalls = pageWalls.filter(w => (!wallIds.includes(w.id) && !targetBaseIds.includes(w.id) && !targetBaseIds.includes(getBaseWallId(w.id))) || w.locked);
+    setWallsByPage({
+      ...wallsByPage,
+      [currentPage]: newWalls
+    });
     pushHistory(null, newWalls, doorsByPage[currentPage] || []);
     setSelectedWallIds([]);
     setSelectedId(null);
@@ -670,20 +673,24 @@ export function useInteractionController(svgRef) {
 
   function updateWallsProperty(wallIds, field, value) {
     const pageWalls = wallsByPage[currentPage] || [];
+    const targetBaseIds = wallIds.map(id => getBaseWallId(id));
 
     // Save original centerlines for walls being changed (to preserve position)
     const savedCenterlines = {};
     if (field === "class_name" || field === "wall_type") {
       for (const wId of wallIds) {
-        const w = pageWalls.find(ww => ww.id === wId);
+        const w = pageWalls.find(ww => ww.id === wId || getBaseWallId(ww.id) === getBaseWallId(wId));
         if (w && w.centerline) {
-          savedCenterlines[wId] = JSON.parse(JSON.stringify(w.centerline));
+          savedCenterlines[w.id] = JSON.parse(JSON.stringify(w.centerline));
         }
       }
     }
 
     const updated = pageWalls.map(w => {
-      if (wallIds.includes(w.id)) {
+      const wBaseId = getBaseWallId(w.id);
+      const isTarget = wallIds.includes(w.id) || targetBaseIds.includes(w.id) || targetBaseIds.includes(wBaseId);
+
+      if (isTarget) {
         if (w.locked && field !== "locked") {
           return w;
         }
@@ -734,8 +741,9 @@ export function useInteractionController(svgRef) {
               newWall.polygon = newPoly.map(pt => [pt.x, pt.y]);
             }
           }
-        } else if (field === "height") {
+        } else if (field === "height" || field === "height_mm") {
           newWall.height = Number(value);
+          newWall.height_mm = Number(value);
         }
         return newWall;
       }
