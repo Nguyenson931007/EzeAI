@@ -43,6 +43,7 @@ logger = logging.getLogger("ezefloor.door_segment_service")
 
 _door_model: YOLO = None
 _model_lock = threading.Lock()
+_predict_lock = threading.Lock()
 
 def _get_model() -> YOLO:
     """Gets or loads the singleton door segmentation YOLO model."""
@@ -90,6 +91,10 @@ class DoorSegmentService:
             inference_height = imgsz
             inference_width = int(imgsz * original_width / original_height)
 
+        # Stride alignment (multiples of 32)
+        inference_width = max(32, ((inference_width + 31) // 32) * 32)
+        inference_height = max(32, ((inference_height + 31) // 32) * 32)
+
         img_inference = img_original.resize((inference_width, inference_height))
         
         # Run segmentation inference
@@ -97,14 +102,15 @@ class DoorSegmentService:
         # Sliding doors often have very low confidence due to visual subtlety.
         internal_conf = min(base_conf, 0.02)
 
-        results = model.predict(
-            source=img_inference,
-            conf=internal_conf,
-            imgsz=imgsz,
-            retina_masks=True,
-            device=device,
-            verbose=False
-        )
+        with _predict_lock:
+            results = model.predict(
+                source=img_inference,
+                conf=internal_conf,
+                imgsz=imgsz,
+                retina_masks=True,
+                device=device,
+                verbose=False
+            )
 
         # Build plant_polygon for boundary clipping and area checking
         room_polygons = kwargs.get("room_polygons") or []
