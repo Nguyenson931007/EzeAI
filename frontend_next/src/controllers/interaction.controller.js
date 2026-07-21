@@ -90,6 +90,18 @@ export function useInteractionController(svgRef) {
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
+  const defaultHeightVal = (() => {
+    let def = 2700;
+    try {
+      const saved = localStorage.getItem('ezefloor_wall_thickness_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        def = parsed.defaultHeight ?? 2700;
+      }
+    } catch (e) {}
+    return def;
+  })();
+
   const cancelActiveZoomAnimation = () => { };
 
   const [scale, setScale] = useState(0.2);
@@ -269,10 +281,10 @@ export function useInteractionController(svgRef) {
       const w3_id = `man_wall_${Date.now()}_e3`;
       const w4_id = `man_wall_${Date.now()}_e4`;
 
-      const w1 = { id: w1_id, class_name: extClass, centerline: [[x1, y1], [x2, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-      const w2 = { id: w2_id, class_name: extClass, centerline: [[x2, y1], [x2, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-      const w3 = { id: w3_id, class_name: extClass, centerline: [[x2, y2], [x1, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-      const w4 = { id: w4_id, class_name: extClass, centerline: [[x1, y2], [x1, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
+      const w1 = { id: w1_id, class_name: extClass, centerline: [[x1, y1], [x2, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+      const w2 = { id: w2_id, class_name: extClass, centerline: [[x2, y1], [x2, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+      const w3 = { id: w3_id, class_name: extClass, centerline: [[x2, y2], [x1, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+      const w4 = { id: w4_id, class_name: extClass, centerline: [[x1, y2], [x1, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
 
       const recalculated = recalculateAllWallsPolygons([...pageWalls, w1, w2, w3, w4]);
       pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
@@ -334,9 +346,9 @@ export function useInteractionController(svgRef) {
         return w;
       });
 
-      const W1 = { id: W1_id, class_name: className, centerline: w1_centerline, thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-      const W_conn = { id: W_conn_id, class_name: className, centerline: w_conn_centerline, thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-      const W2 = { id: W2_id, class_name: className, centerline: w2_centerline, thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
+      const W1 = { id: W1_id, class_name: className, centerline: w1_centerline, thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+      const W_conn = { id: W_conn_id, class_name: className, centerline: w_conn_centerline, thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+      const W2 = { id: W2_id, class_name: className, centerline: w2_centerline, thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
 
       const recalculated = recalculateAllWallsPolygons([...updatedWallsList, W1, W_conn, W2]);
       pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
@@ -418,7 +430,8 @@ export function useInteractionController(svgRef) {
               ],
               thickness_px: thickness,
               confidence: 1.0,
-              review_state: 'MANUAL'
+              review_state: 'MANUAL',
+              height: defaultHeightVal
             };
 
             const pageWalls = wallsByPage[currentPage] || [];
@@ -1080,7 +1093,8 @@ export function useInteractionController(svgRef) {
           ],
           thickness_px: thickness,
           confidence: 1.0,
-          review_state: 'MANUAL'
+          review_state: 'MANUAL',
+          height: defaultHeightVal
         };
 
         const pageWalls = wallsByPage[currentPage] || [];
@@ -1146,10 +1160,10 @@ export function useInteractionController(svgRef) {
         const thickness = 25;
         const extClass = "exterior_wall";
 
-        const w1 = { id: w1_id, class_name: extClass, centerline: [[x1, y1], [x2, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-        const w2 = { id: w2_id, class_name: extClass, centerline: [[x2, y1], [x2, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-        const w3 = { id: w3_id, class_name: extClass, centerline: [[x2, y2], [x1, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
-        const w4 = { id: w4_id, class_name: extClass, centerline: [[x1, y2], [x1, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL' };
+        const w1 = { id: w1_id, class_name: extClass, centerline: [[x1, y1], [x2, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+        const w2 = { id: w2_id, class_name: extClass, centerline: [[x2, y1], [x2, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+        const w3 = { id: w3_id, class_name: extClass, centerline: [[x2, y2], [x1, y2]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
+        const w4 = { id: w4_id, class_name: extClass, centerline: [[x1, y2], [x1, y1]], thickness_px: thickness, confidence: 1.0, review_state: 'MANUAL', height: defaultHeightVal };
 
         const pageWalls = wallsByPage[currentPage] || [];
         const recalculated = recalculateAllWallsPolygons([...pageWalls, w1, w2, w3, w4]);

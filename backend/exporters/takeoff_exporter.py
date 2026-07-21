@@ -226,10 +226,21 @@ class TakeoffExporter:
         lb_total_row = row
         row += 1
 
-        # Non-Load Bearing Wall (Currently Empty)
+        # Non-Load Bearing Wall (Partition Walls)
         add_sub_header(row, "Non-Load Bearing Wall"); row += 1
-        add_wall_subtotal(row, "Subtotal - Non-Load Bearing (m2)", row, row)
-        ws[f"G{row}"] = 0.00
+        nlb_walls = [w for w in request.walls if w.class_name == "partition_wall"]
+        first_nlb = row
+        if nlb_walls:
+            for idx, w in enumerate(nlb_walls):
+                add_wall_data_row(row)
+                ws[f"A{row}"] = f"Partition Wall {w.id}"
+                ws[f"D{row}"] = round(w.length_mm)
+                ws[f"E{row}"] = round(w.height_mm)
+                row += 1
+            add_wall_subtotal(row, "Subtotal - Non-Load Bearing (m2)", first_nlb, row - 1)
+        else:
+            add_wall_subtotal(row, "Subtotal - Non-Load Bearing (m2)", row, row)
+            ws[f"G{row}"] = 0.00
         nlb_total_row = row
         row += 1
 
