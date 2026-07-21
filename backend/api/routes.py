@@ -688,8 +688,8 @@ async def add_train_door_bim(request: Request, username: str = Depends(validate_
 @router.post("/api/door-segment")
 async def door_segment(
     file: UploadFile = File(...),
-    confidence: float = Form(0.20),
-    real_scale: Optional[float] = Form(1.0),
+    confidence: Optional[Any] = Form(0.20),
+    real_scale: Optional[Any] = Form(1.0),
     room_polygons: Optional[str] = Form(None),
     debug: bool = Form(False),
     username: str = Depends(validate_session)
@@ -703,6 +703,18 @@ async def door_segment(
     
     content = await file.read()
     filename = file.filename or "plan.png"
+
+    # Safely parse confidence float
+    try:
+        conf_val = float(confidence) if confidence is not None and str(confidence).strip() != "" else 0.20
+    except Exception:
+        conf_val = 0.20
+
+    # Safely parse real_scale float
+    try:
+        scale_val = float(real_scale) if real_scale is not None and str(real_scale).strip() != "" else 1.0
+    except Exception:
+        scale_val = 1.0
 
     # ── Parse room_polygons (only if explicitly provided) ──
     rooms_data = None
@@ -721,8 +733,8 @@ async def door_segment(
                 service.predict_from_pdf,
                 pdf_bytes=content,
                 filename=filename,
-                confidence=confidence,
-                real_scale=real_scale or 1.0,
+                confidence=conf_val,
+                real_scale=scale_val,
                 room_polygons=rooms_data,
             )
         else:
@@ -730,8 +742,8 @@ async def door_segment(
                 service.predict,
                 image_bytes=content,
                 filename=filename,
-                confidence=confidence,
-                real_scale=real_scale or 1.0,
+                confidence=conf_val,
+                real_scale=scale_val,
                 room_polygons=rooms_data,
             )
     except FileNotFoundError as e:

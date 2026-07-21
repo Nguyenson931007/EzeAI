@@ -106,7 +106,7 @@ class DoorSegmentService:
             results = model.predict(
                 source=img_inference,
                 conf=internal_conf,
-                imgsz=imgsz,
+                imgsz=(inference_height, inference_width),
                 retina_masks=True,
                 device=device,
                 verbose=False
