@@ -77,6 +77,8 @@ class DoorSegmentService:
     ) -> Dict[str, Any]:
         """Runs segmentation inference on a single image and extracts door properties."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        if device == "cpu" and torch.get_num_threads() > 4:
+            torch.set_num_threads(4)
         model = _get_model()
         
         # Load image
