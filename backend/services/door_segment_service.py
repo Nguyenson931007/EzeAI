@@ -152,146 +152,155 @@ class DoorSegmentService:
             boxes = res.boxes
             masks = res.masks
 
-            if boxes is not None and masks is not None:
+            if boxes is not None and masks is not None and getattr(masks, 'xy', None) is not None:
                 for idx in range(len(boxes)):
-                    if idx >= len(masks.xy):
-                        continue
-
-                    # Get class ID, name, confidence, and bounding box
-                    box = boxes[idx]
-                    cls_id = int(box.cls[0].item())
-                    conf = float(box.conf[0].item())
-                    
-                    # Resolve class name from model names
-                    class_name = model.names.get(cls_id, f"door_{cls_id}")
-
-                    # Manually filter low confidence
-                    is_sliding = "sliding" in class_name.lower()
-                    if is_sliding:
-                        if conf < 0.02:
-                            continue
-                    else:
-                        if conf < base_conf:
-                            continue
-
-                    # Get polygon coordinates as [[x, y], [x, y], ...] from YOLO inference space
-                    poly_xy = masks.xy[idx]
-                    if len(poly_xy) < 3:
-                        continue
-
-                    # Apply coordinate scaling back to original drawing size:
-                    # original_x = detected_x * original_width / inference_width
-                    # original_y = detected_y * original_height / inference_height
-                    scaled_coords = [
-                        [
-                            float(p[0] * original_width / inference_width),
-                            float(p[1] * original_height / inference_height)
-                        ]
-                        for p in poly_xy
-                    ]
-
-                    # Scale bbox similarly
-                    bbox_inference = [float(val) for val in box.xyxy[0].tolist()]
-                    bbox = [
-                        float(round(bbox_inference[0] * original_width / inference_width, 1)),
-                        float(round(bbox_inference[1] * original_height / inference_height, 1)),
-                        float(round(bbox_inference[2] * original_width / inference_width, 1)),
-                        float(round(bbox_inference[3] * original_height / inference_height, 1))
-                    ]
-
-                    # 1. Clean and simplify polygon using OpenCV approxPolyDP
-                    pts_np = np.array(scaled_coords, dtype=np.float32)
-                    perimeter = cv2.arcLength(pts_np, True)
-                    epsilon = 0.005 * perimeter
-                    epsilon = min(epsilon, 3.0)  # Avoid over-smoothing
-                    approx = cv2.approxPolyDP(pts_np, epsilon, True)
-                    cleaned_pts = approx.reshape(-1, 2).tolist()
-
-                    if len(cleaned_pts) < 3:
-                        cleaned_pts = scaled_coords
-
-                    # 2. Remove duplicated consecutive points
-                    unique_pts = []
-                    for p in cleaned_pts:
-                        if not unique_pts or not np.allclose(unique_pts[-1], p, atol=1e-2):
-                            unique_pts.append(p)
-                    if len(unique_pts) > 1 and np.allclose(unique_pts[0], unique_pts[-1], atol=1e-2):
-                        unique_pts.pop()
-
-                    if len(unique_pts) < 3:
-                        continue
-
-                    # 3. Remove self-intersections and clip inside plant boundary
                     try:
-                        door_poly_geom = ShapelyPolygon(unique_pts)
-                        if not door_poly_geom.is_valid:
-                            door_poly_geom = door_poly_geom.buffer(0)
-                        
-                        # Clip with plant_polygon
-                        clipped_geom = door_poly_geom.intersection(plant_polygon)
-                        
-                        # Extract coordinates from the clipped geometry
-                        final_coords = _extract_polygon_coords(clipped_geom)
-                        if len(final_coords) < 3:
-                            continue
-                    except Exception as err:
-                        logger.warning(f"Error in self-intersection/clipping: {err}")
-                        continue
-
-                    # 4. Polygon Validation
-                    try:
-                        final_poly_geom = ShapelyPolygon(final_coords)
-                        if not final_poly_geom.is_valid:
-                            final_poly_geom = final_poly_geom.buffer(0)
-                        door_area = final_poly_geom.area
-                        
-                        # Reject if door area exceeds 5% of total plant area
-                        if door_area > plant_area * 0.05:
-                            logger.info(f"Rejecting door (area too large: {door_area:.1f} vs {plant_area:.1f})")
+                        if idx >= len(masks.xy):
                             continue
 
-                        # Aspect ratio check
-                        bxs = [p[0] for p in final_coords]
-                        bys = [p[1] for p in final_coords]
-                        bbox_w = max(bxs) - min(bxs)
-                        bbox_h = max(bys) - min(bys)
-                        aspect_ratio = max(bbox_w, bbox_h) / max(1.0, min(bbox_w, bbox_h))
-                        if aspect_ratio > 15.0:
-                            logger.info(f"Rejecting door (abnormal aspect ratio: {aspect_ratio:.2f})")
+                        # Get class ID, name, confidence, and bounding box
+                        box = boxes[idx]
+                        if box.cls is None or len(box.cls) == 0 or box.conf is None or len(box.conf) == 0:
                             continue
 
-                        # Absolute dimension checks
-                        max_dim = max(bbox_w, bbox_h)
-                        min_dim = min(bbox_w, bbox_h)
-                        if real_scale:
-                            max_dim_mm = max_dim * real_scale
-                            min_dim_mm = min_dim * real_scale
-                            if max_dim_mm > 3500.0 or min_dim_mm > 1000.0:
-                                logger.info(f"Rejecting door (dimensions too large: {max_dim_mm:.1f}x{min_dim_mm:.1f}mm)")
+                        cls_id = int(box.cls[0].item())
+                        conf = float(box.conf[0].item())
+                        
+                        # Resolve class name from model names
+                        class_name = model.names.get(cls_id, f"door_{cls_id}")
+
+                        # Manually filter low confidence
+                        is_sliding = "sliding" in str(class_name).lower()
+                        if is_sliding:
+                            if conf < 0.02:
                                 continue
                         else:
-                            if max_dim > max(original_width, original_height) * 0.5:
-                                logger.info(f"Rejecting door (pixel dimension too large: {max_dim:.1f}px)")
+                            if conf < base_conf:
                                 continue
-                    except Exception as err:
-                        logger.warning(f"Validation failed with error: {err}")
-                        continue
 
-                    # Calculate centroid
-                    centroid_pt = self._calculate_centroid(final_coords)
+                        # Get polygon coordinates as [[x, y], [x, y], ...] from YOLO inference space
+                        poly_xy = masks.xy[idx]
+                        if poly_xy is None or len(poly_xy) < 3:
+                            continue
 
-                    door_id = f"door_{idx + 1:03d}"
+                        # Apply coordinate scaling back to original drawing size:
+                        scaled_coords = [
+                            [
+                                float(p[0] * original_width / max(1, inference_width)),
+                                float(p[1] * original_height / max(1, inference_height))
+                            ]
+                            for p in poly_xy
+                        ]
 
-                    door_obj = {
-                        "id": door_id,
-                        "type": "door",
-                        "class": class_name,
-                        "confidence": float(round(conf, 3)),
-                        "bbox": [float(round(v, 1)) for v in bbox],
-                        "polygon": final_coords,
-                        "centroid": [float(round(centroid_pt[0], 1)), float(round(centroid_pt[1], 1))]
-                    }
-                    doors_list.append(door_obj)
+                        # Scale bbox similarly
+                        if box.xyxy is None or len(box.xyxy) == 0:
+                            continue
+                        bbox_inference = [float(val) for val in box.xyxy[0].tolist()]
+                        bbox = [
+                            float(round(bbox_inference[0] * original_width / max(1, inference_width), 1)),
+                            float(round(bbox_inference[1] * original_height / max(1, inference_height), 1)),
+                            float(round(bbox_inference[2] * original_width / max(1, inference_width), 1)),
+                            float(round(bbox_inference[3] * original_height / max(1, inference_height), 1))
+                        ]
+
+                        # 1. Clean and simplify polygon using OpenCV approxPolyDP
+                        pts_np = np.array(scaled_coords, dtype=np.float32)
+                        if pts_np.size == 0 or len(pts_np.shape) < 2:
+                            continue
+
+                        perimeter = cv2.arcLength(pts_np, True)
+                        epsilon = 0.005 * perimeter
+                        epsilon = min(epsilon, 3.0)  # Avoid over-smoothing
+                        approx = cv2.approxPolyDP(pts_np, epsilon, True)
+                        cleaned_pts = approx.reshape(-1, 2).tolist()
+
+                        if len(cleaned_pts) < 3:
+                            cleaned_pts = scaled_coords
+
+                        # 2. Remove duplicated consecutive points
+                        unique_pts = []
+                        for p in cleaned_pts:
+                            if not unique_pts or not np.allclose(unique_pts[-1], p, atol=1e-2):
+                                unique_pts.append(p)
+                        if len(unique_pts) > 1 and np.allclose(unique_pts[0], unique_pts[-1], atol=1e-2):
+                            unique_pts.pop()
+
+                        if len(unique_pts) < 3:
+                            continue
+
+                        # 3. Remove self-intersections and clip inside plant boundary
+                        try:
+                            door_poly_geom = ShapelyPolygon(unique_pts)
+                            if not door_poly_geom.is_valid:
+                                door_poly_geom = door_poly_geom.buffer(0)
+                            
+                            # Clip with plant_polygon
+                            clipped_geom = door_poly_geom.intersection(plant_polygon)
+                            
+                            # Extract coordinates from the clipped geometry
+                            final_coords = _extract_polygon_coords(clipped_geom)
+                            if len(final_coords) < 3:
+                                continue
+                        except Exception as err:
+                            logger.warning(f"Error in self-intersection/clipping: {err}")
+                            continue
+
+                        # 4. Polygon Validation
+                        try:
+                            final_poly_geom = ShapelyPolygon(final_coords)
+                            if not final_poly_geom.is_valid:
+                                final_poly_geom = final_poly_geom.buffer(0)
+                            door_area = final_poly_geom.area
+                            
+                            # Reject if door area exceeds 5% of total plant area
+                            if door_area > plant_area * 0.05:
+                                logger.info(f"Rejecting door (area too large: {door_area:.1f} vs {plant_area:.1f})")
+                                continue
+
+                            # Aspect ratio check
+                            bxs = [p[0] for p in final_coords]
+                            bys = [p[1] for p in final_coords]
+                            bbox_w = max(bxs) - min(bxs)
+                            bbox_h = max(bys) - min(bys)
+                            aspect_ratio = max(bbox_w, bbox_h) / max(1.0, min(bbox_w, bbox_h))
+                            if aspect_ratio > 15.0:
+                                logger.info(f"Rejecting door (abnormal aspect ratio: {aspect_ratio:.2f})")
+                                continue
+
+                            # Absolute dimension checks
+                            max_dim = max(bbox_w, bbox_h)
+                            min_dim = min(bbox_w, bbox_h)
+                            if real_scale:
+                                max_dim_mm = max_dim * real_scale
+                                min_dim_mm = min_dim * real_scale
+                                if max_dim_mm > 3500.0 or min_dim_mm > 1000.0:
+                                    logger.info(f"Rejecting door (dimensions too large: {max_dim_mm:.1f}x{min_dim_mm:.1f}mm)")
+                                    continue
+                            else:
+                                if max_dim > max(original_width, original_height) * 0.5:
+                                    logger.info(f"Rejecting door (pixel dimension too large: {max_dim:.1f}px)")
+                                    continue
+                        except Exception as err:
+                            logger.warning(f"Validation failed with error: {err}")
+                            continue
+
+                        # Calculate centroid
+                        centroid_pt = self._calculate_centroid(final_coords)
+
+                        door_id = f"door_{idx + 1:03d}"
+
+                        door_obj = {
+                            "id": door_id,
+                            "type": "door",
+                            "class": class_name,
+                            "confidence": float(round(conf, 3)),
+                            "bbox": [float(round(v, 1)) for v in bbox],
+                            "polygon": final_coords,
+                            "centroid": [float(round(centroid_pt[0], 1)), float(round(centroid_pt[1], 1))]
+                        }
+                        doors_list.append(door_obj)
+                    except Exception as door_err:
+                        logger.warning("Error processing door candidate %s: %s", idx, door_err)
 
         # ── OCR Width Enrichment ──────────────────────────────────
         # Run local-region OCR around each door to extract dimension text
@@ -337,6 +346,7 @@ class DoorSegmentService:
                 confidence=confidence,
                 real_scale=real_scale,
                 imgsz=imgsz,
+                **kwargs
             )
             page_result["page_index"] = page_idx
             results.append(page_result)
