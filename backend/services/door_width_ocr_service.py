@@ -396,15 +396,15 @@ def _find_closest_candidate(
 
 def _assign_ocr_result(door: Dict[str, Any], best: Dict[str, Any]) -> None:
     """Assigns OCR result fields to the door dict."""
-    door["width_mm"] = best["width_mm"]
+    door["width_mm"] = int(best["width_mm"])
     door["width_source"] = "ocr"
-    door["ocr_text"] = best["text"]
-    door["ocr_confidence"] = round(best["conf"], 3)
-    door["ocr_bbox"] = best["global_bbox"]
-    door["ocr_distance_px"] = round(best["dist"], 1)
-    door["ocr_orientation"] = best.get("orientation", 0)
+    door["ocr_text"] = str(best["text"])
+    door["ocr_confidence"] = float(round(best["conf"], 3))
+    door["ocr_bbox"] = [float(v) for v in best["global_bbox"]] if best["global_bbox"] else None
+    door["ocr_distance_px"] = float(round(best["dist"], 1))
+    door["ocr_orientation"] = int(best.get("orientation", 0))
     if best.get("height_mm") is not None:
-        door["height_mm"] = best["height_mm"]
+        door["height_mm"] = int(best["height_mm"])
 
 
 # ─────────────────────────────────────────────────────────────
