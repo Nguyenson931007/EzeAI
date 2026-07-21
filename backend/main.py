@@ -14,6 +14,7 @@ Các định tuyến phân chia theo router:
   - api.jobs      : Lưu trữ, tải, đổi tên, xóa và chia sẻ dự án bản vẽ.
 """
 
+from fastapi.datastructures import Default
 import logging
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -55,7 +56,9 @@ class LimitUploadSizeMiddleware(BaseHTTPMiddleware):
         if request.method == "POST":
             content_length = request.headers.get("content-length")
             if content_length:
+                
                 if int(content_length) > self.max_upload_size:
+
                     logger.warning(
                         f"Từ chối tệp tải lên lớn từ {request.client.host if request.client else 'Unknown'}: "
                         f"{content_length} bytes (Tối đa {self.max_upload_size} bytes)"
@@ -90,28 +93,6 @@ async def lifespan(app: FastAPI):
         logger.error(f"Lỗi xảy ra khi dọn dẹp phiên đăng nhập khởi động: {e}")
     finally:
         conn.close()
-<<<<<<< HEAD
-        import threading
-        def _prewarm_models():
-            try:
-                logger.info("Pre-warming EasyOCR reader...")
-                from services.ocr import _init_easyocr
-                _init_easyocr()
-                logger.info("EasyOCR reader pre-warmed successfully.")
-            except Exception as e:
-                logger.warning(f"EasyOCR pre-warm failed (non-fatal): {e}")
-            try:
-                logger.info("Pre-warming Door YOLO model...")
-                from services.door_segment_service import _get_model
-                _get_model()
-                logger.info("Door YOLO model pre-warmed successfully.")
-            except Exception as e:
-                logger.warning(f"Door model pre-warm failed (non-fatal): {e}")
-    
-        threading.Thread(target=_prewarm_models, daemon=True).start()
-    
-=======
-
     # ── Pre-warm AI models in a background thread to avoid cold-start timeouts ──
     import threading
     def _prewarm_models():
@@ -131,8 +112,6 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Door model pre-warm failed (non-fatal): {e}")
 
     threading.Thread(target=_prewarm_models, daemon=True).start()
-
->>>>>>> origin/backup-before-refactor
     yield
     logger.info("EzeFloor Backend đang dừng hoạt động...")
 
