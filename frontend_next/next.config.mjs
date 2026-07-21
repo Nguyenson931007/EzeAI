@@ -58,6 +58,14 @@ const nextConfig = {
     },
   },
 
+  // Extended proxy timeout for long AI inference runs
+  experimental: {
+    proxyTimeout: 120000,
+  },
+  httpAgentOptions: {
+    keepAlive: true,
+  },
+
   // Dev server configuration
   devIndicators: false
 };
