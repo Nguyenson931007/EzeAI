@@ -90,6 +90,24 @@ async def lifespan(app: FastAPI):
         logger.error(f"Lỗi xảy ra khi dọn dẹp phiên đăng nhập khởi động: {e}")
     finally:
         conn.close()
+        import threading
+        def _prewarm_models():
+            try:
+                logger.info("Pre-warming EasyOCR reader...")
+                from services.ocr import _init_easyocr
+                _init_easyocr()
+                logger.info("EasyOCR reader pre-warmed successfully.")
+            except Exception as e:
+                logger.warning(f"EasyOCR pre-warm failed (non-fatal): {e}")
+            try:
+                logger.info("Pre-warming Door YOLO model...")
+                from services.door_segment_service import _get_model
+                _get_model()
+                logger.info("Door YOLO model pre-warmed successfully.")
+            except Exception as e:
+                logger.warning(f"Door model pre-warm failed (non-fatal): {e}")
+    
+        threading.Thread(target=_prewarm_models, daemon=True).start()
     
     yield
     logger.info("EzeFloor Backend đang dừng hoạt động...")
