@@ -185,5 +185,69 @@
         "polygon_area": 0
       }
     ]
+  },
+  "ROOM 16": {
+    "corrected_text": "WIP",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 0.8,
+    "apply_to_all": false,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-17T07:16:37.563151",
+    "updated_at": "2026-07-17T07:16:37.563151",
+    "contexts": [
+      {
+        "polygon_area": 3.944277523118416
+      }
+    ]
+  },
+  "ROOM 12": {
+    "corrected_text": "ENS",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 0.8,
+    "apply_to_all": false,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-17T07:16:47.239370",
+    "updated_at": "2026-07-17T07:16:47.239370",
+    "contexts": [
+      {
+        "polygon_area": 8.205531546479895
+      }
+    ]
+  },
+  "ROOM 4": {
+    "corrected_text": "L'DRY",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 0.8,
+    "apply_to_all": false,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-17T07:16:57.828716",
+    "updated_at": "2026-07-17T07:16:57.828716",
+    "contexts": [
+      {
+        "polygon_area": 6.170441119814616
+      }
+    ]
+  },
+  "ROOM 7": {
+    "corrected_text": "BATH",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 0.8,
+    "apply_to_all": false,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-17T07:17:11.244888",
+    "updated_at": "2026-07-17T07:17:11.244888",
+    "contexts": [
+      {
+        "polygon_area": 6.537873929434494
+      }
+    ]
   }
 }

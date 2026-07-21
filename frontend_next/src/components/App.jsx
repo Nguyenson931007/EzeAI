@@ -827,6 +827,9 @@ export default function App() {
               realScale={realScale}
               image={image}
               imgSize={imgSize}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              setSelectedType={setSelectedType}
               onClose={() => setShow3D(false)}
             />
           ) : (

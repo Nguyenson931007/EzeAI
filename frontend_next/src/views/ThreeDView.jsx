@@ -16,7 +16,10 @@ export default function ThreeDView({
   onClose,
   realScale = 1.0,
   image = null,
-  imgSize = { w: 800, h: 600 }
+  imgSize = { w: 800, h: 600 },
+  selectedId = null,
+  setSelectedId = null,
+  setSelectedType = null
 }) {
   const containerRef = useRef(null);
   const [wallHeightMm, setWallHeightMm] = useState(2700);
@@ -31,21 +34,31 @@ export default function ThreeDView({
   const [enableShadows, setEnableShadows] = useState(true);
   const [visibleLevels, setVisibleLevels] = useState({});
 
-  // 3D Wall Coloring & Selection States
-  const [colorMode, setColorMode] = useState("wall_type"); // "default" | "wall_type" | "height_based"
-  const [customExtColor, setCustomExtColor] = useState("#f59e0b"); // Amber gold
-  const [customIntColor, setCustomIntColor] = useState("#3b82f6"); // Sky blue
-  const [customPartColor, setCustomPartColor] = useState("#8b5cf6"); // Purple
-  const [selected3DWall, setSelected3DWall] = useState(null); // { wallId, pageIndex, wall, height_mm }
+  // ── 3D Wall Color Mode & Custom Colors ──
+  const [wallColorMode, setWallColorMode] = useState("type"); // "type" | "height" | "default"
+  const [extWallColor, setExtWallColor] = useState("#ea580c"); // Terracotta / Exterior
+  const [intWallColor, setIntWallColor] = useState("#cbd5e1"); // Slate 300 / Interior
+  const [partWallColor, setPartWallColor] = useState("#64748b"); // Slate 500 / Partition
+
+  // Height Tiers Colors
+  const [heightTier1Color, setHeightTier1Color] = useState("#3b82f6"); // < 2500mm (Blue)
+  const [heightTier2Color, setHeightTier2Color] = useState("#10b981"); // 2500-2850mm (Green)
+  const [heightTier3Color, setHeightTier3Color] = useState("#f59e0b"); // 2850-3250mm (Amber/Orange)
+  const [heightTier4Color, setHeightTier4Color] = useState("#8b5cf6"); // > 3250mm (Purple)
+
+  // ── 3D Wall Selection State ──
+  const [selected3DWall, setSelected3DWall] = useState(null); // { wallId, pageIndex, wall }
 
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
   const controlsRef = useRef(null);
   const cameraRef = useRef(null);
   const gridHelperRef = useRef(null);
-  const pointerDownPosRef = useRef({ x: 0, y: 0 });
 
-  // Store generated 3D meshes to dynamically update them
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const mouseDownPosRef = useRef({ x: 0, y: 0 });
+
+  // Store generated 3D meshes to dynamically update them (e.g. wall height)
   const wallMeshesRef = useRef([]);
   const floorMeshesRef = useRef([]);
   const doorMeshesRef = useRef([]);
@@ -153,85 +166,97 @@ export default function ThreeDView({
     });
   };
 
-  // Handle Pointer Selection on 3D Canvas
-  const handleContainerPointerDown = (e) => {
-    pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handleContainerPointerUp = (e) => {
-    const dx = Math.abs(e.clientX - pointerDownPosRef.current.x);
-    const dy = Math.abs(e.clientY - pointerDownPosRef.current.y);
-    if (dx > 5 || dy > 5) return; // Ignore drag / orbit rotation
-
-    if (!rendererRef.current || !cameraRef.current || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1
-    );
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, cameraRef.current);
-
-    const meshes = wallMeshesRef.current || [];
-    const intersects = raycaster.intersectObjects(meshes, true);
-
-    if (intersects.length > 0) {
-      let hitMesh = intersects[0].object;
-      while (hitMesh && !hitMesh.userData.wallId && hitMesh.parent) {
-        hitMesh = hitMesh.parent;
-      }
-      if (hitMesh && hitMesh.userData.wallId) {
-        const { wallId, pageIndex, wall } = hitMesh.userData;
-        const currentWallMm = wall.height || wall.height_mm || wallHeightMm;
-        setSelected3DWall({
-          wallId,
-          pageIndex,
-          wall,
-          height_mm: currentWallMm
-        });
-        return;
-      }
+  const handleResetCamera = () => {
+    if (cameraRef.current && controlsRef.current) {
+      cameraRef.current.position.set(center.x, 600, center.z + 600);
+      controlsRef.current.target.copy(center);
+      controlsRef.current.update();
     }
-    setSelected3DWall(null);
   };
 
-  // Handle direct height update for selected 3D wall
-  const handleUpdate3DWallHeight = (newHeightMm) => {
-    if (!selected3DWall) return;
-    const targetWallId = selected3DWall.wallId;
-    const targetPageIndex = selected3DWall.pageIndex;
-    const baseTargetId = getBaseWallId(targetWallId);
+  // Handle Update Selected Wall Height
+  const handleUpdateSelectedWallHeight = (newHeightMm) => {
+    if (!selected3DWall || !setWallsByPage) return;
+    const { wallId, pageIndex } = selected3DWall;
+    const baseId = getBaseWallId ? getBaseWallId(wallId) : wallId.split('-A-')[0].split('-B-')[0];
+    const targetPage = pageIndex !== undefined ? pageIndex : currentPage;
 
-    if (setWallsByPage) {
-      setWallsByPage(prev => {
-        const pageWalls = prev[targetPageIndex] || [];
-        const updated = pageWalls.map(w => {
-          if (w.id === targetWallId || getBaseWallId(w.id) === baseTargetId) {
-            return {
-              ...w,
-              height: Number(newHeightMm),
-              height_mm: Number(newHeightMm)
-            };
-          }
-          return w;
-        });
-        return {
-          ...prev,
-          [targetPageIndex]: updated
-        };
+    setWallsByPage(prev => {
+      const pageWalls = prev[targetPage] || [];
+      const updated = pageWalls.map(w => {
+        const wBase = getBaseWallId ? getBaseWallId(w.id) : w.id.split('-A-')[0].split('-B-')[0];
+        if (w.id === wallId || wBase === baseId) {
+          return { ...w, height: newHeightMm, height_mm: newHeightMm };
+        }
+        return w;
       });
-    }
+      return {
+        ...prev,
+        [targetPage]: updated
+      };
+    });
 
-    setSelected3DWall(prev => prev ? { ...prev, height_mm: Number(newHeightMm) } : null);
+    setSelected3DWall(prev => prev ? {
+      ...prev,
+      wall: { ...prev.wall, height: newHeightMm, height_mm: newHeightMm }
+    } : null);
   };
 
-  // 1. SCENE CREATION & INITIALIZATION
+  // Handle Apply Height To All Walls
+  const handleApplyHeightToAllWalls = (newHeightMm) => {
+    if (!setWallsByPage) return;
+    setWallsByPage(prev => {
+      const updatedAll = {};
+      Object.keys(prev).forEach(pIdx => {
+        updatedAll[pIdx] = (prev[pIdx] || []).map(w => ({ ...w, height: newHeightMm, height_mm: newHeightMm }));
+      });
+      return updatedAll;
+    });
+
+    if (selected3DWall) {
+      setSelected3DWall(prev => prev ? {
+        ...prev,
+        wall: { ...prev.wall, height: newHeightMm, height_mm: newHeightMm }
+      } : null);
+    }
+  };
+
+  // Handle Update Selected Wall Type
+  const handleUpdateSelectedWallType = (newType) => {
+    if (!selected3DWall || !setWallsByPage) return;
+    const { wallId, pageIndex } = selected3DWall;
+    const baseId = getBaseWallId ? getBaseWallId(wallId) : wallId.split('-A-')[0].split('-B-')[0];
+    const targetPage = pageIndex !== undefined ? pageIndex : currentPage;
+
+    const class_name = newType === "ext" ? "exterior_wall" : (newType === "part" ? "partition_wall" : "interior_wall");
+
+    setWallsByPage(prev => {
+      const pageWalls = prev[targetPage] || [];
+      const updated = pageWalls.map(w => {
+        const wBase = getBaseWallId ? getBaseWallId(w.id) : w.id.split('-A-')[0].split('-B-')[0];
+        if (w.id === wallId || wBase === baseId) {
+          return { ...w, wall_type: newType, class_name };
+        }
+        return w;
+      });
+      return {
+        ...prev,
+        [targetPage]: updated
+      };
+    });
+
+    setSelected3DWall(prev => prev ? {
+      ...prev,
+      wall: { ...prev.wall, wall_type: newType, class_name }
+    } : null);
+  };
+
+  // 1. SCENE INITIALIZATION
   useEffect(() => {
     if (!containerRef.current) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a); // Slate-900 background
+    scene.background = new THREE.Color(0x0f172a);
     sceneRef.current = scene;
 
     const width = containerRef.current.clientWidth || 800;
@@ -373,11 +398,49 @@ export default function ThreeDView({
     }
   }, [enableShadows]);
 
-  // Re-build scene elements whenever inputs or visibility toggles change
+  // ── 3D RAYCASTING CLICK LISTENER ──
+  const handlePointerDown = (e) => {
+    mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePointerUp = (e) => {
+    const dx = e.clientX - mouseDownPosRef.current.x;
+    const dy = e.clientY - mouseDownPosRef.current.y;
+    if (Math.hypot(dx, dy) > 6) return;
+
+    if (!containerRef.current || !cameraRef.current || !sceneRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = raycasterRef.current;
+    raycaster.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
+
+    const intersects = raycaster.intersectObjects(wallMeshesRef.current, true);
+    if (intersects.length > 0) {
+      let hitMesh = intersects[0].object;
+      while (hitMesh && !hitMesh.userData?.isWallMesh && hitMesh.parent) {
+        hitMesh = hitMesh.parent;
+      }
+      if (hitMesh && hitMesh.userData?.isWallMesh) {
+        const uData = hitMesh.userData;
+        setSelected3DWall({ wallId: uData.wallId, pageIndex: uData.pageIndex, wall: uData.wall });
+        if (setSelectedId) {
+          setSelectedId(uData.wallId);
+          if (setSelectedType) setSelectedType("wall");
+        }
+        return;
+      }
+    }
+    setSelected3DWall(null);
+  };
+
+  // Re-build scene elements whenever inputs, color modes, or selection change
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
 
+    // Clear previous meshes
     wallMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
     wallMeshesRef.current = [];
 
@@ -469,7 +532,7 @@ export default function ThreeDView({
         floorMeshesRef.current.push(planeMesh);
       }
 
-      // --- 2. RENDER WALLS ---
+      // --- 2. RENDER WALLS WITH CUSTOM COLOR MODES & SELECTION HIGHLIGHT ---
       const cutWalls = cutWallsByDoors(pageWalls, pageDoors, realScale, true);
       cutWalls.forEach(wall => {
         const centerline = wall.centerline;
@@ -490,42 +553,38 @@ export default function ThreeDView({
         const wallHeightMmVal = wall.height || wall.height_mm || wallHeightMm;
         let activeWallHeight = wallHeightMmVal / scaleFactor;
 
-        // Color Calculation based on colorMode
-        let wallColor = new THREE.Color(0x94a3b8);
-        if (colorMode === "wall_type") {
-          if (wall.wall_type === "ext" || wall.class_name === "exterior_wall") {
-            wallColor = new THREE.Color(customExtColor);
-          } else if (wall.wall_type === "part" || wall.class_name === "partition_wall") {
-            wallColor = new THREE.Color(customPartColor);
-          } else {
-            wallColor = new THREE.Color(customIntColor);
-          }
-        } else if (colorMode === "height_based") {
-          if (wallHeightMmVal <= 2400) wallColor = new THREE.Color("#3b82f6");      // Blue
-          else if (wallHeightMmVal <= 2700) wallColor = new THREE.Color("#10b981"); // Green
-          else if (wallHeightMmVal <= 3000) wallColor = new THREE.Color("#f59e0b"); // Amber
-          else if (wallHeightMmVal <= 3300) wallColor = new THREE.Color("#ef4444"); // Red
-          else wallColor = new THREE.Color("#ec4899");                              // Pink
+        // Determine wall color based on mode
+        let colorHex = "#94a3b8";
+        const wClass = wall.class_name || (wall.wall_type === "ext" ? "exterior_wall" : "interior_wall");
+        const wType = wall.wall_type || (wClass === "exterior_wall" ? "ext" : (wClass === "partition_wall" ? "part" : "int"));
+
+        if (wallColorMode === "type") {
+          if (wType === "ext" || wClass === "exterior_wall") colorHex = extWallColor;
+          else if (wType === "part" || wClass === "partition_wall") colorHex = partWallColor;
+          else colorHex = intWallColor;
+        } else if (wallColorMode === "height") {
+          if (wallHeightMmVal < 2500) colorHex = heightTier1Color;
+          else if (wallHeightMmVal < 2850) colorHex = heightTier2Color;
+          else if (wallHeightMmVal < 3300) colorHex = heightTier3Color;
+          else colorHex = heightTier4Color;
         } else {
-          wallColor = new THREE.Color(wall.class_name === "exterior_wall" ? 0x64748b : 0x94a3b8);
+          colorHex = wClass === "exterior_wall" ? "#64748b" : "#94a3b8";
         }
 
-        const isWallSelected = selected3DWall && (
-          selected3DWall.wallId === wall.id ||
-          (wall.id && selected3DWall.wallId && getBaseWallId(wall.id) === getBaseWallId(selected3DWall.wallId))
-        );
+        const baseId = getBaseWallId ? getBaseWallId(wall.id) : wall.id.split('-A-')[0].split('-B-')[0];
+        const selectedBaseId = selected3DWall ? (getBaseWallId ? getBaseWallId(selected3DWall.wallId) : selected3DWall.wallId.split('-A-')[0].split('-B-')[0]) : null;
+        const isSelected3D = (selected3DWall && (selected3DWall.wallId === wall.id || selectedBaseId === baseId)) || (selectedId === wall.id);
 
         const material = new THREE.MeshStandardMaterial({
-          color: wallColor,
-          roughness: 0.75,
-          metalness: 0.15,
-          emissive: isWallSelected ? new THREE.Color(0x38bdf8) : new THREE.Color(0x000000),
-          emissiveIntensity: isWallSelected ? 0.6 : 0
+          color: new THREE.Color(colorHex),
+          roughness: 0.65,
+          metalness: 0.2,
+          emissive: isSelected3D ? new THREE.Color(0xf97316) : new THREE.Color(0x000000),
+          emissiveIntensity: isSelected3D ? 0.75 : 0
         });
 
+        let mesh;
         const poly = wall.polygon;
-        let mesh = null;
-
         if (poly && poly.length >= 3) {
           const shape = new THREE.Shape();
           shape.moveTo(poly[0][0], poly[0][1]);
@@ -540,18 +599,17 @@ export default function ThreeDView({
           mesh = new THREE.Mesh(geometry, material);
           mesh.rotation.x = Math.PI / 2;
           mesh.position.set(-imgSize.w / 2, yOffset + activeWallHeight, -imgSize.h / 2);
-          mesh.castShadow = enableShadows;
-          mesh.receiveShadow = enableShadows;
         } else {
           const geometry = new THREE.BoxGeometry(length, activeWallHeight, thickness);
           mesh = new THREE.Mesh(geometry, material);
           mesh.position.set((x1 + x2) / 2 - imgSize.w / 2, yOffset + activeWallHeight / 2, (y1 + y2) / 2 - imgSize.h / 2);
           mesh.rotation.y = -angle;
-          mesh.castShadow = enableShadows;
-          mesh.receiveShadow = enableShadows;
         }
 
-        mesh.userData = { wallId: wall.id, pageIndex: originalIndex, wall: wall };
+        mesh.castShadow = enableShadows;
+        mesh.receiveShadow = enableShadows;
+        mesh.userData = { isWallMesh: true, wallId: wall.id, pageIndex: originalIndex, wall: wall };
+
         scene.add(mesh);
         wallMeshesRef.current.push(mesh);
       });
@@ -572,9 +630,6 @@ export default function ThreeDView({
           const points = door.points || [];
           let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
           let p2 = points[1] ? (Array.isArray(points[1]) ? { x: points[1][0], y: points[1][1] } : points[1]) : null;
-          
-          let leftJambMesh = null;
-          let rightJambMesh = null;
 
           if (p1 && p2) {
             const dx = p2.x - p1.x;
@@ -613,6 +668,7 @@ export default function ThreeDView({
                 wallThickness = nearestWall.thickness_px || thickness;
                 const wallHeightMmVal = nearestWall.height || nearestWall.height_mm || wallHeightMm;
                 hostWallHeightPx = wallHeightMmVal / scaleFactor;
+                hostWallClass = nearestWall.class_name || (nearestWall.wall_type === "ext" ? "exterior_wall" : "interior_wall");
 
                 const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
                 const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
@@ -771,7 +827,7 @@ export default function ThreeDView({
 
             const isDouble = dClass.includes("double") || (door.door_name && door.door_name.toLowerCase().includes("2x"));
             const isSliding = dClass.includes("sliding") || dClass.includes("slider") || dClass.includes("cavity");
-            const isBifold = dClass.includes("bifold") || dClass.includes("fold");
+            const isGarage = dClass.includes("garage") || dClass.includes("roller");
 
             const slabHeight = frameHeight - postThickness;
             const slabThick = 4;
@@ -782,156 +838,50 @@ export default function ThreeDView({
               side: THREE.DoubleSide
             });
 
-            const detailMat = new THREE.MeshStandardMaterial({
-              color: 0x422817,
-              roughness: 0.9,
-              metalness: 0.1
-            });
+            if (isGarage) {
+              const numSections = 4;
+              const secH = slabHeight / numSections;
+              const pWidth = length - postThickness;
 
-            const addHandleToPanel = (panel, dx, dy, dz, lever = false) => {
-              const handleGroup = new THREE.Group();
-              const plateGeo = new THREE.BoxGeometry(1.2, 5, 0.4);
-              const plate = new THREE.Mesh(plateGeo, frameMat);
-              plate.position.set(0, 0, 0);
-              handleGroup.add(plate);
-
-              if (lever) {
-                const neckGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 8);
-                const neck = new THREE.Mesh(neckGeo, frameMat);
-                neck.rotation.x = Math.PI / 2;
-                neck.position.set(0, 0, 0.75);
-                handleGroup.add(neck);
-
-                const barGeo = new THREE.BoxGeometry(3.5, 0.6, 0.4);
-                const bar = new THREE.Mesh(barGeo, frameMat);
-                bar.position.set(1.5, 0, 1.5);
-                handleGroup.add(bar);
-              } else {
-                const knobGeo = new THREE.SphereGeometry(1.0, 12, 12);
-                const knob = new THREE.Mesh(knobGeo, frameMat);
-                knob.position.set(0, 0, 0.8);
-                handleGroup.add(knob);
+              for (let sIdx = 0; sIdx < numSections; sIdx++) {
+                const mainPanelGeo = new THREE.BoxGeometry(pWidth, secH - 1, 4);
+                const panel = new THREE.Mesh(mainPanelGeo, slabMat);
+                panel.position.set(0, sIdx * secH + secH/2, 0);
+                panel.castShadow = enableShadows;
+                panel.receiveShadow = enableShadows;
+                doorGroup.add(panel);
               }
-
-              handleGroup.position.set(dx, dy, dz);
-              panel.add(handleGroup);
-            };
-
-            if (isSliding) {
+            } else if (isSliding) {
               const pWidth = (length - postThickness) / 2;
               const fixedGroup = new THREE.Group();
-              const fb1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-              const fb2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-              const fb3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-              const fb4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-              fb1.position.set(-pWidth/2, slabHeight/2, 0);
-              fb2.position.set(pWidth/2, slabHeight/2, 0);
-              fb3.position.set(0, 1, 0);
-              fb4.position.set(0, slabHeight - 1, 0);
-              fixedGroup.add(fb1, fb2, fb3, fb4);
-
-              const glassGeo = new THREE.BoxGeometry(pWidth - 4, slabHeight - 4, 0.5);
-              const glassMat = new THREE.MeshPhysicalMaterial({
-                color: 0xe2e8f0, transparent: true, opacity: 0.4, roughness: 0.1, transmission: 0.85
-              });
-              const glass = new THREE.Mesh(glassGeo, glassMat);
-              glass.position.set(0, slabHeight/2, 0);
-              fixedGroup.add(glass);
+              const b1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+              const b2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
+              b1.position.set(-pWidth/2, slabHeight/2, 0);
+              b2.position.set(pWidth/2, slabHeight/2, 0);
+              fixedGroup.add(b1, b2);
               fixedGroup.position.set(-pWidth/2, 0, -2);
               doorGroup.add(fixedGroup);
 
               const activeGroup = new THREE.Group();
               const ab1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
               const ab2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-              const ab3 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
-              const ab4 = new THREE.Mesh(new THREE.BoxGeometry(pWidth, 2, slabThick), slabMat);
               ab1.position.set(-pWidth/2, slabHeight/2, 0);
               ab2.position.set(pWidth/2, slabHeight/2, 0);
-              ab3.position.set(0, 1, 0);
-              ab4.position.set(0, slabHeight - 1, 0);
-              activeGroup.add(ab1, ab2, ab3, ab4);
-              const glassActive = new THREE.Mesh(glassGeo, glassMat);
-              glassActive.position.set(0, slabHeight/2, 0);
-              activeGroup.add(glassActive);
-
-              addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, slabThick/2, false);
-              addHandleToPanel(activeGroup, -pWidth/2 + 4, slabHeight/2, -slabThick/2, false);
-
-              const openProgress = 0.5;
-              const slideOffsetX = openProgress * (pWidth - 4);
-              activeGroup.position.set(pWidth/2 - slideOffsetX, 0, 2);
+              activeGroup.add(ab1, ab2);
+              activeGroup.position.set(pWidth/4, 0, 2);
               doorGroup.add(activeGroup);
             } else if (isDouble) {
               const pWidth = (length - postThickness) / 2;
-              const openAngleRad = (35 * Math.PI) / 180;
-
-              const leftPivot = new THREE.Group();
-              leftPivot.position.set(-length/2 + postThickness/2, 0, 0);
               const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              leftSlab.position.set(pWidth/2, slabHeight/2, 0);
-              leftSlab.castShadow = enableShadows;
-              leftSlab.receiveShadow = enableShadows;
-
-              const leftGroup = new THREE.Group();
-              leftGroup.add(leftSlab);
-              leftPivot.add(leftGroup);
-              leftPivot.rotation.y = openAngleRad;
-              doorGroup.add(leftPivot);
-
-              const rightPivot = new THREE.Group();
-              rightPivot.position.set(length/2 - postThickness/2, 0, 0);
+              leftSlab.position.set(-pWidth/2, slabHeight/2, 0);
               const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
-              rightSlab.castShadow = enableShadows;
-              rightSlab.receiveShadow = enableShadows;
-
-              const rightGroup = new THREE.Group();
-              rightGroup.add(rightSlab);
-              rightPivot.add(rightGroup);
-              rightPivot.rotation.y = -openAngleRad;
-              doorGroup.add(rightPivot);
+              rightSlab.position.set(pWidth/2, slabHeight/2, 0);
+              doorGroup.add(leftSlab, rightSlab);
             } else {
-              const hingeSide = door.hingeSide || door.hinge_side || "left";
-              const swing = door.swing || door.swing_direction || "inward";
-              const angleVal = door.angle || door.opening_angle || 35;
-              const openAngleRad = (angleVal * Math.PI) / 180;
-
               const pWidth = length - postThickness;
-              const pivotGroup = new THREE.Group();
-              const hingeFactor = hingeSide === "left" ? 1 : -1;
-              const sideFactor = swing === "inward" ? -1 : 1;
-
-              const pivotX = hingeSide === "left" ? -length/2 + postThickness/2 : length/2 - postThickness/2;
-              pivotGroup.position.set(pivotX, 0, 0);
-
-              const slab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              const slabCenterX = hingeSide === "left" ? pWidth/2 : -pWidth/2;
-              slab.position.set(slabCenterX, slabHeight/2, 0);
-              slab.castShadow = enableShadows;
-              slab.receiveShadow = enableShadows;
-
-              const panelGroup = new THREE.Group();
-              panelGroup.add(slab);
-
-              pivotGroup.add(panelGroup);
-              pivotGroup.rotation.y = hingeFactor * sideFactor * openAngleRad;
-              doorGroup.add(pivotGroup);
-            }
-
-            const headerHeight = Math.max(0, hostWallHeightPx - frameHeight);
-            if (headerHeight > 0.1) {
-              const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-              const fillerMat = new THREE.MeshStandardMaterial({
-                color: wallColor,
-                roughness: 0.75,
-                metalness: 0.15
-              });
-              const headerGeo = new THREE.BoxGeometry(length, headerHeight, wallThickness);
-              const headerMesh = new THREE.Mesh(headerGeo, fillerMat);
-              headerMesh.position.set(0, frameHeight + headerHeight / 2, 0);
-              headerMesh.castShadow = enableShadows;
-              headerMesh.receiveShadow = enableShadows;
-              doorGroup.add(headerMesh);
+              const slabMesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
+              slabMesh.position.set(0, slabHeight/2, 0);
+              doorGroup.add(slabMesh);
             }
           }
 
@@ -942,336 +892,285 @@ export default function ThreeDView({
           doorMeshesRef.current.push(doorGroup);
         });
       }
-
-      // --- 4. RENDER ROOFS ---
-      if (showRoofs) {
-        const pageRoofs = roofsByPage[originalIndex] || [];
-        pageRoofs.forEach(roof => {
-          const poly = roof.polygon;
-          if (!poly || poly.length < 3) return;
-
-          const isRoofPage = page.floor_name === 'roof';
-          const baseHeight = isRoofPage ? yOffset : yOffset + wallHeight;
-
-          const shape = new THREE.Shape();
-          shape.moveTo(poly[0].x, poly[0].y);
-          for (let i = 1; i < poly.length; i++) {
-            shape.lineTo(poly[i].x, poly[i].y);
-          }
-          shape.closePath();
-
-          const extrudeSettings = { depth: 8, bevelEnabled: false };
-          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-          const material = new THREE.MeshStandardMaterial({
-            color: 0x334155,
-            roughness: 0.8,
-            metalness: 0.1,
-            side: THREE.DoubleSide
-          });
-
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.rotation.x = Math.PI / 2;
-          mesh.position.set(-imgSize.w / 2, baseHeight + 8, -imgSize.h / 2);
-          mesh.castShadow = enableShadows;
-          mesh.receiveShadow = enableShadows;
-          scene.add(mesh);
-          floorMeshesRef.current.push(mesh);
-        });
-      }
     });
   }, [
-    sortedPageIndices, visibleLevels, showFloors, showPDF, showDoors, showRoofs, enableShadows,
-    wallHeight, floorDepth, wallsByPage, doorsByPage, roomsByPage, roofsByPage, realScale, imgSize,
-    colorMode, customExtColor, customIntColor, customPartColor, selected3DWall
+    pages, wallsByPage, doorsByPage, roomsByPage, sortedPageIndices, visibleLevels,
+    showFloors, showPDF, showDoors, wallHeight, floorDepth, realScale, enableShadows,
+    wallColorMode, extWallColor, intWallColor, partWallColor, heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
+    selected3DWall, selectedId
   ]);
 
-  const handleResetCamera = () => {
-    if (controlsRef.current && cameraRef.current) {
-      cameraRef.current.position.set(center.x, 600, center.z + 600);
-      controlsRef.current.target.copy(center);
-      controlsRef.current.update();
-    }
-  };
-
   return (
-    <div 
-      ref={containerRef} 
-      style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", userSelect: "none" }}
-      onPointerDown={handleContainerPointerDown}
-      onPointerUp={handleContainerPointerUp}
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        backgroundColor: "#0f172a",
+        width: "100%",
+        height: "100%"
+      }}
     >
-      {/* Top Header Controls */}
-      <div 
+      {/* 3D View WebGL Canvas Container */}
+      <div
+        ref={containerRef}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        style={{
+          width: "100%",
+          flex: 1,
+          minHeight: 0,
+          cursor: "grab"
+        }}
+      />
+
+      {/* Floating Control Panel */}
+      <div
         style={{
           position: "absolute",
           top: "16px",
-          left: "16px",
+          right: "16px",
           zIndex: 10,
+          backgroundColor: "rgba(30, 41, 59, 0.9)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          borderRadius: "12px",
+          padding: "16px",
+          width: "288px",
+          color: "#ffffff",
+          boxShadow: "0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.05)",
           display: "flex",
-          gap: "12px",
-          alignItems: "center"
+          flexDirection: "column",
+          gap: "16px",
+          fontFamily: "'Outfit', 'Inter', sans-serif"
         }}
       >
-        <button
-          onClick={onClose}
-          style={{
-            backgroundColor: "#ef4444",
-            color: "#ffffff",
-            padding: "8px 16px",
-            borderRadius: "8px",
-            border: "none",
-            fontWeight: "bold",
-            fontSize: "13px",
-            cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(239, 68, 68, 0.4)",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            transition: "all 0.2s"
-          }}
-          onMouseOver={(e) => e.currentTarget.style.backgroundColor = "#dc2626"}
-          onMouseOut={(e) => e.currentTarget.style.backgroundColor = "#ef4444"}
-        >
-          ✖ Exit 3D View
-        </button>
-      </div>
-
-      {/* Floating Selected 3D Wall Height Edit HUD */}
-      {selected3DWall && (
         <div
           style={{
-            position: "absolute",
-            top: "80px",
-            right: "20px",
-            zIndex: 100,
-            width: "300px",
-            backgroundColor: "rgba(15, 23, 42, 0.88)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            border: "1px solid rgba(56, 189, 248, 0.4)",
-            borderRadius: "12px",
-            padding: "16px",
-            boxShadow: "0 16px 32px rgba(0, 0, 0, 0.5)",
-            color: "#fff",
-            fontFamily: "'Outfit', 'Inter', sans-serif"
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+            paddingBottom: "8px"
           }}
-          onMouseDown={(e) => e.stopPropagation()}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "16px" }}>🧱</span>
-              <span style={{ fontSize: "14px", fontWeight: "bold", color: "#38bdf8" }}>Chỉnh Độ Cao Tường 3D</span>
+          <span style={{ fontWeight: "bold", fontSize: "12px", letterSpacing: "0.05em", color: "#60a5fa" }}>
+            3D VIEWER CONTROLS
+          </span>
+          <button 
+            onClick={onClose} 
+            style={{
+              color: "#9ca3af",
+              fontSize: "11px",
+              fontWeight: "bold",
+              padding: "4px 8px",
+              borderRadius: "4px",
+              backgroundColor: "rgba(15, 23, 42, 0.5)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              cursor: "pointer",
+              transition: "all 0.2s"
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.color = "#fca5a5"; e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.2)"; }}
+            onMouseOut={(e) => { e.currentTarget.style.color = "#9ca3af"; e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.5)"; }}
+          >
+            ✕ Exit 3D
+          </button>
+        </div>
+
+        {/* Floor Depth Slider */}
+        {pages.length > 1 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+              <span>Floor Slab Depth</span>
+              <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>
+                {floorDepthMm >= 1000 ? `${(floorDepthMm / 1000).toFixed(2)}m` : `${floorDepthMm}mm`}
+              </span>
             </div>
-            <button
-              onClick={() => setSelected3DWall(null)}
+            <input 
+              type="range" 
+              min="100" 
+              max="1000" 
+              step="50"
+              value={floorDepthMm} 
+              onChange={(e) => setFloorDepthMm(Number(e.target.value))}
               style={{
-                background: "none", border: "none", color: "#94a3b8", fontSize: "16px", cursor: "pointer", padding: "2px 6px"
+                width: "100%",
+                height: "4px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#3b82f6"
+              }}
+            />
+          </div>
+        )}
+
+        {/* 🎨 WALL COLOR MODE & CUSTOMIZATION */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
+          <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em" }}>
+            🎨 WALL COLORING
+          </div>
+
+          <div style={{ display: "flex", gap: "4px", backgroundColor: "rgba(15, 23, 42, 0.6)", padding: "4px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            <button
+              onClick={() => setWallColorMode("type")}
+              style={{
+                flex: 1,
+                padding: "4px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: wallColorMode === "type" ? "#3b82f6" : "transparent",
+                color: wallColorMode === "type" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
               }}
             >
-              ✕
+              Ext / Int
+            </button>
+            <button
+              onClick={() => setWallColorMode("height")}
+              style={{
+                flex: 1,
+                padding: "4px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: wallColorMode === "height" ? "#3b82f6" : "transparent",
+                color: wallColorMode === "height" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              By Height
+            </button>
+            <button
+              onClick={() => setWallColorMode("default")}
+              style={{
+                flex: 1,
+                padding: "4px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: wallColorMode === "default" ? "#3b82f6" : "transparent",
+                color: wallColorMode === "default" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              Default
             </button>
           </div>
 
-          <div style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "12px" }}>
-            Mã tường: <code style={{ color: "#e2e8f0" }}>{selected3DWall.wallId}</code>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px" }}>
-                Độ cao tường (Height): <b style={{ color: "#38bdf8" }}>{selected3DWall.height_mm}mm</b>
-              </label>
-              <input
-                type="range"
-                min="1500"
-                max="5000"
-                step="50"
-                value={selected3DWall.height_mm}
-                onChange={(e) => handleUpdate3DWallHeight(Number(e.target.value))}
-                style={{ width: "100%", cursor: "pointer", accentColor: "#38bdf8" }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-              {[2400, 2700, 3000, 3300, 3600].map(h => (
-                <button
-                  key={h}
-                  onClick={() => handleUpdate3DWallHeight(h)}
-                  style={{
-                    flex: 1,
-                    padding: "4px 8px",
-                    borderRadius: "6px",
-                    fontSize: "11px",
-                    fontWeight: selected3DWall.height_mm === h ? "bold" : "normal",
-                    backgroundColor: selected3DWall.height_mm === h ? "rgba(56, 189, 248, 0.25)" : "rgba(255, 255, 255, 0.05)",
-                    border: selected3DWall.height_mm === h ? "1px solid #38bdf8" : "1px solid rgba(255, 255, 255, 0.1)",
-                    color: selected3DWall.height_mm === h ? "#38bdf8" : "#cbd5e1",
-                    cursor: "pointer"
-                  }}
-                >
-                  {h}mm
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
-              <span style={{ fontSize: "12px", color: "#cbd5e1" }}>Nhập số mm:</span>
-              <input
-                type="number"
-                value={selected3DWall.height_mm}
-                onChange={(e) => handleUpdate3DWallHeight(Number(e.target.value))}
-                style={{
-                  width: "100px",
-                  padding: "4px 8px",
-                  borderRadius: "6px",
-                  border: "1px solid rgba(255, 255, 255, 0.15)",
-                  backgroundColor: "rgba(15, 23, 42, 0.6)",
-                  color: "#fff",
-                  fontSize: "12px",
-                  fontWeight: "bold"
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Control Panel Sidebar */}
-      <div 
-        style={{
-          position: "absolute",
-          top: "80px",
-          left: "16px",
-          zIndex: 10,
-          backgroundColor: "rgba(15, 23, 42, 0.85)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          border: "1px solid rgba(255, 255, 255, 0.1)",
-          borderRadius: "12px",
-          padding: "16px",
-          width: "280px",
-          boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
-          color: "#ffffff",
-          fontFamily: "'Outfit', 'Inter', sans-serif",
-          display: "flex",
-          flexDirection: "column",
-          gap: "14px",
-          maxHeight: "calc(100vh - 120px)",
-          overflowY: "auto"
-        }}
-      >
-        <div style={{ fontSize: "13px", fontWeight: "bold", color: "#38bdf8", letterSpacing: "0.05em" }}>
-          ⚙ 3D VIEW SETTINGS
-        </div>
-
-        {/* Global Wall Height */}
-        <div>
-          <label style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px" }}>
-            <span>Wall Height (Global)</span>
-            <b style={{ color: "#38bdf8" }}>{wallHeightMm} mm</b>
-          </label>
-          <input 
-            type="range" 
-            min="1500" 
-            max="4500" 
-            step="100"
-            value={wallHeightMm} 
-            onChange={(e) => setWallHeightMm(Number(e.target.value))}
-            style={{ width: "100%", cursor: "pointer", accentColor: "#38bdf8" }}
-          />
-        </div>
-
-        {/* 3D Wall Color Mode Options */}
-        <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "10px" }}>
-          <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", marginBottom: "8px" }}>
-            🎨 3D WALL COLOR MODES
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer", color: "#e2e8f0" }}>
-              <input
-                type="radio"
-                name="colorMode"
-                value="wall_type"
-                checked={colorMode === "wall_type"}
-                onChange={() => setColorMode("wall_type")}
-                style={{ accentColor: "#38bdf8" }}
-              />
-              <span>Phân loại Tường (Ext / Int / Part)</span>
-            </label>
-
-            {colorMode === "wall_type" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginLeft: "20px", padding: "6px", backgroundColor: "rgba(255, 255, 255, 0.03)", borderRadius: "6px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px" }}>
-                  <span>Tường Ext (Ngoại thất):</span>
-                  <input type="color" value={customExtColor} onChange={(e) => setCustomExtColor(e.target.value)} style={{ width: "24px", height: "20px", border: "none", cursor: "pointer", background: "none" }} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px" }}>
-                  <span>Tường Int (Nội thất):</span>
-                  <input type="color" value={customIntColor} onChange={(e) => setCustomIntColor(e.target.value)} style={{ width: "24px", height: "20px", border: "none", cursor: "pointer", background: "none" }} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px" }}>
-                  <span>Vách ngăn (Part):</span>
-                  <input type="color" value={customPartColor} onChange={(e) => setCustomPartColor(e.target.value)} style={{ width: "24px", height: "20px", border: "none", cursor: "pointer", background: "none" }} />
-                </div>
+          {/* Color Pickers for Ext vs Int */}
+          {wallColorMode === "type" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>Exterior Wall</span>
+                <input
+                  type="color"
+                  value={extWallColor}
+                  onChange={(e) => setExtWallColor(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
               </div>
-            )}
-
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer", color: "#e2e8f0" }}>
-              <input
-                type="radio"
-                name="colorMode"
-                value="height_based"
-                checked={colorMode === "height_based"}
-                onChange={() => setColorMode("height_based")}
-                style={{ accentColor: "#38bdf8" }}
-              />
-              <span>Màu sắc theo Độ cao Tường</span>
-            </label>
-
-            {colorMode === "height_based" && (
-              <div style={{ fontSize: "10px", color: "#94a3b8", marginLeft: "20px", display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                <span>🔵 ≤2.4m</span>
-                <span>🟢 ≤2.7m</span>
-                <span>🟠 ≤3.0m</span>
-                <span>🔴 ≤3.3m</span>
-                <span>🟣 &gt;3.3m</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>Interior Wall</span>
+                <input
+                  type="color"
+                  value={intWallColor}
+                  onChange={(e) => setIntWallColor(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
               </div>
-            )}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>Partition Wall</span>
+                <input
+                  type="color"
+                  value={partWallColor}
+                  onChange={(e) => setPartWallColor(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+            </div>
+          )}
 
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer", color: "#e2e8f0" }}>
-              <input
-                type="radio"
-                name="colorMode"
-                value="default"
-                checked={colorMode === "default"}
-                onChange={() => setColorMode("default")}
-                style={{ accentColor: "#38bdf8" }}
-              />
-              <span>Màu Slate Mặc định</span>
-            </label>
-          </div>
+          {/* Color Pickers for Height Tiers */}
+          {wallColorMode === "height" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>&lt; 2500mm</span>
+                <input
+                  type="color"
+                  value={heightTier1Color}
+                  onChange={(e) => setHeightTier1Color(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>2500 - 2850mm</span>
+                <input
+                  type="color"
+                  value={heightTier2Color}
+                  onChange={(e) => setHeightTier2Color(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>2850 - 3250mm</span>
+                <input
+                  type="color"
+                  value={heightTier3Color}
+                  onChange={(e) => setHeightTier3Color(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>&gt; 3250mm</span>
+                <input
+                  type="color"
+                  value={heightTier4Color}
+                  onChange={(e) => setHeightTier4Color(e.target.value)}
+                  style={{ width: "24px", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Element Toggles */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "10px" }}>
+        {/* Toggles */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
-            <span>Show Grid</span>
-            <input 
-              type="checkbox" 
-              checked={showGrid} 
-              onChange={() => setShowGrid(v => !v)}
-              style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
-            />
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
-            <span>Show Floors & Rooms</span>
+            <span>Show Room Floors</span>
             <input 
               type="checkbox" 
               checked={showFloors} 
               onChange={() => setShowFloors(v => !v)}
-              style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span>Show Grid helper</span>
+            <input 
+              type="checkbox" 
+              checked={showGrid} 
+              onChange={() => setShowGrid(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
             />
           </label>
 
@@ -1281,27 +1180,27 @@ export default function ThreeDView({
               type="checkbox" 
               checked={showPDF} 
               onChange={() => setShowPDF(v => !v)}
-              style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
             />
           </label>
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
-            <span>Show Wood Doors & Windows</span>
+            <span>Show Wood Doors</span>
             <input 
               type="checkbox" 
               checked={showDoors} 
               onChange={() => setShowDoors(v => !v)}
-              style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
-            />
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
-            <span>Show 3D Roofs</span>
-            <input 
-              type="checkbox" 
-              checked={showRoofs} 
-              onChange={() => setShowRoofs(v => !v)}
-              style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
             />
           </label>
 
@@ -1311,61 +1210,15 @@ export default function ThreeDView({
               type="checkbox" 
               checked={enableShadows} 
               onChange={() => setEnableShadows(v => !v)}
-              style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer"
+              }}
             />
           </label>
         </div>
-
-        {/* Floor Visibility Checklist */}
-        {pages && pages.length > 1 && (
-          <div 
-            style={{ 
-              display: "flex", 
-              flexDirection: "column", 
-              gap: "8px", 
-              borderTop: "1px solid rgba(255, 255, 255, 0.1)", 
-              paddingTop: "12px",
-              marginTop: "4px"
-            }}
-          >
-            <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em", marginBottom: "4px" }}>
-              FLOOR VISIBILITY
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {sortedPageIndices.map((originalIndex) => {
-                const page = pages[originalIndex];
-                const floorName = page?.floor_name || `Floor ${originalIndex + 1}`;
-                const isVisible = visibleLevels[originalIndex] !== false;
-                return (
-                  <label 
-                    key={originalIndex} 
-                    style={{ 
-                      display: "flex", 
-                      alignItems: "center", 
-                      justifyContent: "space-between", 
-                      cursor: "pointer", 
-                      fontSize: "12px", 
-                      color: "#d1d5db" 
-                    }}
-                  >
-                    <span>{floorName}</span>
-                    <input 
-                      type="checkbox" 
-                      checked={isVisible} 
-                      onChange={() => {
-                        setVisibleLevels(prev => ({
-                          ...prev,
-                          [originalIndex]: !isVisible
-                        }));
-                      }}
-                      style={{ width: "16px", height: "16px", borderRadius: "4px", cursor: "pointer" }}
-                    />
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Action Buttons */}
         <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
@@ -1391,6 +1244,168 @@ export default function ThreeDView({
         </div>
       </div>
 
+      {/* 3D SELECTED WALL EDITING FLOATING CARD */}
+      {selected3DWall && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "24px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 20,
+            backgroundColor: "rgba(15, 23, 42, 0.95)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            border: "1px solid rgba(249, 115, 22, 0.6)",
+            borderRadius: "16px",
+            padding: "16px 20px",
+            width: "360px",
+            color: "#ffffff",
+            boxShadow: "0 16px 48px rgba(0, 0, 0, 0.7), 0 0 20px rgba(249, 115, 22, 0.25)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            fontFamily: "'Outfit', 'Inter', sans-serif"
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "16px" }}>🧱</span>
+              <div>
+                <div style={{ fontWeight: "bold", fontSize: "13px", color: "#f97316" }}>
+                  Selected Wall ({selected3DWall.wall.wall_type === "ext" || selected3DWall.wall.class_name === "exterior_wall" ? "Exterior" : (selected3DWall.wall.wall_type === "part" ? "Partition" : "Interior")})
+                </div>
+                <div style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "monospace" }}>
+                  ID: {selected3DWall.wallId}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setSelected3DWall(null)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#9ca3af",
+                fontSize: "14px",
+                cursor: "pointer",
+                padding: "2px 6px"
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Wall Type Dropdown */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
+            <span style={{ color: "#d1d5db" }}>Wall Type:</span>
+            <select
+              value={selected3DWall.wall.wall_type || (selected3DWall.wall.class_name === "exterior_wall" ? "ext" : (selected3DWall.wall.class_name === "partition_wall" ? "part" : "int"))}
+              onChange={(e) => handleUpdateSelectedWallType(e.target.value)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255, 255, 255, 0.15)",
+                backgroundColor: "rgba(30, 41, 59, 0.9)",
+                color: "#ffffff",
+                fontSize: "12px",
+                fontWeight: "600",
+                cursor: "pointer"
+              }}
+            >
+              <option value="ext">Exterior Wall (Ngoại thất)</option>
+              <option value="int">Interior Wall (Nội thất)</option>
+              <option value="part">Partition Wall (Vách ngăn)</option>
+            </select>
+          </div>
+
+          {/* Height Input Controls */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
+              <span style={{ color: "#d1d5db" }}>3D Height (mm):</span>
+              <input
+                type="number"
+                step="50"
+                min="500"
+                max="10000"
+                value={selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm}
+                onChange={(e) => handleUpdateSelectedWallHeight(Number(e.target.value))}
+                style={{
+                  width: "90px",
+                  padding: "4px 8px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(249, 115, 22, 0.5)",
+                  backgroundColor: "rgba(30, 41, 59, 0.8)",
+                  color: "#ffffff",
+                  fontSize: "13px",
+                  fontWeight: "bold",
+                  textAlign: "center"
+                }}
+              />
+            </div>
+
+            <input
+              type="range"
+              min="1500"
+              max="5000"
+              step="50"
+              value={selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm}
+              onChange={(e) => handleUpdateSelectedWallHeight(Number(e.target.value))}
+              style={{
+                width: "100%",
+                height: "5px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#f97316"
+              }}
+            />
+
+            {/* Quick Height Presets */}
+            <div style={{ display: "flex", gap: "6px", marginTop: "2px" }}>
+              {[2400, 2700, 3000, 3600].map(hPreset => (
+                <button
+                  key={hPreset}
+                  onClick={() => handleUpdateSelectedWallHeight(hPreset)}
+                  style={{
+                    flex: 1,
+                    padding: "4px 0",
+                    borderRadius: "6px",
+                    border: (selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm) === hPreset ? "1px solid #f97316" : "1px solid rgba(255,255,255,0.1)",
+                    backgroundColor: (selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm) === hPreset ? "rgba(249, 115, 22, 0.2)" : "rgba(30, 41, 59, 0.5)",
+                    color: (selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm) === hPreset ? "#f97316" : "#cbd5e1",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  {hPreset}mm
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => handleApplyHeightToAllWalls(selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm)}
+              style={{
+                marginTop: "4px",
+                padding: "6px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255, 255, 255, 0.15)",
+                backgroundColor: "rgba(30, 41, 59, 0.7)",
+                color: "#e2e8f0",
+                fontSize: "11px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = "rgba(59, 130, 246, 0.2)"}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = "rgba(30, 41, 59, 0.7)"}
+            >
+              🌐 Apply this height to ALL walls
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Floating Instruction Tips */}
       <div 
         style={{
@@ -1414,9 +1429,10 @@ export default function ThreeDView({
           fontFamily: "'Outfit', 'Inter', sans-serif"
         }}
       >
-        <div>🖱 <b>Click 3D Wall:</b> Select & Change Height</div>
+        <div>🖱 <b>Click Wall:</b> Select & Edit 3D Height</div>
         <div>🖱 <b>Left Click + Drag:</b> Rotate Scene</div>
         <div>🖱 <b>Right Click + Drag:</b> Pan Camera</div>
+        <div>🖱 <b>Scroll Wheel:</b> Zoom In / Out</div>
       </div>
     </div>
   );

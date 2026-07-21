@@ -29,8 +29,8 @@ import {
   cutWallsByDoors
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
-import { snapPointToWall } from "@/engines/DoorGeometryEngine";
-import { resolveDoorTypeId, DOOR_TYPE_REGISTRY } from "@/models/DoorTypeRegistry";
+import { snapPointToWall, rotateDoorGeometry } from "@/engines/DoorGeometryEngine";
+import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -889,7 +889,7 @@ const DoorLayer = React.memo(({
                 {isSelected && (
                   <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
                     <rect
-                      x={-28} y={-8} width={56} height={16} rx={2}
+                      x={-24} y={-8} width={48} height={16} rx={2}
                       fill="rgba(255, 255, 255, 0.95)"
                       filter="url(#glow)"
                       stroke={color} strokeWidth={0.5}
@@ -904,7 +904,7 @@ const DoorLayer = React.memo(({
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                     >
-                      {d.width_mm ? `${d.width_mm}mm` : `${Math.round(geom.widthPx * (realScale || 18))}mm`}
+                      {d.width || Math.round(geom.widthPx * (realScale || 20))}
                     </text>
                   </g>
                 )}
@@ -1186,14 +1186,12 @@ const DoorLayer = React.memo(({
                   if (interactionMode === "draw-wall") return;
                   if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                   e.stopPropagation();
-                  setSelectedId(d.id);
-                  setSelectedType("door");
-                }}
-               onDoubleClick={(e) => {
-                  if (interactionMode === "draw-wall") return;
-                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                  e.stopPropagation();
-                  if (onEditDoor) onEditDoor(d);
+                  if (lastMouseDownSelectedId.current === d.id && selectedType === "door") {
+                    if (onEditDoor) onEditDoor(d);
+                  } else {
+                    setSelectedId(d.id);
+                    setSelectedType("door");
+                  }
                 }}
                onMouseDown={(e) => {
                  lastMouseDownSelectedId.current = selectedId;
@@ -1230,7 +1228,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
               ) : (type === "sliding" ? (
@@ -1246,7 +1244,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
               ) : (type === "window" ? (
@@ -1262,7 +1260,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
               ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage" ? (
@@ -1278,7 +1276,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
               ) : (
@@ -1294,7 +1292,7 @@ const DoorLayer = React.memo(({
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
                   >
-                    {d.door_name || d.doorName || (d.width_mm ? `${d.width_mm}mm` : `${Math.round(len * (realScale || 18))}mm`)}
+                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
                 </>
               ))))}
@@ -2213,16 +2211,20 @@ export default function CanvasView({
   const handleDoorRotateLeft = () => {
     const d = doorContextMenu.door;
     if (d && updateDoor) {
-      const newRotation = ((d.rotation || 0) - 90 + 360) % 360;
-      updateDoor({ ...d, rotation: newRotation });
+      const rotated = rotateDoorGeometry(d, -90);
+      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x)/2, y: (rotated.points[0].y + rotated.points[1].y)/2 });
+      const newParent = findParentWall(centerPt, walls, 120);
+      updateDoor({ ...rotated, parentWallId: newParent ? newParent.id : d.parentWallId });
     }
   };
 
   const handleDoorRotateRight = () => {
     const d = doorContextMenu.door;
     if (d && updateDoor) {
-      const newRotation = ((d.rotation || 0) + 90) % 360;
-      updateDoor({ ...d, rotation: newRotation });
+      const rotated = rotateDoorGeometry(d, 90);
+      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x)/2, y: (rotated.points[0].y + rotated.points[1].y)/2 });
+      const newParent = findParentWall(centerPt, walls, 120);
+      updateDoor({ ...rotated, parentWallId: newParent ? newParent.id : d.parentWallId });
     }
   };
 

@@ -1528,7 +1528,7 @@ def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 5.0) ->
             pt1 = endpoints[i][2]
             pt2 = endpoints[j][2]
             dist = math.hypot(pt1[0] - pt2[0], pt1[1] - pt2[1])
-            if dist < 8.0:
+            if dist < 4.0:
                 union(i, j)
                 
     # Group endpoints by joint index
@@ -1560,12 +1560,17 @@ def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 5.0) ->
         if root_i != root_j:
             h_parent[root_i] = root_j
 
-    # Connect horizontal walls if they share a joint
+    # Connect horizontal walls if they share a joint and have the same wall type
     for joint_id, eps in joints.items():
         horiz_in_joint = [ep[0] for ep in eps if wall_meta[ep[0]]["is_horiz"]]
         for i in range(len(horiz_in_joint)):
             for j in range(i + 1, len(horiz_in_joint)):
-                h_union(horiz_in_joint[i], horiz_in_joint[j])
+                w1_idx = horiz_in_joint[i]
+                w2_idx = horiz_in_joint[j]
+                class_w1 = walls[w1_idx].get("class_name", "interior_wall")
+                class_w2 = walls[w2_idx].get("class_name", "interior_wall")
+                if class_w1 == class_w2:
+                    h_union(w1_idx, w2_idx)
                 
     # Group horizontal walls by Y-group
     y_groups = defaultdict(list)
@@ -1611,12 +1616,17 @@ def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 5.0) ->
         if root_i != root_j:
             v_parent[root_i] = root_j
 
-    # Connect vertical walls if they share a joint
+    # Connect vertical walls if they share a joint and have the same wall type
     for joint_id, eps in joints.items():
         vert_in_joint = [ep[0] for ep in eps if wall_meta[ep[0]]["is_vert"]]
         for i in range(len(vert_in_joint)):
             for j in range(i + 1, len(vert_in_joint)):
-                v_union(vert_in_joint[i], vert_in_joint[j])
+                w1_idx = vert_in_joint[i]
+                w2_idx = vert_in_joint[j]
+                class_w1 = walls[w1_idx].get("class_name", "interior_wall")
+                class_w2 = walls[w2_idx].get("class_name", "interior_wall")
+                if class_w1 == class_w2:
+                    v_union(w1_idx, w2_idx)
                 
     # Group vertical walls by X-group
     x_groups = defaultdict(list)

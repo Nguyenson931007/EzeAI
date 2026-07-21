@@ -213,10 +213,6 @@ export function useDoorController({
    * Step 2: Records the first click point (mousedown).
    * Snaps to nearest wall centerline.
    */
-  /**
-   * Step 2: Records the first click point (mousedown).
-   * Snaps to nearest wall centerline.
-   */
   const onDoorMouseDown = useCallback((canvasPoint) => {
     if (!isDrawingDoor) return false;
 
@@ -228,8 +224,6 @@ export function useDoorController({
 
     const walls = getCurrentWalls();
     const snap = snapPointToWall(canvasPoint, walls, 60);
-
-    const scaleFactor = (realScale && realScale > 0) ? realScale : 18.0;
 
     if (snap.wall) {
       // Immediate 1-click creation!
@@ -249,7 +243,7 @@ export function useDoorController({
 
         const activePreset = doorPreset;
         const presetWidth = activePreset.width || DOOR_TYPE_REGISTRY[activePreset.id]?.defaultWidth || 820;
-        const widthPx = presetWidth / scaleFactor;
+        const widthPx = presetWidth / realScale;
 
         const p1 = {
           x: cx - ux * (widthPx / 2),
@@ -265,23 +259,7 @@ export function useDoorController({
       }
     }
 
-    const presetWidth = doorPreset.width || DOOR_TYPE_REGISTRY[doorPreset.id]?.defaultWidth || 820;
-    const widthPx = presetWidth / scaleFactor;
-
-    // Start drawing from p1 (the start point of the preview door)
-    let startPoint = snap.snappedPoint;
-    if (snap.wall) {
-      const ep = getWallEndpoints(snap.wall);
-      if (ep) {
-        const wdir = getWallDirection(snap.wall);
-        startPoint = {
-          x: snap.snappedPoint.x - wdir.x * (widthPx / 2),
-          y: snap.snappedPoint.y - wdir.y * (widthPx / 2)
-        };
-      }
-    }
-
-    setCurrentDoorPoints([startPoint]);
+    setCurrentDoorPoints([snap.snappedPoint]);
     isDraggingDoorRef.current = true;
     return true; // consumed the event
   }, [isDrawingDoor, showTypeSelector, doorPreset, getCurrentWalls, realScale, finalizeDoor]);
@@ -335,9 +313,8 @@ export function useDoorController({
         doorPreset.doorType === 'garage' ||
         doorPreset.id === 'ext_garage'
       );
-      const scaleFactor = (realScale && realScale > 0) ? realScale : 18.0;
-      if (doorPreset && doorPreset.width && !isWindowOrGaragePreset) {
-        const desiredPx = doorPreset.width / scaleFactor;
+      if (doorPreset && doorPreset.width && realScale && !isWindowOrGaragePreset) {
+        const desiredPx = doorPreset.width / realScale;
         const dir = { x: projected.p2.x - projected.p1.x, y: projected.p2.y - projected.p1.y };
         const len = Math.hypot(dir.x, dir.y);
         if (len > 0.1) {
@@ -430,9 +407,8 @@ export function useDoorController({
       doorPreset.doorType === 'garage' ||
       doorPreset.id === 'ext_garage'
     );
-    const scaleFactor = (realScale && realScale > 0) ? realScale : 18.0;
-    if (doorPreset && doorPreset.width && !isWindowOrGaragePreset) {
-      const desiredPx = doorPreset.width / scaleFactor;
+    if (doorPreset && doorPreset.width && realScale && !isWindowOrGaragePreset) {
+      const desiredPx = doorPreset.width / realScale;
       const dx = finalP2.x - finalP1.x;
       const dy = finalP2.y - finalP1.y;
       const len = Math.hypot(dx, dy);
