@@ -340,6 +340,19 @@ export default function RightPropertyPaneView({
   const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user } = useAppModel();
   const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
 
+  // Resolve savedDefault wall height using the specified precedence rules
+  const savedDefault = React.useMemo(() => {
+    let def = 2700;
+    try {
+      const saved = localStorage.getItem('ezefloor_wall_thickness_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        def = parsed.defaultHeight ?? 2700;
+      }
+    } catch (e) {}
+    return def;
+  }, []);
+
   // Takeoff export modal state
   const [showTakeoffModal, setShowTakeoffModal] = React.useState(false);
   const [isExporting, setIsExporting] = React.useState(false);
@@ -373,7 +386,7 @@ export default function RightPropertyPaneView({
       const dy = c[1][1] - c[0][1];
       const lengthPx = Math.hypot(dx, dy);
       const lengthM = scaleValue ? lengthPx * scaleValue : null;
-      const heightMm = w.height || 2400;
+      const heightMm = w.height ?? savedDefault;
       const heightM = heightMm / 1000;
       const areaM2 = lengthM != null ? lengthM * heightM : null;
 
@@ -384,7 +397,7 @@ export default function RightPropertyPaneView({
     });
 
     return groups;
-  }, [walls, scaleValue]);
+  }, [walls, scaleValue, savedDefault]);
 
   const totalWallCount = walls.filter((w) => w.centerline && w.centerline.length === 2).length;
   const sumOf = (group, field) => group.walls.reduce((s, w) => s + (w[field] || 0), 0);
@@ -531,7 +544,7 @@ export default function RightPropertyPaneView({
           id: String(w.id),
           class_name: w.class_name || w.wall_type || "interior_wall",
           length_mm: lengthMm,
-          height_mm: w.height || 2400,
+          height_mm: w.height ?? savedDefault,
           thickness_mm: w.thickness || 90
         };
       });
@@ -769,13 +782,7 @@ export default function RightPropertyPaneView({
             <div className="panel-field">
               <span className="panel-label">Wall Height</span>
               {(() => {
-                // Read saved config default
-                let savedDefault = 2700;
-                try {
-                  const saved = localStorage.getItem('ezefloor_wall_thickness_config');
-                  if (saved) { const parsed = JSON.parse(saved); savedDefault = parsed.defaultHeight || 2700; }
-                } catch(e) {}
-                const currentHeight = selectedWallIds.length > 1 ? "multiple" : (selectedWall?.height || savedDefault);
+                const currentHeight = selectedWallIds.length > 1 ? "multiple" : (selectedWall?.height ?? savedDefault);
                 const isCustom = currentHeight !== "multiple" && !WALL_HEIGHT_OPTIONS.includes(Number(currentHeight));
                 return (
                   <>
