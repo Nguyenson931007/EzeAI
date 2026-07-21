@@ -63,6 +63,29 @@ export default function ThreeDView({
   const floorMeshesRef = useRef([]);
   const doorMeshesRef = useRef([]);
 
+  // Compute live wall height from wallsByPage for the selected 3D wall
+  const liveSelectedWallHeight = React.useMemo(() => {
+    if (!selected3DWall) return wallHeightMm;
+    const targetPage = selected3DWall.pageIndex !== undefined ? selected3DWall.pageIndex : currentPage;
+    const pageWalls = wallsByPage[targetPage] || [];
+    const baseId = getBaseWallId ? getBaseWallId(selected3DWall.wallId) : selected3DWall.wallId;
+    const liveWall = pageWalls.find(w => w.id === selected3DWall.wallId || getBaseWallId(w.id) === baseId);
+    return liveWall ? (liveWall.height || liveWall.height_mm || wallHeightMm) : wallHeightMm;
+  }, [selected3DWall, wallsByPage, currentPage, wallHeightMm]);
+
+  const liveSelectedWallType = React.useMemo(() => {
+    if (!selected3DWall) return "int";
+    const targetPage = selected3DWall.pageIndex !== undefined ? selected3DWall.pageIndex : currentPage;
+    const pageWalls = wallsByPage[targetPage] || [];
+    const baseId = getBaseWallId ? getBaseWallId(selected3DWall.wallId) : selected3DWall.wallId;
+    const liveWall = pageWalls.find(w => w.id === selected3DWall.wallId || getBaseWallId(w.id) === baseId);
+    if (!liveWall) return "int";
+    if (liveWall.wall_type) return liveWall.wall_type;
+    if (liveWall.class_name === "exterior_wall") return "ext";
+    if (liveWall.class_name === "partition_wall") return "part";
+    return "int";
+  }, [selected3DWall, wallsByPage, currentPage]);
+
   // Initialize visibleLevels
   useEffect(() => {
     const initial = {};
@@ -1273,7 +1296,7 @@ export default function ThreeDView({
               <span style={{ fontSize: "16px" }}>🧱</span>
               <div>
                 <div style={{ fontWeight: "bold", fontSize: "13px", color: "#f97316" }}>
-                  Selected Wall ({selected3DWall.wall.wall_type === "ext" || selected3DWall.wall.class_name === "exterior_wall" ? "Exterior" : (selected3DWall.wall.wall_type === "part" ? "Partition" : "Interior")})
+                  Selected Wall ({liveSelectedWallType === "ext" ? "Exterior" : (liveSelectedWallType === "part" ? "Partition" : "Interior")})
                 </div>
                 <div style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "monospace" }}>
                   ID: {selected3DWall.wallId}
@@ -1299,7 +1322,7 @@ export default function ThreeDView({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
             <span style={{ color: "#d1d5db" }}>Wall Type:</span>
             <select
-              value={selected3DWall.wall.wall_type || (selected3DWall.wall.class_name === "exterior_wall" ? "ext" : (selected3DWall.wall.class_name === "partition_wall" ? "part" : "int"))}
+              value={liveSelectedWallType}
               onChange={(e) => handleUpdateSelectedWallType(e.target.value)}
               style={{
                 padding: "4px 8px",
@@ -1327,7 +1350,7 @@ export default function ThreeDView({
                 step="50"
                 min="500"
                 max="10000"
-                value={selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm}
+                value={liveSelectedWallHeight}
                 onChange={(e) => handleUpdateSelectedWallHeight(Number(e.target.value))}
                 style={{
                   width: "90px",
@@ -1348,7 +1371,7 @@ export default function ThreeDView({
               min="1500"
               max="5000"
               step="50"
-              value={selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm}
+              value={liveSelectedWallHeight}
               onChange={(e) => handleUpdateSelectedWallHeight(Number(e.target.value))}
               style={{
                 width: "100%",
@@ -1369,9 +1392,9 @@ export default function ThreeDView({
                     flex: 1,
                     padding: "4px 0",
                     borderRadius: "6px",
-                    border: (selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm) === hPreset ? "1px solid #f97316" : "1px solid rgba(255,255,255,0.1)",
-                    backgroundColor: (selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm) === hPreset ? "rgba(249, 115, 22, 0.2)" : "rgba(30, 41, 59, 0.5)",
-                    color: (selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm) === hPreset ? "#f97316" : "#cbd5e1",
+                    border: liveSelectedWallHeight === hPreset ? "1px solid #f97316" : "1px solid rgba(255,255,255,0.1)",
+                    backgroundColor: liveSelectedWallHeight === hPreset ? "rgba(249, 115, 22, 0.2)" : "rgba(30, 41, 59, 0.5)",
+                    color: liveSelectedWallHeight === hPreset ? "#f97316" : "#cbd5e1",
                     fontSize: "11px",
                     fontWeight: "bold",
                     cursor: "pointer",
@@ -1384,7 +1407,7 @@ export default function ThreeDView({
             </div>
 
             <button
-              onClick={() => handleApplyHeightToAllWalls(selected3DWall.wall.height || selected3DWall.wall.height_mm || wallHeightMm)}
+              onClick={() => handleApplyHeightToAllWalls(liveSelectedWallHeight)}
               style={{
                 marginTop: "4px",
                 padding: "6px",

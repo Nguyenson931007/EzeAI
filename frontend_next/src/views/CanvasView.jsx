@@ -565,6 +565,31 @@ const WallLayer = React.memo(({
         );
       })}
 
+      {/* 4. Height-based color overlay for walls with custom heights */}
+      {(walls || []).map((w, idx) => {
+        const h = w.height || w.height_mm || 0;
+        if (!h || h === 2700) return null; // Skip default height walls
+        const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
+        if (!pointsStr) return null;
+
+        let heightColor = "rgba(59, 130, 246, 0.25)"; // blue < 2500
+        if (h < 2500) heightColor = "rgba(59, 130, 246, 0.25)";
+        else if (h < 2700) heightColor = "rgba(16, 185, 129, 0.2)"; // green
+        else if (h < 2850) heightColor = "rgba(245, 158, 11, 0.2)"; // amber
+        else if (h < 3300) heightColor = "rgba(245, 158, 11, 0.3)"; // amber stronger
+        else heightColor = "rgba(139, 92, 246, 0.3)"; // purple > 3300
+
+        return (
+          <polygon
+            key={`height-${w.id}-${idx}`}
+            points={pointsStr}
+            fill={heightColor}
+            stroke="none"
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
       {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
       {(walls || []).map((w, idx) => {
         const isSelected = selectedWallIds.some(id => id === w.id || getBaseWallId(id) === getBaseWallId(w.id));

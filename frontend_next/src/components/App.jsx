@@ -18,7 +18,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import dynamic from "next/dynamic";
-import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon, getBaseWallId } from "@/utils/geometry";
 import LoginView from "@/views/LoginView";
 import RibbonView from "@/views/RibbonView";
 import RightPropertyPaneView from "@/views/RightPropertyPaneView";
@@ -979,7 +979,7 @@ export default function App() {
             ) : (
               <RightPropertyPaneView
                 selectedRoom={rooms.find(r => r.id === selectedId)}
-                selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId)}
+                selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId || getBaseWallId(w.id) === getBaseWallId(selectedId))}
                 selectedDoor={(processedDoorsByPage[currentPage] || []).find(d => d.id === selectedId)}
                 selectedType={selectedType}
                 selectedPointIndex={selectedPointIndex}
