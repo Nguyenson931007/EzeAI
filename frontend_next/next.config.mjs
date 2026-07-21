@@ -58,12 +58,7 @@ const nextConfig = {
   },
 
   // Dev server configuration
-  devIndicators: false,
-
-  // Prevent 500 Internal Server Error when AI inference takes longer than 30s
-  experimental: {
-    proxyTimeout: 120000,
-  },
+  devIndicators: false
 };
 
 export default nextConfig;
