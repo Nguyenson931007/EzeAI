@@ -29,8 +29,8 @@ import {
   cutWallsByDoors
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
-import { snapPointToWall } from "@/engines/DoorGeometryEngine";
-import { resolveDoorTypeId, DOOR_TYPE_REGISTRY } from "@/models/DoorTypeRegistry";
+import { snapPointToWall, rotateDoorGeometry } from "@/engines/DoorGeometryEngine";
+import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -2211,16 +2211,20 @@ export default function CanvasView({
   const handleDoorRotateLeft = () => {
     const d = doorContextMenu.door;
     if (d && updateDoor) {
-      const newRotation = ((d.rotation || 0) - 90 + 360) % 360;
-      updateDoor({ ...d, rotation: newRotation });
+      const rotated = rotateDoorGeometry(d, -90);
+      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x)/2, y: (rotated.points[0].y + rotated.points[1].y)/2 });
+      const newParent = findParentWall(centerPt, walls, 120);
+      updateDoor({ ...rotated, parentWallId: newParent ? newParent.id : d.parentWallId });
     }
   };
 
   const handleDoorRotateRight = () => {
     const d = doorContextMenu.door;
     if (d && updateDoor) {
-      const newRotation = ((d.rotation || 0) + 90) % 360;
-      updateDoor({ ...d, rotation: newRotation });
+      const rotated = rotateDoorGeometry(d, 90);
+      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x)/2, y: (rotated.points[0].y + rotated.points[1].y)/2 });
+      const newParent = findParentWall(centerPt, walls, 120);
+      updateDoor({ ...rotated, parentWallId: newParent ? newParent.id : d.parentWallId });
     }
   };
 

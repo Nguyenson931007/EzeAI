@@ -1,6 +1,7 @@
 import React from 'react';
-import { getDoorCenterline } from '@/utils/geometry';
+import { getDoorCenterline, getBaseWallId } from '@/utils/geometry';
 import { getDoorBoundingBox } from '@/engines/DoorArcLabelEngine';
+import { findParentWall } from '@/models/DoorTypeRegistry';
 
 export default function AIDoor({
   door: d,
@@ -422,44 +423,42 @@ export default function AIDoor({
       let selected = [];
       if (e1 && e2) {
         // We have our 2 longest straight segments e1 and e2. Now identify Frame vs Leaf.
-        let nearestWall = null;
-        let minDist = Infinity;
-        const mCenter = { x: cxAvg, y: cyAvg };
+        let targetWall = null;
+        if (d.parentWallId && walls && walls.length > 0) {
+          const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+          targetWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
+        }
 
-        if (walls && walls.length > 0) {
-          for (const w of walls) {
-            if (!w.centerline || w.centerline.length !== 2) continue;
-            const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
-            const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
-            const dxW = D.x - C.x;
-            const dyW = D.y - C.y;
-            const lenW = Math.hypot(dxW, dyW);
-            if (lenW < 1.0) continue;
-            const dist = Math.abs(dxW * (mCenter.y - C.y) - dyW * (mCenter.x - C.x)) / lenW;
-            if (dist < minDist) {
-              minDist = dist;
-              nearestWall = w;
-            }
+        let frameVector = null;
+        if (targetWall && targetWall.centerline && targetWall.centerline.length === 2) {
+          const C = { x: targetWall.centerline[0][0], y: targetWall.centerline[0][1] };
+          const D = { x: targetWall.centerline[1][0], y: targetWall.centerline[1][1] };
+          const dxW = D.x - C.x;
+          const dyW = D.y - C.y;
+          const lenW = Math.hypot(dxW, dyW);
+          if (lenW >= 1.0) {
+            frameVector = { x: dxW / lenW, y: dyW / lenW };
+          }
+        } else if (d.points && d.points.length >= 2) {
+          const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+          const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+          const dxP = p2.x - p1.x;
+          const dyP = p2.y - p1.y;
+          const lenP = Math.hypot(dxP, dyP);
+          if (lenP >= 1.0) {
+            frameVector = { x: dxP / lenP, y: dyP / lenP };
           }
         }
 
         let frameEdge = null;
         let leafEdge = null;
 
-        if (nearestWall && minDist < 60.0) {
-          // If door lies near a wall: Frame is the one most parallel to the wall centerline
-          const C = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
-          const D = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
-          const dxW = D.x - C.x;
-          const dyW = D.y - C.y;
-          const lenW = Math.hypot(dxW, dyW);
-          const uW = { x: dxW / lenW, y: dyW / lenW };
-
+        if (frameVector) {
           const u1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
           const u2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
 
-          const dot1 = Math.abs(u1.x * uW.x + u1.y * uW.y);
-          const dot2 = Math.abs(u2.x * uW.x + u2.y * uW.y);
+          const dot1 = Math.abs(u1.x * frameVector.x + u1.y * frameVector.y);
+          const dot2 = Math.abs(u2.x * frameVector.x + u2.y * frameVector.y);
 
           if (dot1 > dot2) {
             frameEdge = e1;
@@ -469,13 +468,43 @@ export default function AIDoor({
             leafEdge = e1;
           }
         } else {
-          // If no walls: longer is Frame, shorter is Leaf
-          if (e1.len >= e2.len) {
+          // If no wall and no points: check segment midpoint distance to nearest wall
+          let minDist1 = Infinity;
+          let minDist2 = Infinity;
+          const m1 = { x: (e1.p1.x + e1.p2.x)/2, y: (e1.p1.y + e1.p2.y)/2 };
+          const m2 = { x: (e2.p1.x + e2.p2.x)/2, y: (e2.p1.y + e2.p2.y)/2 };
+
+          if (walls && walls.length > 0) {
+            for (const w of walls) {
+              if (!w.centerline || w.centerline.length !== 2) continue;
+              const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
+              const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
+              const dxW = D.x - C.x;
+              const dyW = D.y - C.y;
+              const lenW = Math.hypot(dxW, dyW);
+              if (lenW < 1.0) continue;
+
+              const d1 = Math.abs(dxW * (m1.y - C.y) - dyW * (m1.x - C.x)) / lenW;
+              const d2 = Math.abs(dxW * (m2.y - C.y) - dyW * (m2.x - C.x)) / lenW;
+              if (d1 < minDist1) minDist1 = d1;
+              if (d2 < minDist2) minDist2 = d2;
+            }
+          }
+
+          if (minDist1 < minDist2) {
             frameEdge = e1;
             leafEdge = e2;
-          } else {
+          } else if (minDist2 < minDist1) {
             frameEdge = e2;
             leafEdge = e1;
+          } else {
+            if (e1.len >= e2.len) {
+              frameEdge = e1;
+              leafEdge = e2;
+            } else {
+              frameEdge = e2;
+              leafEdge = e1;
+            }
           }
         }
 
@@ -574,7 +603,29 @@ export default function AIDoor({
           ];
 
           let wallDetectedFrameIndex = -1;
-          if (walls && walls.length > 0) {
+          let targetParentWall = null;
+          if (d.parentWallId && walls && walls.length > 0) {
+            const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+            targetParentWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
+          }
+
+          if (targetParentWall && targetParentWall.centerline && targetParentWall.centerline.length === 2) {
+            const C = { x: targetParentWall.centerline[0][0], y: targetParentWall.centerline[0][1] };
+            const D = { x: targetParentWall.centerline[1][0], y: targetParentWall.centerline[1][1] };
+            const dxW = D.x - C.x;
+            const dyW = D.y - C.y;
+            const lenW = Math.hypot(dxW, dyW);
+            if (lenW >= 1.0) {
+              const uW = { x: dxW / lenW, y: dyW / lenW };
+              const u0 = { x: dx1 / r, y: dy1 / r };
+              const u1 = { x: dx2 / r, y: dy2 / r };
+              const dot0 = Math.abs(u0.x * uW.x + u0.y * uW.y);
+              const dot1 = Math.abs(u1.x * uW.x + u1.y * uW.y);
+              wallDetectedFrameIndex = dot0 >= dot1 ? 0 : 1;
+            }
+          }
+
+          if (wallDetectedFrameIndex === -1 && walls && walls.length > 0) {
             let bestScore0 = -1;
             let bestScore1 = -1;
 
@@ -620,31 +671,33 @@ export default function AIDoor({
             }
           }
 
-          if (d.frameEdgeIndex === undefined) {
-            if (wallDetectedFrameIndex !== -1) {
-              frameEdgeIndex = wallDetectedFrameIndex;
-            } else if (d.points && d.points.length >= 2) {
-              const pts = d.points
-                .map(p => {
-                  const x = Array.isArray(p) ? p[0] : (p ? p.x : undefined);
-                  const y = Array.isArray(p) ? p[1] : (p ? p.y : undefined);
-                  return { x: Number(x), y: Number(y) };
-                })
-                .filter(p => p && !isNaN(p.x) && !isNaN(p.y));
-              
-              if (pts.length >= 2) {
-                const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
-                const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
-                const frame_end_target = d0 > d1 ? pts[0] : pts[1];
+          const isDraggingThis = dragging && dragging.id === d.id;
 
-                const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
-                const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
+          if (isDraggingThis || d.frameEdgeIndex !== undefined) {
+            frameEdgeIndex = d.frameEdgeIndex !== undefined ? d.frameEdgeIndex : 0;
+          } else if (wallDetectedFrameIndex !== -1) {
+            frameEdgeIndex = wallDetectedFrameIndex;
+          } else if (d.points && d.points.length >= 2) {
+            const pts = d.points
+              .map(p => {
+                const x = Array.isArray(p) ? p[0] : (p ? p.x : undefined);
+                const y = Array.isArray(p) ? p[1] : (p ? p.y : undefined);
+                return { x: Number(x), y: Number(y) };
+              })
+              .filter(p => p && !isNaN(p.x) && !isNaN(p.y));
+            
+            if (pts.length >= 2) {
+              const d0 = Math.hypot(pts[0].x - hingeX, pts[0].y - hingeY);
+              const d1 = Math.hypot(pts[1].x - hingeX, pts[1].y - hingeY);
+              const frame_end_target = d0 > d1 ? pts[0] : pts[1];
 
-                if (dist1 < dist2) {
-                  frameEdgeIndex = 0;
-                } else {
-                  frameEdgeIndex = 1;
-                }
+              const dist1 = Math.hypot(o1_proj.x - frame_end_target.x, o1_proj.y - frame_end_target.y);
+              const dist2 = Math.hypot(o2_proj.x - frame_end_target.x, o2_proj.y - frame_end_target.y);
+
+              if (dist1 < dist2) {
+                frameEdgeIndex = 0;
+              } else {
+                frameEdgeIndex = 1;
               }
             }
           }
@@ -657,23 +710,23 @@ export default function AIDoor({
 
   React.useEffect(() => {
     if (dragging && dragging.id === d.id) return;
+    if (d.frameEdgeIndex !== undefined) return;
+
     if (!isSliding && topEdges && topEdges.length === 2 && updateDoor) {
       const activeFrameSeg = topEdges[frameEdgeIndex];
-      const needsPointsUpdate = !d.points || d.points.length < 2 || !d.points[0] || !d.points[1] ||
-        (d.points[0].x !== undefined && d.points[0].y !== undefined &&
-         Math.hypot(d.points[0].x - activeFrameSeg.p1.x, d.points[0].y - activeFrameSeg.p1.y) > 0.1) ||
-        (d.points[1].x !== undefined && d.points[1].y !== undefined &&
-         Math.hypot(d.points[1].x - activeFrameSeg.p2.x, d.points[1].y - activeFrameSeg.p2.y) > 0.1);
-
-      if (d.frameEdgeIndex === undefined || needsPointsUpdate) {
-        updateDoor({
-          ...d,
-          frameEdgeIndex: frameEdgeIndex,
-          points: [activeFrameSeg.p1, activeFrameSeg.p2]
-        });
-      }
+      const frameCenter = {
+        x: (activeFrameSeg.p1.x + activeFrameSeg.p2.x) / 2,
+        y: (activeFrameSeg.p1.y + activeFrameSeg.p2.y) / 2
+      };
+      const newParentWall = findParentWall(frameCenter, walls, 120);
+      updateDoor({
+        ...d,
+        frameEdgeIndex: frameEdgeIndex,
+        points: [activeFrameSeg.p1, activeFrameSeg.p2],
+        parentWallId: newParentWall ? newParentWall.id : d.parentWallId
+      });
     }
-  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, d.points, dragging]);
+  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, dragging, walls, d.parentWallId]);
 
   const renderJambs = () => {
     let p1, p2;

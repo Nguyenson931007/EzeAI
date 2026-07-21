@@ -62,6 +62,20 @@ function projectPointOntoSegment(P, A, B) {
   return { point: proj, t, dist: dist(P, proj) };
 }
 
+/**
+ * Projects point P onto infinite line passing through A and B (unclamped t).
+ */
+function projectPointOntoLine(P, A, B) {
+  const AB = sub(B, A);
+  const AP = sub(P, A);
+  const L2 = dot(AB, AB);
+  if (L2 < 1e-9) return { point: { ...A }, t: 0, dist: dist(P, A) };
+
+  const t = dot(AP, AB) / L2;
+  const proj = add(A, scale(AB, t));
+  return { point: proj, t, dist: dist(P, proj) };
+}
+
 // ──────────────────────────────────────────────────────────────
 //  WALL HELPERS
 // ──────────────────────────────────────────────────────────────
@@ -492,11 +506,55 @@ export function isDoorOverlapping(door, existingDoors, walls, tolerance = 5) {
 // ──────────────────────────────────────────────────────────────
 
 /**
- * Recalculates door geometry after its parent wall has been moved, split, or resized.
- *
- * Strategy:
- *   - Computes the door's parametric position (t) along the old wall
- *   - Applies the same parametric position to the new wall
+ * Computes continuous endpoints of a wall line by merging collinear split segments.
+ */
+export function getContinuousWallEndpoints(wall, allWalls) {
+  if (!wall || !wall.centerline || wall.centerline.length !== 2) return null;
+
+  const getBaseId = (id) => id ? id.split('-A-')[0].split('-B-')[0].split('_cut_')[0] : '';
+  const baseId = getBaseId(wall.id);
+  const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+  const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+  const dir = normalize(sub(p2, p1));
+  const segLen = dist(p1, p2);
+
+  if (segLen < 1e-6) return { p1, p2 };
+
+  let minT = 0;
+  let maxT = segLen;
+
+  const candidateWalls = (allWalls || []).filter(w => {
+    if (!w.centerline || w.centerline.length !== 2) return false;
+    if (w.id === wall.id) return true;
+    if (baseId && getBaseId(w.id) === baseId) return true;
+
+    const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+    const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+    const wdir = normalize(sub(wp2, wp1));
+    const isParallel = Math.abs(dot(dir, wdir)) > 0.95;
+    if (!isParallel) return false;
+
+    const perpDist = Math.abs(dir.x * (wp1.y - p1.y) - dir.y * (wp1.x - p1.x));
+    return perpDist < 15.0;
+  });
+
+  for (const w of candidateWalls) {
+    const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+    const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+    const t1 = dot(sub(wp1, p1), dir);
+    const t2 = dot(sub(wp2, p1), dir);
+
+    minT = Math.min(minT, t1, t2);
+    maxT = Math.max(maxT, t1, t2);
+  }
+
+  const continuousP1 = add(p1, scale(dir, minT));
+  const continuousP2 = add(p1, scale(dir, maxT));
+
+  return { p1: continuousP1, p2: continuousP2 };
+}
+
 /**
  * Constrains a door's movement strictly along its parent wall centerline.
  * Calculates parametric coordinate t = dot(P - W1, Wdir) / Wlen,
@@ -506,11 +564,12 @@ export function isDoorOverlapping(door, existingDoors, walls, tolerance = 5) {
  * @param {Object} door - Door object
  * @param {Object} parentWall - Parent wall object
  * @param {{x: number, y: number}} rawMousePoint - Current mouse position
+ * @param {Array} [allWalls] - Optional array of all walls to compute continuous wall endpoints
  * @returns {Object} Updated door object constrained to wall
  */
-export function constrainDoorToParentWall(door, parentWall, rawMousePoint) {
+export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWalls) {
   const pts = getDoorPoints(door);
-  const ep = getWallEndpoints(parentWall);
+  const ep = getContinuousWallEndpoints(parentWall, allWalls) || getWallEndpoints(parentWall);
   if (!pts || !ep) return door;
 
   const wallDir = normalize(sub(ep.p2, ep.p1));
@@ -521,11 +580,11 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint) {
   const doorWidth = dist(pts.p1, pts.p2);
   const halfW = doorWidth / 2;
 
-  // Project rawMousePoint onto wall centerline
-  const proj = projectPointOntoSegment(rawMousePoint, ep.p1, ep.p2);
+  // Project rawMousePoint onto continuous wall centerline
+  const proj = projectPointOntoLine(rawMousePoint, ep.p1, ep.p2);
   let distAlongWall = proj.t * wallLen;
 
-  // Clamp distAlongWall so door frame stays within wall segment [halfW, wallLen - halfW]
+  // Clamp distAlongWall so door endpoints stay within continuous wall line bounds
   if (wallLen >= doorWidth) {
     distAlongWall = Math.max(halfW, Math.min(wallLen - halfW, distAlongWall));
   } else {
@@ -534,37 +593,63 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint) {
 
   const newCenter = add(ep.p1, scale(wallDir, distAlongWall));
 
-  // Determine door unit vector aligned parallel to wallDir
-  let doorDir = normalize(sub(pts.p2, pts.p1));
-  if (Math.abs(doorDir.x) < 1e-6 && Math.abs(doorDir.y) < 1e-6) {
+  // Determine door unit vector aligned parallel to wallDir while preserving p1 -> p2 relative orientation
+  const origDoorDir = normalize(sub(pts.p2, pts.p1));
+  let doorDir;
+  if (Math.hypot(origDoorDir.x, origDoorDir.y) < 1e-6) {
     doorDir = wallDir;
-  } else if (dot(doorDir, wallDir) < 0) {
-    doorDir = scale(wallDir, -1);
   } else {
-    doorDir = wallDir;
+    doorDir = dot(origDoorDir, wallDir) >= 0 ? wallDir : scale(wallDir, -1);
   }
 
   const newP1 = sub(newCenter, scale(doorDir, halfW));
   const newP2 = add(newCenter, scale(doorDir, halfW));
 
-  // Construct wall-aligned door bounding box centered on newP1 & newP2
-  const wallThick = parentWall.thickness_px || 20;
-  const norm = { x: -doorDir.y, y: doorDir.x };
-  const halfT = wallThick / 2;
+  // Shift existing AI polygon/mask_polygon along wall by delta (tx, ty)
+  const startCenter = midpoint(pts.p1, pts.p2);
+  const tx = newCenter.x - startCenter.x;
+  const ty = newCenter.y - startCenter.y;
 
-  const newPolygon = [
-    { x: newP1.x + norm.x * halfT, y: newP1.y + norm.y * halfT },
-    { x: newP2.x + norm.x * halfT, y: newP2.y + norm.y * halfT },
-    { x: newP2.x - norm.x * halfT, y: newP2.y - norm.y * halfT },
-    { x: newP1.x - norm.x * halfT, y: newP1.y - norm.y * halfT }
-  ];
+  let newPolygon = null;
+  let newMaskPoly = null;
+
+  if (door.polygon && door.polygon.length >= 3) {
+    newPolygon = door.polygon.map(p => {
+      const isArr = Array.isArray(p);
+      const px = isArr ? p[0] : p.x;
+      const py = isArr ? p[1] : p.y;
+      return isArr ? [px + tx, py + ty] : { x: px + tx, y: py + ty };
+    });
+  }
+  if (door.mask_polygon && door.mask_polygon.length >= 3) {
+    newMaskPoly = door.mask_polygon.map(p => {
+      const isArr = Array.isArray(p);
+      const px = isArr ? p[0] : p.x;
+      const py = isArr ? p[1] : p.y;
+      return isArr ? [px + tx, py + ty] : { x: px + tx, y: py + ty };
+    });
+  }
+
+  if (!newPolygon) {
+    const wallThick = parentWall.thickness_px || 20;
+    const norm = { x: -doorDir.y, y: doorDir.x };
+    const halfT = wallThick / 2;
+
+    newPolygon = [
+      { x: newP1.x + norm.x * halfT, y: newP1.y + norm.y * halfT },
+      { x: newP2.x + norm.x * halfT, y: newP2.y + norm.y * halfT },
+      { x: newP2.x - norm.x * halfT, y: newP2.y - norm.y * halfT },
+      { x: newP1.x - norm.x * halfT, y: newP1.y - norm.y * halfT }
+    ];
+    newMaskPoly = newPolygon;
+  }
 
   return {
     ...door,
     points: [newP1, newP2],
     centerPoint: newCenter,
     polygon: newPolygon,
-    mask_polygon: newPolygon,
+    mask_polygon: newMaskPoly || newPolygon,
     parentWallId: parentWall.id,
     geometryVersion: (door.geometryVersion || 1) + 1,
     modifiedAt: new Date().toISOString(),
@@ -573,6 +658,8 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint) {
 
 /**
  * Recalculates door geometry after its parent wall has been moved, split, or resized.
+ */
+export function recalculateDoorAfterWallChange(door, oldWall, newWall) {
   const pts = getDoorPoints(door);
   const oldEp = getWallEndpoints(oldWall);
   const newEp = getWallEndpoints(newWall);

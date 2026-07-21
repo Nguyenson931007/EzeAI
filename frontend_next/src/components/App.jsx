@@ -269,7 +269,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
+    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -819,6 +819,7 @@ export default function App() {
             <ThreeDView
               pages={pages}
               wallsByPage={wallsByPage}
+              setWallsByPage={setWallsByPage}
               doorsByPage={processedDoorsByPage}
               roomsByPage={roomsByPage}
               roofsByPage={roofsByPage}
@@ -826,6 +827,9 @@ export default function App() {
               realScale={realScale}
               image={image}
               imgSize={imgSize}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              setSelectedType={setSelectedType}
               onClose={() => setShow3D(false)}
             />
           ) : (
@@ -900,7 +904,6 @@ export default function App() {
               currentPage={currentPage}
               pages={pages}
               handleClick={handleClick}
-              checkAndResetIgnoreClick={checkAndResetIgnoreClick}
               finishPolygon={finishPolygon}
               finishDoor={finishDoor}
               onMouseMove={onMouseMove}

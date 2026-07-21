@@ -490,6 +490,18 @@ export function resolveDoorTypeId(doorClass, category = 'internal') {
   return category === 'external' ? 'ext_hinged_single' : 'int_hinged_single';
 }
 
+export function projectPointToHingeT(pt, wall, doorWidthPx = 0) {
+  if (!wall || !wall.centerline || wall.centerline.length !== 2 || !pt) return 0.5;
+  const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+  const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const L2 = dx * dx + dy * dy;
+  if (L2 < 1e-6) return 0.5;
+  let t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / L2;
+  return Math.max(0, Math.min(1, t));
+}
+
 /**
  * Finds the parent wall for a door based on geometric proximity.
  *
