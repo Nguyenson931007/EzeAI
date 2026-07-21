@@ -663,28 +663,37 @@ export default function ThreeDView({
               let minPerpDist = Infinity;
 
               if (pageWalls && pageWalls.length > 0) {
-                pageWalls.forEach(w => {
-                  if (!w.centerline || w.centerline.length < 2) return;
-                  const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
-                  const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-                  
+                // 1. Match by door.parentWallId (handling base wall IDs)
+                if (door.parentWallId) {
+                  const parentBaseId = getBaseWallId ? getBaseWallId(door.parentWallId) : door.parentWallId.split('-A-')[0].split('-B-')[0];
+                  nearestWall = pageWalls.find(w => {
+                    const wBaseId = getBaseWallId ? getBaseWallId(w.id) : w.id.split('-A-')[0].split('-B-')[0];
+                    return w.id === door.parentWallId || wBaseId === parentBaseId;
+                  });
+                }
+
+                // 2. Search by perpendicular distance if not found by parentWallId
+                if (!nearestWall) {
                   const cxSeg = (p1.x + p2.x) / 2;
                   const cySeg = (p1.y + p2.y) / 2;
-                  const wdx = wp2.x - wp1.x;
-                  const wdy = wp2.y - wp1.y;
-                  const L2 = wdx * wdx + wdy * wdy;
-                  if (L2 < 0.1) return;
 
-                  const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
-                  const tVal = ((cxSeg - wp1.x) * wdx + (cySeg - wp1.y) * wdy) / L2;
+                  pageWalls.forEach(w => {
+                    if (!w.centerline || w.centerline.length < 2) return;
+                    const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+                    const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+                    
+                    const wdx = wp2.x - wp1.x;
+                    const wdy = wp2.y - wp1.y;
+                    const L2 = wdx * wdx + wdy * wdy;
+                    if (L2 < 0.1) return;
 
-                  if (perpDist < 50 && tVal >= -0.5 && tVal <= 1.5) {
+                    const perpDist = Math.abs(wdx * (cySeg - wp1.y) - wdy * (cxSeg - wp1.x)) / Math.sqrt(L2);
                     if (perpDist < minPerpDist) {
                       minPerpDist = perpDist;
                       nearestWall = w;
                     }
-                  }
-                });
+                  });
+                }
               }
 
               if (nearestWall) {

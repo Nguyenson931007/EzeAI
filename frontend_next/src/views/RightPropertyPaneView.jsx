@@ -760,9 +760,7 @@ export default function RightPropertyPaneView({
                 value={
                   selectedWallIds.length > 1
                     ? "multiple"
-                    : selectedWall && pxToMm
-                      ? Math.round(pxToMm(selectedWall.thickness_px, realScale))
-                      : selectedWall?.thickness || 90
+                    : (selectedWall?.thickness ?? (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : 90))
                 }
                 onChange={(e) => {
                   if (e.target.value === "multiple") return;

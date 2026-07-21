@@ -624,7 +624,7 @@ export function useInteractionController(svgRef) {
   }
 
   function mmToPx(thicknessMm, rScale) {
-    if (rScale && rScale > 0) {
+    if (rScale && rScale !== 1.0 && rScale > 0) {
       return thicknessMm / rScale;
     }
     if (thicknessMm === 70) return 15;
@@ -633,11 +633,11 @@ export function useInteractionController(svgRef) {
   }
 
   function pxToMm(thicknessPx, rScale) {
-    if (rScale && rScale > 0) {
+    if (rScale && rScale !== 1.0 && rScale > 0) {
       return thicknessPx * rScale;
     }
-    if (Math.abs(thicknessPx - 15) < 1) return 70;
-    if (Math.abs(thicknessPx - 20) < 1) return 90;
+    if (Math.abs(thicknessPx - 15) < 2) return 70;
+    if (Math.abs(thicknessPx - 20) < 2) return 90;
     return thicknessPx * (90 / 20);
   }
 
