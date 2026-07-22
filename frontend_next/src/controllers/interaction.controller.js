@@ -1978,11 +1978,6 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           if (door.id === dragging.id) {
             const startDoor = dragging.startDoors?.find(sd => sd.id === door.id) || door;
 
-            let parentWall = dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
-            if (!parentWall) {
-              parentWall = findBestWallForDoor(startDoor, currentWalls, 120);
-            }
-
             const startMouse = dragging.startMouse || pRaw;
             const dx = pRaw.x - startMouse.x;
             const dy = pRaw.y - startMouse.y;
@@ -1990,6 +1985,55 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             const startPts = getDoorPoints(startDoor);
             const startCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x)/2, y: (startPts.p1.y + startPts.p2.y)/2 }) || startDoor.centerPoint || pRaw;
             const targetPoint = { x: startCenter.x + dx, y: startCenter.y + dy };
+
+            const isCtrl = e.ctrlKey || isCtrlDown;
+            if (isCtrl) {
+              let newPoints = startDoor.points;
+              if (startPts) {
+                newPoints = [
+                  { x: startPts.p1.x + dx, y: startPts.p1.y + dy },
+                  { x: startPts.p2.x + dx, y: startPts.p2.y + dy }
+                ];
+              }
+              const newCenter = startDoor.centerPoint 
+                ? { x: startDoor.centerPoint.x + dx, y: startDoor.centerPoint.y + dy }
+                : targetPoint;
+
+              let newPolygon = null;
+              let newMaskPoly = null;
+              if (startDoor.polygon && startDoor.polygon.length >= 3) {
+                newPolygon = startDoor.polygon.map(p => {
+                  const isArr = Array.isArray(p);
+                  const px = isArr ? p[0] : p.x;
+                  const py = isArr ? p[1] : p.y;
+                  return isArr ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
+                });
+              }
+              if (startDoor.mask_polygon && startDoor.mask_polygon.length >= 3) {
+                newMaskPoly = startDoor.mask_polygon.map(p => {
+                  const isArr = Array.isArray(p);
+                  const px = isArr ? p[0] : p.x;
+                  const py = isArr ? p[1] : p.y;
+                  return isArr ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
+                });
+              }
+
+              const freeDoor = {
+                ...startDoor,
+                points: newPoints,
+                centerPoint: newCenter,
+                polygon: newPolygon,
+                mask_polygon: newMaskPoly,
+                parentWallId: null
+              };
+              updatedSnappedDoor = freeDoor;
+              return freeDoor;
+            }
+
+            let parentWall = dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
+            if (!parentWall) {
+              parentWall = findBestWallForDoor(startDoor, currentWalls, 120);
+            }
 
             let constrainedDoor = null;
             if (parentWall) {
@@ -2698,10 +2742,16 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           const pageDoors = doorsByPage[currentPage] || [];
           const targetDoor = pageDoors.find(d => d.id === dragging.id);
           if (targetDoor) {
-            const parentWall = dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
-            const targetPts = getDoorPoints(targetDoor);
-            const doorCenter = (targetPts && { x: (targetPts.p1.x + targetPts.p2.x)/2, y: (targetPts.p1.y + targetPts.p2.y)/2 }) || targetDoor.centerPoint;
-            const finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, doorCenter, pageWalls) : targetDoor;
+            const isCtrl = e.ctrlKey || isCtrlDown;
+            let finalDoor;
+            if (isCtrl) {
+              finalDoor = { ...targetDoor, parentWallId: null };
+            } else {
+              const parentWall = dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
+              const targetPts = getDoorPoints(targetDoor);
+              const doorCenter = (targetPts && { x: (targetPts.p1.x + targetPts.p2.x)/2, y: (targetPts.p1.y + targetPts.p2.y)/2 }) || targetDoor.centerPoint;
+              finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, doorCenter, pageWalls) : targetDoor;
+            }
             const updatedDoors = pageDoors.map(d => d.id === dragging.id ? finalDoor : d);
             // Commit transaction: update state and history
             setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
