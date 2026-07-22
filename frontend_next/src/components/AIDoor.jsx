@@ -630,8 +630,8 @@ export default function AIDoor({
 
           const isDraggingThis = dragging && dragging.id === d.id;
 
-          if (isDraggingThis || d.frameEdgeIndex !== undefined) {
-            frameEdgeIndex = d.frameEdgeIndex !== undefined ? d.frameEdgeIndex : 0;
+          if (d.frameEdgeIndex !== undefined) {
+            frameEdgeIndex = d.frameEdgeIndex;
           } else if (wallDetectedFrameIndex !== -1) {
             frameEdgeIndex = wallDetectedFrameIndex;
           } else if (d.points && d.points.length >= 2) {
@@ -666,6 +666,7 @@ export default function AIDoor({
   const isDraggingThis = dragging && dragging.id === d.id;
 
   React.useEffect(() => {
+    if (!isSelected) return;
     if (dragging && dragging.id === d.id) return;
 
     if (!isSliding && topEdges && topEdges.length === 2 && updateDoor) {
@@ -696,7 +697,7 @@ export default function AIDoor({
         });
       }
     }
-  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, dragging, walls, d.parentWallId, d.points]);
+  }, [isSelected, d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, dragging, walls, d.parentWallId, d.points]);
 
   const renderJambs = () => {
     let p1, p2;
