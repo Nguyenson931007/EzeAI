@@ -639,9 +639,10 @@ export const useAIController = (
             let detectedWalls = event.walls.map(w => {
               const class_name = getWallClass(w);
               const wall_type = getWallType(w);
-              const defaultThickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
-              const thickness = w.thickness || defaultThickness;
-              const thickness_px = w.thickness_px || (realScale && realScale > 0 ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15));
+              // Always use user-configured thickness based on frontend class determination
+              // (backend may classify differently from getWallClass, causing mismatches)
+              const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
+              const thickness_px = (realScale && realScale > 0 && realScale !== 1.0) ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15);
               const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
                 pt[0] + pdfOffset.x,
                 pt[1] + pdfOffset.y
@@ -1113,9 +1114,10 @@ export const useAIController = (
           let rawWalls = wallData.walls.map(w => {
             const class_name = getWallClass(w);
             const wall_type = getWallType(w);
-            const defaultThickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
-            const thickness = w.thickness || defaultThickness;
-            const thickness_px = w.thickness_px || (realScale && realScale > 0 ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15));
+            // Always use user-configured thickness based on frontend class determination
+            // (backend may classify differently from getWallClass, causing mismatches)
+            const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
+            const thickness_px = (realScale && realScale > 0 && realScale !== 1.0) ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15);
             const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
               pt[0] + pdfOffset.x,
               pt[1] + pdfOffset.y
