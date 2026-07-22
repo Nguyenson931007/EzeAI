@@ -862,7 +862,7 @@ export default function RightPropertyPaneView({
               </button>
             </div>
           </>
-        ) : selectedType === "door" && selectedDoor ? (
+        ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
           (() => {
             const isSelectedWindow = selectedDoor.type === 'window' ||
               selectedDoor.class === 'window' ||

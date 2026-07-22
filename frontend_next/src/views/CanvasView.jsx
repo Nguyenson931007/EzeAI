@@ -1015,8 +1015,35 @@ const DoorLayer = React.memo(({
             const nx = -uy;
             const ny = ux;
             const thickness = 4;
+            const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const cx = (p1.x + p2.x) / 2;
+            const cy = (p1.y + p2.y) / 2;
+            const overlayThickness = 20;
+
             return (
               <g>
+                {/* Transparent Click Overlay */}
+                <rect
+                  x={-len / 2}
+                  y={-overlayThickness / 2}
+                  width={len}
+                  height={overlayThickness}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill="rgba(0, 0, 0, 0.01)"
+                  stroke="none"
+                />
+
+                {/* Window Visual Fill */}
+                <rect
+                  x={-len / 2}
+                  y={-thickness}
+                  width={len}
+                  height={thickness * 2}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(96, 165, 250, 0.15)" : "rgba(96, 165, 250, 0.05)")}
+                  stroke="none"
+                />
+
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
                 <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
                 <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
@@ -1229,6 +1256,7 @@ const DoorLayer = React.memo(({
                   }
                   if (interactionMode === "draw-wall") return;
                   if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                  e.stopPropagation();
                   setSelectedId(d.id);
                   setSelectedType(isWindow ? "window" : "door");
                 }}

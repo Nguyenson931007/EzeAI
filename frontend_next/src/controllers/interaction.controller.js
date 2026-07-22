@@ -1874,7 +1874,11 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       startSelectedVertices,
       parentWall: doorParentWall,
       startWalls: currentWalls.map(w => ({ ...w, centerline: w.centerline ? [...w.centerline.map(p => [...p])] : null })),
-      startDoors: currentDoors.map(d => ({ ...d }))
+      startDoors: currentDoors.map(d => ({
+        ...d,
+        points: d.points ? d.points.map(pt => Array.isArray(pt) ? [...pt] : { ...pt }) : null,
+        centerPoint: d.centerPoint ? { ...d.centerPoint } : null
+      }))
     });
   }
 
