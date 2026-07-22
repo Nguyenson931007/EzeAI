@@ -475,12 +475,9 @@ export function sortDoorsByT(doors, wall) {
 }
 
 export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false) {
-  // Wall cutting is always enabled — the forceCut parameter is kept for API compatibility
-  // but no longer gates the operation.
-
   if (!walls || walls.length === 0) return [];
   const baseWalls = restoreBaseWalls(walls);
-  if (!doors || doors.length === 0) return baseWalls;
+  if (!forceCut || !doors || doors.length === 0) return baseWalls;
 
   // Group doors by parent wall and sort by t
   const doorsByWall = new Map();
@@ -1604,4 +1601,46 @@ export function validateRoofPolygon(polygon, scaleValue) {
     return { valid: false, error: "Roof polygon area is too small." };
   }
   return { valid: true };
+}
+
+/**
+ * Mirrors a polygon across a line segment defined by p1 and p2.
+ */
+export function mirrorPolygonAcrossLine(polygon, p1, p2) {
+  if (!polygon || !p1 || !p2) return polygon;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return polygon;
+
+  return polygon.map(p => {
+    const isArr = Array.isArray(p);
+    const px = isArr ? p[0] : p.x;
+    const py = isArr ? p[1] : p.y;
+
+    const t = ((px - p1.x) * dx + (py - p1.y) * dy) / lenSq;
+    const projX = p1.x + t * dx;
+    const projY = p1.y + t * dy;
+
+    const refX = 2 * projX - px;
+    const refY = 2 * projY - py;
+
+    return isArr ? [refX, refY] : { x: refX, y: refY };
+  });
+}
+
+/**
+ * Mirrors a polygon across the perpendicular line passing through the midpoint of p1 and p2.
+ */
+export function mirrorPolygonAcrossPerpendicular(polygon, p1, p2) {
+  if (!polygon || !p1 || !p2) return polygon;
+  const midX = (p1.x + p2.x) / 2;
+  const midY = (p1.y + p2.y) / 2;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+
+  const normX = -dy;
+  const normY = dx;
+
+  return mirrorPolygonAcrossLine(polygon, { x: midX, y: midY }, { x: midX + normX, y: midY + normY });
 }

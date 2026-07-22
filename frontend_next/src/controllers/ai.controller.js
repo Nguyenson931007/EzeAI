@@ -930,7 +930,7 @@ export const useAIController = (
           if (currentWalls.length > 0) {
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: recalculateAllWallsPolygons(_cutWallsByDoors(currentWalls, mergedDoors, realScale))
+              [currentPage]: recalculateAllWallsPolygons(currentWalls)
             }));
           }
         }

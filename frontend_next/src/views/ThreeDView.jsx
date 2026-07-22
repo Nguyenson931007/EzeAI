@@ -904,16 +904,41 @@ export default function ThreeDView({
               doorGroup.add(activeGroup);
             } else if (isDouble) {
               const pWidth = (length - postThickness) / 2;
+
+              // Left panel group (pivot on left side)
+              const leftGroup = new THREE.Group();
+              leftGroup.position.set(-length/2 + postThickness/2, 0, 0);
               const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              leftSlab.position.set(-pWidth/2, slabHeight/2, 0);
+              leftSlab.position.set(pWidth/2, slabHeight/2, 0);
+              leftSlab.castShadow = enableShadows;
+              leftSlab.receiveShadow = enableShadows;
+              leftGroup.add(leftSlab);
+              leftGroup.rotation.y = 0.8; // swing open 45 degrees
+
+              // Right panel group (pivot on right side)
+              const rightGroup = new THREE.Group();
+              rightGroup.position.set(length/2 - postThickness/2, 0, 0);
               const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              rightSlab.position.set(pWidth/2, slabHeight/2, 0);
-              doorGroup.add(leftSlab, rightSlab);
+              rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
+              rightSlab.castShadow = enableShadows;
+              rightSlab.receiveShadow = enableShadows;
+              rightGroup.add(rightSlab);
+              rightGroup.rotation.y = -0.8; // swing open -45 degrees
+
+              doorGroup.add(leftGroup, rightGroup);
             } else {
               const pWidth = length - postThickness;
+              const panelGroup = new THREE.Group();
+              panelGroup.position.set(-length/2 + postThickness/2, 0, 0);
+
               const slabMesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              slabMesh.position.set(0, slabHeight/2, 0);
-              doorGroup.add(slabMesh);
+              slabMesh.position.set(pWidth/2, slabHeight/2, 0);
+              slabMesh.castShadow = enableShadows;
+              slabMesh.receiveShadow = enableShadows;
+              panelGroup.add(slabMesh);
+
+              panelGroup.rotation.y = 0.8; // Rotate open 45 degrees
+              doorGroup.add(panelGroup);
             }
           }
 
@@ -1375,21 +1400,7 @@ export default function ThreeDView({
               />
             </div>
 
-            <input
-              type="range"
-              min="1500"
-              max="5000"
-              step="50"
-              value={liveSelectedWallHeight}
-              onChange={(e) => handleUpdateSelectedWallHeight(Number(e.target.value))}
-              style={{
-                width: "100%",
-                height: "5px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                accentColor: "#f97316"
-              }}
-            />
+
 
             {/* Quick Height Presets */}
             <div style={{ display: "flex", gap: "6px", marginTop: "2px" }}>

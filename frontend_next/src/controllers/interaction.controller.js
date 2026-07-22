@@ -1580,10 +1580,22 @@ export function useInteractionController(svgRef) {
 function findParentWallForDoor(door, walls) {
   if (!walls || walls.length === 0 || !door) return null;
 
-  // 1. Try exact ID match
+  const pts = door.points;
+  let centerPt = door.centerPoint;
+  if (!centerPt && pts && pts.length >= 2) {
+    const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
+    const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
+    centerPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+  }
+
+  // 1. Try exact ID match if door has parentWallId
   if (door.parentWallId) {
-    const exactWall = walls.find(w => w.id === door.parentWallId);
-    if (exactWall) return exactWall;
+    const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
+    const doorBaseId = getBaseWallId(door.parentWallId);
+    const exactWall = walls.find(w => w.id === door.parentWallId || (doorBaseId && getBaseWallId(w.id) === doorBaseId));
+    if (exactWall) {
+      return exactWall;
+    }
 
     // 2. Try matching base wall ID, picking the closest sub-segment to door center
     const baseParentId = getBaseWallId(door.parentWallId);
@@ -1962,7 +1974,10 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           if (door.id === dragging.id) {
             const startDoor = dragging.startDoors?.find(sd => sd.id === door.id) || door;
 
-            const parentWall = dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
+            let parentWall = dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
+            if (!parentWall) {
+              parentWall = findBestWallForDoor(startDoor, currentWalls, 120);
+            }
 
             const startMouse = dragging.startMouse || pRaw;
             const dx = pRaw.x - startMouse.x;
@@ -1977,11 +1992,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
               constrainedDoor = constrainDoorToParentWall(startDoor, parentWall, targetPoint, currentWalls);
               constrainedDoor.parentWallId = parentWall.id;
             } else {
-              const shiftedDoor = {
-                ...startDoor,
-                points: startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }))
-              };
-              constrainedDoor = snapDoorToWalls(shiftedDoor, currentWalls, 999999, true, currentDoors);
+              constrainedDoor = snapDoorToWalls(startDoor, currentWalls, 999999, true, currentDoors);
             }
 
             updatedSnappedDoor = constrainedDoor;

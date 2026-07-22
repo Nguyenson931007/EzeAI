@@ -283,7 +283,7 @@ def login(user: UserLogin, response: Response):
             key="session_token",
             value=new_token,
             httponly=True,
-            max_age=1800,  # Thời gian sống phiên: 30 phút
+            max_age=18000,  # Thời gian sống phiên: 5 giờ (18000s)
             samesite="lax",
             secure=False   # Thiết lập bằng True nếu triển khai HTTPS trên production
         )
@@ -353,9 +353,9 @@ def validate_session_endpoint(
                 detail="Phiên đăng nhập không hợp lệ hoặc đã bị thay thế."
             )
 
-        # Check 30-minute inactivity timeout
+        # Check 5-hour inactivity timeout
         last_active = datetime.fromisoformat(row["last_active"])
-        if datetime.now() - last_active > timedelta(minutes=30):
+        if datetime.now() - last_active > timedelta(hours=5):
             cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (auth_username,))
             conn.commit()
             raise HTTPException(
@@ -378,7 +378,7 @@ def validate_session(
     """
     Dependency dùng để bảo vệ các API riêng tư.
     - Đọc session_token từ HTTP-Only Cookie hoặc Header X-Session-Token để tăng độ tương thích.
-    - Kiểm tra tính hợp lệ của Token và hết hạn phiên (Session Timeout: 30 phút không hoạt động).
+    - Kiểm tra tính hợp lệ của Token và hết hạn phiên (Session Timeout: 5 giờ không hoạt động).
     - Tự động cập nhật mốc thời gian hoạt động cuối cùng (last_active) để gia hạn phiên.
     """
     session_token = session_token_cookie or session_token_header
@@ -416,14 +416,14 @@ def validate_session(
             
         logger.debug(f"[AUTH] Xác thực thành công cho người dùng: {auth_username}")
         
-        # Kiểm tra hết hạn phiên 30 phút do không tương tác
+        # Kiểm tra hết hạn phiên 5 giờ do không tương tác
         last_active = datetime.fromisoformat(row["last_active"])
-        if datetime.now() - last_active > timedelta(minutes=30):
+        if datetime.now() - last_active > timedelta(hours=5):
             cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (auth_username,))
             conn.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
-                detail="Phiên làm việc đã hết hạn do không hoạt động trong 30 phút."
+                detail="Phiên làm việc đã hết hạn do không hoạt động trong 5 giờ."
             )
         
         # Cập nhật mốc thời gian hoạt động mới nhất

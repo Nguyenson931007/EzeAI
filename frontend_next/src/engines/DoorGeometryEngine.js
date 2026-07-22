@@ -569,7 +569,7 @@ export function getContinuousWallEndpoints(wall, allWalls) {
  */
 export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWalls) {
   const pts = getDoorPoints(door);
-  const ep = getContinuousWallEndpoints(parentWall, allWalls) || getWallEndpoints(parentWall);
+  const ep = getWallEndpoints(parentWall);
   if (!pts || !ep) return door;
 
   const wallDir = normalize(sub(ep.p2, ep.p1));
@@ -580,13 +580,17 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWa
   const doorWidth = dist(pts.p1, pts.p2);
   const halfW = doorWidth / 2;
 
-  // Project rawMousePoint onto continuous wall centerline
+  // Project rawMousePoint onto parent wall centerline
   const proj = projectPointOntoLine(rawMousePoint, ep.p1, ep.p2);
   let distAlongWall = proj.t * wallLen;
 
-  // Clamp distAlongWall so door endpoints stay within continuous wall line bounds
-  if (wallLen >= doorWidth) {
-    distAlongWall = Math.max(halfW, Math.min(wallLen - halfW, distAlongWall));
+  // Safety offset representing half thickness of intersecting perpendicular walls at both ends
+  const safetyOffset = (parentWall.thickness_px || 15) / 2;
+  const minLimit = halfW + safetyOffset;
+  const maxLimit = wallLen - halfW - safetyOffset;
+
+  if (wallLen >= doorWidth + safetyOffset * 2) {
+    distAlongWall = Math.max(minLimit, Math.min(maxLimit, distAlongWall));
   } else {
     distAlongWall = wallLen / 2;
   }
@@ -630,7 +634,8 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWa
     });
   }
 
-  if (!newPolygon) {
+  const isWindow = door.class === 'window' || door.type === 'window' || (door.doorTypeId && door.doorTypeId.startsWith('win_'));
+  if (!newPolygon && !isWindow) {
     const wallThick = parentWall.thickness_px || 20;
     const norm = { x: -doorDir.y, y: doorDir.x };
     const halfT = wallThick / 2;
