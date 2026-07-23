@@ -867,10 +867,7 @@ export default function ThreeDView({
                 const wLen = Math.hypot(wdx, wdy);
 
                 if (wLen > 0.1) {
-                  const wAngle = Math.atan2(wdy, wdx);
-                  const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
-                  hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
-
+                  hostWallAngle = angle;
                   const uxW = wdx / wLen;
                   const uyW = wdy / wLen;
                   const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
@@ -1097,8 +1094,11 @@ export default function ThreeDView({
               const slabOffsetX = isRightHinge ? -pWidth / 2 : pWidth / 2;
 
               let swingAngle = 0.85; // 48 degrees open
-              if (isRightHinge) swingAngle = -swingAngle;
-              if (isOutward) swingAngle = -swingAngle;
+              if (isRightHinge) {
+                swingAngle = isOutward ? 0.85 : -0.85;
+              } else {
+                swingAngle = isOutward ? -0.85 : 0.85;
+              }
 
               panelGroup.position.set(pivotX, 0, 0);
 
@@ -1115,8 +1115,9 @@ export default function ThreeDView({
               knobMesh.rotation.x = Math.PI / 2;
               const leverMesh = new THREE.Mesh(new THREE.BoxGeometry(6, 1.0, 1.2), handleMat);
               const handleX = isRightHinge ? (-pWidth + 6) : (pWidth - 6);
-              handleGroup.position.set(handleX, slabHeight * 0.5, slabThick / 2 + 1.2);
-              leverMesh.position.set(isRightHinge ? -2.0 : 2.0, 0, 1.2);
+              const handleZ = isOutward ? (-slabThick / 2 - 1.2) : (slabThick / 2 + 1.2);
+              handleGroup.position.set(handleX, slabHeight * 0.5, handleZ);
+              leverMesh.position.set(isRightHinge ? -2.0 : 2.0, 0, isOutward ? -1.2 : 1.2);
               handleGroup.add(knobMesh, leverMesh);
               panelGroup.add(handleGroup);
 
