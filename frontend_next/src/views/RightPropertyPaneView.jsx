@@ -556,6 +556,7 @@ export default function RightPropertyPaneView({
         const isWindow = type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'));
         const isGarage = cls.includes("garage") || t.includes("garage") || type === "garage" || d.doorTypeId === "ext_garage" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || (d.doorName && d.doorName.toLowerCase().includes("garage"));
 
+        let doorType = "Single Door";
         if (isWindow) {
           doorType = "Window";
         } else if (isGarage) {
