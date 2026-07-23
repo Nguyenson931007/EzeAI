@@ -586,14 +586,9 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWa
 
   // Safety offset representing half thickness of intersecting perpendicular walls at both ends
   const safetyOffset = (parentWall.thickness_px || 15) / 2;
-  const minLimit = halfW + safetyOffset;
-  const maxLimit = wallLen - halfW - safetyOffset;
-
-  if (wallLen >= doorWidth + safetyOffset * 2) {
-    distAlongWall = Math.max(minLimit, Math.min(maxLimit, distAlongWall));
-  } else {
-    distAlongWall = wallLen / 2;
-  }
+  const minLimit = Math.min(halfW + safetyOffset, wallLen / 2);
+  const maxLimit = Math.max(wallLen - halfW - safetyOffset, wallLen / 2);
+  distAlongWall = Math.max(minLimit, Math.min(maxLimit, distAlongWall));
 
   const newCenter = add(ep.p1, scale(wallDir, distAlongWall));
 
@@ -609,33 +604,41 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWa
   const newP1 = sub(newCenter, scale(doorDir, halfW));
   const newP2 = add(newCenter, scale(doorDir, halfW));
 
-  // Shift existing AI polygon/mask_polygon along wall by delta (tx, ty)
+  // Rotate existing AI polygon/mask_polygon along wall by angle difference and translate to newCenter
   const startCenter = midpoint(pts.p1, pts.p2);
-  const tx = newCenter.x - startCenter.x;
-  const ty = newCenter.y - startCenter.y;
+  const origAngle = Math.atan2(origDoorDir.y, origDoorDir.x);
+  const newAngle = Math.atan2(doorDir.y, doorDir.x);
+  let dAngle = newAngle - origAngle;
+  dAngle = Math.atan2(Math.sin(dAngle), Math.cos(dAngle));
+
+  const cosA = Math.cos(dAngle);
+  const sinA = Math.sin(dAngle);
+
+  const transformPoint = (p) => {
+    const isArr = Array.isArray(p);
+    const px = isArr ? p[0] : p.x;
+    const py = isArr ? p[1] : p.y;
+    const dx = px - startCenter.x;
+    const dy = py - startCenter.y;
+    const rx = dx * cosA - dy * sinA;
+    const ry = dx * sinA + dy * cosA;
+    const finalX = newCenter.x + rx;
+    const finalY = newCenter.y + ry;
+    return isArr ? [finalX, finalY] : { x: finalX, y: finalY };
+  };
 
   let newPolygon = null;
   let newMaskPoly = null;
 
   if (door.polygon && door.polygon.length >= 3) {
-    newPolygon = door.polygon.map(p => {
-      const isArr = Array.isArray(p);
-      const px = isArr ? p[0] : p.x;
-      const py = isArr ? p[1] : p.y;
-      return isArr ? [px + tx, py + ty] : { x: px + tx, y: py + ty };
-    });
+    newPolygon = door.polygon.map(transformPoint);
   }
   if (door.mask_polygon && door.mask_polygon.length >= 3) {
-    newMaskPoly = door.mask_polygon.map(p => {
-      const isArr = Array.isArray(p);
-      const px = isArr ? p[0] : p.x;
-      const py = isArr ? p[1] : p.y;
-      return isArr ? [px + tx, py + ty] : { x: px + tx, y: py + ty };
-    });
+    newMaskPoly = door.mask_polygon.map(transformPoint);
   }
 
   const isWindow = door.class === 'window' || door.type === 'window' || (door.doorTypeId && door.doorTypeId.startsWith('win_'));
-  if (!newPolygon && !isWindow) {
+  if (!newPolygon && !isWindow && door.mask_polygon) {
     const wallThick = parentWall.thickness_px || 20;
     const norm = { x: -doorDir.y, y: doorDir.x };
     const halfT = wallThick / 2;
@@ -649,7 +652,7 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWa
     newMaskPoly = newPolygon;
   }
 
-  return {
+  const res = {
     ...door,
     points: [newP1, newP2],
     centerPoint: newCenter,
@@ -659,6 +662,12 @@ export function constrainDoorToParentWall(door, parentWall, rawMousePoint, allWa
     geometryVersion: (door.geometryVersion || 1) + 1,
     modifiedAt: new Date().toISOString(),
   };
+
+  if (door.parentWallId !== parentWall.id) {
+    delete res.frameEdgeIndex;
+  }
+
+  return res;
 }
 
 /**

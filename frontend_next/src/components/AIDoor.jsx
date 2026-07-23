@@ -630,10 +630,10 @@ export default function AIDoor({
 
           const isDraggingThis = dragging && dragging.id === d.id;
 
-          if (d.frameEdgeIndex !== undefined) {
-            frameEdgeIndex = d.frameEdgeIndex;
-          } else if (wallDetectedFrameIndex !== -1) {
+          if (wallDetectedFrameIndex !== -1) {
             frameEdgeIndex = wallDetectedFrameIndex;
+          } else if (d.frameEdgeIndex !== undefined) {
+            frameEdgeIndex = d.frameEdgeIndex;
           } else if (d.points && d.points.length >= 2) {
             const pts = d.points
               .map(p => {
