@@ -1697,7 +1697,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
   return bestWall;
 }
 
-  function startDrag(id, index, type = 'room') {
+  function startDrag(id, index, type = 'room', isShiftSelect = false) {
     if (doorController.showTypeSelector) return;
     if (type === 'wall-move') {
       const currentWalls = wallsByPage[currentPage] || [];
@@ -1869,6 +1869,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       id,
       index,
       type,
+      isShiftSelect: Boolean(isShiftSelect),
       connections,
       startPt,
       startSelectedVertices,
@@ -2108,9 +2109,10 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             return w;
           });
 
+          const shouldMoveDoors = dragging.isShiftSelect || e.shiftKey || (selectedWallIds && selectedWallIds.length > 1);
           const startWalls = dragging.startWalls || pageWalls;
           const startDoors = dragging.startDoors || doorsByPage[currentPage] || [];
-          if (startDoors.length > 0 && startWalls.length > 0) {
+          if (shouldMoveDoors && startDoors.length > 0 && startWalls.length > 0) {
             const updatedDoors = startDoors.map(d => {
               const startPts = getDoorPoints(d);
               const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
@@ -2265,9 +2267,10 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           };
         });
 
+        const shouldMoveDoors = dragging.isShiftSelect || e.shiftKey || (selectedWallIds && selectedWallIds.length > 1);
         const startWalls = dragging.startWalls || pageWalls;
         const startDoors = dragging.startDoors || doorsByPage[currentPage] || [];
-        if (startDoors.length > 0 && startWalls.length > 0 && finalUpdatedWalls.length > 0) {
+        if (shouldMoveDoors && startDoors.length > 0 && startWalls.length > 0 && finalUpdatedWalls.length > 0) {
           const updatedDoors = startDoors.map(d => {
             const startPts = getDoorPoints(d);
             const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
@@ -2828,9 +2831,10 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           const pageDoors = doorsByPage[currentPage] || [];
           const startWalls = dragging.startWalls || pageWalls;
           const startDoors = dragging.startDoors || pageDoors;
+          const shouldMoveDoors = dragging.isShiftSelect || e.shiftKey || (selectedWallIds && selectedWallIds.length > 1);
 
           let updatedDoors = [...pageDoors];
-          if (startDoors.length > 0 && startWalls.length > 0) {
+          if (shouldMoveDoors && startDoors.length > 0 && startWalls.length > 0) {
             updatedDoors = startDoors.map(d => {
               const startPts = getDoorPoints(d);
               const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;

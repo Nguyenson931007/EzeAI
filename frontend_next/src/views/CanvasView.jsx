@@ -651,7 +651,7 @@ const WallLayer = React.memo(({
                   setSelectedId(w.id);
                   setSelectedType("wall");
                 }
-                startDrag(w.id, null, 'wall-move');
+                startDrag(w.id, null, 'wall-move', e.shiftKey || e.ctrlKey);
               }
             }}
           />
@@ -766,7 +766,7 @@ const WallHandlesLayer = React.memo(({
                     }
                     e.stopPropagation();
                     if (startDrag) {
-                      startDrag(w.id, i, 'wall-vertex');
+                      startDrag(w.id, i, 'wall-vertex', e.shiftKey || e.ctrlKey);
                     }
                     if (setSelectedWallVertex) {
                       setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
