@@ -1893,13 +1893,21 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       if (!dragging.startMouse) {
         dragging.startMouse = pRaw;
         dragging.hasMovedPastThreshold = false;
-        if (dragging.type === 'wall-move') {
+        if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
           const currentWalls = wallsByPage[currentPage] || [];
           dragging.startWalls = currentWalls.map(w => ({
             id: w.id,
             centerline: JSON.parse(JSON.stringify(w.centerline)),
             polygon: JSON.parse(JSON.stringify(w.polygon)),
             thickness_px: w.thickness_px
+          }));
+          const currentDoors = doorsByPage[currentPage] || [];
+          dragging.startDoors = currentDoors.map(d => ({
+            ...d,
+            points: d.points ? JSON.parse(JSON.stringify(d.points)) : null,
+            centerPoint: d.centerPoint ? { ...d.centerPoint } : null,
+            polygon: d.polygon ? JSON.parse(JSON.stringify(d.polygon)) : null,
+            mask_polygon: d.mask_polygon ? JSON.parse(JSON.stringify(d.mask_polygon)) : null
           }));
         } else if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
           const currentDoors = doorsByPage[currentPage] || [];
@@ -2100,6 +2108,33 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             return w;
           });
 
+          const startWalls = dragging.startWalls || pageWalls;
+          const startDoors = dragging.startDoors || doorsByPage[currentPage] || [];
+          if (startDoors.length > 0 && startWalls.length > 0) {
+            const updatedDoors = startDoors.map(d => {
+              const startPts = getDoorPoints(d);
+              const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
+              if (!doorCenter) return d;
+              const oldWall = startWalls.find(w => w.id === d.parentWallId) || findParentWall(doorCenter, startWalls, 120);
+              if (!oldWall) return d;
+              const newWall = updated.find(w => w.id === oldWall.id);
+              if (!newWall || !oldWall.centerline || !newWall.centerline) return d;
+              const oldP1 = oldWall.centerline[0];
+              const oldP2 = oldWall.centerline[1];
+              const newP1 = newWall.centerline[0];
+              const newP2 = newWall.centerline[1];
+              if (Math.abs(oldP1[0] - newP1[0]) > 0.01 || Math.abs(oldP1[1] - newP1[1]) > 0.01 ||
+                  Math.abs(oldP2[0] - newP2[0]) > 0.01 || Math.abs(oldP2[1] - newP2[1]) > 0.01) {
+                return recalculateDoorAfterWallChange(d, oldWall, newWall);
+              }
+              return d;
+            });
+            setDoorsByPage(prevDoors => ({
+              ...prevDoors,
+              [currentPage]: updatedDoors
+            }));
+          }
+
           return {
             ...prev,
             [currentPage]: recalculateAllWallsPolygons(updated)
@@ -2130,7 +2165,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           }
         }
 
-
+        let finalUpdatedWalls = [];
 
         setWallsByPage(prev => {
           const pageWalls = prev[currentPage] || [];
@@ -2213,20 +2248,49 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             }
           }
 
+          finalUpdatedWalls = pageWalls.map(w => {
+            const cLine = updatedCenterlines[w.id];
+            if (cLine) {
+              const pts = [{ x: cLine[0][0], y: cLine[0][1] }, { x: cLine[1][0], y: cLine[1][1] }];
+              const newPoly = calculateWallPolygonWithJunctions(pts, w.thickness_px || 20, w.id, pageWalls);
+              const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
+              return { ...w, centerline: cLine, polygon: polyCoords };
+            }
+            return w;
+          });
+
           return {
             ...prev,
-            [currentPage]: pageWalls.map(w => {
-              const cLine = updatedCenterlines[w.id];
-              if (cLine) {
-                const pts = [{ x: cLine[0][0], y: cLine[0][1] }, { x: cLine[1][0], y: cLine[1][1] }];
-                const newPoly = calculateWallPolygonWithJunctions(pts, w.thickness_px || 20, w.id, pageWalls);
-                const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
-                return { ...w, centerline: cLine, polygon: polyCoords };
-              }
-              return w;
-            })
+            [currentPage]: finalUpdatedWalls
           };
         });
+
+        const startWalls = dragging.startWalls || pageWalls;
+        const startDoors = dragging.startDoors || doorsByPage[currentPage] || [];
+        if (startDoors.length > 0 && startWalls.length > 0 && finalUpdatedWalls.length > 0) {
+          const updatedDoors = startDoors.map(d => {
+            const startPts = getDoorPoints(d);
+            const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
+            if (!doorCenter) return d;
+            const oldWall = startWalls.find(w => w.id === d.parentWallId) || findParentWall(doorCenter, startWalls, 120);
+            if (!oldWall) return d;
+            const newWall = finalUpdatedWalls.find(w => w.id === oldWall.id);
+            if (!newWall || !oldWall.centerline || !newWall.centerline) return d;
+            const oldP1 = oldWall.centerline[0];
+            const oldP2 = oldWall.centerline[1];
+            const newP1 = newWall.centerline[0];
+            const newP2 = newWall.centerline[1];
+            if (Math.abs(oldP1[0] - newP1[0]) > 0.01 || Math.abs(oldP1[1] - newP1[1]) > 0.01 ||
+                Math.abs(oldP2[0] - newP2[0]) > 0.01 || Math.abs(oldP2[1] - newP2[1]) > 0.01) {
+              return recalculateDoorAfterWallChange(d, oldWall, newWall);
+            }
+            return d;
+          });
+          setDoorsByPage(prevDoors => ({
+            ...prevDoors,
+            [currentPage]: updatedDoors
+          }));
+        }
       } else {
         setRoomsByPage(prev => {
           const pageRooms = prev[currentPage] || [];
@@ -2762,9 +2826,36 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
         } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
           const pageWalls = wallsByPage[currentPage] || [];
           const pageDoors = doorsByPage[currentPage] || [];
+          const startWalls = dragging.startWalls || pageWalls;
+          const startDoors = dragging.startDoors || pageDoors;
+
+          let updatedDoors = [...pageDoors];
+          if (startDoors.length > 0 && startWalls.length > 0) {
+            updatedDoors = startDoors.map(d => {
+              const startPts = getDoorPoints(d);
+              const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
+              if (!doorCenter) return d;
+              const oldWall = startWalls.find(w => w.id === d.parentWallId) || findParentWall(doorCenter, startWalls, 120);
+              if (!oldWall) return d;
+              const newWall = pageWalls.find(w => w.id === oldWall.id);
+              if (!newWall || !oldWall.centerline || !newWall.centerline) return d;
+              const oldP1 = oldWall.centerline[0];
+              const oldP2 = oldWall.centerline[1];
+              const newP1 = newWall.centerline[0];
+              const newP2 = newWall.centerline[1];
+              if (Math.abs(oldP1[0] - newP1[0]) > 0.01 || Math.abs(oldP1[1] - newP1[1]) > 0.01 ||
+                  Math.abs(oldP2[0] - newP2[0]) > 0.01 || Math.abs(oldP2[1] - newP2[1]) > 0.01) {
+                return recalculateDoorAfterWallChange(d, oldWall, newWall);
+              }
+              return d;
+            });
+            setDoorsByPage(prev => ({
+              ...prev,
+              [currentPage]: updatedDoors
+            }));
+          }
+
           let updatedWalls = [...pageWalls];
-
-
 
           // Clean up degenerate/very short walls (length < 8px)
           updatedWalls = updatedWalls.filter(w => {
@@ -2781,7 +2872,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           // Automatically merge collinear/overlapping walls
           const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
           // Cut the merged walls by the current doors list
-          const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
+          const cutWalls = cutWallsByDoors(merged, updatedDoors, realScale);
           // Recalculate all wall junctions to cleanly snap and connect corners
           const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
           setWallsByPage(prev => ({
@@ -2789,7 +2880,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             [currentPage]: junctionCleanedWalls
           }));
           // Update history with the merged and cut walls
-          pushHistory(null, junctionCleanedWalls, pageDoors);
+          pushHistory(null, junctionCleanedWalls, updatedDoors);
         }
       }
       setDragging(null);
