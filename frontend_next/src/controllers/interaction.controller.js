@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex } from "@/utils/geometry";
 import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
@@ -2319,11 +2319,9 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       const pageRoofs = roofsByPage[currentPage] || [];
 
       if (activeRoofDragTarget.type === 'vertex') {
-        const updatedRoofs = pageRoofs.map(r => {
-          if (r.id !== activeRoofDragTarget.roofId) return r;
-          const newPoly = r.polygon.map((v, idx) => idx === activeRoofDragTarget.vertexIndex ? { x: pRaw.x, y: pRaw.y } : v);
-          return { ...r, polygon: newPoly };
-        });
+        const origPt = activeRoofDragTarget.initialVertexPos || activeRoofDragTarget.startMousePos;
+        const updatedRoofs = updateSharedRoofVertices(pageRoofs, origPt, pRaw, 18);
+        setActiveRoofDragTarget(prev => prev ? { ...prev, initialVertexPos: { x: pRaw.x, y: pRaw.y } } : null);
         setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
         setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
       } else if (activeRoofDragTarget.type === 'body') {
@@ -2668,8 +2666,9 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       if (targetRoof) {
         // Topology Mutation: Double-Click or Alt+Shift+Click to Delete Vertex Point
         if (hoveredRoofTarget.type === 'vertex' && (e.detail === 2 || (e.altKey && e.shiftKey))) {
-          const updatedPoly = removeVertex(targetRoof.polygon, hoveredRoofTarget.index);
-          const updatedRoofs = pageRoofs.map(r => r.id === targetRoof.id ? { ...r, polygon: updatedPoly } : r);
+          const targetPt = targetRoof.polygon[hoveredRoofTarget.index];
+          const updatedRoofs = removeSharedRoofVertex(pageRoofs, targetPt, 18);
+          setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
           pushRoofHistory(updatedRoofs);
           return;
         }
@@ -2679,8 +2678,8 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           setSelectedRoofId(targetRoof.id);
           setSelectedId(null);
           setSelectedType(null);
-          const updatedPoly = insertVertex(targetRoof.polygon, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint);
-          const updatedRoofs = pageRoofs.map(r => r.id === targetRoof.id ? { ...r, polygon: updatedPoly } : r);
+          const updatedRoofs = insertSharedRoofVertex(pageRoofs, targetRoof.id, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint, 18);
+          setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
           pushRoofHistory(updatedRoofs);
           return;
         }
@@ -2690,11 +2689,16 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           setSelectedRoofId(targetRoof.id);
           setSelectedId(null);
           setSelectedType(null);
+          const vPt = targetRoof.polygon[hoveredRoofTarget.index];
+          const vx = typeof vPt.x === 'number' ? vPt.x : vPt[0];
+          const vy = typeof vPt.y === 'number' ? vPt.y : vPt[1];
+
           setActiveRoofDragTarget({
             type: 'vertex',
             roofId: targetRoof.id,
             vertexIndex: hoveredRoofTarget.index,
             startMousePos: p,
+            initialVertexPos: { x: vx, y: vy },
             initialPolygon: [...targetRoof.polygon]
           });
           setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
