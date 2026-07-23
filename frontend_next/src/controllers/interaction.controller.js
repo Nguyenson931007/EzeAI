@@ -2747,10 +2747,12 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             if (isCtrl) {
               finalDoor = { ...targetDoor, parentWallId: null };
             } else {
-              const parentWall = dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
+              const currentParent = pageWalls.find(w => w.id === targetDoor.parentWallId);
+              const parentWall = currentParent || findParentWall(doorCenter, pageWalls, 100) || dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
               const targetPts = getDoorPoints(targetDoor);
               const doorCenter = (targetPts && { x: (targetPts.p1.x + targetPts.p2.x)/2, y: (targetPts.p1.y + targetPts.p2.y)/2 }) || targetDoor.centerPoint;
               finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, doorCenter, pageWalls) : targetDoor;
+              if (parentWall) finalDoor.parentWallId = parentWall.id;
             }
             const updatedDoors = pageDoors.map(d => d.id === dragging.id ? finalDoor : d);
             // Commit transaction: update state and history
