@@ -3663,8 +3663,7 @@ def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> di
                 if len(polygon) < 3:
                     continue
 
-                raw_mask = mask_data[idx] if mask_data is not None and idx < len(mask_data) else polygon
-                cad_polygon = refine_roof_polygon(raw_mask, (h, w), confidence=float(confs[idx]) if idx < len(confs) else 0.95)
+                cad_polygon = refine_roof_polygon(polygon, (h, w), confidence=float(confs[idx]) if idx < len(confs) else 0.95)
 
                 if not cad_polygon or len(cad_polygon) < 3:
                     cad_polygon = [{"x": float(p[0]), "y": float(p[1])} for p in polygon]
