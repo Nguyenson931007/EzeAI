@@ -305,6 +305,7 @@ class TakeoffExporter:
         single_grouped = []
         double_grouped = []
         sliding_grouped = []
+        garage_grouped = []
         window_grouped = []
 
         for (t, w_mm, h_mm), qty in grouped_doors.items():
@@ -312,6 +313,8 @@ class TakeoffExporter:
             item = {"width": w_mm, "height": h_mm, "qty": qty}
             if "window" in t_lower:
                 window_grouped.append(item)
+            elif "garage" in t_lower or "roller" in t_lower:
+                garage_grouped.append(item)
             elif "double" in t_lower:
                 double_grouped.append(item)
             elif "sliding" in t_lower or "slider" in t_lower:
@@ -373,6 +376,25 @@ class TakeoffExporter:
             add_door_subtotal(row, "Subtotal - Sliding Door", first_sliding, row - 1)
         else:
             add_door_subtotal(row, "Subtotal - Sliding Door", row, row)
+            ws[f"F{row}"] = 0
+            ws[f"G{row}"] = 0.00
+        door_subtotal_rows.append(row)
+        row += 1
+
+        # Garage Door Section
+        add_sub_header(row, "Garage Door"); row += 1
+        first_garage = row
+        if garage_grouped:
+            for item in garage_grouped:
+                add_door_data_row(row)
+                ws[f"A{row}"] = f"Garage Door {item['width']}x{item['height']}"
+                ws[f"D{row}"] = round(item["width"])
+                ws[f"E{row}"] = round(item["height"])
+                ws[f"F{row}"] = item["qty"]
+                row += 1
+            add_door_subtotal(row, "Subtotal - Garage Door", first_garage, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Garage Door", row, row)
             ws[f"F{row}"] = 0
             ws[f"G{row}"] = 0.00
         door_subtotal_rows.append(row)

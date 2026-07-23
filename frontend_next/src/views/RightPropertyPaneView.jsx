@@ -553,12 +553,13 @@ export default function RightPropertyPaneView({
         let t = d.penetration_type || d.penetrationType || "";
         let cls = d.class || "";
         let type = d.type || "";
-        let doorType = "Single Door";
-
         const isWindow = type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'));
+        const isGarage = cls.includes("garage") || t.includes("garage") || type === "garage" || d.doorTypeId === "ext_garage" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || (d.doorName && d.doorName.toLowerCase().includes("garage"));
 
         if (isWindow) {
           doorType = "Window";
+        } else if (isGarage) {
+          doorType = "Garage Door";
         } else if (cls.includes("double") || t.includes("double")) {
           doorType = "Double Door";
         } else if (cls.includes("sliding") || t.includes("sliding") || cls.includes("slider") || t.includes("slider")) {
