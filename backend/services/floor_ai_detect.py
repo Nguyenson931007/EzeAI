@@ -3661,11 +3661,10 @@ def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> di
                     continue
 
                 poly_pts = [{"x": float(p[0]), "y": float(p[1])} for p in polygon]
-                smoothed = _smooth_polygon(poly_pts) if len(poly_pts) >= 3 else poly_pts
 
                 roofs.append({
                     "id": f"roof_ai_{int(time.time() * 1000)}_{idx}",
-                    "polygon": smoothed,
+                    "polygon": poly_pts,
                     "roof_type": "flat",
                     "pitchAngle": 15,
                     "overhang": 300,
