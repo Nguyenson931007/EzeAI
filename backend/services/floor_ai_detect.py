@@ -3650,21 +3650,28 @@ def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> di
     results = model.predict(source=img, conf=confidence, verbose=False)
     roofs = []
 
+    from services.roof_geometry_engine import refine_roof_polygon
+
     if results and len(results) > 0:
         res = results[0]
         if res.masks is not None and len(res.masks) > 0:
-            masks = res.masks.xy  # Lista các polygon [[x1, y1], [x2, y2], ...]
-            confs = res.boxes.conf.cpu().numpy() if res.boxes is not None else [1.0] * len(masks)
+            mask_data = res.masks.data.cpu().numpy() if hasattr(res.masks, "data") else None
+            masks_xy = res.masks.xy
+            confs = res.boxes.conf.cpu().numpy() if res.boxes is not None else [1.0] * len(masks_xy)
 
-            for idx, polygon in enumerate(masks):
+            for idx, polygon in enumerate(masks_xy):
                 if len(polygon) < 3:
                     continue
 
-                poly_pts = [{"x": float(p[0]), "y": float(p[1])} for p in polygon]
+                raw_mask = mask_data[idx] if mask_data is not None and idx < len(mask_data) else polygon
+                cad_polygon = refine_roof_polygon(raw_mask, (h, w), confidence=float(confs[idx]) if idx < len(confs) else 0.95)
+
+                if not cad_polygon or len(cad_polygon) < 3:
+                    cad_polygon = [{"x": float(p[0]), "y": float(p[1])} for p in polygon]
 
                 roofs.append({
                     "id": f"roof_ai_{int(time.time() * 1000)}_{idx}",
-                    "polygon": poly_pts,
+                    "polygon": cad_polygon,
                     "roof_type": "flat",
                     "pitchAngle": 15,
                     "overhang": 300,
