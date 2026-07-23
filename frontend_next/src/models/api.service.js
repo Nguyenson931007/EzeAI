@@ -250,6 +250,19 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async autoDetectRoof(imageBlob, confidence = "0.15") {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("confidence", confidence);
+    const res = await fetch(`${BASE_URL}/predict_roof`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   async detectDoorSeg(imageBlob, confidence = "0.25", realScale = 1.0) {
     const fd = new FormData();
     fd.append("file", imageBlob);

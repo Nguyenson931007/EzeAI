@@ -386,6 +386,7 @@ export default function App() {
     detectText,
     detectTemplate,
     detectDoorSeg,
+    detectRoof,
     activeScanRoom,
     smartDetect,
     cancelSmartDetect,
@@ -733,7 +734,7 @@ export default function App() {
         autoMergeCollinearWalls={autoMergeCollinearWalls}
         snapAllDoorsToWalls={snapAllDoorsToWalls}
         finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
-        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
+        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg} detectRoof={detectRoof}
         smartDetect={smartDetect} cancelSmartDetect={cancelSmartDetect} isSmartDetecting={isSmartDetecting} smartProgress={smartProgress}
         generateRoomsFromWalls={generateRoomsFromWalls}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}

@@ -44,6 +44,11 @@ MODEL_CANDIDATES = {
         BASE_DIR / "backend" / "models" / "Template" / "weights" / "best.pt",
         BASE_DIR / "backend" / "runs" / "detect" / "Template" / "weights" / "best.pt",
         BASE_DIR / "runs" / "detect" / "Template" / "weights" / "best.pt",
+    ],
+    "roof": [
+        BASE_DIR / "backend" / "models" / "Roof" / "best.pt",
+        BASE_DIR / "models" / "Roof" / "best.pt",
+        BASE_DIR / "backend" / "models" / "Roof" / "weights" / "best.pt",
     ]
 }
 

@@ -276,7 +276,7 @@ export const useAIController = (
   wallsByPage,
   pushHistory
 ) => {
-  const { pdfOffsetsByPage } = useAppModel();
+  const { pdfOffsetsByPage, setRoofsByPage } = useAppModel();
   const pdfOffset = pdfOffsetsByPage?.[currentPage] || { x: 0, y: 0 };
 
   const [isDetecting, setIsDetecting] = useState(false);
@@ -1484,6 +1484,67 @@ export const useAIController = (
     }
   };
 
+  const detectRoof = useCallback(async (customConf = null) => {
+    if (!currentPage || isDetectingRef.current) return;
+    const isPDF = pages[currentPage]?.isPDF;
+    const blob = await getImageBlobForCurrentPage(currentPage, isPDF);
+    if (!blob) {
+      showAlert("Không thể lấy ảnh trang hiện tại.");
+      return;
+    }
+
+    const conf = customConf !== null ? String(customConf) : "0.15";
+    const job = createROIJob(`roof_detect_${Date.now()}`);
+
+    try {
+      setIsDetecting(true);
+      isDetectingRef.current = true;
+
+      const data = await ApiService.autoDetectRoof(blob, conf);
+      const result = Array.isArray(data) ? data[0] : data;
+
+      let roofsArray = [];
+      if (result && result.roofs) {
+        roofsArray = result.roofs;
+      }
+
+      if (roofsArray && roofsArray.length > 0) {
+        const shiftedRoofs = roofsArray.map((r, idx) => {
+          const shiftedPoly = (r.polygon || []).map(pt => ({
+            x: (pt.x || pt[0]) + pdfOffset.x,
+            y: (pt.y || pt[1]) + pdfOffset.y
+          }));
+          return {
+            id: r.id || `roof_ai_${Date.now()}_${idx}`,
+            polygon: shiftedPoly,
+            roof_type: r.roof_type || "flat",
+            pitchAngle: r.pitchAngle || 15,
+            overhang: r.overhang || 300,
+            review_state: "AI_GENERATED"
+          };
+        });
+
+        if (setRoofsByPage) {
+          setRoofsByPage(prev => ({
+            ...prev,
+            [currentPage]: shiftedRoofs
+          }));
+        }
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);
+      } else {
+        showAlert("Không tìm thấy mái nào trong hình.");
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+      }
+    } catch (err) {
+      console.error("[Roof AI] Error:", err);
+      showAlert(`Lỗi khi chạy Roof AI: ${err.message || err}`);
+      finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+    } finally {
+      setIsDetecting(false);
+      isDetectingRef.current = false;
+    }
+  }, [currentPage, pages, pdfOffset, setRoofsByPage, showAlert, getImageBlobForCurrentPage]);
+
   return {
     isDetecting,
     roiProgress,
@@ -1495,6 +1556,7 @@ export const useAIController = (
     detectText,
     detectTemplate,
     detectDoorSeg,
+    detectRoof,
     activeScanRoom,
     // Smart AI pipeline
     smartDetect,

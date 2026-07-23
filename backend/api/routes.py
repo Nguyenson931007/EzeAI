@@ -532,6 +532,34 @@ async def predict_door(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/predict_roof")
+async def predict_roof(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.15),
+    username: str = Depends(validate_session)
+):
+    """
+    Nhận diện hệ thống Mái (Roof) bằng mô hình YOLO Roof Segmentation (backend/models/Roof/best.pt).
+    """
+    from services.floor_ai_detect import predict_roofs_from_bytes
+    
+    content = await file.read()
+    try:
+        result = await run_in_threadpool(
+            predict_roofs_from_bytes,
+            image_bytes=content,
+            confidence=confidence
+        )
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Không tìm thấy trọng số mô hình YOLO Roof: {e}."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/predict_template")
 async def predict_template(
     file: UploadFile = File(...),

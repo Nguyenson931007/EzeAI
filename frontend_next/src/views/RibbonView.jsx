@@ -40,7 +40,7 @@ export default function RibbonView({
   autoMergeCollinearWalls,
   snapAllDoorsToWalls,
   finishPolygon, setCurrentPoly,
-  autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg,
+  autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg, detectRoof,
   generateRoomsFromWalls,
   // Smart AI pipeline
   smartDetect, cancelSmartDetect, isSmartDetecting, smartProgress,
@@ -368,6 +368,10 @@ export default function RibbonView({
 
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
+                </button>
+
+                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectRoof && detectRoof()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động nhận diện mái (Roof)">
+                  <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Roof AI</span>
                 </button>
 
                 <button

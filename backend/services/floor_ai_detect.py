@@ -38,12 +38,13 @@ _room_model = None
 _door_model = None
 _text_model = None
 _template_model = None
+_roof_model = None
 
 _model_lock = threading.Lock()
 
 
 def _get_model(model_type="room") -> YOLO:
-    global _room_model, _door_model, _text_model, _template_model
+    global _room_model, _door_model, _text_model, _template_model, _roof_model
     if model_type == "door":
         if _door_model is None:
             with _model_lock:
@@ -58,6 +59,21 @@ def _get_model(model_type="room") -> YOLO:
                     print(f"[floor_ai_detect] Loading Door Model: {path}")
                     _door_model = YOLO(str(path))
         return _door_model
+
+    elif model_type == "roof":
+        if _roof_model is None:
+            with _model_lock:
+                if _roof_model is None:
+                    path = None
+                    for p in MODEL_CANDIDATES.get("roof", []):
+                        if p.exists():
+                            path = p
+                            break
+                    if not path:
+                        raise FileNotFoundError("Roof model not found in candidates.")
+                    print(f"[floor_ai_detect] Loading Roof Model: {path}")
+                    _roof_model = YOLO(str(path))
+        return _roof_model
 
     elif model_type == "template":
         if _template_model is None:
@@ -3619,5 +3635,48 @@ def predict_rooms_stream(image_bytes: bytes,
         "message": "🎉 Phân tích bản vẽ hoàn tất!", 
         "rooms": rooms,
         "image_base64": image_b64
+    }
+
+
+def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> dict:
+    """
+    Chạy mô hình YOLO Roof Segmentation (backend/models/Roof/best.pt) trên ảnh bản vẽ.
+    Trả về danh sách các đa giác mái (roof polygons) chuẩn định dạng EzeFloor.
+    """
+    model = _get_model("roof")
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    w, h = img.size
+
+    results = model.predict(source=img, conf=confidence, verbose=False)
+    roofs = []
+
+    if results and len(results) > 0:
+        res = results[0]
+        if res.masks is not None and len(res.masks) > 0:
+            masks = res.masks.xy  # Lista các polygon [[x1, y1], [x2, y2], ...]
+            confs = res.boxes.conf.cpu().numpy() if res.boxes is not None else [1.0] * len(masks)
+
+            for idx, polygon in enumerate(masks):
+                if len(polygon) < 3:
+                    continue
+
+                poly_pts = [{"x": float(p[0]), "y": float(p[1])} for p in polygon]
+                smoothed = _smooth_polygon(poly_pts) if len(poly_pts) >= 3 else poly_pts
+
+                roofs.append({
+                    "id": f"roof_ai_{int(time.time() * 1000)}_{idx}",
+                    "polygon": smoothed,
+                    "roof_type": "flat",
+                    "pitchAngle": 15,
+                    "overhang": 300,
+                    "review_state": "AI_GENERATED",
+                    "conf": float(confs[idx]) if idx < len(confs) else 0.95
+                })
+
+    return {
+        "status": "success",
+        "roofs": roofs,
+        "width": w,
+        "height": h
     }
 
