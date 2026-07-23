@@ -944,7 +944,7 @@ export const useAIController = (
         // Cut existing walls at the new doors and recalculate polygons immediately
         if (setWallsByPage && wallsByPageRef.current) {
           if (currentWalls.length > 0) {
-            const cutWalls = cutWallsByDoors(currentWalls, mergedDoors, realScaleRef?.current);
+            const cutWalls = cutWallsByDoors(currentWalls, mergedDoors);
             setWallsByPage(prev => ({
               ...prev,
               [currentPage]: recalculateAllWallsPolygons(cutWalls)
