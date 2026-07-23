@@ -203,34 +203,40 @@
     ]
   },
   "ROOM 12": {
-    "corrected_text": "ENS",
+    "corrected_text": "BATH",
     "type": "ROOM_NAME",
-    "frequency": 1,
+    "frequency": 2,
     "confidence_score": 0.8,
-    "apply_to_all": false,
+    "apply_to_all": true,
     "correction_source": "human_verified",
-    "revision": 1,
+    "revision": 2,
     "created_at": "2026-07-17T07:16:47.239370",
-    "updated_at": "2026-07-17T07:16:47.239370",
+    "updated_at": "2026-07-22T10:10:35.923079",
     "contexts": [
       {
         "polygon_area": 8.205531546479895
+      },
+      {
+        "polygon_area": 6.285996104029317
       }
     ]
   },
   "ROOM 4": {
-    "corrected_text": "L'DRY",
+    "corrected_text": "BED",
     "type": "ROOM_NAME",
-    "frequency": 1,
+    "frequency": 2,
     "confidence_score": 0.8,
-    "apply_to_all": false,
+    "apply_to_all": true,
     "correction_source": "human_verified",
-    "revision": 1,
+    "revision": 2,
     "created_at": "2026-07-17T07:16:57.828716",
-    "updated_at": "2026-07-17T07:16:57.828716",
+    "updated_at": "2026-07-22T10:10:48.663666",
     "contexts": [
       {
         "polygon_area": 6.170441119814616
+      },
+      {
+        "polygon_area": 11.295933073502216
       }
     ]
   },
@@ -247,6 +253,86 @@
     "contexts": [
       {
         "polygon_area": 6.537873929434494
+      }
+    ]
+  },
+  "ROOM 8": {
+    "corrected_text": "WIR",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 0.8,
+    "apply_to_all": false,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-22T10:10:20.554928",
+    "updated_at": "2026-07-22T10:10:20.554928",
+    "contexts": [
+      {
+        "polygon_area": 5.22566680757548
+      }
+    ]
+  },
+  "ROOM 6": {
+    "corrected_text": "WC",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 1.0,
+    "apply_to_all": true,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-22T10:10:26.347704",
+    "updated_at": "2026-07-22T10:10:26.347704",
+    "contexts": [
+      {
+        "polygon_area": 2.405408616777129
+      }
+    ]
+  },
+  "ROOM 13": {
+    "corrected_text": "WC",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 1.0,
+    "apply_to_all": true,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-22T10:10:31.407180",
+    "updated_at": "2026-07-22T10:10:31.407180",
+    "contexts": [
+      {
+        "polygon_area": 1.7175775977205756
+      }
+    ]
+  },
+  "ROOM 11": {
+    "corrected_text": "BED",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 1.0,
+    "apply_to_all": true,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-22T10:10:42.954436",
+    "updated_at": "2026-07-22T10:10:42.954436",
+    "contexts": [
+      {
+        "polygon_area": 11.173613939517304
+      }
+    ]
+  },
+  "ROOM 2": {
+    "corrected_text": "BED",
+    "type": "ROOM_NAME",
+    "frequency": 1,
+    "confidence_score": 1.0,
+    "apply_to_all": true,
+    "correction_source": "human_verified",
+    "revision": 1,
+    "created_at": "2026-07-22T10:10:54.730355",
+    "updated_at": "2026-07-22T10:10:54.730355",
+    "contexts": [
+      {
+        "polygon_area": 9.848905189888734
       }
     ]
   }

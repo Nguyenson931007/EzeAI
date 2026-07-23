@@ -1325,21 +1325,77 @@ export default function RightPropertyPaneView({
                       style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
                       onClick={() => {
                         if (selectedDoor.points && selectedDoor.points.length === 2) {
-                          const p1 = selectedDoor.points[0];
-                          const p2 = selectedDoor.points[1];
-                          const dx = p2.x - p1.x;
-                          const dy = p2.y - p1.y;
+                          const pts = selectedDoor.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+                          const rawP1 = pts[0];
+                          const rawP2 = pts[1];
+
+                          const poly = selectedDoor.polygon || selectedDoor.mask_polygon;
+                          let hinge = rawP1;
+                          let frameEnd = rawP2;
+                          let determinedSwing = selectedDoor.swing || selectedDoor.swing_direction || selectedDoor.swingDirection || 'inward';
+
+                          if (poly && poly.length >= 3) {
+                            // 1. Find the apex point in poly furthest from the frame line rawP1 -> rawP2
+                            const lineDx = rawP2.x - rawP1.x;
+                            const lineDy = rawP2.y - rawP1.y;
+                            const lineLen = Math.hypot(lineDx, lineDy);
+                            let maxPerpDist = -1;
+                            let apex = null;
+
+                            if (lineLen > 1e-3) {
+                              for (const pt of poly) {
+                                const px = Array.isArray(pt) ? pt[0] : pt.x;
+                                const py = Array.isArray(pt) ? pt[1] : pt.y;
+                                const dist = Math.abs(lineDx * (py - rawP1.y) - lineDy * (px - rawP1.x)) / lineLen;
+                                if (dist > maxPerpDist) {
+                                  maxPerpDist = dist;
+                                  apex = { x: px, y: py };
+                                }
+                              }
+                            }
+
+                            if (apex && maxPerpDist > 5) {
+                              // 2. Identify hinge point: distance(apex, Hinge) is smaller than distance(apex, FrameEnd)
+                              const distToP1 = Math.hypot(apex.x - rawP1.x, apex.y - rawP1.y);
+                              const distToP2 = Math.hypot(apex.x - rawP2.x, apex.y - rawP2.y);
+                              if (distToP1 <= distToP2) {
+                                hinge = rawP1;
+                                frameEnd = rawP2;
+                              } else {
+                                hinge = rawP2;
+                                frameEnd = rawP1;
+                              }
+
+                              // 3. Compute swing direction relative to hinge -> frameEnd vector in 2D SVG space (+Y down)
+                              const vFrame = { x: frameEnd.x - hinge.x, y: frameEnd.y - hinge.y };
+                              const vLeaf = { x: apex.x - hinge.x, y: apex.y - hinge.y };
+                              const vInward = { x: -vFrame.y, y: vFrame.x };
+                              const dotInward = vLeaf.x * vInward.x + vLeaf.y * vInward.y;
+                              determinedSwing = dotInward > 0 ? 'inward' : 'outward';
+                            }
+                          }
+
+                          // Snap frameEnd to nearest 90-degree axis relative to hinge, preserving original width_mm
+                          const dx = frameEnd.x - hinge.x;
+                          const dy = frameEnd.y - hinge.y;
                           const angle = Math.atan2(dy, dx);
                           const step = Math.PI / 2;
                           const snappedAngle = Math.round(angle / step) * step;
-                          const dist = Math.hypot(dx, dy);
-                          const snappedP2 = {
-                            x: p1.x + dist * Math.cos(snappedAngle),
-                            y: p1.y + dist * Math.sin(snappedAngle)
+                          const dist = (selectedDoor.width_mm && realScale) ? (selectedDoor.width_mm / realScale) : Math.hypot(dx, dy);
+                          const snappedFrameEnd = {
+                            x: hinge.x + dist * Math.cos(snappedAngle),
+                            y: hinge.y + dist * Math.sin(snappedAngle)
                           };
+
                           updateDoor && updateDoor({
                             ...selectedDoor,
-                            points: [p1, snappedP2],
+                            points: [hinge, snappedFrameEnd],
+                            width_mm: selectedDoor.width_mm || (realScale ? Math.round(dist * realScale) : undefined),
+                            hingeSide: 'left',
+                            hinge_side: 'left',
+                            swing: determinedSwing,
+                            swingDirection: determinedSwing,
+                            swing_direction: determinedSwing,
                             polygon: null,
                             mask_polygon: null
                           });

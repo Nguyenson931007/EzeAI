@@ -947,7 +947,7 @@ const DoorLayer = React.memo(({
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                     >
-                      {d.width || Math.round(geom.widthPx * (realScale || 20))}
+                      {d.width_mm ? Math.round(d.width_mm) : (realScale ? Math.round(geom.widthPx * realScale) : Math.round(geom.widthPx))}
                     </text>
                   </g>
                 )}

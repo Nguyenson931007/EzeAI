@@ -2030,7 +2030,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
               return freeDoor;
             }
 
-            let parentWall = dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
+            let parentWall = findParentWall(targetPoint, currentWalls, 100) || dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
             if (!parentWall) {
               parentWall = findBestWallForDoor(startDoor, currentWalls, 120);
             }

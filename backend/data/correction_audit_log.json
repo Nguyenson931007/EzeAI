@@ -241,5 +241,68 @@
     "apply_to_all": false,
     "source": "human_verified",
     "timestamp": "2026-07-17T07:17:11.245883"
+  },
+  {
+    "original": "ROOM 8",
+    "normalized_key": "ROOM 8",
+    "corrected": "WIR",
+    "type": "ROOM_NAME",
+    "apply_to_all": false,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:20.556930"
+  },
+  {
+    "original": "ROOM 6",
+    "normalized_key": "ROOM 6",
+    "corrected": "WC",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:26.348707"
+  },
+  {
+    "original": "ROOM 13",
+    "normalized_key": "ROOM 13",
+    "corrected": "WC",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:31.407180"
+  },
+  {
+    "original": "ROOM 12",
+    "normalized_key": "ROOM 12",
+    "corrected": "BATH",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:35.925086"
+  },
+  {
+    "original": "ROOM 11",
+    "normalized_key": "ROOM 11",
+    "corrected": "BED",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:42.957612"
+  },
+  {
+    "original": "ROOM 4",
+    "normalized_key": "ROOM 4",
+    "corrected": "BED",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:48.665665"
+  },
+  {
+    "original": "ROOM 2",
+    "normalized_key": "ROOM 2",
+    "corrected": "BED",
+    "type": "ROOM_NAME",
+    "apply_to_all": true,
+    "source": "human_verified",
+    "timestamp": "2026-07-22T10:10:54.732349"
   }
 ]
