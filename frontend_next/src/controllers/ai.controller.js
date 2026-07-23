@@ -1487,9 +1487,10 @@ export const useAIController = (
   };
 
   const detectRoof = useCallback(async (customConf = null) => {
-    if (!currentPage) return;
+    console.log("[Roof AI] detectRoof triggered. currentPage:", currentPage, "hasImage:", !!image);
     if (!image) {
-      showAlert("Không thể lấy ảnh trang hiện tại.");
+      const notify = showAlert || alert;
+      notify("Không thể lấy ảnh trang hiện tại để chạy Roof AI.");
       return;
     }
 
@@ -1498,7 +1499,9 @@ export const useAIController = (
 
     try {
       const blob = await fetch(image).then(r => r.blob());
+      console.log("[Roof AI] Fetching /predict_roof with blob size:", blob.size);
       const data = await ApiService.autoDetectRoof(blob, conf);
+      console.log("[Roof AI] Response data:", data);
       const result = Array.isArray(data) ? data[0] : data;
 
       let roofsArray = [];
@@ -1530,12 +1533,14 @@ export const useAIController = (
         }
         finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);
       } else {
-        showAlert("Không tìm thấy mái nào trong hình.");
+        const notify = showAlert || alert;
+        notify("Không tìm thấy mái nào trong hình.");
         finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
       }
     } catch (err) {
       console.error("[Roof AI] Error:", err);
-      showAlert(`Lỗi khi chạy Roof AI: ${err.message || err}`);
+      const notify = showAlert || alert;
+      notify(`Lỗi khi chạy Roof AI: ${err.message || err}`);
       finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
     }
   }, [currentPage, image, pdfOffset, setRoofsByPage, showAlert]);

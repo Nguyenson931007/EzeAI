@@ -33,6 +33,7 @@ const nextConfig = {
 
       { source: "/predict_door", destination: `${backendUrl}/predict_door` },
       { source: "/predict_door_roi", destination: `${backendUrl}/predict_door_roi` },
+      { source: "/predict_roof", destination: `${backendUrl}/predict_roof` },
       { source: "/predict_text", destination: `${backendUrl}/predict_text` },
       { source: "/predict-room", destination: `${backendUrl}/predict-room` },
       { source: "/predict-room-6class", destination: `${backendUrl}/predict-room-6class` },
