@@ -370,9 +370,11 @@ export default function RibbonView({
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
 
+                {/* Tạm ẩn Roof AI button
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectRoof && detectRoof()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động nhận diện mái (Roof)">
                   <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Roof AI</span>
                 </button>
+                */}
 
                 <button
                   className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
