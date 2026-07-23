@@ -39,7 +39,7 @@ export default function RibbonView({
   deleteItem, deleteAllRooms,
   autoMergeCollinearWalls,
   snapAllDoorsToWalls,
-  finishPolygon, setCurrentPoly,
+  finishPolygon, finishRoof, setCurrentPoly,
   autoDetect, detectWallFromFloorAI, detectText, detectTemplate, detectDoorSeg, detectRoof,
   generateRoomsFromWalls,
   // Smart AI pipeline
@@ -305,7 +305,7 @@ export default function RibbonView({
                     <span className="icon">🤖</span><span className="label">Auto Fit</span>
                   </button>
                 )}
-                <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); }}>
+                <button className="ribbon-btn" onClick={() => { if (drawing) finishPolygon(); else if (isDrawingRoof && finishRoof) finishRoof(); }}>
                   <span className="icon">✓</span><span className="label">Finish</span>
                 </button>
                 <button className={`ribbon-btn ${isAddingPoint ? "active" : ""}`} onClick={() => setIsAddingPoint(v => !v)}>

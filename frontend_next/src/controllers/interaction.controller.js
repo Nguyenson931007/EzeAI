@@ -464,6 +464,9 @@ export function useInteractionController(svgRef) {
         } else if (drawing) {
           e.preventDefault();
           finishPolygon();
+        } else if (isDrawingRoof) {
+          e.preventDefault();
+          finishRoof();
         } else if (isDrawingDoor && doorPreset) {
           e.preventDefault();
           finishDoor();

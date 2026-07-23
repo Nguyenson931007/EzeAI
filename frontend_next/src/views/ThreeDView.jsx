@@ -62,6 +62,7 @@ export default function ThreeDView({
   const wallMeshesRef = useRef([]);
   const floorMeshesRef = useRef([]);
   const doorMeshesRef = useRef([]);
+  const roofMeshesRef = useRef([]);
 
   // Compute live wall height from wallsByPage for the selected 3D wall
   const liveSelectedWallHeight = React.useMemo(() => {
@@ -473,6 +474,9 @@ export default function ThreeDView({
     doorMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
     doorMeshesRef.current = [];
 
+    roofMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
+    roofMeshesRef.current = [];
+
     sortedPageIndices.forEach((originalIndex, k) => {
       if (visibleLevels[originalIndex] === false) return;
 
@@ -528,6 +532,46 @@ export default function ThreeDView({
           mesh.receiveShadow = enableShadows;
           scene.add(mesh);
           floorMeshesRef.current.push(mesh);
+        });
+      }
+
+      // --- 1b. RENDER ROOFS ---
+      if (showRoofs) {
+        const pageRoofs = roofsByPage[originalIndex] || [];
+        pageRoofs.forEach(roof => {
+          const poly = roof.polygon;
+          if (!poly || poly.length < 3) return;
+
+          const shape = new THREE.Shape();
+          const p0 = Array.isArray(poly[0]) ? { x: poly[0][0], y: poly[0][1] } : poly[0];
+          shape.moveTo(p0.x, p0.y);
+          for (let i = 1; i < poly.length; i++) {
+            const pt = Array.isArray(poly[i]) ? { x: poly[i][0], y: poly[i][1] } : poly[i];
+            shape.lineTo(pt.x, pt.y);
+          }
+          shape.closePath();
+
+          const topYOffset = yOffset + wallHeight;
+          const roofThickness = 120 / (realScale && realScale !== 1.0 ? realScale : 18.0);
+          
+          const extrudeSettings = { depth: roofThickness, bevelEnabled: false };
+          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          const material = new THREE.MeshStandardMaterial({
+            color: 0xd97706, // Warm terracotta amber roof
+            roughness: 0.45,
+            metalness: 0.15,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.85
+          });
+
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.rotation.x = Math.PI / 2;
+          mesh.position.set(-imgSize.w / 2, topYOffset + roofThickness, -imgSize.h / 2);
+          mesh.castShadow = enableShadows;
+          mesh.receiveShadow = enableShadows;
+          scene.add(mesh);
+          roofMeshesRef.current.push(mesh);
         });
       }
 
@@ -951,8 +995,8 @@ export default function ThreeDView({
       }
     });
   }, [
-    pages, wallsByPage, doorsByPage, roomsByPage, sortedPageIndices, visibleLevels,
-    showFloors, showPDF, showDoors, wallHeight, floorDepth, realScale, enableShadows,
+    pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, sortedPageIndices, visibleLevels,
+    showFloors, showPDF, showDoors, showRoofs, wallHeight, floorDepth, realScale, enableShadows,
     wallColorMode, extWallColor, intWallColor, partWallColor, heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
     selected3DWall, selectedId
   ]);

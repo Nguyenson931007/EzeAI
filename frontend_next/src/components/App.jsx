@@ -733,7 +733,7 @@ export default function App() {
         deleteItem={deleteItem} deleteAllRooms={deleteAllRooms}
         autoMergeCollinearWalls={autoMergeCollinearWalls}
         snapAllDoorsToWalls={snapAllDoorsToWalls}
-        finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
+        finishPolygon={finishPolygon} finishRoof={finishRoof} setCurrentPoly={setCurrentPoly}
         autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg} detectRoof={detectRoof}
         smartDetect={smartDetect} cancelSmartDetect={cancelSmartDetect} isSmartDetecting={isSmartDetecting} smartProgress={smartProgress}
         generateRoomsFromWalls={generateRoomsFromWalls}
@@ -906,6 +906,7 @@ export default function App() {
               pages={pages}
               handleClick={handleClick}
               finishPolygon={finishPolygon}
+              finishRoof={finishRoof}
               finishDoor={finishDoor}
               onMouseMove={onMouseMove}
               onMouseDown={onMouseDown}

@@ -2163,6 +2163,7 @@ export default function CanvasView({
   handleClick,
   checkAndResetIgnoreClick,
   finishPolygon,
+  finishRoof,
   finishDoor,
   onMouseMove,
   onMouseDown,
@@ -3031,6 +3032,7 @@ export default function CanvasView({
           onDoubleClick={(e) => { 
             if (editingRoomId) return;
             if (drawing) finishPolygon(); 
+            if (isDrawingRoof && finishRoof) finishRoof();
             if (isDrawingDoor) finishDoor(); 
             if (interactionMode === "draw-wall") {
               e.stopPropagation();
