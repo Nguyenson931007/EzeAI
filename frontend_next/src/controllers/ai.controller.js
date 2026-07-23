@@ -675,7 +675,7 @@ export const useAIController = (
 
             // Snap existing doors to the newly detected merged walls!
             const snappedDoors = doors.map(d => {
-              const snapped = snapDoorToWalls(d, mergedWalls, 80);
+              const snapped = snapDoorToWalls(d, mergedWalls, 80, true);
               if (snapped.points && snapped.points.length >= 2) {
                 const pt0 = snapped.points[0];
                 const pt1 = snapped.points[1];
@@ -913,7 +913,21 @@ export const useAIController = (
         // even when the door midpoint sits in the gap between two cut segments.
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true) : [];
         const snappedDoors = uncutWalls.length > 0
-          ? detectedDoors.map(d => snapDoorToWalls(d, uncutWalls, 80))
+          ? detectedDoors.map(d => {
+              const snapped = snapDoorToWalls(d, uncutWalls, 80, true);
+              if (snapped.points && snapped.points.length >= 2) {
+                const pt0 = snapped.points[0];
+                const pt1 = snapped.points[1];
+                const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+                const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+                const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+                const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+                const center = { x: (px0 + px1) / 2, y: (py0 + py1) / 2 };
+                const pw = findParentWall(center, uncutWalls);
+                if (pw) snapped.parentWallId = pw.id;
+              }
+              return snapped;
+            })
           : detectedDoors;
 
         const mergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
@@ -928,9 +942,10 @@ export const useAIController = (
         // Cut existing walls at the new doors and recalculate polygons immediately
         if (setWallsByPage && wallsByPageRef.current) {
           if (currentWalls.length > 0) {
+            const cutWalls = cutWallsByDoors(currentWalls, mergedDoors, realScaleRef?.current);
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: recalculateAllWallsPolygons(currentWalls)
+              [currentPage]: recalculateAllWallsPolygons(cutWalls)
             }));
           }
         }
@@ -1156,7 +1171,7 @@ export const useAIController = (
 
           // Snap doors to the newly detected merged walls!
           const snappedDoors = currentDoors.map(d => {
-            const snapped = snapDoorToWalls(d, mergedWalls, 80);
+            const snapped = snapDoorToWalls(d, mergedWalls, 80, true);
             if (snapped.points && snapped.points.length >= 2) {
               const pt0 = snapped.points[0];
               const pt1 = snapped.points[1];

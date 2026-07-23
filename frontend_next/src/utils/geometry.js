@@ -1273,7 +1273,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
   const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
 
   let bestWall = null;
-  let bestDist = forceWallLock ? maxDist : Math.min(maxDist, 12); // Limit maximum snap distance to 12px unless forceWallLock is true
+  let bestDist = maxDist; // Use maxDist as snapping threshold
   let bestProj = null;
 
   const doorAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
@@ -1427,7 +1427,8 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
       ...door,
       points: updatedPoints,
       polygon: updatedPoly,
-      mask_polygon: updatedMaskPoly
+      mask_polygon: updatedMaskPoly,
+      parentWallId: door.parentWallId || bestWall.id
     };
   }
 
