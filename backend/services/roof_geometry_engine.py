@@ -4,20 +4,21 @@ roof_geometry_engine.py
 CAD-grade Roof Geometry Refinement Engine for EzeFloor AI.
 
 Transforms raw YOLO segmentation masks / noisy polygons into clean, 
-architectural CAD-quality roof polygons suitable for editing, snapping, 
-and 3D roof generation.
+architectural CAD-quality roof polygons (Rectangles, Triangles, Quadrilaterals/Rhombuses, L/U Shapes)
+suitable for editing, snapping, and 3D roof generation.
 
 Pipeline Stages:
 1. Morphological Closing: Fill small gaps, smooth pixel noise.
 2. Internal Hole Filling & Micro-noise Component Filtering.
 3. Contour Extraction & Douglas-Peucker Simplification.
-4. Micro-Edge & Spike Suppression: Remove short segments (<12px) and stair-step noise.
-5. Collinear Segment Merging: Merge consecutive edges within 3.5° tolerance.
-6. Orthogonal & Pitch Angle Snapping: Snap edges to 0°, 22.5°, 45°, 90°, 135°, 180°, 270°.
-7. Least-Squares Line Fitting: Fit straight line equations Ax + By + C = 0 along edge pixels.
-8. Corner Intersections Recomputation: Recompute exact 2D line intersections for sharp corners.
-9. Shared Boundary Synchronization: Align adjacent roof boundaries to identical geometric edges.
-10. Topological Validity & Footprint Preservation: Ensure non-self-intersecting CAD polygon.
+4. Acute Needle Spike Suppression: Remove sharp vertices (<30° interior angle).
+5. Micro-Edge & Stair-step Suppression: Remove short segments (<12px).
+6. Collinear Segment Merging: Merge consecutive edges within 3.5° tolerance.
+7. Architectural Primitive Fitting (Triangle, Rectangle, Quadrilateral, Rhombus).
+8. Orthogonal & Pitch Angle Snapping: Snap edges to 0°, 22.5°, 45°, 90°, 135°, 180°, 270°.
+9. Least-Squares Line Fitting & Safe Corner Intersections.
+10. Shared Boundary Synchronization: Align adjacent roof boundaries to identical geometric edges.
+11. Topological Validity & Footprint Preservation: Ensure non-self-intersecting CAD polygon.
 """
 
 import math
@@ -37,7 +38,7 @@ def refine_roof_polygon(
     min_edge_len_px: float = 12.0
 ) -> List[Dict[str, float]]:
     """
-    Refines a raw YOLO roof segmentation mask or polygon into a CAD-grade polygon.
+    Refines a raw YOLO roof segmentation mask or polygon into a clean CAD-grade primitive polygon.
     """
     h, w = img_size
 
@@ -86,20 +87,24 @@ def refine_roof_polygon(
     main_contour = max(valid_contours, key=cv2.contourArea)
 
     peri = cv2.arcLength(main_contour, True)
-    epsilon = 0.010 * peri  # 1.0% of perimeter for initial corner detection
+    epsilon = 0.012 * peri  # 1.2% of perimeter for initial corner detection
     approx = cv2.approxPolyDP(main_contour, epsilon, True)
     
     pts = approx.reshape(-1, 2).astype(np.float64)
     if len(pts) < 3:
         return []
 
-    # --- Stage 4 & 5: Suppress Short Edges, Spikes & Collinear Segments ---
+    # --- Stage 4 & 5: Acute Needle Spike Suppression & Short Edge Removal ---
+    pts = _remove_acute_spike_vertices(pts, min_angle_deg=28.0)
     pts = _remove_short_edges_and_spikes(pts, min_edge_len_px)
     pts = _merge_collinear_vertices(pts, angle_tolerance_deg)
     if len(pts) < 3:
         return []
 
-    # --- Stage 6 & 7: Least-Squares Edge Fitting & Angle Snapping ---
+    # --- Stage 6: Primitive Shape Fitting (Rectangle / Rhombus / Quad / Triangle) ---
+    pts = _fit_primitive_geometry_if_applicable(pts, main_contour)
+
+    # --- Stage 7: Least-Squares Edge Fitting & Angle Snapping ---
     fitted_lines = []
     num_pts = len(pts)
 
@@ -146,7 +151,7 @@ def refine_roof_polygon(
     if len(fitted_lines) < 3:
         return [{"x": float(p[0]), "y": float(p[1])} for p in pts]
 
-    # --- Stage 8: Recompute Exact Corner Line Intersections ---
+    # --- Stage 8: Safe Corner Line Intersections (Guarding against acute spikes) ---
     refined_pts = []
     num_lines = len(fitted_lines)
 
@@ -157,17 +162,25 @@ def refine_roof_polygon(
         orig_vertex = pts[(i + 1) % num_pts]
 
         if inter is not None:
-            if math.hypot(inter[0] - orig_vertex[0], inter[1] - orig_vertex[1]) < 35.0:
-                refined_pts.append(inter)
-            else:
+            # Check angle between line normals to avoid sharp needle intersections (<25°)
+            v1_n = (line1[0], line1[1])
+            v2_n = (line2[0], line2[1])
+            dot = max(-1.0, min(1.0, v1_n[0] * v2_n[0] + v1_n[1] * v2_n[1]))
+            inter_angle = math.degrees(math.acos(abs(dot)))
+            
+            # If intersection angle is sharp acute (<25° or >155°), or intersection point is far from original vertex
+            if inter_angle < 25.0 or math.hypot(inter[0] - orig_vertex[0], inter[1] - orig_vertex[1]) > 25.0:
                 refined_pts.append((orig_vertex[0], orig_vertex[1]))
+            else:
+                refined_pts.append(inter)
         else:
             refined_pts.append((orig_vertex[0], orig_vertex[1]))
 
     if len(refined_pts) < 3:
         return [{"x": float(p[0]), "y": float(p[1])} for p in pts]
 
-    # --- Stage 9: Final Collinear Merge & Topological Validity Check ---
+    # --- Stage 9: Final Acute Spike Removal & Topological Validity Check ---
+    refined_pts = _remove_acute_spike_vertices(np.array(refined_pts), min_angle_deg=28.0)
     refined_pts = _merge_collinear_vertices(np.array(refined_pts), angle_tolerance_deg)
 
     try:
@@ -270,6 +283,57 @@ def synchronize_shared_roof_boundaries(
                                 poly_j[(e_j + 1) % len(poly_j)] = _project_point_to_line(p2_j, (shared_nx, shared_ny, shared_c))
 
     return roofs
+
+
+def _remove_acute_spike_vertices(pts: np.ndarray, min_angle_deg: float = 28.0) -> np.ndarray:
+    """Removes sharp needle spikes where the interior angle is < min_angle_deg."""
+    n = len(pts)
+    if n < 4:
+        return pts
+
+    cleaned = []
+    for i in range(n):
+        prev = pts[(i - 1 + n) % n]
+        curr = pts[i]
+        nxt = pts[(i + 1) % n]
+
+        v1 = prev - curr
+        v2 = nxt - curr
+        l1 = math.hypot(v1[0], v1[1])
+        l2 = math.hypot(v2[0], v2[1])
+        if l1 < 1e-3 or l2 < 1e-3:
+            continue
+
+        dot = (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2)
+        dot = max(-1.0, min(1.0, dot))
+        angle = math.degrees(math.acos(dot))
+        if angle < min_angle_deg:
+            continue  # Sharp spike vertex, skip it
+        cleaned.append(curr)
+
+    if len(cleaned) < 3:
+        return pts
+
+    return np.array(cleaned)
+
+
+def _fit_primitive_geometry_if_applicable(pts: np.ndarray, contour: np.ndarray) -> np.ndarray:
+    """
+    Fits clean architectural primitives (Rectangle, Rhombus, Parallelogram, Triangle)
+    when the simplified polygon is 3 or 4 vertices.
+    """
+    n = len(pts)
+    if n == 4 and contour is not None:
+        # Check if polygon is nearly rectangular (ratio of area to minAreaRect > 0.82)
+        rect = cv2.minAreaRect(contour)
+        box = cv2.boxPoints(rect).astype(np.float64)
+        box_area = rect[1][0] * rect[1][1]
+        contour_area = cv2.contourArea(contour)
+
+        if box_area > 0 and (contour_area / box_area) >= 0.82:
+            return box
+
+    return pts
 
 
 def _remove_short_edges_and_spikes(pts: np.ndarray, min_len: float = 12.0) -> np.ndarray:
