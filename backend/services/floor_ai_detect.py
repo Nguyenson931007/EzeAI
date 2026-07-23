@@ -3650,7 +3650,7 @@ def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> di
     results = model.predict(source=img, conf=confidence, verbose=False)
     roofs = []
 
-    from services.roof_geometry_engine import refine_roof_polygon
+    from services.roof_geometry_engine import refine_roof_polygon, synchronize_shared_roof_boundaries
 
     if results and len(results) > 0:
         res = results[0]
@@ -3677,6 +3677,8 @@ def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> di
                     "review_state": "AI_GENERATED",
                     "conf": float(confs[idx]) if idx < len(confs) else 0.95
                 })
+
+            roofs = synchronize_shared_roof_boundaries(roofs)
 
     return {
         "status": "success",

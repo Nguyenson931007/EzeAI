@@ -9,14 +9,15 @@ and 3D roof generation.
 
 Pipeline Stages:
 1. Morphological Closing: Fill small gaps, smooth pixel noise.
-2. Hole Filling: Fill internal mask holes.
-3. Connected Component Filtering: Discard noise components below area threshold.
-4. Primary Contour Extraction & Douglas-Peucker (approxPolyDP) simplification.
-5. Collinear Segment Merging: Merge consecutive edges within angular tolerance (3-5°).
-6. Ortho-Snapping: Snap near-horizontal/vertical edges to exact 0°, 90°, 180°, 270°.
+2. Internal Hole Filling & Micro-noise Component Filtering.
+3. Contour Extraction & Douglas-Peucker Simplification.
+4. Micro-Edge & Spike Suppression: Remove short segments (<12px) and stair-step noise.
+5. Collinear Segment Merging: Merge consecutive edges within 3.5° tolerance.
+6. Orthogonal & Pitch Angle Snapping: Snap edges to 0°, 22.5°, 45°, 90°, 135°, 180°, 270°.
 7. Least-Squares Line Fitting: Fit straight line equations Ax + By + C = 0 along edge pixels.
-8. Corner Line Intersection: Recompute exact 2D line-line intersections between adjacent edges.
-9. Topological Validity & Footprint Preservation: Ensure non-self-intersecting CAD polygon.
+8. Corner Intersections Recomputation: Recompute exact 2D line intersections for sharp corners.
+9. Shared Boundary Synchronization: Align adjacent roof boundaries to identical geometric edges.
+10. Topological Validity & Footprint Preservation: Ensure non-self-intersecting CAD polygon.
 """
 
 import math
@@ -31,31 +32,21 @@ def refine_roof_polygon(
     img_size: Tuple[int, int],
     confidence: float = 0.95,
     min_area_px: float = 300.0,
-    angle_tolerance_deg: float = 6.0,
-    ortho_tolerance_deg: float = 12.0
+    angle_tolerance_deg: float = 3.5,
+    ortho_tolerance_deg: float = 8.0,
+    min_edge_len_px: float = 12.0
 ) -> List[Dict[str, float]]:
     """
-    Refines a raw YOLO roof segmentation output (binary mask or polygon points)
-    into a CAD-grade polygon.
-    
-    Args:
-        mask_or_poly: 2D uint8 numpy array (binary mask) OR float numpy array of shape (N, 2)
-        img_size: (height, width) of the image
-        confidence: detection confidence score
-        min_area_px: minimum contour area in pixels to keep
-        angle_tolerance_deg: threshold in degrees to merge collinear edges
-        ortho_tolerance_deg: threshold in degrees to snap nearly horizontal/vertical edges
-        
-    Returns:
-        List of dicts: [{"x": float, "y": float}, ...] representing CAD-quality roof vertices.
+    Refines a raw YOLO roof segmentation mask or polygon into a CAD-grade polygon.
     """
     h, w = img_size
 
-    # Convert input to binary mask uint8 image if passed as polygon points
+    # Convert input to binary mask uint8 image
     if isinstance(mask_or_poly, np.ndarray) and mask_or_poly.ndim == 2 and mask_or_poly.shape[1] == 2:
         mask = np.zeros((h, w), dtype=np.uint8)
         pts = mask_or_poly.astype(np.int32)
-        cv2.fillPoly(mask, [pts], 255)
+        if len(pts) >= 3:
+            cv2.fillPoly(mask, [pts], 255)
     elif isinstance(mask_or_poly, np.ndarray) and mask_or_poly.ndim == 2:
         mask = (mask_or_poly > 0).astype(np.uint8) * 255
     elif isinstance(mask_or_poly, list):
@@ -76,41 +67,39 @@ def refine_roof_polygon(
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
     closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    # Fill internal holes completely
-    contours, hierarchy = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return []
 
     filled_mask = np.zeros((h, w), dtype=np.uint8)
     cv2.drawContours(filled_mask, contours, -1, 255, thickness=cv2.FILLED)
 
-    # --- Stage 3 & 4: Extract Largest Contour & Douglas-Peucker Simplification ---
-    contours, _ = cv2.findContours(filled_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # --- Stage 3: Extract Main Contour & Douglas-Peucker Simplification ---
+    contours, _ = cv2.findContours(filled_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return []
 
-    # Keep contours above min_area_px, sorted by area descending
     valid_contours = [c for c in contours if cv2.contourArea(c) >= min_area_px]
     if not valid_contours:
         return []
 
     main_contour = max(valid_contours, key=cv2.contourArea)
 
-    # Douglas-Peucker simplification
     peri = cv2.arcLength(main_contour, True)
-    epsilon = 0.012 * peri  # 1.2% of perimeter for corner preservation
+    epsilon = 0.010 * peri  # 1.0% of perimeter for initial corner detection
     approx = cv2.approxPolyDP(main_contour, epsilon, True)
     
     pts = approx.reshape(-1, 2).astype(np.float64)
     if len(pts) < 3:
         return []
 
-    # --- Stage 5: Merge Collinear Consecutive Segments ---
+    # --- Stage 4 & 5: Suppress Short Edges, Spikes & Collinear Segments ---
+    pts = _remove_short_edges_and_spikes(pts, min_edge_len_px)
     pts = _merge_collinear_vertices(pts, angle_tolerance_deg)
     if len(pts) < 3:
         return []
 
-    # --- Stage 6: Ortho-Snapping & Line Fitting ---
+    # --- Stage 6 & 7: Least-Squares Edge Fitting & Angle Snapping ---
     fitted_lines = []
     num_pts = len(pts)
 
@@ -126,8 +115,22 @@ def refine_roof_polygon(
 
         angle_deg = math.degrees(math.atan2(dy, dx)) % 360.0
 
-        # Check ortho snapping (0°, 90°, 180°, 270°)
-        snapped_angle = _snap_ortho_angle(angle_deg, ortho_tolerance_deg)
+        # Check angle snapping (Ortho: 0°, 90°, 180°, 270° | Roof pitch: 22.5°, 45°, 135°, 225°, 315°)
+        snapped_angle = _snap_architectural_angle(angle_deg, ortho_tolerance_deg)
+
+        # Least squares line fitting using boundary pixels along segment if long enough
+        if length > 30.0 and main_contour is not None:
+            line_eq = _fit_least_squares_line_from_contour(main_contour, p1, p2)
+            if line_eq is not None:
+                nx, ny, c_val = line_eq
+                if snapped_angle is not None:
+                    rad = math.radians(snapped_angle)
+                    nx, ny = -math.sin(rad), math.cos(rad)
+                    mid_x = (p1[0] + p2[0]) / 2.0
+                    mid_y = (p1[1] + p2[1]) / 2.0
+                    c_val = -(nx * mid_x + ny * mid_y)
+                fitted_lines.append((nx, ny, c_val))
+                continue
 
         if snapped_angle is not None:
             rad = math.radians(snapped_angle)
@@ -143,7 +146,7 @@ def refine_roof_polygon(
     if len(fitted_lines) < 3:
         return [{"x": float(p[0]), "y": float(p[1])} for p in pts]
 
-    # --- Stage 7 & 8: Recompute Exact Line Intersections ---
+    # --- Stage 8: Recompute Exact Corner Line Intersections ---
     refined_pts = []
     num_lines = len(fitted_lines)
 
@@ -151,23 +154,22 @@ def refine_roof_polygon(
         line1 = fitted_lines[i]
         line2 = fitted_lines[(i + 1) % num_lines]
         inter = _intersect_lines(line1, line2)
+        orig_vertex = pts[(i + 1) % num_pts]
+
         if inter is not None:
-            orig_vertex = pts[(i + 1) % num_pts]
-            if math.hypot(inter[0] - orig_vertex[0], inter[1] - orig_vertex[1]) < 40.0:
+            if math.hypot(inter[0] - orig_vertex[0], inter[1] - orig_vertex[1]) < 35.0:
                 refined_pts.append(inter)
             else:
                 refined_pts.append((orig_vertex[0], orig_vertex[1]))
         else:
-            orig_vertex = pts[(i + 1) % num_pts]
             refined_pts.append((orig_vertex[0], orig_vertex[1]))
 
     if len(refined_pts) < 3:
         return [{"x": float(p[0]), "y": float(p[1])} for p in pts]
 
-    # --- Stage 9: Topological Validity & Clean CAD Format ---
+    # --- Stage 9: Final Collinear Merge & Topological Validity Check ---
     refined_pts = _merge_collinear_vertices(np.array(refined_pts), angle_tolerance_deg)
 
-    # Clean Shapely validation if self-intersecting
     try:
         sp = ShapelyPolygon([(p[0], p[1]) for p in refined_pts])
         if not sp.is_valid:
@@ -185,8 +187,112 @@ def refine_roof_polygon(
     return [{"x": float(round(p[0], 2)), "y": float(round(p[1], 2))} for p in refined_pts]
 
 
-def _merge_collinear_vertices(pts: np.ndarray, tolerance_deg: float = 6.0) -> np.ndarray:
-    """Merges consecutive vertices if the angle between adjacent edge segments is near 0° or 180°."""
+def synchronize_shared_roof_boundaries(
+    roofs: List[Dict],
+    snap_distance_px: float = 15.0,
+    angle_tolerance_deg: float = 10.0
+) -> List[Dict]:
+    """
+    Synchronizes shared boundaries between multiple roof polygons.
+    If two roof polygons share an adjacent boundary, snaps both polygons 
+    to reference the exact same geometric line segment, eliminating gaps & overlaps.
+    """
+    if not roofs or len(roofs) < 2:
+        return roofs
+
+    num_roofs = len(roofs)
+
+    for i in range(num_roofs):
+        poly_i = roofs[i].get("polygon", [])
+        if len(poly_i) < 3:
+            continue
+
+        for j in range(i + 1, num_roofs):
+            poly_j = roofs[j].get("polygon", [])
+            if len(poly_j) < 3:
+                continue
+
+            for e_i in range(len(poly_i)):
+                p1_i = poly_i[e_i]
+                p2_i = poly_i[(e_i + 1) % len(poly_i)]
+
+                dx_i = p2_i["x"] - p1_i["x"]
+                dy_i = p2_i["y"] - p1_i["y"]
+                len_i = math.hypot(dx_i, dy_i)
+                if len_i < 10.0:
+                    continue
+
+                angle_i = math.degrees(math.atan2(dy_i, dx_i)) % 180.0
+
+                for e_j in range(len(poly_j)):
+                    p1_j = poly_j[e_j]
+                    p2_j = poly_j[(e_j + 1) % len(poly_j)]
+
+                    dx_j = p2_j["x"] - p1_j["x"]
+                    dy_j = p2_j["y"] - p1_j["y"]
+                    len_j = math.hypot(dx_j, dy_j)
+                    if len_j < 10.0:
+                        continue
+
+                    angle_j = math.degrees(math.atan2(dy_j, dx_j)) % 180.0
+                    angle_diff = abs(angle_i - angle_j)
+                    if angle_diff > 90.0:
+                        angle_diff = 180.0 - angle_diff
+
+                    if angle_diff <= angle_tolerance_deg:
+                        mid_i = ((p1_i["x"] + p2_i["x"]) / 2.0, (p1_i["y"] + p2_i["y"]) / 2.0)
+                        mid_j = ((p1_j["x"] + p2_j["x"]) / 2.0, (p1_j["y"] + p2_j["y"]) / 2.0)
+                        dist = math.hypot(mid_i[0] - mid_j[0], mid_i[1] - mid_j[1])
+
+                        if dist <= snap_distance_px:
+                            nx_i = -dy_i / len_i
+                            ny_i = dx_i / len_i
+                            nx_j = -dy_j / len_j
+                            ny_j = dx_j / len_j
+
+                            if nx_i * nx_j + ny_i * ny_j < 0:
+                                nx_j = -nx_j
+                                ny_j = -ny_j
+
+                            shared_nx = (nx_i + nx_j) / 2.0
+                            shared_ny = (ny_i + ny_j) / 2.0
+                            norm = math.hypot(shared_nx, shared_ny)
+                            if norm > 1e-6:
+                                shared_nx /= norm
+                                shared_ny /= norm
+                                shared_mid_x = (mid_i[0] + mid_j[0]) / 2.0
+                                shared_mid_y = (mid_i[1] + mid_j[1]) / 2.0
+                                shared_c = -(shared_nx * shared_mid_x + shared_ny * shared_mid_y)
+
+                                poly_i[e_i] = _project_point_to_line(p1_i, (shared_nx, shared_ny, shared_c))
+                                poly_i[(e_i + 1) % len(poly_i)] = _project_point_to_line(p2_i, (shared_nx, shared_ny, shared_c))
+                                poly_j[e_j] = _project_point_to_line(p1_j, (shared_nx, shared_ny, shared_c))
+                                poly_j[(e_j + 1) % len(poly_j)] = _project_point_to_line(p2_j, (shared_nx, shared_ny, shared_c))
+
+    return roofs
+
+
+def _remove_short_edges_and_spikes(pts: np.ndarray, min_len: float = 12.0) -> np.ndarray:
+    """Removes tiny micro-edges and stair-step spikes."""
+    n = len(pts)
+    if n < 4:
+        return pts
+
+    cleaned = []
+    for i in range(n):
+        curr = pts[i]
+        nxt = pts[(i + 1) % n]
+        if math.hypot(nxt[0] - curr[0], nxt[1] - curr[1]) >= min_len:
+            cleaned.append(curr)
+
+    if len(cleaned) < 3:
+        return pts
+
+    return np.array(cleaned)
+
+
+def _merge_collinear_vertices(pts: np.ndarray, tolerance_deg: float = 3.5) -> np.ndarray:
+    """Merges consecutive vertices if the angle difference is within tolerance_deg."""
     n = len(pts)
     if n < 3:
         return pts
@@ -211,21 +317,58 @@ def _merge_collinear_vertices(pts: np.ndarray, tolerance_deg: float = 6.0) -> np
         angle_diff = math.degrees(math.acos(dot))
 
         if angle_diff < tolerance_deg or abs(angle_diff - 180.0) < tolerance_deg:
-            continue  # Collinear vertex, skip it
+            continue  # Skip collinear vertex
 
         merged.append(curr)
 
     return np.array(merged)
 
 
-def _snap_ortho_angle(angle_deg: float, tolerance_deg: float = 12.0) -> Optional[float]:
-    """Snaps angle_deg to 0°, 90°, 180°, 270° if within tolerance_deg."""
-    ortho_targets = [0.0, 90.0, 180.0, 270.0, 360.0]
-    for target in ortho_targets:
+def _snap_architectural_angle(angle_deg: float, tolerance_deg: float = 8.0) -> Optional[float]:
+    """
+    Snaps angle_deg to standard architectural angles:
+    0°, 22.5°, 45°, 67.5°, 90°, 135°, 180°, 225°, 270°, 315°
+    """
+    targets = [0.0, 22.5, 45.0, 67.5, 90.0, 112.5, 135.0, 157.5, 180.0, 202.5, 225.0, 247.5, 270.0, 292.5, 315.0, 337.5, 360.0]
+    for target in targets:
         diff = abs(angle_deg - target)
         if diff <= tolerance_deg or abs(diff - 360.0) <= tolerance_deg:
             return target % 360.0
     return None
+
+
+def _fit_least_squares_line_from_contour(
+    contour: np.ndarray,
+    p1: Tuple[float, float],
+    p2: Tuple[float, float]
+) -> Optional[Tuple[float, float, float]]:
+    """Fits an exact line equation Ax + By + C = 0 using cv2.fitLine over boundary points near segment (p1, p2)."""
+    pts_in_seg = []
+    p1_arr = np.array(p1)
+    p2_arr = np.array(p2)
+    v = p2_arr - p1_arr
+    len_v2 = np.dot(v, v)
+    if len_v2 < 1.0:
+        return None
+
+    contour_pts = contour.reshape(-1, 2)
+    for pt in contour_pts:
+        w = pt - p1_arr
+        t = max(0.0, min(1.0, np.dot(w, v) / len_v2))
+        proj = p1_arr + t * v
+        dist = np.linalg.norm(pt - proj)
+        if dist <= 12.0:
+            pts_in_seg.append(pt)
+
+    if len(pts_in_seg) < 5:
+        return None
+
+    pts_np = np.array(pts_in_seg, dtype=np.float32)
+    vx, vy, x0, y0 = cv2.fitLine(pts_np, cv2.DIST_L2, 0, 0.01, 0.01)
+    nx = -float(vy[0])
+    ny = float(vx[0])
+    c_val = -(nx * float(x0[0]) + ny * float(y0[0]))
+    return (nx, ny, c_val)
 
 
 def _fit_line_segment(p1: Tuple[float, float], p2: Tuple[float, float]) -> Tuple[float, float, float]:
@@ -249,8 +392,18 @@ def _intersect_lines(line1: Tuple[float, float, float], line2: Tuple[float, floa
 
     det = a1 * b2 - a2 * b1
     if abs(det) < 1e-6:
-        return None  # Parallel lines
+        return None
 
     x = (b1 * c2 - b2 * c1) / det
     y = (a2 * c1 - a1 * c2) / det
     return (x, y)
+
+
+def _project_point_to_line(pt: Dict[str, float], line_eq: Tuple[float, float, float]) -> Dict[str, float]:
+    """Projects point (x, y) onto line Ax + By + C = 0."""
+    nx, ny, c_val = line_eq
+    x, y = pt["x"], pt["y"]
+    dist = nx * x + ny * y + c_val
+    proj_x = x - dist * nx
+    proj_y = y - dist * ny
+    return {"x": float(round(proj_x, 2)), "y": float(round(proj_y, 2))}
