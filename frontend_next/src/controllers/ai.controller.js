@@ -11,6 +11,7 @@ import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, e
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
+import { useDialog } from "@/components/DialogContext";
 
 /**
  * Compute bounding-box IoU (Intersection over Union) between two polygons.
@@ -277,6 +278,7 @@ export const useAIController = (
   pushHistory
 ) => {
   const { pages, pdfOffsetsByPage, setRoofsByPage } = useAppModel();
+  const { showAlert } = useDialog();
   const pdfOffset = pdfOffsetsByPage?.[currentPage] || { x: 0, y: 0 };
 
   const [isDetecting, setIsDetecting] = useState(false);
