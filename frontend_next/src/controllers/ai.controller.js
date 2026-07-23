@@ -5,7 +5,7 @@
  * Manages AbortController instances, progress reporting, cache hit indicators,
  * out-of-order response filtering via monotonic transaction IDs, and timing metrics.
  */
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
