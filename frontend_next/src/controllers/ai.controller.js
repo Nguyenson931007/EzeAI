@@ -276,7 +276,7 @@ export const useAIController = (
   wallsByPage,
   pushHistory
 ) => {
-  const { pdfOffsetsByPage, setRoofsByPage } = useAppModel();
+  const { pages, pdfOffsetsByPage, setRoofsByPage } = useAppModel();
   const pdfOffset = pdfOffsetsByPage?.[currentPage] || { x: 0, y: 0 };
 
   const [isDetecting, setIsDetecting] = useState(false);
