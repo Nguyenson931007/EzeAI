@@ -25,6 +25,13 @@ export function getWallType(w) {
   return "int";
 }
 
+const _getCoord = (pt) => {
+  if (!pt) return { x: 0, y: 0 };
+  const x = typeof pt.x === 'number' ? pt.x : (Array.isArray(pt) ? pt[0] : 0);
+  const y = typeof pt.y === 'number' ? pt.y : (Array.isArray(pt) ? pt[1] : 0);
+  return { x: Number(x) || 0, y: Number(y) || 0 };
+};
+
 export function polygonAreaM2(polygon, scale) {
   if (!polygon || polygon.length < 3) return 0;
 
@@ -32,8 +39,10 @@ export function polygonAreaM2(polygon, scale) {
 
   for (let i = 0; i < polygon.length; i++) {
     const j = (i + 1) % polygon.length;
-    area += polygon[i].x * polygon[j].y;
-    area -= polygon[j].x * polygon[i].y;
+    const p1 = _getCoord(polygon[i]);
+    const p2 = _getCoord(polygon[j]);
+    area += p1.x * p2.y;
+    area -= p2.x * p1.y;
   }
 
   area = Math.abs(area) / 2;
@@ -46,14 +55,20 @@ export function centroid(pts) {
   if (!pts || pts.length === 0) return { x: 0, y: 0 };
   let x = 0, y = 0, f = 0, a = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i, i++) {
-    const p1 = pts[i], p2 = pts[j];
+    const p1 = _getCoord(pts[i]), p2 = _getCoord(pts[j]);
     f = p1.x * p2.y - p2.x * p1.y;
     x += (p1.x + p2.x) * f;
     y += (p1.y + p2.y) * f;
     a += f;
   }
-  if (a === 0) {
-    return { x: pts[0].x, y: pts[0].y };
+  if (Math.abs(a) < 1e-6) {
+    let sx = 0, sy = 0;
+    pts.forEach(p => {
+      const pt = _getCoord(p);
+      sx += pt.x;
+      sy += pt.y;
+    });
+    return { x: sx / pts.length, y: sy / pts.length };
   }
   a *= 3;
   return { x: x / a, y: y / a };

@@ -3191,10 +3191,14 @@ export default function CanvasView({
                 <g key={roof.id}>
                   {/* Roof Base Polygon */}
                   <polygon
-                    points={roof.polygon.map(p => `${p.x},${p.y}`).join(" ")}
-                    fill={isSelected ? "rgba(245,158,11,0.28)" : isHovered ? "rgba(245,158,11,0.22)" : "rgba(245,158,11,0.15)"}
-                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "rgba(245,158,11,0.8)"}
-                    strokeWidth={isSelected ? 3 : isHovered ? 2.5 : 2}
+                    points={(roof.polygon || []).map(p => {
+                      const px = typeof p.x === 'number' ? p.x : (Array.isArray(p) ? p[0] : 0);
+                      const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
+                      return `${px},${py}`;
+                    }).join(" ")}
+                    fill={isSelected ? "rgba(245,158,11,0.35)" : isHovered ? "rgba(245,158,11,0.25)" : "rgba(245,158,11,0.18)"}
+                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706"}
+                    strokeWidth={isSelected ? 3.5 : isHovered ? 3 : 2.5}
                     strokeDasharray={isSelected ? "none" : "8,4"}
                     style={{ cursor: "pointer" }}
                   />
@@ -3202,11 +3206,16 @@ export default function CanvasView({
                   {/* Priority 2: Edge Hover Highlight */}
                   {isHovered && hoveredRoofTarget?.type === 'edge' && (() => {
                     const eIdx = hoveredRoofTarget.edgeIndex;
-                    const p1 = roof.polygon[eIdx];
-                    const p2 = roof.polygon[(eIdx + 1) % roof.polygon.length];
+                    const p1 = (roof.polygon || [])[eIdx];
+                    const p2 = (roof.polygon || [])[(eIdx + 1) % roof.polygon.length];
+                    if (!p1 || !p2) return null;
+                    const p1x = typeof p1.x === 'number' ? p1.x : p1[0];
+                    const p1y = typeof p1.y === 'number' ? p1.y : p1[1];
+                    const p2x = typeof p2.x === 'number' ? p2.x : p2[0];
+                    const p2y = typeof p2.y === 'number' ? p2.y : p2[1];
                     return (
                       <g pointerEvents="none">
-                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
+                        <line x1={p1x} y1={p1y} x2={p2x} y2={p2y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
                         {hoveredRoofTarget.projectionPoint && (
                           <circle cx={hoveredRoofTarget.projectionPoint.x} cy={hoveredRoofTarget.projectionPoint.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
                         )}
@@ -3215,13 +3224,15 @@ export default function CanvasView({
                   })()}
 
                   {/* Priority 1 & Handles: Vertices */}
-                  {(isSelected || isHovered) && roof.polygon.map((v, idx) => {
+                  {(isSelected || isHovered) && (roof.polygon || []).map((v, idx) => {
                     const isVertexHovered = isHovered && hoveredRoofTarget?.type === 'vertex' && hoveredRoofTarget?.index === idx;
+                    const vx = typeof v.x === 'number' ? v.x : v[0];
+                    const vy = typeof v.y === 'number' ? v.y : v[1];
                     return (
                       <circle
                         key={`roof-v-${roof.id}-${idx}`}
-                        cx={v.x}
-                        cy={v.y}
+                        cx={vx}
+                        cy={vy}
                         r={isVertexHovered ? 7 : 5}
                         fill={isVertexHovered ? "#ef4444" : "#f59e0b"}
                         stroke="#ffffff"

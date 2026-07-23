@@ -1511,10 +1511,14 @@ export const useAIController = (
 
       if (roofsArray && roofsArray.length > 0) {
         const shiftedRoofs = roofsArray.map((r, idx) => {
-          const shiftedPoly = (r.polygon || []).map(pt => ({
-            x: (pt.x || pt[0]) + pdfOffset.x,
-            y: (pt.y || pt[1]) + pdfOffset.y
-          }));
+          const shiftedPoly = (r.polygon || []).map(pt => {
+            const rx = typeof pt.x === 'number' ? pt.x : (Array.isArray(pt) ? pt[0] : 0);
+            const ry = typeof pt.y === 'number' ? pt.y : (Array.isArray(pt) ? pt[1] : 0);
+            return {
+              x: (Number(rx) || 0) + (pdfOffset.x || 0),
+              y: (Number(ry) || 0) + (pdfOffset.y || 0)
+            };
+          });
           return {
             id: r.id || `roof_ai_${Date.now()}_${idx}`,
             polygon: shiftedPoly,
