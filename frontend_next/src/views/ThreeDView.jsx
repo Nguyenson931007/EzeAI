@@ -535,43 +535,141 @@ export default function ThreeDView({
         });
       }
 
-      // --- 1b. RENDER ROOFS ---
+      // --- 1b. RENDER ROOFS WITH 3D PITCH SLOPE ANGLE ---
       if (showRoofs) {
         const pageRoofs = roofsByPage[originalIndex] || [];
         pageRoofs.forEach(roof => {
           const poly = roof.polygon;
           if (!poly || poly.length < 3) return;
 
-          const shape = new THREE.Shape();
-          const p0 = Array.isArray(poly[0]) ? { x: poly[0][0], y: poly[0][1] } : poly[0];
-          shape.moveTo(p0.x, p0.y);
-          for (let i = 1; i < poly.length; i++) {
-            const pt = Array.isArray(poly[i]) ? { x: poly[i][0], y: poly[i][1] } : poly[i];
-            shape.lineTo(pt.x, pt.y);
-          }
-          shape.closePath();
+          const n = poly.length;
+          const pts2d = poly.map(p => ({
+            x: typeof p.x === 'number' ? p.x : p[0],
+            y: typeof p.y === 'number' ? p.y : p[1]
+          }));
 
           const topYOffset = yOffset + wallHeight;
-          const roofThickness = 120 / (realScale && realScale !== 1.0 ? realScale : 18.0);
-          
-          const extrudeSettings = { depth: roofThickness, bevelEnabled: false };
-          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
+          const roofThickness = 120 / scaleFactor;
+
+          const pitchDeg = typeof roof.pitchAngle === 'number' ? roof.pitchAngle : 15;
+          const pitchRad = pitchDeg * (Math.PI / 180);
+
           const material = new THREE.MeshStandardMaterial({
             color: 0xd97706, // Warm terracotta amber roof
             roughness: 0.45,
             metalness: 0.15,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.85
+            opacity: 0.88
           });
 
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.rotation.x = Math.PI / 2;
-          mesh.position.set(-imgSize.w / 2, topYOffset + roofThickness, -imgSize.h / 2);
-          mesh.castShadow = enableShadows;
-          mesh.receiveShadow = enableShadows;
-          scene.add(mesh);
-          roofMeshesRef.current.push(mesh);
+          if (pitchDeg <= 0 || roof.roof_type === "flat") {
+            // Flat roof extrude
+            const shape = new THREE.Shape();
+            shape.moveTo(pts2d[0].x, pts2d[0].y);
+            for (let i = 1; i < n; i++) shape.lineTo(pts2d[i].x, pts2d[i].y);
+            shape.closePath();
+
+            const extrudeSettings = { depth: roofThickness, bevelEnabled: false };
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.x = Math.PI / 2;
+            mesh.position.set(-imgSize.w / 2, topYOffset + roofThickness, -imgSize.h / 2);
+            mesh.castShadow = enableShadows;
+            mesh.receiveShadow = enableShadows;
+            scene.add(mesh);
+            roofMeshesRef.current.push(mesh);
+          } else {
+            // 3D Pitched Slope Roof Mesh
+            const tanPitch = Math.tan(pitchRad);
+
+            // Compute centroid
+            let cx = 0, cy = 0;
+            pts2d.forEach(p => { cx += p.x; cy += p.y; });
+            cx /= n; cy /= n;
+
+            // Compute average distance from centroid to eave edges
+            let totalDist = 0;
+            for (let i = 0; i < n; i++) {
+              const p1 = pts2d[i];
+              const p2 = pts2d[(i + 1) % n];
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const len = Math.hypot(dx, dy);
+              if (len > 0) {
+                const dist = Math.abs(dx * (cy - p1.y) - dy * (cx - p1.x)) / len;
+                totalDist += dist;
+              }
+            }
+            const avgDist = totalDist / Math.max(1, n);
+            const pitchHeight = avgDist * tanPitch;
+
+            const positions = [];
+            const normals = [];
+
+            const apexX = cx - imgSize.w / 2;
+            const apexY = topYOffset + roofThickness + pitchHeight;
+            const apexZ = cy - imgSize.h / 2;
+
+            for (let i = 0; i < n; i++) {
+              const p1 = pts2d[i];
+              const p2 = pts2d[(i + 1) % n];
+
+              const v1x = p1.x - imgSize.w / 2;
+              const v1y = topYOffset + roofThickness;
+              const v1z = p1.y - imgSize.h / 2;
+
+              const v2x = p2.x - imgSize.w / 2;
+              const v2y = topYOffset + roofThickness;
+              const v2z = p2.y - imgSize.h / 2;
+
+              // Facet Triangle (V1, V2, Apex)
+              positions.push(
+                v1x, v1y, v1z,
+                v2x, v2y, v2z,
+                apexX, apexY, apexZ
+              );
+
+              const ax = v2x - v1x, ay = v2y - v1y, az = v2z - v1z;
+              const bx = apexX - v1x, by = apexY - v1y, bz = apexZ - v1z;
+              let nx = ay * bz - az * by;
+              let ny = az * bx - ax * bz;
+              let nz = ax * by - ay * bx;
+              const normLen = Math.hypot(nx, ny, nz) || 1;
+              nx /= normLen; ny /= normLen; nz /= normLen;
+
+              normals.push(
+                nx, ny, nz,
+                nx, ny, nz,
+                nx, ny, nz
+              );
+
+              // Underside Eave Triangle (V1, Apex_bottom, V2)
+              positions.push(
+                v1x, topYOffset, v1z,
+                apexX, topYOffset, apexZ,
+                v2x, topYOffset, v2z
+              );
+              normals.push(
+                0, -1, 0,
+                0, -1, 0,
+                0, -1, 0
+              );
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+            geometry.computeVertexNormals();
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = enableShadows;
+            mesh.receiveShadow = enableShadows;
+            scene.add(mesh);
+            roofMeshesRef.current.push(mesh);
+          }
         });
       }
 
