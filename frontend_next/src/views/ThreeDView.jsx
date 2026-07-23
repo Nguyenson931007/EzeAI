@@ -10,6 +10,8 @@ export default function ThreeDView({
   wallsByPage = {},
   setWallsByPage,
   doorsByPage = {},
+  setDoorsByPage,
+  updateDoor,
   roomsByPage = {},
   roofsByPage = {},
   currentPage = 0,
@@ -46,8 +48,9 @@ export default function ThreeDView({
   const [heightTier3Color, setHeightTier3Color] = useState("#f59e0b"); // 2850-3250mm (Amber/Orange)
   const [heightTier4Color, setHeightTier4Color] = useState("#8b5cf6"); // > 3250mm (Purple)
 
-  // ── 3D Wall Selection State ──
+  // ── 3D Wall & Door Selection State ──
   const [selected3DWall, setSelected3DWall] = useState(null); // { wallId, pageIndex, wall }
+  const [selected3DDoor, setSelected3DDoor] = useState(null); // { doorId, pageIndex, door }
 
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
@@ -440,15 +443,27 @@ export default function ThreeDView({
     const raycaster = raycasterRef.current;
     raycaster.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
 
-    const intersects = raycaster.intersectObjects(wallMeshesRef.current, true);
+    const selectables = [...wallMeshesRef.current, ...doorMeshesRef.current];
+    const intersects = raycaster.intersectObjects(selectables, true);
     if (intersects.length > 0) {
       let hitMesh = intersects[0].object;
-      while (hitMesh && !hitMesh.userData?.isWallMesh && hitMesh.parent) {
+      while (hitMesh && !hitMesh.userData?.isWallMesh && !hitMesh.userData?.isDoorMesh && hitMesh.parent) {
         hitMesh = hitMesh.parent;
+      }
+      if (hitMesh && hitMesh.userData?.isDoorMesh) {
+        const uData = hitMesh.userData;
+        setSelected3DDoor({ doorId: uData.doorId, pageIndex: uData.pageIndex, door: uData.door });
+        setSelected3DWall(null);
+        if (setSelectedId) {
+          setSelectedId(uData.doorId);
+          if (setSelectedType) setSelectedType(uData.door.type === "window" || uData.door.class === "window" ? "window" : "door");
+        }
+        return;
       }
       if (hitMesh && hitMesh.userData?.isWallMesh) {
         const uData = hitMesh.userData;
         setSelected3DWall({ wallId: uData.wallId, pageIndex: uData.pageIndex, wall: uData.wall });
+        setSelected3DDoor(null);
         if (setSelectedId) {
           setSelectedId(uData.wallId);
           if (setSelectedType) setSelectedType("wall");
@@ -457,6 +472,7 @@ export default function ThreeDView({
       }
     }
     setSelected3DWall(null);
+    setSelected3DDoor(null);
   };
 
   // Re-build scene elements whenever inputs, color modes, or selection change
@@ -1071,19 +1087,45 @@ export default function ThreeDView({
             } else {
               const pWidth = length - postThickness;
               const panelGroup = new THREE.Group();
-              panelGroup.position.set(-length/2 + postThickness/2, 0, 0);
+
+              const hingeSide = (door.hinge_side || door.hingeSide || "left").toLowerCase();
+              const swingDir = (door.swing_direction || door.swing || "inward").toLowerCase();
+              const isRightHinge = hingeSide === "right";
+              const isOutward = swingDir === "outward";
+
+              const pivotX = isRightHinge ? (length / 2 - postThickness / 2) : (-length / 2 + postThickness / 2);
+              const slabOffsetX = isRightHinge ? -pWidth / 2 : pWidth / 2;
+
+              let swingAngle = 0.85; // 48 degrees open
+              if (isRightHinge) swingAngle = -swingAngle;
+              if (isOutward) swingAngle = -swingAngle;
+
+              panelGroup.position.set(pivotX, 0, 0);
 
               const slabMesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              slabMesh.position.set(pWidth/2, slabHeight/2, 0);
+              slabMesh.position.set(slabOffsetX, slabHeight / 2, 0);
               slabMesh.castShadow = enableShadows;
               slabMesh.receiveShadow = enableShadows;
               panelGroup.add(slabMesh);
 
-              panelGroup.rotation.y = 0.8; // Rotate open 45 degrees
+              // Metallic Lever Handle
+              const handleMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.2, metalness: 0.9 });
+              const handleGroup = new THREE.Group();
+              const knobMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 5, 12), handleMat);
+              knobMesh.rotation.x = Math.PI / 2;
+              const leverMesh = new THREE.Mesh(new THREE.BoxGeometry(6, 1.0, 1.2), handleMat);
+              const handleX = isRightHinge ? (-pWidth + 6) : (pWidth - 6);
+              handleGroup.position.set(handleX, slabHeight * 0.5, slabThick / 2 + 1.2);
+              leverMesh.position.set(isRightHinge ? -2.0 : 2.0, 0, 1.2);
+              handleGroup.add(knobMesh, leverMesh);
+              panelGroup.add(handleGroup);
+
+              panelGroup.rotation.y = swingAngle;
               doorGroup.add(panelGroup);
             }
           }
 
+          doorGroup.userData = { isDoorMesh: true, doorId: door.id, pageIndex: originalIndex, door: door };
           doorGroup.position.set(hostWallCx - imgSize.w / 2, yOffset, hostWallCy - imgSize.h / 2);
           doorGroup.rotation.y = -hostWallAngle;
 
@@ -1590,6 +1632,159 @@ export default function ThreeDView({
           </div>
         </div>
       )}
+
+      {/* 3D SELECTED DOOR EDITING FLOATING CARD */}
+      {selected3DDoor && (() => {
+        const pageIdx = selected3DDoor.pageIndex !== undefined ? selected3DDoor.pageIndex : currentPage;
+        const liveDoor = (doorsByPage[pageIdx] || []).find(d => d.id === selected3DDoor.doorId) || selected3DDoor.door;
+        const hingeSide = liveDoor.hinge_side || liveDoor.hingeSide || "left";
+        const swingDir = liveDoor.swing_direction || liveDoor.swing || "inward";
+        const widthMm = liveDoor.width_mm || 900;
+        const heightMm = liveDoor.height_mm || 2100;
+
+        const handleUpdate = (updates) => {
+          const updatedDoor = { ...liveDoor, ...updates };
+          if (updateDoor) updateDoor(updatedDoor);
+          else if (setDoorsByPage) {
+            setDoorsByPage(prev => {
+              const pageDoors = prev[pageIdx] || [];
+              return {
+                ...prev,
+                [pageIdx]: pageDoors.map(d => d.id === liveDoor.id ? updatedDoor : d)
+              };
+            });
+          }
+          setSelected3DDoor(prev => prev ? { ...prev, door: updatedDoor } : null);
+        };
+
+        return (
+          <div
+            style={{
+              position: "absolute",
+              bottom: "24px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 20,
+              backgroundColor: "rgba(15, 23, 42, 0.95)",
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              border: "1px solid rgba(59, 130, 246, 0.6)",
+              borderRadius: "16px",
+              padding: "16px 20px",
+              width: "380px",
+              color: "#ffffff",
+              boxShadow: "0 16px 48px rgba(0, 0, 0, 0.7), 0 0 20px rgba(59, 130, 246, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              fontFamily: "'Outfit', 'Inter', sans-serif"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "16px" }}>🚪</span>
+                <div>
+                  <div style={{ fontWeight: "bold", fontSize: "13px", color: "#60a5fa" }}>
+                    Selected 3D Door ({liveDoor.door_name || liveDoor.id})
+                  </div>
+                  <div style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "monospace" }}>
+                    Hinge: {hingeSide} | Swing: {swingDir}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelected3DDoor(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#9ca3af",
+                  fontSize: "14px",
+                  cursor: "pointer",
+                  padding: "2px 6px"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quick Flip Action Buttons */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <button
+                onClick={() => handleUpdate({ hinge_side: hingeSide === "left" ? "right" : "left", hingeSide: hingeSide === "left" ? "right" : "left" })}
+                style={{
+                  padding: "8px 10px",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#3b82f6",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(59, 130, 246, 0.4)",
+                  transition: "all 0.15s"
+                }}
+              >
+                ↔️ Lật Trái/Phải
+              </button>
+              <button
+                onClick={() => handleUpdate({ swing_direction: swingDir === "inward" ? "outward" : "inward", swing: swingDir === "inward" ? "outward" : "inward" })}
+                style={{
+                  padding: "8px 10px",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#10b981",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(16, 185, 129, 0.4)",
+                  transition: "all 0.15s"
+                }}
+              >
+                ↕️ Lật Trong/Ngoài
+              </button>
+            </div>
+
+            {/* Width & Height Inputs */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "4px" }}>
+              <div>
+                <label style={{ fontSize: "11px", color: "#9ca3af", display: "block", marginBottom: "4px" }}>Rộng Width (mm)</label>
+                <input
+                  type="number"
+                  value={widthMm}
+                  onChange={(e) => handleUpdate({ width_mm: Number(e.target.value) || 900 })}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    backgroundColor: "rgba(0,0,0,0.4)",
+                    color: "#ffffff",
+                    fontSize: "12px"
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "11px", color: "#9ca3af", display: "block", marginBottom: "4px" }}>Cao Height (mm)</label>
+                <input
+                  type="number"
+                  value={heightMm}
+                  onChange={(e) => handleUpdate({ height_mm: Number(e.target.value) || 2100 })}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    backgroundColor: "rgba(0,0,0,0.4)",
+                    color: "#ffffff",
+                    fontSize: "12px"
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Floating Instruction Tips */}
       <div 

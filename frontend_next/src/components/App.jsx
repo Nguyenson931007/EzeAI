@@ -822,6 +822,8 @@ export default function App() {
               wallsByPage={wallsByPage}
               setWallsByPage={setWallsByPage}
               doorsByPage={processedDoorsByPage}
+              setDoorsByPage={setDoorsByPage}
+              updateDoor={updateDoor}
               roomsByPage={roomsByPage}
               roofsByPage={roofsByPage}
               currentPage={currentPage}
