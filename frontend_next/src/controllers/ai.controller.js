@@ -1487,21 +1487,17 @@ export const useAIController = (
   };
 
   const detectRoof = useCallback(async (customConf = null) => {
-    if (!currentPage || isDetectingRef.current) return;
-    const isPDF = pages[currentPage]?.isPDF;
-    const blob = await getImageBlobForCurrentPage(currentPage, isPDF);
-    if (!blob) {
+    if (!currentPage) return;
+    if (!image) {
       showAlert("Không thể lấy ảnh trang hiện tại.");
       return;
     }
 
     const conf = customConf !== null ? String(customConf) : "0.15";
-    const job = createROIJob(`roof_detect_${Date.now()}`);
+    const job = startROIJob();
 
     try {
-      setIsDetecting(true);
-      isDetectingRef.current = true;
-
+      const blob = await fetch(image).then(r => r.blob());
       const data = await ApiService.autoDetectRoof(blob, conf);
       const result = Array.isArray(data) ? data[0] : data;
 
@@ -1541,11 +1537,8 @@ export const useAIController = (
       console.error("[Roof AI] Error:", err);
       showAlert(`Lỗi khi chạy Roof AI: ${err.message || err}`);
       finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
-    } finally {
-      setIsDetecting(false);
-      isDetectingRef.current = false;
     }
-  }, [currentPage, pages, pdfOffset, setRoofsByPage, showAlert, getImageBlobForCurrentPage]);
+  }, [currentPage, image, pdfOffset, setRoofsByPage, showAlert]);
 
   return {
     isDetecting,
