@@ -19,6 +19,7 @@ import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabe
 import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
 import { findParentWall } from "@/models/DoorTypeRegistry";
+import { ApiService } from "@/models/api.service";
 
 export const RoofInteractionState = {
   IDLE: "IDLE",
@@ -1093,6 +1094,35 @@ export function useInteractionController(svgRef) {
     }
     if (isSpaceDown || isDraggingPan) return; // Prevent clicking while panning
     const p = getMouse(e);
+
+    if (interactionMode === "fill-room") {
+      e.stopPropagation();
+      const clickPt = getMouse(e);
+      try {
+        const currentWalls = wallsByPage[currentPage] || [];
+        const currentDoors = doorsByPage[currentPage] || [];
+        const currentTexts = [];
+        const res = await ApiService.createRoomAtPoint(clickPt.x, clickPt.y, currentWalls, currentDoors, currentTexts, 120);
+        if (res && res.success && res.room) {
+          const newRoom = res.room;
+          setRoomsByPage(prev => {
+            const pageRooms = prev[currentPage] || [];
+            return {
+              ...prev,
+              [currentPage]: [...pageRooms, newRoom]
+            };
+          });
+          setSelectedId(newRoom.id);
+          setSelectedType("room");
+          pushHistory([...(roomsByPage[currentPage] || []), newRoom], currentWalls, currentDoors);
+        } else if (res && res.message) {
+          if (showAlert) showAlert(res.message);
+        }
+      } catch (err) {
+        console.error("[fill-room] Error creating room at point:", err);
+      }
+      return;
+    }
 
     if (interactionMode === "draw-wall" && drawingWall && drawingWallEnd) {
       e.stopPropagation();

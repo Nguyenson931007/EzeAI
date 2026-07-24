@@ -558,5 +558,21 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  async createRoomAtPoint(x, y, walls, doors = [], texts = [], gapThreshold = 120) {
+    const res = await fetch(`${BASE_URL}/api/create-room-at-point`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        x, y,
+        walls,
+        doors,
+        texts,
+        gap_threshold: gapThreshold
+      }),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };

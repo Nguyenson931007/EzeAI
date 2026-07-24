@@ -243,6 +243,23 @@ export default function RibbonView({
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button> */}
                 <button
+                  className={`ribbon-btn ${interactionMode === "fill-room" ? "active" : ""}`}
+                  onClick={() => {
+                    if (interactionMode === "fill-room") {
+                      if (setInteractionMode) setInteractionMode("select");
+                    } else {
+                      if (setInteractionMode) setInteractionMode("fill-room");
+                      setDrawing(false);
+                      setCurrentPoly([]);
+                      setIsDrawingDoor(false);
+                      setIsDrawingRoof(false);
+                    }
+                  }}
+                  title="Click vào vùng trong tường khép kín để tự động tạo Room"
+                >
+                  <span className="icon">🪣</span><span className="label">Fill Room</span>
+                </button>
+                <button
                   className={`ribbon-btn ${isDrawingRoof ? "active" : ""}`}
                   onClick={() => {
                     setIsDrawingRoof(r => !r);
@@ -444,7 +461,7 @@ export default function RibbonView({
                   <span className="label">Smart AI</span>
                 </button>
                 */}
-                {/* <button
+                <button
                   className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
                   onClick={() => detectText()}
                   disabled={isDetecting}
@@ -452,7 +469,7 @@ export default function RibbonView({
                 >
                   <span className="icon">{isDetecting ? "⏳" : "📝"}</span>
                   <span className="label">Text AI</span>
-                </button> */}
+                </button>
               </div>
 
               {/* Smart AI 3-Stage Progress Bar */}
@@ -563,6 +580,9 @@ export default function RibbonView({
                 {/* <button className="ribbon-btn">
                   <span className="icon">📝</span><span className="label">Word</span>
                 </button> */}
+                <button className="ribbon-btn accent" onClick={exportWallLabels} title="Xuất file JS dữ liệu tường theo chuẩn mẫu Wall Frame / EZPlan Schema">
+                  <span className="icon">⚡</span><span className="label">Export JS</span>
+                </button>
                 <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('open-takeoff-modal'))}>
                   <span className="icon">📊</span><span className="label">Excel</span>
                 </button>

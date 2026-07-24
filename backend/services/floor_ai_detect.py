@@ -357,18 +357,233 @@ GLOBAL_OCR_CORRECTIONS = {
     "VC": "WC"
 }
 
+def _correct_dimension_code(text: str) -> str:
+    """Corrects common OCR misread digits/letters in CAD dimension & door/window codes."""
+    if not text:
+        return text
+    
+    t = text.strip()
+    t_upper = t.upper()
+    
+    # Sliders / Sliding doors
+    if re.search(r"\b(SLIDERS|SLIDERS~|SLDERS|SUDERS|SLIDER|SLIDING|SLD)\b", t_upper):
+        return "sliders"
+        
+    # Door sizes with cs/sd suffix (e.g. 770cs, 720cs)
+    cs_match = re.match(r"^(\d{3,4})\s*(CS|S|C5|SD)$", t_upper)
+    if cs_match:
+        digits, suff = cs_match.groups()
+        return f"{digits}{suff.lower()}"
+        
+    # Window/door sizes with L suffix (e.g. 2406L, 1518, 0906, 1212)
+    # Common OCR swaps: 'O'/'o' -> '0', 'S' -> '5' if mixed with numbers
+    if re.search(r"\d", t_upper) or re.search(r"^[0-9OoSsLl]{3,6}$", t_upper):
+        cleaned_num = ""
+        for ch in t_upper:
+            if ch in ['O', 'Q', 'o']:
+                cleaned_num += '0'
+            elif ch in ['I', 'l', '|']:
+                cleaned_num += '1'
+            elif ch == 'Z':
+                cleaned_num += '2'
+            elif ch == 'S' and len(cleaned_num) > 0 and cleaned_num[-1].isdigit():
+                cleaned_num += '5'
+            else:
+                cleaned_num += ch
+        
+        # Check standard CAD format patterns: 2406L, 1518, 0906, 1212, 0624, 820
+        dim_match = re.match(r"^(\d{3,4})([A-Z]{0,2})$", cleaned_num)
+        if dim_match:
+            digits, suffix = dim_match.groups()
+            return f"{digits}{suffix}"
+            
+    return text
+
+
+def _fuzzy_correct_room_name(text: str) -> str:
+    """Fuzzy matches text against VALID_ROOM_WORDS and GLOBAL_OCR_CORRECTIONS."""
+    if not text:
+        return ""
+        
+    s = text.upper().strip()
+    
+    # Check exact dictionary match
+    if s in GLOBAL_OCR_CORRECTIONS:
+        return GLOBAL_OCR_CORRECTIONS[s]
+        
+    # Check dimension/door codes first
+    dim_corrected = _correct_dimension_code(s)
+    if dim_corrected != s:
+        return dim_corrected
+        
+    # Check single word vs multi word
+    words = s.split()
+    if len(words) == 1:
+        w = words[0]
+        if w in GLOBAL_OCR_CORRECTIONS:
+            return GLOBAL_OCR_CORRECTIONS[w]
+            
+        try:
+            from rapidfuzz import fuzz, process
+            best_res = process.extractOne(w, VALID_ROOM_WORDS, scorer=fuzz.ratio)
+            if best_res and best_res[1] >= 82:
+                return best_res[0]
+        except Exception:
+            pass
+    else:
+        # Check compound room names like "BED 5", "BATH 1", "ENS 2"
+        prefix_match = re.match(r"^(BED|BATH|ENS|BR|BA)\s*(\d+)$", s)
+        if prefix_match:
+            p, n = prefix_match.groups()
+            p_clean = GLOBAL_OCR_CORRECTIONS.get(p, p)
+            if p_clean in ["BED", "BATH", "ENS"]:
+                return f"{p_clean} {n}"
+                
+        corrected_words = []
+        for w in words:
+            if w in GLOBAL_OCR_CORRECTIONS:
+                corrected_words.append(GLOBAL_OCR_CORRECTIONS[w])
+            elif len(w) >= 3:
+                try:
+                    from rapidfuzz import fuzz, process
+                    best_res = process.extractOne(w, VALID_ROOM_WORDS, scorer=fuzz.ratio)
+                    if best_res and best_res[1] >= 82:
+                        corrected_words.append(best_res[0])
+                    else:
+                        corrected_words.append(w)
+                except Exception:
+                    corrected_words.append(w)
+            else:
+                corrected_words.append(w)
+        s = " ".join(corrected_words)
+        
+    return s
+
+
 def _apply_spelling_corrections(text: str) -> str:
     if not text:
         return ""
-    s = text.upper().strip()
-    if s in GLOBAL_OCR_CORRECTIONS:
-        return GLOBAL_OCR_CORRECTIONS[s]
+    return _fuzzy_correct_room_name(text)
+
+
+def _preprocess_crop_for_ocr(crop_np: np.ndarray) -> Image.Image:
+    """Preprocesses a crop image for OCR using OpenCV scaling and CLAHE contrast boost."""
+    if crop_np is None or crop_np.size == 0:
+        return None
+        
+    h, w = crop_np.shape[:2]
     
-    words = s.split()
-    if len(words) > 1:
-        corrected_words = [GLOBAL_OCR_CORRECTIONS.get(w, w) for w in words]
-        s = " ".join(corrected_words)
-    return s
+    # Scale up small crops
+    if h < 36 or w < 36:
+        scale = max(36.0 / max(h, 1), 36.0 / max(w, 1))
+        scale = min(scale, 3.0)
+        new_w, new_h = int(w * scale), int(h * scale)
+        crop_np = cv2.resize(crop_np, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        
+    # Contrast boost via CLAHE
+    if len(crop_np.shape) == 3 and crop_np.shape[2] == 3:
+        gray = cv2.cvtColor(crop_np, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = crop_np
+        
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    
+    return Image.fromarray(enhanced)
+
+
+def _merge_nearby_text_boxes(boxes: list, max_h_gap: int = 30, max_v_gap: int = 25) -> list:
+    """Merges adjacent text bounding boxes to capture compound room names or code pairs."""
+    if not boxes or len(boxes) <= 1:
+        return boxes
+        
+    merged = True
+    current_boxes = [dict(b) for b in boxes]
+    
+    while merged:
+        merged = False
+        new_boxes = []
+        skip_indices = set()
+        
+        for i in range(len(current_boxes)):
+            if i in skip_indices:
+                continue
+            b1 = current_boxes[i]
+            x1_1, y1_1, x2_1, y2_1 = b1["x1"], b1["y1"], b1["x2"], b1["y2"]
+            
+            for j in range(i + 1, len(current_boxes)):
+                if j in skip_indices:
+                    continue
+                b2 = current_boxes[j]
+                x1_2, y1_2, x2_2, y2_2 = b2["x1"], b2["y1"], b2["x2"], b2["y2"]
+                
+                # Check horizontal adjacency (same line)
+                h_overlap_v_align = (
+                    abs(y1_1 - y1_2) <= 22 or abs(y2_1 - y2_2) <= 22
+                ) and (
+                    (x1_2 - x2_1 >= -10 and x1_2 - x2_1 <= max_h_gap) or
+                    (x1_1 - x2_2 >= -10 and x1_1 - x2_2 <= max_h_gap)
+                )
+                
+                # Check vertical adjacency (stacked line)
+                v_overlap_h_align = (
+                    abs(x1_1 - x1_2) <= 25 or abs(x2_1 - x2_2) <= 25
+                ) and (
+                    (y1_2 - y2_1 >= -10 and y1_2 - y2_1 <= max_v_gap) or
+                    (y1_1 - y2_2 >= -10 and y1_1 - y2_2 <= max_v_gap)
+                )
+                
+                if h_overlap_v_align or v_overlap_h_align:
+                    b1["x1"] = min(x1_1, x1_2)
+                    b1["y1"] = min(y1_1, y1_2)
+                    b1["x2"] = max(x2_1, x2_2)
+                    b1["y2"] = max(y2_1, y2_2)
+                    b1["conf"] = max(b1["conf"], b2["conf"])
+                    skip_indices.add(j)
+                    merged = True
+                    break
+            new_boxes.append(b1)
+        current_boxes = new_boxes
+        
+    return current_boxes
+
+
+def _suppress_overlapping_boxes(boxes: list, iou_threshold: float = 0.45) -> list:
+    """Non-Maximum Suppression (NMS) to eliminate duplicate bounding boxes across 0 deg and 90 deg YOLO passes."""
+    if not boxes or len(boxes) <= 1:
+        return boxes
+        
+    sorted_boxes = sorted(boxes, key=lambda b: b["conf"], reverse=True)
+    kept = []
+    
+    for b in sorted_boxes:
+        overlap = False
+        b_x1, b_y1, b_x2, b_y2 = b["x1"], b["y1"], b["x2"], b["y2"]
+        b_area = (b_x2 - b_x1) * (b_y2 - b_y1)
+        if b_area <= 0:
+            continue
+            
+        for k in kept:
+            k_x1, k_y1, k_x2, k_y2 = k["x1"], k["y1"], k["x2"], k["y2"]
+            k_area = (k_x2 - k_x1) * (k_y2 - k_y1)
+            
+            ix1 = max(b_x1, k_x1)
+            iy1 = max(b_y1, k_y1)
+            ix2 = min(b_x2, k_x2)
+            iy2 = min(b_y2, k_y2)
+            
+            if ix2 > ix1 and iy2 > iy1:
+                inter_area = (ix2 - ix1) * (iy2 - iy1)
+                union_area = b_area + k_area - inter_area
+                iou = inter_area / float(union_area) if union_area > 0 else 0
+                
+                if iou > iou_threshold:
+                    overlap = True
+                    break
+        if not overlap:
+            kept.append(b)
+            
+    return kept
 
 
 def _clean_text(s: str) -> str:
@@ -3224,11 +3439,11 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
     inference_imgsz = 1824 if device == "cuda" else 1024
     use_augment = True if device == "cuda" else False
     
-    # Use higher imgsz and augment=True to catch small/thin text like 'BIR' on GPU, fallback on CPU for speed
-    yolo_results = text_model(img_np, conf=confidence, device=device, imgsz=inference_imgsz, agnostic_nms=True, augment=use_augment)
+    # Stage 1: Dual-Pass YOLO Text Detection (Pass 1: 0 deg, Pass 2: 90 deg rotated for vertical text)
+    yolo_results_0 = text_model(img_np, conf=confidence, device=device, imgsz=inference_imgsz, agnostic_nms=True, augment=use_augment)
     
     text_boxes = []
-    for res in yolo_results:
+    for res in yolo_results_0:
         if res.boxes is None:
             continue
         xyxy_arr = res.boxes.xyxy.cpu().numpy()
@@ -3238,21 +3453,58 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
             box_w = x2 - x1
             box_h = y2 - y1
             conf = float(conf_arr[i])
-            
-            # OPTIMIZATION: Filter out tiny noise boxes and extremely low-confidence boxes
             if box_w < 8 or box_h < 8 or conf < 0.15:
                 continue
-                
             text_boxes.append({
                 "x1": int(x1), "y1": int(y1),
                 "x2": int(x2), "y2": int(y2),
-                "conf": conf
+                "conf": conf,
+                "is_from_90": False
+            })
+
+    # Pass 2: Run YOLO on 90-degree rotated image to turn vertical text into horizontal text
+    img_np_90 = cv2.rotate(img_np, cv2.ROTATE_90_CLOCKWISE)
+    yolo_results_90 = text_model(img_np_90, conf=confidence, device=device, imgsz=inference_imgsz, agnostic_nms=True, augment=use_augment)
+    
+    for res in yolo_results_90:
+        if res.boxes is None:
+            continue
+        xyxy_arr = res.boxes.xyxy.cpu().numpy()
+        conf_arr = res.boxes.conf.cpu().numpy()
+        for i in range(len(xyxy_arr)):
+            xr1, yr1, xr2, yr2 = xyxy_arr[i]
+            box_w = xr2 - xr1
+            box_h = yr2 - yr1
+            conf = float(conf_arr[i])
+            if box_w < 8 or box_h < 8 or conf < 0.15:
+                continue
+                
+            # Map coordinates back from 90 deg rotated image to 0 deg original image
+            # x_orig = y_rot; y_orig = H_orig - x_rot
+            x1_orig = int(yr1)
+            y1_orig = int(img_h - xr2)
+            x2_orig = int(yr2)
+            y2_orig = int(img_h - xr1)
+            
+            x1_final, x2_final = min(x1_orig, x2_orig), max(x1_orig, x2_orig)
+            y1_final, y2_final = min(y1_orig, y2_orig), max(y1_orig, y2_orig)
+            
+            text_boxes.append({
+                "x1": max(0, x1_final), "y1": max(0, y1_final),
+                "x2": min(img_w, x2_final), "y2": min(img_h, y2_final),
+                "conf": conf,
+                "is_from_90": True,
+                "crop_coords_90": (int(xr1), int(yr1), int(xr2), int(yr2))
             })
     
     if not text_boxes:
         return []
+        
+    # Deduplicate overlapping boxes between 0 deg and 90 deg passes, then merge adjacent boxes
+    text_boxes = _suppress_overlapping_boxes(text_boxes, iou_threshold=0.45)
+    text_boxes = _merge_nearby_text_boxes(text_boxes)
     
-    # Stage 2: Crop + OCR (Optimized Batch OCR with padding=15, is_vertical threshold=0.9)
+    # Stage 2: Crop + OCR with 4-angle rotation batching on GPU
     all_results = []
     
     batch_images = []
@@ -3260,48 +3512,74 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
     
     for box_idx, box in enumerate(text_boxes):
         pad = 15
-        cx1 = max(0, box["x1"] - pad)
-        cy1 = max(0, box["y1"] - pad)
-        cx2 = min(img_w, box["x2"] + pad)
-        cy2 = min(img_h, box["y2"] + pad)
-        
-        crop = img_np[cy1:cy2, cx1:cx2]
-        if crop.size == 0:
+        if box.get("is_from_90") and "crop_coords_90" in box:
+            # Extract crop directly from the 90-degree rotated image where vertical text is horizontal
+            xr1, yr1, xr2, yr2 = box["crop_coords_90"]
+            cx1 = max(0, xr1 - pad)
+            cy1 = max(0, yr1 - pad)
+            cx2 = min(img_np_90.shape[1], xr2 + pad)
+            cy2 = min(img_np_90.shape[0], yr2 + pad)
+            crop_np = img_np_90[cy1:cy2, cx1:cx2]
+        else:
+            # Extract crop from original image
+            cx1 = max(0, box["x1"] - pad)
+            cy1 = max(0, box["y1"] - pad)
+            cx2 = min(img_w, box["x2"] + pad)
+            cy2 = min(img_h, box["y2"] + pad)
+            crop_np = img_np[cy1:cy2, cx1:cx2]
+            
+        if crop_np.size == 0:
             continue
             
-        pil_crop = Image.fromarray(crop)
-        crop_h, crop_w = crop.shape[:2]
-        is_vertical = crop_h > crop_w * 0.9
-        
-        # 0 degree orientation
+        pil_crop = _preprocess_crop_for_ocr(crop_np)
+        if pil_crop is None:
+            continue
+            
+        # Add all 4 rotations to the GPU batch
         batch_images.append(pil_crop)
         batch_map.append((box_idx, 0))
         
-        if is_vertical:
-            # 90 degrees
-            batch_images.append(pil_crop.transpose(Image.ROTATE_270))
-            batch_map.append((box_idx, 90))
-            # 270 degrees
-            batch_images.append(pil_crop.transpose(Image.ROTATE_90))
-            batch_map.append((box_idx, 270))
+        batch_images.append(pil_crop.transpose(Image.ROTATE_270))
+        batch_map.append((box_idx, 90))
+        
+        batch_images.append(pil_crop.transpose(Image.ROTATE_180))
+        batch_map.append((box_idx, 180))
+        
+        batch_images.append(pil_crop.transpose(Image.ROTATE_90))
+        batch_map.append((box_idx, 270))
 
-    # Run OCR on all crops in one batch
+    # Run OCR on all crops from all 4 angles in ONE single batched GPU call
     from services.ocr import run_ocr_batch
     batch_results = run_ocr_batch(batch_images)
     
     # Process results and find the best text for each text_box
-    best_results_for_box = {}  # box_idx -> {text, conf}
+    best_results_for_box = {}  # box_idx -> {text, conf, effective_conf}
     
     for (box_idx, angle), results in zip(batch_map, batch_results):
         for r in results:
-            text = r["text"].strip()
+            raw_text = r["text"].strip()
             conf = r["conf"]
-            if text:
-                if box_idx not in best_results_for_box or conf > best_results_for_box[box_idx]["conf"]:
-                    best_results_for_box[box_idx] = {
-                        "text": text,
-                        "conf": conf
-                    }
+            if not raw_text or conf < 0.1:
+                continue
+                
+            processed_text = _collapse_spaces(raw_text)
+            processed_text = _fuzzy_correct_room_name(processed_text)
+            
+            # Confidence bonus if text matches known valid room word or CAD dimension
+            score_bonus = 0.0
+            if processed_text in VALID_ROOM_WORDS or processed_text in GLOBAL_OCR_CORRECTIONS.values():
+                score_bonus += 0.30
+            elif re.search(r"^\d{3,4}[A-Za-z]{0,3}$", processed_text) or processed_text == "sliders":
+                score_bonus += 0.25
+                
+            effective_conf = conf + score_bonus
+            
+            if box_idx not in best_results_for_box or effective_conf > best_results_for_box[box_idx]["effective_conf"]:
+                best_results_for_box[box_idx] = {
+                    "text": processed_text,
+                    "conf": conf,
+                    "effective_conf": effective_conf
+                }
                     
     for box_idx, res in best_results_for_box.items():
         box = text_boxes[box_idx]
@@ -3309,8 +3587,6 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
         best_conf = res["conf"]
         
         if best_text and best_conf > 0.1:
-            best_text = _collapse_spaces(best_text)
-            best_text = _apply_spelling_corrections(best_text)
             bbox_w = box["x2"] - box["x1"]
             bbox_h = box["y2"] - box["y1"]
             all_results.append({

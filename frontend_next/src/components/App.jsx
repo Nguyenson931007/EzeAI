@@ -763,6 +763,8 @@ export default function App() {
         runROISearch={runROISearch}
         showPDF={showPDF}
         setShowPDF={setShowPDF}
+        interactionMode={interactionMode}
+        setInteractionMode={setInteractionMode}
       />
 
       {activeTab === "Admin" ? (

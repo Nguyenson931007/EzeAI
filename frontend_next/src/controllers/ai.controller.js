@@ -1549,6 +1549,32 @@ export const useAIController = (
     }
   }, [currentPage, image, pdfOffset, setRoofsByPage, showAlert]);
 
+  const createRoomAtPoint = async (x, y, gapThreshold = 120) => {
+    try {
+      const currentWalls = wallsByPage[currentPage] || [];
+      const currentDoors = doorsByPage[currentPage] || [];
+      const currentTexts = textAnnotationsByPage[currentPage] || [];
+      
+      const res = await ApiService.createRoomAtPoint(x, y, currentWalls, currentDoors, currentTexts, gapThreshold);
+      if (res && res.success && res.room) {
+        setRoomsByPage(prev => {
+          const pageRooms = prev[currentPage] || [];
+          return {
+            ...prev,
+            [currentPage]: [...pageRooms, res.room]
+          };
+        });
+        return res.room;
+      } else if (res && res.message) {
+        console.warn("[createRoomAtPoint] Server message:", res.message);
+      }
+      return null;
+    } catch (e) {
+      console.error("[createRoomAtPoint] Error:", e);
+      return null;
+    }
+  };
+
   return {
     isDetecting,
     roiProgress,
@@ -1567,6 +1593,7 @@ export const useAIController = (
     cancelSmartDetect,
     isSmartDetecting,
     smartProgress,
-    generateRoomsFromWalls
+    generateRoomsFromWalls,
+    createRoomAtPoint
   };
 };

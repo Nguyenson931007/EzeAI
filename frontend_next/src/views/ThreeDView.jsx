@@ -5,6 +5,27 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType } from "@/utils/geometry";
 
+function insetPolygon3D(pts, offset = 12.0) {
+  if (!pts || pts.length < 3) return pts;
+  let cx = 0, cy = 0;
+  pts.forEach(p => { cx += p.x; cy += p.y; });
+  cx /= pts.length;
+  cy /= pts.length;
+  
+  return pts.map(p => {
+    const dx = cx - p.x;
+    const dy = cy - p.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < offset * 1.5) return p;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    return {
+      x: p.x + ux * offset,
+      y: p.y + uy * offset
+    };
+  });
+}
+
 export default function ThreeDView({
   pages = [],
   wallsByPage = {},
@@ -121,6 +142,39 @@ export default function ThreeDView({
       .sort((a, b) => a.level - b.level)
       .map(x => x.originalIndex);
   }, [pages]);
+
+  // Calculate exact cumulative height for each page level
+  const pageHeightsMm = React.useMemo(() => {
+    const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
+    const heights = {};
+    sortedPageIndices.forEach(idx => {
+      const pageWalls = wallsByPage[idx] || [];
+      if (pageWalls.length > 0) {
+        let maxH = 0;
+        pageWalls.forEach(w => {
+          const h = (typeof w.height_mm === 'number' && w.height_mm >= 500) 
+            ? w.height_mm 
+            : ((typeof w.height === 'number' && w.height >= 500) ? w.height : wallHeightMm);
+          if (h > maxH) maxH = h;
+        });
+        heights[idx] = (maxH >= 500 ? maxH : wallHeightMm) / scaleFactor;
+      } else {
+        heights[idx] = wallHeightMm / scaleFactor;
+      }
+    });
+    return heights;
+  }, [sortedPageIndices, wallsByPage, wallHeightMm, realScale]);
+
+  const levelBaseYOffsets = React.useMemo(() => {
+    const offsets = {};
+    let cumulativeY = 0;
+    sortedPageIndices.forEach((idx) => {
+      offsets[idx] = cumulativeY;
+      const h = pageHeightsMm[idx] || (wallHeightMm / ((realScale && realScale !== 1.0) ? realScale : 18.0));
+      cumulativeY += h + floorDepth;
+    });
+    return offsets;
+  }, [sortedPageIndices, pageHeightsMm, wallHeightMm, floorDepth, realScale]);
 
   // Calculate center of the floor plan for OrbitControls target
   const center = React.useMemo(() => {
@@ -501,7 +555,8 @@ export default function ThreeDView({
       const pageDoors = doorsByPage[originalIndex] || [];
       const pageRooms = roomsByPage[originalIndex] || [];
       
-      const yOffset = k * (wallHeight + floorDepth);
+      const yOffset = levelBaseYOffsets[originalIndex] !== undefined ? levelBaseYOffsets[originalIndex] : k * (wallHeight + floorDepth);
+      const levelWallHeight = pageHeightsMm[originalIndex] !== undefined ? pageHeightsMm[originalIndex] : wallHeight;
 
       // --- 1. RENDER ROOMS (FLOORS) ---
       if (showFloors) {
@@ -509,10 +564,21 @@ export default function ThreeDView({
           const poly = room.polygon;
           if (!poly || poly.length < 3) return;
 
+          const pts2d = poly.map(p => ({
+            x: typeof p.x === 'number' ? p.x : (Array.isArray(p) && typeof p[0] === 'number' ? p[0] : 0),
+            y: typeof p.y === 'number' ? p.y : (Array.isArray(p) && typeof p[1] === 'number' ? p[1] : 0)
+          })).filter(p => !isNaN(p.x) && !isNaN(p.y));
+
+          if (pts2d.length < 3) return;
+
+          // Inset room floor polygon slightly into room interior (12px)
+          // so 3D floor mesh stays inside room walls and does NOT protrude onto exterior building facade
+          const insetPts = insetPolygon3D(pts2d, 12.0);
+
           const shape = new THREE.Shape();
-          shape.moveTo(poly[0].x, poly[0].y);
-          for (let i = 1; i < poly.length; i++) {
-            shape.lineTo(poly[i].x, poly[i].y);
+          shape.moveTo(insetPts[0].x, insetPts[0].y);
+          for (let i = 1; i < insetPts.length; i++) {
+            shape.lineTo(insetPts[i].x, insetPts[i].y);
           }
           shape.closePath();
 
@@ -533,7 +599,7 @@ export default function ThreeDView({
             color = 0x3f3f46;
           }
 
-          const extrudeSettings = { depth: k > 0 ? floorDepth : 1, bevelEnabled: false };
+          const extrudeSettings = { depth: 0.5, bevelEnabled: false };
           const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
           const material = new THREE.MeshStandardMaterial({
             color: color,
@@ -544,7 +610,7 @@ export default function ThreeDView({
 
           const mesh = new THREE.Mesh(geometry, material);
           mesh.rotation.x = Math.PI / 2;
-          mesh.position.set(-imgSize.w / 2, k > 0 ? yOffset : yOffset - 0.5, -imgSize.h / 2);
+          mesh.position.set(-imgSize.w / 2, yOffset + 0.5, -imgSize.h / 2);
           mesh.receiveShadow = enableShadows;
           scene.add(mesh);
           floorMeshesRef.current.push(mesh);
@@ -564,7 +630,7 @@ export default function ThreeDView({
             y: typeof p.y === 'number' ? p.y : p[1]
           }));
 
-          const topYOffset = yOffset + wallHeight;
+          const topYOffset = yOffset + levelWallHeight;
           const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
           const roofThickness = 120 / scaleFactor;
 
@@ -731,7 +797,9 @@ export default function ThreeDView({
         const thickness = wall.thickness_px || 20;
 
         const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
-        const wallHeightMmVal = wall.height || wall.height_mm || wallHeightMm;
+        const wallHeightMmVal = (typeof wall.height_mm === 'number' && wall.height_mm >= 500) 
+          ? wall.height_mm 
+          : ((typeof wall.height === 'number' && wall.height >= 500) ? wall.height : wallHeightMm);
         let activeWallHeight = wallHeightMmVal / scaleFactor;
 
         // Determine wall color based on mode
@@ -1139,7 +1207,7 @@ export default function ThreeDView({
     pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, sortedPageIndices, visibleLevels,
     showFloors, showPDF, showDoors, showRoofs, wallHeight, floorDepth, realScale, enableShadows,
     wallColorMode, extWallColor, intWallColor, partWallColor, heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
-    selected3DWall, selectedId
+    selected3DWall, selectedId, levelBaseYOffsets, pageHeightsMm
   ]);
 
   return (
@@ -1221,32 +1289,66 @@ export default function ThreeDView({
           </button>
         </div>
 
-        {/* Floor Depth Slider */}
-        {pages.length > 1 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
-              <span>Floor Slab Depth</span>
-              <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>
-                {floorDepthMm >= 1000 ? `${(floorDepthMm / 1000).toFixed(2)}m` : `${floorDepthMm}mm`}
-              </span>
+        {/* Floor Depth Input & Quick Presets */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+            <span>Floor Slab Depth</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <input 
+                type="number" 
+                min="0" 
+                max="5000" 
+                step="50"
+                value={floorDepthMm} 
+                onChange={(e) => {
+                  const str = e.target.value;
+                  if (str === "") {
+                    setFloorDepthMm(0);
+                    return;
+                  }
+                  const val = Math.max(0, parseInt(str, 10) || 0);
+                  setFloorDepthMm(val);
+                }}
+                style={{
+                  width: "80px",
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  fontFamily: "monospace",
+                  color: "#60a5fa",
+                  backgroundColor: "rgba(15, 23, 42, 0.7)",
+                  border: "1px solid rgba(255, 255, 255, 0.15)",
+                  borderRadius: "6px",
+                  outline: "none",
+                  textAlign: "right"
+                }}
+              />
+              <span style={{ fontSize: "11px", color: "#9ca3af" }}>mm</span>
             </div>
-            <input 
-              type="range" 
-              min="100" 
-              max="1000" 
-              step="50"
-              value={floorDepthMm} 
-              onChange={(e) => setFloorDepthMm(Number(e.target.value))}
-              style={{
-                width: "100%",
-                height: "4px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                accentColor: "#3b82f6"
-              }}
-            />
           </div>
-        )}
+          <div style={{ display: "flex", gap: "4px" }}>
+            {[0, 150, 300, 500].map((presetMm) => (
+              <button
+                key={presetMm}
+                onClick={() => setFloorDepthMm(presetMm)}
+                style={{
+                  flex: 1,
+                  padding: "3px 4px",
+                  fontSize: "10px",
+                  fontWeight: "bold",
+                  borderRadius: "4px",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  backgroundColor: floorDepthMm === presetMm ? "#3b82f6" : "rgba(15, 23, 42, 0.5)",
+                  color: floorDepthMm === presetMm ? "#ffffff" : "#9ca3af",
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                {presetMm === 0 ? "0 (Không Sàn)" : `${presetMm}mm`}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* 🎨 WALL COLOR MODE & CUSTOMIZATION */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
@@ -1457,6 +1559,44 @@ export default function ThreeDView({
                 height: "16px",
                 borderRadius: "4px",
                 cursor: "pointer"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span style={{ color: !showRoofs ? "#f87171" : "#d1d5db" }}>Hide Roof (Ẩn Mái)</span>
+            <input 
+              type="checkbox" 
+              checked={!showRoofs} 
+              onChange={() => setShowRoofs(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#ef4444"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span style={{ color: visibleLevels[1] === false ? "#f87171" : "#d1d5db" }}>Hide Tầng 2 (Ẩn Lầu 1)</span>
+            <input 
+              type="checkbox" 
+              checked={visibleLevels[1] === false} 
+              onChange={(e) => {
+                const hideL2 = e.target.checked;
+                setVisibleLevels(prev => ({
+                  ...prev,
+                  1: !hideL2
+                }));
+              }}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#ef4444"
               }}
             />
           </label>

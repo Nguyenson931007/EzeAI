@@ -474,8 +474,14 @@ export function useDocumentController({
 
         const centerline = w.centerline || [];
         return {
+          id: w.id,
           wall_type: wallType,
-          centerline: centerline
+          class_name: w.class_name,
+          centerline: centerline,
+          thickness: w.thickness_px || w.thickness || 90,
+          height: w.height_mm || w.height || 2700,
+          level: currentPage,
+          level_name: `LEVEL_${String(currentPage + 1).padStart(2, '0')}`
         };
       });
 
@@ -498,7 +504,20 @@ export function useDocumentController({
       }
 
       const resData = await res.json();
-      alert(`Label data exported successfully!\nSaved at:\n${resData.export_dir}`);
+
+      if (resData && resData.js_content) {
+        const blob = new Blob([resData.js_content], { type: "application/javascript" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${exportName}.js`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      alert(`Xuất dữ liệu JS thành công!\n- Đã tự động tải về tệp: ${exportName}.js\n- Thư mục server: ${resData.export_dir}`);
     } catch (err) {
       console.error("Export labels error:", err);
       alert(`Failed to export labels: ${err.message}`);
