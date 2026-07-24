@@ -631,6 +631,12 @@ export default function RightPropertyPaneView({
     setShowTakeoffModal(true);
   };
 
+  React.useEffect(() => {
+    const handleOpenTakeoff = () => openTakeoffModal();
+    window.addEventListener('open-takeoff-modal', handleOpenTakeoff);
+    return () => window.removeEventListener('open-takeoff-modal', handleOpenTakeoff);
+  }, []);
+
   return (
     <div className="cad-panel">
       {/* ── PROPERTIES ── */}

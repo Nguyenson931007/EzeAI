@@ -84,7 +84,7 @@ export default function RibbonView({
           <img src="/logo.png" alt="ezequote" style={{ height: "20px", width: "auto", objectFit: "contain", filter: "drop-shadow(0 0 6px rgba(255, 255, 255, 0.95)) brightness(1.3)" }} />
         </span>
         <div className="cad-tabs">
-          {["Home", "Measure", "AI & Reports", "View", "Saved Jobs"].map(tab => (
+          {["Home", "AI & Reports", "View", "Saved Jobs"].map(tab => (
             <button
               key={tab}
               className={`cad-tab ${activeTab === tab ? "active" : ""}`}
@@ -159,16 +159,16 @@ export default function RibbonView({
               <div className="ribbon-buttons">
                 <button className="ribbon-btn" onClick={undo}><span className="icon">↶</span><span className="label">Undo</span></button>
                 <button className="ribbon-btn" onClick={redo}><span className="icon">↷</span><span className="label">Redo</span></button>
-                <button className="ribbon-btn danger" onClick={deleteItem} title="Delete Selected">
+                {/* <button className="ribbon-btn danger" onClick={deleteItem} title="Delete Selected">
                   <span className="icon">🗑</span><span className="label">Delete</span>
-                </button>
-                <button
+                </button> */}
+                {/* <button
                   className="ribbon-btn"
                   onClick={() => autoMergeCollinearWalls && autoMergeCollinearWalls()}
                   title="Tự động nối các đoạn tường thẳng hàng thành 1 tường (Merge Aligned)"
                 >
                   <span className="icon">🔗</span><span className="label">Merge Aligned</span>
-                </button>
+                </button> */}
                 <button
                   className={`ribbon-btn ${isWallSnapEnabled ? "active" : ""}`}
                   onClick={() => setIsWallSnapEnabled && setIsWallSnapEnabled(prev => !prev)}
@@ -176,13 +176,13 @@ export default function RibbonView({
                 >
                   <span className="icon">🧲</span><span className="label">{isWallSnapEnabled ? "Snap On" : "Snap Off"}</span>
                 </button>
-                <button
+                {/* <button
                   className={`ribbon-btn ${interactionMode === "marquee" ? "active" : ""}`}
                   onClick={() => setInteractionMode && setInteractionMode(prev => prev === "marquee" ? "select" : "marquee")}
                   title="Marquee Select Walls (Ctrl + Drag)"
                 >
                   <span className="icon">🟦</span><span className="label">Marquee</span>
-                </button>
+                </button> */}
                 <button
                   className="ribbon-btn danger"
                   onClick={() => deleteAllRooms()}
@@ -200,12 +200,48 @@ export default function RibbonView({
             </div>
             <div className="ribbon-divider" />
 
+            {/* QUICK ACTIONS */}
+            <div className="ribbon-group">
+              <div className="ribbon-buttons">
+                <button className={`ribbon-btn ${isMeasuring ? "active" : ""}`} onClick={() => { setIsMeasuring(true); setMeasurePoints([]); setIsDistancing(false); setDistancePoints([]); setIsDrawingDoor(false); if (doorController) doorController.setShowPenetrations(false); }}>
+                  <span className="icon">📏</span><span className="label">Scale</span>
+                </button>
+                <button
+                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
+                  onClick={() => {
+                    if (!realScale || realScale === 1.0) {
+                      showAlert("bạn phải scale trước khi chạy AI");
+                      return;
+                    }
+                    setShowWallConfig(true);
+                  }}
+                  disabled={isDetecting}
+                  title="Dùng AI tự động vẽ tường"
+                >
+                  <span className="icon">{isDetecting ? "⏳" : "🧱"}</span><span className="label">Wall AI</span>
+                </button>
+                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động vẽ cửa (Phân đoạn)">
+                  <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
+                </button>
+                <button
+                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
+                  onClick={() => generateRoomsFromWalls()}
+                  disabled={isDetecting}
+                  title="Tạo phòng tự động từ tường hiện tại (Shapely)"
+                >
+                  <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Wall &rarr; Room</span>
+                </button>
+              </div>
+              <span className="ribbon-group-title">QUICK ACTIONS</span>
+            </div>
+            <div className="ribbon-divider" />
+
             {/* DRAW */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); if (doorController) doorController.setShowPenetrations(false); }}>
+                {/* <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); if (doorController) doorController.setShowPenetrations(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
-                </button>
+                </button> */}
                 <button
                   className={`ribbon-btn ${isDrawingRoof ? "active" : ""}`}
                   onClick={() => {
@@ -281,7 +317,7 @@ export default function RibbonView({
                 >
                   <span className="icon">🪟</span><span className="label">Window</span>
                 </button>
-                <button
+                {/* <button
                   className={`ribbon-btn ${interactionMode === "draw-ext-rect" ? "active" : ""}`}
                   onClick={() => {
                     setIsDrawingDoor(false);
@@ -313,14 +349,14 @@ export default function RibbonView({
                 </button>
                 <button className={`ribbon-btn ${isSnapMode ? "active" : ""}`} onClick={() => setIsSnapMode(v => !v)} title="Snap to 90/45 degrees (Ortho Mode)">
                   <span className="icon">📐</span><span className="label">Snap</span>
-                </button>
+                </button> */}
               </div>
               <span className="ribbon-group-title">DRAW</span>
             </div>
           </>
         )}
 
-        {activeTab === "Measure" && (
+        {activeTab === "AI & Reports" && (
           <>
             {/* MEASURE TOOLS */}
             <div className="ribbon-group">
@@ -338,11 +374,8 @@ export default function RibbonView({
               </div>
               <span className="ribbon-group-title">MEASURE TOOLS</span>
             </div>
-          </>
-        )}
+            <div className="ribbon-divider" />
 
-        {activeTab === "AI & Reports" && (
-          <>
             {/* AI DETECT */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
@@ -370,11 +403,11 @@ export default function RibbonView({
                   <span className="icon">{isDetecting ? "⏳" : "🚪"}</span><span className="label">Door AI</span>
                 </button>
 
-                {/* Tạm ẩn Roof AI button
+                {/* Tạm ẩn Roof AI button */}
                 <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectRoof && detectRoof()} disabled={isDetecting || isSmartDetecting} title="Dùng AI tự động nhận diện mái (Roof)">
                   <span className="icon">{isDetecting ? "⏳" : "🏠"}</span><span className="label">Roof AI</span>
                 </button>
-                */}
+
 
                 <button
                   className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
@@ -527,8 +560,11 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={exportPDF}>
                   <span className="icon">📄</span><span className="label">PDF</span>
                 </button>
-                <button className="ribbon-btn">
+                {/* <button className="ribbon-btn">
                   <span className="icon">📝</span><span className="label">Word</span>
+                </button> */}
+                <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('open-takeoff-modal'))}>
+                  <span className="icon">📊</span><span className="label">Excel</span>
                 </button>
 
               </div>

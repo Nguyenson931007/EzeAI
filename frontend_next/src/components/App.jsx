@@ -432,7 +432,7 @@ export default function App() {
   useEffect(() => {
     if (activeTab === "Home" && image) {
       const prevTab = prevTabRef.current;
-      const isEditorTab = ["Home", "Measure", "AI & Reports", "View"].includes(prevTab);
+      const isEditorTab = ["Home", "AI & Reports", "View"].includes(prevTab);
       if (!isEditorTab) {
         setTimeout(zoomTo100, 100);
       }
