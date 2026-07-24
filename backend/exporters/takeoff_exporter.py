@@ -173,16 +173,120 @@ class TakeoffExporter:
             ws[f"G{r}"].number_format = "0.00"
             rh(r, 17)
 
-        def add_wall_subtotal(r, label, first, last):
-            ws.merge_cells(f"A{r}:F{r}")
+        def add_wall_subtotal(r, label, first, last, wall_count=0):
+            ws.merge_cells(f"A{r}:C{r}")
             ws[f"A{r}"] = label
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = right_indent
+            # Total Length (mm) in column D
+            ws[f"D{r}"] = f"=SUM(D{first}:D{last})"
+            ws[f"D{r}"].number_format = "#,##0"
+            ws[f"D{r}"].font = bold
+            ws[f"D{r}"].alignment = center
+            # Column E empty
+            ws[f"E{r}"] = ""
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+            # Qty (wall count) in column F
+            ws[f"F{r}"] = wall_count
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+            # Total Area (m2) in column G
             ws[f"G{r}"] = f"=SUM(G{first}:G{last})"
             ws[f"G{r}"].number_format = "0.00"
             ws[f"G{r}"].font = bold
             style_range(f"A{r}:G{r}", fill=total_fill, border=True)
             rh(r, 18)
+
+        height_value_font = Font(name=FONT_NAME, bold=True, size=11, color="006100")  # distinct red = height-group figures
+
+        def add_wall_height_row(r, data_rows, height_mm):
+            """Total-style row for walls at a specific height (same font/fill as the grand total row, no label text; values highlighted)."""
+            ws.merge_cells(f"A{r}:C{r}")
+            ws[f"A{r}"] = ""
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+            # Length sum from non-contiguous rows
+            length_parts = "+".join([f"D{dr}" for dr in data_rows])
+            ws[f"D{r}"] = f"={length_parts}"
+            ws[f"D{r}"].number_format = "#,##0"
+            ws[f"D{r}"].font = height_value_font
+            ws[f"D{r}"].alignment = center
+            # Height column shows the actual height value for this group
+            ws[f"E{r}"] = height_mm
+            ws[f"E{r}"].number_format = "#,##0"
+            ws[f"E{r}"].font = height_value_font
+            ws[f"E{r}"].alignment = center
+            # Qty = number of walls in this height group
+            ws[f"F{r}"] = len(data_rows)
+            ws[f"F{r}"].font = height_value_font
+            ws[f"F{r}"].alignment = center
+            # Area sum from non-contiguous rows
+            area_parts = "+".join([f"G{dr}" for dr in data_rows])
+            ws[f"G{r}"] = f"={area_parts}"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = height_value_font
+            style_range(f"A{r}:G{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        def add_wall_total_from_refs(r, label, ref_rows, wall_count):
+            """Total row that sums specific referenced rows (height subtotals)."""
+            ws.merge_cells(f"A{r}:C{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+            # Total Length
+            length_parts = "+".join([f"D{rr}" for rr in ref_rows])
+            ws[f"D{r}"] = f"={length_parts}"
+            ws[f"D{r}"].number_format = "#,##0"
+            ws[f"D{r}"].font = bold
+            ws[f"D{r}"].alignment = center
+            ws[f"E{r}"] = ""
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+            # Qty
+            ws[f"F{r}"] = wall_count
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+            # Area
+            area_parts = "+".join([f"G{rr}" for rr in ref_rows])
+            ws[f"G{r}"] = f"={area_parts}"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = bold
+            style_range(f"A{r}:G{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        def write_walls_with_height_groups(walls_list, label_prefix, row_start):
+            """Write wall data rows, then (if 2+ distinct heights) height-grouped total-style rows.
+            Returns (next_row, height_sub_rows_or_None, first_data_row, last_data_row).
+            When only one height is present, height_sub_rows is None and the caller should
+            total directly off first_data_row:last_data_row instead."""
+            r = row_start
+            if not walls_list:
+                return r, None, None, None
+
+            first_data_row = r
+            height_to_rows = defaultdict(list)
+            for w in walls_list:
+                add_wall_data_row(r)
+                ws[f"A{r}"] = f"{label_prefix} {w.id}"
+                ws[f"D{r}"] = round(w.length_mm)
+                ws[f"E{r}"] = round(w.height_mm)
+                height_to_rows[round(w.height_mm)].append(r)
+                r += 1
+            last_data_row = r - 1
+
+            # Only break out per-height total-style rows when there's more than one height group
+            if len(height_to_rows) < 2:
+                return r, None, first_data_row, last_data_row
+
+            height_sub_rows = []
+            for h_mm, data_rows in sorted(height_to_rows.items()):
+                add_wall_height_row(r, data_rows, h_mm)
+                height_sub_rows.append(r)
+                r += 1
+
+            return r, height_sub_rows, first_data_row, last_data_row
 
         # ---------- EXTERIOR WALL ----------
         add_section_header(row, "EXTERIOR WALL"); row += 1
@@ -191,15 +295,13 @@ class TakeoffExporter:
         ext_walls = [w for w in request.walls if w.class_name == "exterior_wall"]
         first_ext = row
         if ext_walls:
-            for idx, w in enumerate(ext_walls):
-                add_wall_data_row(row)
-                ws[f"A{row}"] = f"Exterior Wall {w.id}"
-                ws[f"D{row}"] = round(w.length_mm)
-                ws[f"E{row}"] = round(w.height_mm)
-                row += 1
-            add_wall_subtotal(row, "Total Exterior Wall Area (m2)", first_ext, row - 1)
+            row, ext_height_refs, ext_first_row, ext_last_row = write_walls_with_height_groups(ext_walls, "Exterior Wall", row)
+            if ext_height_refs:
+                add_wall_total_from_refs(row, "Total Exterior Wall", ext_height_refs, wall_count=len(ext_walls))
+            else:
+                add_wall_subtotal(row, "Total Exterior Wall", ext_first_row, ext_last_row, wall_count=len(ext_walls))
         else:
-            add_wall_subtotal(row, "Total Exterior Wall Area (m2)", row, row)
+            add_wall_subtotal(row, "Total Exterior Wall", row, row, wall_count=0)
             ws[f"G{row}"] = 0.00
         ext_total_row = row
         row += 1
@@ -213,15 +315,13 @@ class TakeoffExporter:
         lb_walls = [w for w in request.walls if w.class_name == "interior_wall"]
         first_lb = row
         if lb_walls:
-            for idx, w in enumerate(lb_walls):
-                add_wall_data_row(row)
-                ws[f"A{row}"] = f"Load Bearing Wall {w.id}"
-                ws[f"D{row}"] = round(w.length_mm)
-                ws[f"E{row}"] = round(w.height_mm)
-                row += 1
-            add_wall_subtotal(row, "Subtotal - Load Bearing (m2)", first_lb, row - 1)
+            row, lb_height_refs, lb_first_row, lb_last_row = write_walls_with_height_groups(lb_walls, "Load Bearing Wall", row)
+            if lb_height_refs:
+                add_wall_total_from_refs(row, "Subtotal - Load Bearing", lb_height_refs, wall_count=len(lb_walls))
+            else:
+                add_wall_subtotal(row, "Subtotal - Load Bearing", lb_first_row, lb_last_row, wall_count=len(lb_walls))
         else:
-            add_wall_subtotal(row, "Subtotal - Load Bearing (m2)", row, row)
+            add_wall_subtotal(row, "Subtotal - Load Bearing", row, row, wall_count=0)
             ws[f"G{row}"] = 0.00
         lb_total_row = row
         row += 1
@@ -231,24 +331,37 @@ class TakeoffExporter:
         nlb_walls = [w for w in request.walls if w.class_name == "partition_wall"]
         first_nlb = row
         if nlb_walls:
-            for idx, w in enumerate(nlb_walls):
-                add_wall_data_row(row)
-                ws[f"A{row}"] = f"Partition Wall {w.id}"
-                ws[f"D{row}"] = round(w.length_mm)
-                ws[f"E{row}"] = round(w.height_mm)
-                row += 1
-            add_wall_subtotal(row, "Subtotal - Non-Load Bearing (m2)", first_nlb, row - 1)
+            row, nlb_height_refs, nlb_first_row, nlb_last_row = write_walls_with_height_groups(nlb_walls, "Partition Wall", row)
+            if nlb_height_refs:
+                add_wall_total_from_refs(row, "Subtotal - Non-Load Bearing", nlb_height_refs, wall_count=len(nlb_walls))
+            else:
+                add_wall_subtotal(row, "Subtotal - Non-Load Bearing", nlb_first_row, nlb_last_row, wall_count=len(nlb_walls))
         else:
-            add_wall_subtotal(row, "Subtotal - Non-Load Bearing (m2)", row, row)
+            add_wall_subtotal(row, "Subtotal - Non-Load Bearing", row, row, wall_count=0)
             ws[f"G{row}"] = 0.00
         nlb_total_row = row
         row += 1
 
         # Total Interior Wall Area
-        ws.merge_cells(f"A{row}:F{row}")
-        ws[f"A{row}"] = "Total Interior Wall Area (m2)"
+        int_wall_count = len(lb_walls) + len(nlb_walls)
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"] = "Total Interior Wall"
         ws[f"A{row}"].font = bold
         ws[f"A{row}"].alignment = right_indent
+        # Total Length (mm) in column D
+        ws[f"D{row}"] = f"=D{lb_total_row}+D{nlb_total_row}"
+        ws[f"D{row}"].number_format = "#,##0"
+        ws[f"D{row}"].font = bold
+        ws[f"D{row}"].alignment = center
+        # Column E empty
+        ws[f"E{row}"] = ""
+        ws[f"E{row}"].font = bold
+        ws[f"E{row}"].alignment = center
+        # Qty (wall count) in column F
+        ws[f"F{row}"] = int_wall_count
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        # Total Area (m2) in column G
         ws[f"G{row}"] = f"=G{lb_total_row}+G{nlb_total_row}"
         ws[f"G{row}"].number_format = "0.00"
         ws[f"G{row}"].font = bold
@@ -256,6 +369,7 @@ class TakeoffExporter:
         rh(row, 18)
         int_total_row = row
         row += 2
+
 
         # ---------- DOORS ----------
         add_section_header(row, "DOORS"); row += 1
@@ -305,6 +419,7 @@ class TakeoffExporter:
         single_grouped = []
         double_grouped = []
         sliding_grouped = []
+        garage_grouped = []
         window_grouped = []
 
         for (t, w_mm, h_mm), qty in grouped_doors.items():
@@ -312,6 +427,8 @@ class TakeoffExporter:
             item = {"width": w_mm, "height": h_mm, "qty": qty}
             if "window" in t_lower:
                 window_grouped.append(item)
+            elif "garage" in t_lower or "roller" in t_lower:
+                garage_grouped.append(item)
             elif "double" in t_lower:
                 double_grouped.append(item)
             elif "sliding" in t_lower or "slider" in t_lower:
@@ -378,6 +495,25 @@ class TakeoffExporter:
         door_subtotal_rows.append(row)
         row += 1
 
+        # Garage Door Section
+        add_sub_header(row, "Garage Door"); row += 1
+        first_garage = row
+        if garage_grouped:
+            for item in garage_grouped:
+                add_door_data_row(row)
+                ws[f"A{row}"] = f"Garage Door {item['width']}x{item['height']}"
+                ws[f"D{row}"] = round(item["width"])
+                ws[f"E{row}"] = round(item["height"])
+                ws[f"F{row}"] = item["qty"]
+                row += 1
+            add_door_subtotal(row, "Subtotal - Garage Door", first_garage, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Garage Door", row, row)
+            ws[f"F{row}"] = 0
+            ws[f"G{row}"] = 0.00
+        door_subtotal_rows.append(row)
+        row += 1
+
         # TOTAL DOORS
         ws.merge_cells(f"A{row}:E{row}")
         ws[f"A{row}"] = "TOTAL DOORS"
@@ -429,14 +565,37 @@ class TakeoffExporter:
 
         # ---------- SUMMARY ----------
         add_section_header(row, "SUMMARY", fill=dark_fill); row += 1
-        sums = [
-            ("Total Wall Area - Both Sides (m2)", f"=G{ext_total_row}+G{int_total_row}"),
+
+        total_wall_count = len(ext_walls) + len(lb_walls) + len(nlb_walls)
+
+        # Row: Total Wall summary with length, qty, and area
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"] = "Total Wall Area - Both Sides (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"D{row}"] = f"=D{ext_total_row}+D{int_total_row}"
+        ws[f"D{row}"].number_format = "#,##0"
+        ws[f"D{row}"].font = bold
+        ws[f"D{row}"].alignment = center
+        ws[f"E{row}"] = ""
+        ws[f"F{row}"] = total_wall_count
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws[f"G{row}"] = f"=G{ext_total_row}+G{int_total_row}"
+        ws[f"G{row}"].number_format = "0.00"
+        ws[f"G{row}"].font = bold
+        style_range(f"A{row}:G{row}", fill=grand_fill, border=True)
+        rh(row, 19)
+        row += 1
+
+        # Door and window summary rows
+        simple_sums = [
             ("Total Door Opening Area (m2)", f"=G{door_total_row}"),
             ("Total Door Quantity (pcs)", f"=F{door_total_row}"),
             ("Total Window Opening Area (m2)", f"=G{window_total_row}"),
             ("Total Window Quantity (pcs)", f"=F{window_total_row}"),
         ]
-        for label, formula in sums:
+        for label, formula in simple_sums:
             ws.merge_cells(f"A{row}:F{row}")
             ws[f"A{row}"] = label
             ws[f"A{row}"].font = bold
@@ -447,6 +606,7 @@ class TakeoffExporter:
             style_range(f"A{row}:G{row}", fill=grand_fill, border=True)
             rh(row, 19)
             row += 1
+
         row += 1
 
         # ---------- Notes ----------

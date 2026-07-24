@@ -1,5 +1,5 @@
 import React from 'react';
-import { getDoorCenterline, getBaseWallId } from '@/utils/geometry';
+import { getDoorCenterline, getBaseWallId, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, distancePointToSegment } from '@/utils/geometry';
 import { getDoorBoundingBox } from '@/engines/DoorArcLabelEngine';
 import { findParentWall } from '@/models/DoorTypeRegistry';
 
@@ -73,6 +73,7 @@ export default function AIDoor({
   const widthSource = d.width_source || "geometry";
 
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
+  const isWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
 
   // Sliding Door Box Calculations
   let slidingWidth = 0;
@@ -129,7 +130,7 @@ export default function AIDoor({
       garageAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
       garageCx = (p1.x + p2.x) / 2;
       garageCy = (p1.y + p2.y) / 2;
-
+ 
       let minDist = Infinity;
       let nearestWall = null;
       for (const w of walls) {
@@ -149,6 +150,22 @@ export default function AIDoor({
       if (nearestWall) {
         garageHeight = nearestWall.thickness_px || 15;
       }
+
+      const halfGW = garageWidth / 2;
+      const halfGH = garageHeight / 2;
+      const cosA = Math.cos(garageAngle);
+      const sinA = Math.sin(garageAngle);
+      const dxs = [-halfGW, halfGW, halfGW, -halfGW];
+      const dys = [-halfGH, -halfGH, halfGH, halfGH];
+      const garageCorners = dxs.map((dx, idx) => {
+        const dy = dys[idx];
+        return {
+          x: garageCx + dx * cosA - dy * sinA,
+          y: garageCy + dx * sinA + dy * cosA
+        };
+      });
+      clickPolyPoints = garageCorners;
+      polyPoints = garageCorners;
     }
   }
 
@@ -167,7 +184,7 @@ export default function AIDoor({
   let sectorPath2 = null;
   let doubleEdges = [];
 
-  if (polyPoints.length >= 3 && !isSliding) {
+  if (polyPoints.length >= 3 && !isSliding && !isGarage) {
     // Determine frame endpoints h1, h2: prioritize d.points (CAD centerline) if available
     let bestH1 = null;
     let bestH2 = null;
@@ -268,6 +285,36 @@ export default function AIDoor({
         { p1: h1, p2: O1, type: 'leaf' },
         { p1: h2, p2: O2, type: 'leaf' }
       ];
+
+      // Calculate exact interactive click polygon for double door
+      const arc1pts = [];
+      const arc2pts = [];
+      const a1Start = Math.atan2(mid.y - h1.y, mid.x - h1.x);
+      const a1End = Math.atan2(O1.y - h1.y, O1.x - h1.x);
+      const a2Start = Math.atan2(mid.y - h2.y, mid.x - h2.x);
+      const a2End = Math.atan2(O2.y - h2.y, O2.x - h2.x);
+
+      for (let step = 0; step <= 5; step++) {
+        const t = step / 5;
+        arc1pts.push({
+          x: h1.x + r * Math.cos(a1Start + (a1End - a1Start) * t),
+          y: h1.y + r * Math.sin(a1Start + (a1End - a1Start) * t)
+        });
+        arc2pts.push({
+          x: h2.x + r * Math.cos(a2Start + (a2End - a2Start) * t),
+          y: h2.y + r * Math.sin(a2Start + (a2End - a2Start) * t)
+        });
+      }
+
+      const allDoubleXs = [h1.x, h2.x, mid.x, O1.x, O2.x, ...arc1pts.map(p => p.x), ...arc2pts.map(p => p.x)];
+      const allDoubleYs = [h1.y, h2.y, mid.y, O1.y, O2.y, ...arc1pts.map(p => p.y), ...arc2pts.map(p => p.y)];
+
+      const minX = Math.min(...allDoubleXs) - 12;
+      const minY = Math.min(...allDoubleYs) - 12;
+      const maxX = Math.max(...allDoubleXs) + 12;
+      const maxY = Math.max(...allDoubleYs) + 12;
+
+      clickPolyPoints = [h1, ...arc1pts, mid, ...arc2pts.slice().reverse(), h2];
     } else {
       const n = polyPoints.length;
       const straightSegments = [];
@@ -422,93 +469,8 @@ export default function AIDoor({
 
       let selected = [];
       if (e1 && e2) {
-        // We have our 2 longest straight segments e1 and e2. Now identify Frame vs Leaf.
-        let targetWall = null;
-        if (d.parentWallId && walls && walls.length > 0) {
-          const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
-          targetWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
-        }
-
-        let frameVector = null;
-        if (targetWall && targetWall.centerline && targetWall.centerline.length === 2) {
-          const C = { x: targetWall.centerline[0][0], y: targetWall.centerline[0][1] };
-          const D = { x: targetWall.centerline[1][0], y: targetWall.centerline[1][1] };
-          const dxW = D.x - C.x;
-          const dyW = D.y - C.y;
-          const lenW = Math.hypot(dxW, dyW);
-          if (lenW >= 1.0) {
-            frameVector = { x: dxW / lenW, y: dyW / lenW };
-          }
-        } else if (d.points && d.points.length >= 2) {
-          const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
-          const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
-          const dxP = p2.x - p1.x;
-          const dyP = p2.y - p1.y;
-          const lenP = Math.hypot(dxP, dyP);
-          if (lenP >= 1.0) {
-            frameVector = { x: dxP / lenP, y: dyP / lenP };
-          }
-        }
-
-        let frameEdge = null;
-        let leafEdge = null;
-
-        if (frameVector) {
-          const u1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-          const u2 = { x: (e2.p2.x - e2.p1.x) / e2.len, y: (e2.p2.y - e2.p1.y) / e2.len };
-
-          const dot1 = Math.abs(u1.x * frameVector.x + u1.y * frameVector.y);
-          const dot2 = Math.abs(u2.x * frameVector.x + u2.y * frameVector.y);
-
-          if (dot1 > dot2) {
-            frameEdge = e1;
-            leafEdge = e2;
-          } else {
-            frameEdge = e2;
-            leafEdge = e1;
-          }
-        } else {
-          // If no wall and no points: check segment midpoint distance to nearest wall
-          let minDist1 = Infinity;
-          let minDist2 = Infinity;
-          const m1 = { x: (e1.p1.x + e1.p2.x)/2, y: (e1.p1.y + e1.p2.y)/2 };
-          const m2 = { x: (e2.p1.x + e2.p2.x)/2, y: (e2.p1.y + e2.p2.y)/2 };
-
-          if (walls && walls.length > 0) {
-            for (const w of walls) {
-              if (!w.centerline || w.centerline.length !== 2) continue;
-              const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
-              const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
-              const dxW = D.x - C.x;
-              const dyW = D.y - C.y;
-              const lenW = Math.hypot(dxW, dyW);
-              if (lenW < 1.0) continue;
-
-              const d1 = Math.abs(dxW * (m1.y - C.y) - dyW * (m1.x - C.x)) / lenW;
-              const d2 = Math.abs(dxW * (m2.y - C.y) - dyW * (m2.x - C.x)) / lenW;
-              if (d1 < minDist1) minDist1 = d1;
-              if (d2 < minDist2) minDist2 = d2;
-            }
-          }
-
-          if (minDist1 < minDist2) {
-            frameEdge = e1;
-            leafEdge = e2;
-          } else if (minDist2 < minDist1) {
-            frameEdge = e2;
-            leafEdge = e1;
-          } else {
-            if (e1.len >= e2.len) {
-              frameEdge = e1;
-              leafEdge = e2;
-            } else {
-              frameEdge = e2;
-              leafEdge = e1;
-            }
-          }
-        }
-
-        selected = [frameEdge, leafEdge];
+        // Keep e1 and e2 in fixed deterministic geometric order
+        selected = [e1, e2];
       }
 
       const topTwoEdges = selected;
@@ -590,12 +552,7 @@ export default function AIDoor({
           const maxX = Math.max(...xs) + 12;
           const maxY = Math.max(...ys) + 12;
 
-          clickPolyPoints = [
-            { x: minX, y: minY },
-            { x: maxX, y: minY },
-            { x: maxX, y: maxY },
-            { x: minX, y: maxY }
-          ];
+          clickPolyPoints = [{ x: hingeX, y: hingeY }, ...arcPoints];
 
           topEdges = [
             { p1: { x: hingeX, y: hingeY }, p2: o1_proj },
@@ -673,10 +630,10 @@ export default function AIDoor({
 
           const isDraggingThis = dragging && dragging.id === d.id;
 
-          if (isDraggingThis || d.frameEdgeIndex !== undefined) {
-            frameEdgeIndex = d.frameEdgeIndex !== undefined ? d.frameEdgeIndex : 0;
-          } else if (wallDetectedFrameIndex !== -1) {
+          if (wallDetectedFrameIndex !== -1) {
             frameEdgeIndex = wallDetectedFrameIndex;
+          } else if (d.frameEdgeIndex !== undefined) {
+            frameEdgeIndex = d.frameEdgeIndex;
           } else if (d.points && d.points.length >= 2) {
             const pts = d.points
               .map(p => {
@@ -709,24 +666,38 @@ export default function AIDoor({
   const isDraggingThis = dragging && dragging.id === d.id;
 
   React.useEffect(() => {
+    if (!isSelected) return;
     if (dragging && dragging.id === d.id) return;
-    if (d.frameEdgeIndex !== undefined) return;
 
     if (!isSliding && topEdges && topEdges.length === 2 && updateDoor) {
       const activeFrameSeg = topEdges[frameEdgeIndex];
+      if (!activeFrameSeg) return;
+
       const frameCenter = {
         x: (activeFrameSeg.p1.x + activeFrameSeg.p2.x) / 2,
         y: (activeFrameSeg.p1.y + activeFrameSeg.p2.y) / 2
       };
+
+      const currentP1 = d.points && d.points.length >= 2 ? (Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0]) : null;
+      const currentP2 = d.points && d.points.length >= 2 ? (Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1]) : null;
+
+      const ptsChanged = !currentP1 || !currentP2 ||
+        Math.hypot(currentP1.x - activeFrameSeg.p1.x, currentP1.y - activeFrameSeg.p1.y) > 1.0 ||
+        Math.hypot(currentP2.x - activeFrameSeg.p2.x, currentP2.y - activeFrameSeg.p2.y) > 1.0;
+
       const newParentWall = findParentWall(frameCenter, walls, 120);
-      updateDoor({
-        ...d,
-        frameEdgeIndex: frameEdgeIndex,
-        points: [activeFrameSeg.p1, activeFrameSeg.p2],
-        parentWallId: newParentWall ? newParentWall.id : d.parentWallId
-      });
+      const wallIdChanged = newParentWall && newParentWall.id !== d.parentWallId;
+
+      if (ptsChanged || wallIdChanged || d.frameEdgeIndex !== frameEdgeIndex) {
+        updateDoor({
+          ...d,
+          frameEdgeIndex: frameEdgeIndex,
+          points: [activeFrameSeg.p1, activeFrameSeg.p2],
+          parentWallId: newParentWall ? newParentWall.id : d.parentWallId
+        });
+      }
     }
-  }, [d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, dragging, walls, d.parentWallId]);
+  }, [isSelected, d.frameEdgeIndex, frameEdgeIndex, updateDoor, isSliding, topEdges, dragging, walls, d.parentWallId, d.points]);
 
   const renderJambs = () => {
     let p1, p2;
@@ -927,12 +898,8 @@ export default function AIDoor({
         }
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
         e.stopPropagation();
-        if (lastSelectedOnMouseDown.current && onEdit) {
-          onEdit();
-        } else {
-          setSelectedId(d.id);
-          setSelectedType("door");
-        }
+        setSelectedId(d.id);
+        setSelectedType(isWindow ? "window" : "door");
       }}
       onDoubleClick={(e) => {
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
@@ -955,7 +922,7 @@ export default function AIDoor({
             e.stopPropagation();
             if (!isSelected) {
                setSelectedId(d.id);
-               setSelectedType("door");
+               setSelectedType(isWindow ? "window" : "door");
             }
             startDrag(d.id, null, 'door-move');
           }
@@ -999,10 +966,22 @@ export default function AIDoor({
             width={garageWidth}
             height={garageHeight}
             transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
-            fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.15)" : "rgba(168, 85, 247, 0.08)")}
+            fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
             stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
             strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
-            style={{ pointerEvents: 'none' }}
+            style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+            onMouseDown={(e) => {
+              lastSelectedOnMouseDown.current = isSelected;
+              if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+              if (startDrag) {
+                e.stopPropagation();
+                if (!isSelected) {
+                   setSelectedId(d.id);
+                   setSelectedType("door");
+                }
+                startDrag(d.id, null, 'door-move');
+              }
+            }}
           />
           {/* Panel line 1 */}
           <line
@@ -1219,12 +1198,33 @@ export default function AIDoor({
             style={{ cursor: 'pointer' }}
             onClick={(e) => {
               e.stopPropagation();
-              const newPoly = maskPoly.map(p => {
-                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                const nx = cxAvg - (pt.x - cxAvg);
-                return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
+              let p1 = null, p2 = null;
+              if (topEdges && topEdges[frameEdgeIndex]) {
+                p1 = topEdges[frameEdgeIndex].p1;
+                p2 = topEdges[frameEdgeIndex].p2;
+              } else if (d.points && d.points.length >= 2) {
+                p1 = Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0];
+                p2 = Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1];
+              }
+
+              const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+              let newPoly = maskPoly;
+              if (p1 && p2 && maskPoly && maskPoly.length > 0) {
+                newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+              } else {
+                newPoly = maskPoly.map(p => {
+                  const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
+                  const nx = cxAvg - (pt.x - cxAvg);
+                  return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
+                });
+              }
+              updateDoor({
+                ...d,
+                hingeSide: newHinge,
+                hinge_side: newHinge,
+                polygon: newPoly,
+                mask_polygon: newPoly
               });
-              updateDoor({...d, polygon: newPoly, mask_polygon: newPoly});
             }}
           >
             <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
@@ -1237,12 +1237,33 @@ export default function AIDoor({
             style={{ cursor: 'pointer' }}
             onClick={(e) => {
               e.stopPropagation();
-              const newPoly = maskPoly.map(p => {
-                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                const ny = cyAvg - (pt.y - cyAvg);
-                return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
+              let p1 = null, p2 = null;
+              if (topEdges && topEdges[frameEdgeIndex]) {
+                p1 = topEdges[frameEdgeIndex].p1;
+                p2 = topEdges[frameEdgeIndex].p2;
+              } else if (d.points && d.points.length >= 2) {
+                p1 = Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0];
+                p2 = Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1];
+              }
+
+              const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+              let newPoly = maskPoly;
+              if (p1 && p2 && maskPoly && maskPoly.length > 0) {
+                newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+              } else {
+                newPoly = maskPoly.map(p => {
+                  const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
+                  const ny = cyAvg - (pt.y - cyAvg);
+                  return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
+                });
+              }
+              updateDoor({
+                ...d,
+                swing: newSwing,
+                swing_direction: newSwing,
+                polygon: newPoly,
+                mask_polygon: newPoly
               });
-              updateDoor({...d, polygon: newPoly, mask_polygon: newPoly});
             }}
           >
             <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />

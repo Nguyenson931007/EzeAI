@@ -386,6 +386,7 @@ export default function App() {
     detectText,
     detectTemplate,
     detectDoorSeg,
+    detectRoof,
     activeScanRoom,
     smartDetect,
     cancelSmartDetect,
@@ -431,7 +432,7 @@ export default function App() {
   useEffect(() => {
     if (activeTab === "Home" && image) {
       const prevTab = prevTabRef.current;
-      const isEditorTab = ["Home", "Measure", "AI & Reports", "View"].includes(prevTab);
+      const isEditorTab = ["Home", "AI & Reports", "View"].includes(prevTab);
       if (!isEditorTab) {
         setTimeout(zoomTo100, 100);
       }
@@ -732,8 +733,8 @@ export default function App() {
         deleteItem={deleteItem} deleteAllRooms={deleteAllRooms}
         autoMergeCollinearWalls={autoMergeCollinearWalls}
         snapAllDoorsToWalls={snapAllDoorsToWalls}
-        finishPolygon={finishPolygon} setCurrentPoly={setCurrentPoly}
-        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg}
+        finishPolygon={finishPolygon} finishRoof={finishRoof} setCurrentPoly={setCurrentPoly}
+        autoDetect={autoDetect} detectWallFromFloorAI={detectWallFromFloorAI} detectText={detectText} detectTemplate={detectTemplate} detectDoorSeg={detectDoorSeg} detectRoof={detectRoof}
         smartDetect={smartDetect} cancelSmartDetect={cancelSmartDetect} isSmartDetecting={isSmartDetecting} smartProgress={smartProgress}
         generateRoomsFromWalls={generateRoomsFromWalls}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
@@ -762,6 +763,8 @@ export default function App() {
         runROISearch={runROISearch}
         showPDF={showPDF}
         setShowPDF={setShowPDF}
+        interactionMode={interactionMode}
+        setInteractionMode={setInteractionMode}
       />
 
       {activeTab === "Admin" ? (
@@ -821,6 +824,8 @@ export default function App() {
               wallsByPage={wallsByPage}
               setWallsByPage={setWallsByPage}
               doorsByPage={processedDoorsByPage}
+              setDoorsByPage={setDoorsByPage}
+              updateDoor={updateDoor}
               roomsByPage={roomsByPage}
               roofsByPage={roofsByPage}
               currentPage={currentPage}
@@ -905,6 +910,7 @@ export default function App() {
               pages={pages}
               handleClick={handleClick}
               finishPolygon={finishPolygon}
+              finishRoof={finishRoof}
               finishDoor={finishDoor}
               onMouseMove={onMouseMove}
               onMouseDown={onMouseDown}

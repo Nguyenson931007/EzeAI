@@ -1,6 +1,6 @@
 import uuid
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ──────────────────────────────────────────────────────────
@@ -88,22 +88,54 @@ class EZPlanWall(BaseModel):
     EndX: float
     EndY: float
     EndZ: float = 0.0
-    Thickness: float
-    Height: float
+    MidX: Optional[float] = None
+    MidY: Optional[float] = None
+    MidZ: Optional[float] = None
+    EditLength: bool = False
+    LengthMm: float = 0.0
+    LengthAnchor: str = "Start"
+    Thickness: float = 90.0
+    Height: float = 2700.0
+    RakeStartHeightMm: Optional[float] = None
+    RakeMidHeightMm: Optional[float] = None
+    RakeEndHeightMm: Optional[float] = None
+    RakePointX: Optional[float] = None
+    RakePointY: Optional[float] = None
+    RakePointZ: Optional[float] = None
     Alignment: str = "Center"
-    LocationLine: str = "WallCenterline"
+    AllowAlignmentEdit: bool = True
     LevelName: str = "LEVEL_01"
-    Interior: bool
-    Exterior: bool
-    DwarfWall: bool = False
-    LoadBearingWall: bool
+    LocationLine: str = "WallCenterline"
     Flipped: bool = False
     OffsetMm: float = 0.0
     ElevationOffsetMm: float = 0.0
+    Interior: bool = False
+    Exterior: bool = True
+    DwarfWall: bool = False
+    IsVirtualRoofWall: bool = False
+    IsExisting: bool = False
+    AllowInternalRibbonPlateEdit: bool = False
+    LoadBearingWall: bool = True
+    FrameStudSpacing: str = "450"
+    FrameBottomPlateGrade: str = "MGP10"
+    FrameRibbonPlateGrade: str = "MGP10"
+    FrameTopPlateGrade: str = "MGP10"
+    FrameStudGrade: str = "MGP10"
+    FrameNogGrade: str = "MGP10"
+    FrameBottomPlateSize: str = "90x35"
+    FrameRibbonPlateSize: str = "90x35"
+    FrameTopPlateSize: str = "90x35"
+    FrameStudSize: str = "90x35"
+    FrameNogSize: str = "90x35"
     FrameBottomPlatePlyCount: int = 1
-    FrameRibbonPlatePlyCount: int = 0
-    FrameTopPlatePlyCount: int = 2
+    FrameRibbonPlatePlyCount: int = 1
+    FrameTopPlatePlyCount: int = 1
     FrameStudPlyCount: int = 1
+    FrameWallColorArgb: int = -16776961
+    FrameExternalWallColorArgb: int = -16776961
+    FrameInternalWallColorArgb: int = -65281
+    FrameLoadBearingWallColorArgb: int = -16776961
+    FrameNonLoadBearingWallColorArgb: int = -65281
 
 
 class EZPlanDocument(BaseModel):

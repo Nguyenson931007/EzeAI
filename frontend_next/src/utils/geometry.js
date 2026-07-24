@@ -25,6 +25,13 @@ export function getWallType(w) {
   return "int";
 }
 
+const _getCoord = (pt) => {
+  if (!pt) return { x: 0, y: 0 };
+  const x = typeof pt.x === 'number' ? pt.x : (Array.isArray(pt) ? pt[0] : 0);
+  const y = typeof pt.y === 'number' ? pt.y : (Array.isArray(pt) ? pt[1] : 0);
+  return { x: Number(x) || 0, y: Number(y) || 0 };
+};
+
 export function polygonAreaM2(polygon, scale) {
   if (!polygon || polygon.length < 3) return 0;
 
@@ -32,8 +39,10 @@ export function polygonAreaM2(polygon, scale) {
 
   for (let i = 0; i < polygon.length; i++) {
     const j = (i + 1) % polygon.length;
-    area += polygon[i].x * polygon[j].y;
-    area -= polygon[j].x * polygon[i].y;
+    const p1 = _getCoord(polygon[i]);
+    const p2 = _getCoord(polygon[j]);
+    area += p1.x * p2.y;
+    area -= p2.x * p1.y;
   }
 
   area = Math.abs(area) / 2;
@@ -46,14 +55,20 @@ export function centroid(pts) {
   if (!pts || pts.length === 0) return { x: 0, y: 0 };
   let x = 0, y = 0, f = 0, a = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i, i++) {
-    const p1 = pts[i], p2 = pts[j];
+    const p1 = _getCoord(pts[i]), p2 = _getCoord(pts[j]);
     f = p1.x * p2.y - p2.x * p1.y;
     x += (p1.x + p2.x) * f;
     y += (p1.y + p2.y) * f;
     a += f;
   }
-  if (a === 0) {
-    return { x: pts[0].x, y: pts[0].y };
+  if (Math.abs(a) < 1e-6) {
+    let sx = 0, sy = 0;
+    pts.forEach(p => {
+      const pt = _getCoord(p);
+      sx += pt.x;
+      sy += pt.y;
+    });
+    return { x: sx / pts.length, y: sy / pts.length };
   }
   a *= 3;
   return { x: x / a, y: y / a };
@@ -475,12 +490,9 @@ export function sortDoorsByT(doors, wall) {
 }
 
 export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false) {
-  // Wall cutting is always enabled — the forceCut parameter is kept for API compatibility
-  // but no longer gates the operation.
-
   if (!walls || walls.length === 0) return [];
   const baseWalls = restoreBaseWalls(walls);
-  if (!doors || doors.length === 0) return baseWalls;
+  if (!forceCut || !doors || doors.length === 0) return baseWalls;
 
   // Group doors by parent wall and sort by t
   const doorsByWall = new Map();
@@ -1276,7 +1288,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
   const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
 
   let bestWall = null;
-  let bestDist = forceWallLock ? maxDist : Math.min(maxDist, 12); // Limit maximum snap distance to 12px unless forceWallLock is true
+  let bestDist = maxDist; // Use maxDist as snapping threshold
   let bestProj = null;
 
   const doorAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
@@ -1430,7 +1442,8 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
       ...door,
       points: updatedPoints,
       polygon: updatedPoly,
-      mask_polygon: updatedMaskPoly
+      mask_polygon: updatedMaskPoly,
+      parentWallId: door.parentWallId || bestWall.id
     };
   }
 
@@ -1604,4 +1617,149 @@ export function validateRoofPolygon(polygon, scaleValue) {
     return { valid: false, error: "Roof polygon area is too small." };
   }
   return { valid: true };
+}
+
+/**
+ * Mirrors a polygon across a line segment defined by p1 and p2.
+ */
+export function mirrorPolygonAcrossLine(polygon, p1, p2) {
+  if (!polygon || !p1 || !p2) return polygon;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return polygon;
+
+  return polygon.map(p => {
+    const isArr = Array.isArray(p);
+    const px = isArr ? p[0] : p.x;
+    const py = isArr ? p[1] : p.y;
+
+    const t = ((px - p1.x) * dx + (py - p1.y) * dy) / lenSq;
+    const projX = p1.x + t * dx;
+    const projY = p1.y + t * dy;
+
+    const refX = 2 * projX - px;
+    const refY = 2 * projY - py;
+
+    return isArr ? [refX, refY] : { x: refX, y: refY };
+  });
+}
+
+/**
+ * Mirrors a polygon across the perpendicular line passing through the midpoint of p1 and p2.
+ */
+export function mirrorPolygonAcrossPerpendicular(polygon, p1, p2) {
+  if (!polygon || !p1 || !p2) return polygon;
+  const midX = (p1.x + p2.x) / 2;
+  const midY = (p1.y + p2.y) / 2;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+
+  const normX = -dy;
+  const normY = dx;
+
+  return mirrorPolygonAcrossLine(polygon, { x: midX, y: midY }, { x: midX + normX, y: midY + normY });
+}
+
+/**
+ * Shared Roof Topology Engine
+ */
+
+export function updateSharedRoofVertices(pageRoofs, originalPt, newPt, snapDist = 18) {
+  if (!pageRoofs || pageRoofs.length === 0 || !originalPt || !newPt) return pageRoofs;
+
+  const origX = typeof originalPt.x === 'number' ? originalPt.x : originalPt[0];
+  const origY = typeof originalPt.y === 'number' ? originalPt.y : originalPt[1];
+
+  return pageRoofs.map(roof => {
+    if (!roof.polygon || roof.polygon.length < 3) return roof;
+
+    let modified = false;
+    const newPoly = roof.polygon.map(v => {
+      const vx = typeof v.x === 'number' ? v.x : v[0];
+      const vy = typeof v.y === 'number' ? v.y : v[1];
+      const dist = Math.hypot(vx - origX, vy - origY);
+
+      if (dist <= snapDist) {
+        modified = true;
+        return { x: newPt.x, y: newPt.y };
+      }
+      return v;
+    });
+
+    return modified ? { ...roof, polygon: newPoly } : roof;
+  });
+}
+
+export function insertSharedRoofVertex(pageRoofs, targetRoofId, edgeIndex, projPoint, snapDist = 18) {
+  if (!pageRoofs || pageRoofs.length === 0) return pageRoofs;
+
+  const targetRoof = pageRoofs.find(r => r.id === targetRoofId);
+  if (!targetRoof || !targetRoof.polygon || targetRoof.polygon.length < 3) return pageRoofs;
+
+  const poly = targetRoof.polygon;
+  const p1 = poly[edgeIndex];
+  const p2 = poly[(edgeIndex + 1) % poly.length];
+
+  const p1x = typeof p1.x === 'number' ? p1.x : p1[0];
+  const p1y = typeof p1.y === 'number' ? p1.y : p1[1];
+  const p2x = typeof p2.x === 'number' ? p2.x : p2[0];
+  const p2y = typeof p2.y === 'number' ? p2.y : p2[1];
+
+  return pageRoofs.map(roof => {
+    if (!roof.polygon || roof.polygon.length < 3) return roof;
+
+    const rPoly = roof.polygon;
+    let targetEdgeIdx = -1;
+
+    for (let i = 0; i < rPoly.length; i++) {
+      const vp1 = rPoly[i];
+      const vp2 = rPoly[(i + 1) % rPoly.length];
+
+      const vp1x = typeof vp1.x === 'number' ? vp1.x : vp1[0];
+      const vp1y = typeof vp1.y === 'number' ? vp1.y : vp1[1];
+      const vp2x = typeof vp2.x === 'number' ? vp2.x : vp2[0];
+      const vp2y = typeof vp2.y === 'number' ? vp2.y : vp2[1];
+
+      const d1 = Math.hypot(vp1x - p1x, vp1y - p1y);
+      const d2 = Math.hypot(vp2x - p2x, vp2y - p2y);
+      const d1_rev = Math.hypot(vp1x - p2x, vp1y - p2y);
+      const d2_rev = Math.hypot(vp2x - p1x, vp2y - p1y);
+
+      if ((d1 <= snapDist && d2 <= snapDist) || (d1_rev <= snapDist && d2_rev <= snapDist)) {
+        targetEdgeIdx = i;
+        break;
+      }
+    }
+
+    if (targetEdgeIdx !== -1) {
+      const newPoly = [...roof.polygon];
+      newPoly.splice(targetEdgeIdx + 1, 0, { x: projPoint.x, y: projPoint.y });
+      return { ...roof, polygon: newPoly };
+    }
+
+    return roof;
+  });
+}
+
+export function removeSharedRoofVertex(pageRoofs, targetVertexPt, snapDist = 18) {
+  if (!pageRoofs || pageRoofs.length === 0 || !targetVertexPt) return pageRoofs;
+
+  const targetX = typeof targetVertexPt.x === 'number' ? targetVertexPt.x : targetVertexPt[0];
+  const targetY = typeof targetVertexPt.y === 'number' ? targetVertexPt.y : targetVertexPt[1];
+
+  return pageRoofs.map(roof => {
+    if (!roof.polygon || roof.polygon.length <= 3) return roof;
+
+    const newPoly = roof.polygon.filter(v => {
+      const vx = typeof v.x === 'number' ? v.x : v[0];
+      const vy = typeof v.y === 'number' ? v.y : v[1];
+      return Math.hypot(vx - targetX, vy - targetY) > snapDist;
+    });
+
+    if (newPoly.length >= 3) {
+      return { ...roof, polygon: newPoly };
+    }
+    return roof;
+  });
 }

@@ -171,7 +171,7 @@ def run_ocr_batch(image_list: list) -> list:
                 canvas, 
                 horizontal_list=horizontal_list, 
                 free_list=[], 
-                batch_size=64,
+                batch_size=128,
                 detail=1
             )
             

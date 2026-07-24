@@ -37,8 +37,8 @@ class JobResponse(BaseModel):
     total_area: Optional[float] = 0.0
     created_at: str
     thumbnail: Optional[str] = None
-    is_trained: int = 0
-    is_corrected: int = 0
+    is_trained: Optional[int] = 0
+    is_corrected: Optional[int] = 0
     share_token: Optional[str] = None
 
 
@@ -51,8 +51,8 @@ class JobAllResponse(BaseModel):
     created_at: str
     username: str
     thumbnail: Optional[str] = None
-    is_trained: int = 0
-    is_corrected: int = 0
+    is_trained: Optional[int] = 0
+    is_corrected: Optional[int] = 0
     share_token: Optional[str] = None
 
 
@@ -272,18 +272,33 @@ def get_all_jobs(limit: int = 50, offset: int = 0):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT j.id, j.project_name, j.room_count, j.total_area, j.created_at, 
-                   u.username, j.thumbnail, j.is_trained, j.is_corrected, j.share_token
+        cursor.execute("PRAGMA table_info(jobs)")
+        cols = {row[1] for row in cursor.fetchall()}
+        
+        select_cols = ["j.id", "j.project_name", "j.room_count", "j.total_area", "j.created_at", "u.username", "j.thumbnail"]
+        select_cols.append("j.is_trained" if "is_trained" in cols else "0 AS is_trained")
+        select_cols.append("j.is_corrected" if "is_corrected" in cols else "0 AS is_corrected")
+        select_cols.append("j.share_token" if "share_token" in cols else "NULL AS share_token")
+        
+        sql = f"""
+            SELECT {', '.join(select_cols)}
             FROM jobs j
             JOIN users u ON j.user_id = u.id
             ORDER BY j.created_at DESC
             LIMIT ? OFFSET ?
-        """, (limit, offset))
-
+        """
+        cursor.execute(sql, (limit, offset))
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get("is_trained") is None: d["is_trained"] = 0
+            if d.get("is_corrected") is None: d["is_corrected"] = 0
+            result.append(d)
+        return result
     except Exception as e:
+        print(f"[get_all_jobs] Error fetching jobs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

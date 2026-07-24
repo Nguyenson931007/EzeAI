@@ -24,6 +24,7 @@ import numpy as np
 from PIL import Image as PILImage
 from pathlib import Path
 import logging
+import time
 
 from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest, ExportWallLabelsRequest
 from services import dataset_service
@@ -527,6 +528,34 @@ async def predict_door(
         raise HTTPException(
             status_code=500,
             detail=f"Không tìm thấy trọng số mô hình YOLO Door: {e}."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/predict_roof")
+async def predict_roof(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.15),
+    username: str = Depends(validate_session)
+):
+    """
+    Nhận diện hệ thống Mái (Roof) bằng mô hình YOLO Roof Segmentation (backend/models/Roof/best.pt).
+    """
+    from services.floor_ai_detect import predict_roofs_from_bytes
+    
+    content = await file.read()
+    try:
+        result = await run_in_threadpool(
+            predict_roofs_from_bytes,
+            image_bytes=content,
+            confidence=confidence
+        )
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Không tìm thấy trọng số mô hình YOLO Roof: {e}."
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1117,6 +1146,148 @@ def api_get_search_history(project_id: int, username: str = Depends(validate_ses
 
 from typing import List, Dict, Any, Optional
 
+def _expand_rooms_to_exterior_walls(polys: list, walls: list) -> list:
+    """
+    Expands room polygons to include exterior wall thickness up to the outside wall face (Image 2 effect).
+    Interior boundaries shared between adjacent rooms remain cleanly split along interior wall centerlines.
+    """
+    if not polys or not walls:
+        return polys
+        
+    try:
+        from shapely.geometry import Polygon, LineString
+        from shapely.ops import unary_union
+        
+        # Gather all wall thickness polygons
+        wall_polys = []
+        for w in walls:
+            pts = w.get("polygon") or w.get("points")
+            if pts and len(pts) >= 3:
+                parsed_pts = []
+                for p in pts:
+                    if isinstance(p, dict):
+                        parsed_pts.append((float(p.get("x", 0)), float(p.get("y", 0))))
+                    elif isinstance(p, (list, tuple)) and len(p) >= 2:
+                        parsed_pts.append((float(p[0]), float(p[1])))
+                if len(parsed_pts) >= 3:
+                    try:
+                        wp = Polygon(parsed_pts)
+                        if wp.is_valid and wp.area > 5.0:
+                            wall_polys.append(wp)
+                    except Exception:
+                        pass
+            elif w.get("centerline") and len(w.get("centerline")) == 2:
+                c = w.get("centerline")
+                p1, p2 = c[0], c[1]
+                if isinstance(p1, dict):
+                    p1 = (float(p1.get("x", 0)), float(p1.get("y", 0)))
+                if isinstance(p2, dict):
+                    p2 = (float(p2.get("x", 0)), float(p2.get("y", 0)))
+                thick = float(w.get("thickness") or 90.0)
+                try:
+                    ls = LineString([p1, p2])
+                    wall_polys.append(ls.buffer(thick / 2.0, cap_style=2, join_style=2))
+                except Exception:
+                    pass
+                    
+        if not wall_polys:
+            return polys
+            
+        wall_union = unary_union(wall_polys)
+        footprint = unary_union(polys + [wall_union])
+        
+        expanded_polys = []
+        for i, p in enumerate(polys):
+            try:
+                p_buffered = p.buffer(100.0, cap_style=2, join_style=2)
+                p_clipped = p_buffered.intersection(footprint)
+                other_rooms = unary_union([polys[j] for j in range(len(polys)) if j != i])
+                p_final = p_clipped.difference(other_rooms)
+                
+                if p_final.geom_type == 'MultiPolygon':
+                    p_final = max(p_final.geoms, key=lambda g: g.area)
+                    
+                if p_final.is_valid and p_final.area >= 5000.0:
+                    expanded_polys.append(p_final)
+                else:
+                    expanded_polys.append(p)
+            except Exception as exp_err:
+                print(f"[expand_rooms] Failed for poly {i}: {exp_err}")
+                expanded_polys.append(p)
+                
+        return expanded_polys
+    except Exception as e:
+        print(f"[expand_rooms] Global exception: {e}")
+        return polys
+
+
+def _split_polygons_by_multi_texts(polys: list, texts: list, walls: list) -> list:
+    """
+    If a single polygon contains 2 or more distinct room text centroids (e.g. WIR, ENS, WC),
+    split the polygon using internal wall lines passing through it.
+    """
+    if not polys or not texts or not walls:
+        return polys
+        
+    try:
+        from shapely.geometry import Point, LineString, Polygon
+        from shapely.ops import split, unary_union
+        
+        # Gather text centroids and filter room name texts
+        text_pts = []
+        for t in texts:
+            txt = t.get("text", "").upper().strip()
+            if not txt or len(txt) <= 1:
+                continue
+            bbox = t.get("bbox")
+            if bbox:
+                cx = bbox["x"] + bbox["w"] / 2.0
+                cy = bbox["y"] + bbox["h"] / 2.0
+            else:
+                cx = float(t.get("x", 0))
+                cy = float(t.get("y", 0))
+            if cx > 0 and cy > 0:
+                text_pts.append((Point(cx, cy), txt))
+                
+        if len(text_pts) < 2:
+            return polys
+            
+        wall_lines = []
+        for w in walls:
+            c = w.get("centerline")
+            if c and len(c) == 2:
+                wall_lines.append(LineString(c))
+                
+        if not wall_lines:
+            return polys
+            
+        wall_union = unary_union(wall_lines)
+        
+        result_polys = []
+        for p in polys:
+            # Count how many distinct room texts are inside this polygon
+            inside_texts = [tp for tp in text_pts if p.contains(tp[0]) or p.touches(tp[0])]
+            if len(inside_texts) >= 2:
+                try:
+                    split_res = split(p, wall_union)
+                    sub_polys = []
+                    if hasattr(split_res, 'geoms'):
+                        for sub_g in split_res.geoms:
+                            if isinstance(sub_g, Polygon) and sub_g.area >= 2000.0:
+                                sub_polys.append(sub_g)
+                    if len(sub_polys) >= 2:
+                        result_polys.extend(sub_polys)
+                        continue
+                except Exception as split_err:
+                    print(f"[split_polygons] Split error: {split_err}")
+            result_polys.append(p)
+            
+        return result_polys
+    except Exception as e:
+        print(f"[split_polygons] Global error: {e}")
+        return polys
+
+
 class GenerateRoomsRequest(BaseModel):
     walls: List[Dict[str, Any]]
     doors: Optional[List[Dict[str, Any]]] = None
@@ -1194,11 +1365,21 @@ def api_generate_rooms_from_walls(
                                             p1, p2 = parsed_pts[i], parsed_pts[j]
                 
                 if p1 and p2:
-                    lines.append(LineString([p1, p2]))
+                    dx = p2[0] - p1[0]
+                    dy = p2[1] - p1[1]
+                    dist = np.hypot(dx, dy)
+                    if dist > 1.0:
+                        ux, uy = dx / dist, dy / dist
+                        ext = 35.0
+                        ep1 = (p1[0] - ux * ext, p1[1] - uy * ext)
+                        ep2 = (p2[0] + ux * ext, p2[1] + uy * ext)
+                        lines.append(LineString([ep1, ep2]))
+                    else:
+                        lines.append(LineString([p1, p2]))
 
         # 3. Connect remaining free endpoints (snapping)
-        # Cluster nearby endpoints within 25px into single nodes to close all geometric gaps
-        snap_distance = 25.0
+        # Cluster nearby endpoints into single nodes to close all geometric gaps
+        snap_distance = 35.0
         raw_lines_coords = []
         for line in lines:
             raw_lines_coords.append((line.coords[0], line.coords[-1]))
@@ -1226,22 +1407,24 @@ def api_generate_rooms_from_walls(
             return best_node
             
         snapped_lines = []
-        for p1, p2 in raw_lines_coords:
-            sp1 = get_snapped_node(p1)
-            sp2 = get_snapped_node(p2)
-            if np.hypot(sp1[0] - sp2[0], sp1[1] - sp2[1]) > 5.0:  # Avoid zero-length lines
-                snapped_lines.append(LineString([sp1, sp2]))
+        for line in lines:
+            coords = list(line.coords)
+            if len(coords) == 2:
+                sp1 = get_snapped_node(coords[0])
+                sp2 = get_snapped_node(coords[-1])
+                if np.hypot(sp1[0] - sp2[0], sp1[1] - sp2[1]) > 5.0:
+                    snapped_lines.append(LineString([sp1, sp2]))
+            else:
+                snapped_lines.append(line)
         lines = snapped_lines
 
         # 3b. Bridge remaining gaps using gap_threshold
         if gap_threshold > snap_distance:
-            # Recompute endpoints after snapping
             endpoints = []
             for line in lines:
                 endpoints.append(line.coords[0])
                 endpoints.append(line.coords[-1])
             
-            # Helper to find degree of each endpoint (within small epsilon)
             def get_node_degree(pt, all_pts, eps=5.0):
                 return sum(1 for p in all_pts if np.hypot(pt[0] - p[0], pt[1] - p[1]) < eps)
                 
@@ -1250,7 +1433,6 @@ def api_generate_rooms_from_walls(
                 if get_node_degree(pt, endpoints) == 1:
                     dangling_pts.append(pt)
             
-            # Greedy matching for dangling-to-dangling connections
             dangling_pairs = []
             for i, p1 in enumerate(dangling_pts):
                 for j, p2 in enumerate(dangling_pts):
@@ -1269,7 +1451,6 @@ def api_generate_rooms_from_walls(
                     used_pts.add(pt1_key)
                     used_pts.add(pt2_key)
             
-            # T-junction connections: project remaining dangling endpoints to closest segments
             for pt in dangling_pts:
                 pt_key = (round(pt[0], 2), round(pt[1], 2))
                 if pt_key in used_pts:
@@ -1280,7 +1461,6 @@ def api_generate_rooms_from_walls(
                 best_proj_point = None
                 
                 for line in lines:
-                    # Skip segments where this point is an endpoint
                     if np.hypot(pt[0] - line.coords[0][0], pt[1] - line.coords[0][1]) < 5.0 or \
                        np.hypot(pt[0] - line.coords[-1][0], pt[1] - line.coords[-1][1]) < 5.0:
                         continue
@@ -1289,7 +1469,6 @@ def api_generate_rooms_from_walls(
                     if dist < best_dist:
                         proj_dist = line.project(point_obj)
                         proj_point = line.interpolate(proj_dist)
-                        # Ensure projection point lies strictly within segment
                         if proj_dist > 0.0 and proj_dist < line.length:
                             best_dist = dist
                             best_proj_point = (proj_point.x, proj_point.y)
@@ -1303,8 +1482,14 @@ def api_generate_rooms_from_walls(
         merged_lines = unary_union(lines)
         polys = list(polygonize(merged_lines))
         
-        # Filter out extremely small polygons (noise, area < 5000px^2)
-        polys = [p for p in polys if p.area >= 5000.0]
+        # Filter out noise polygons (area < 10.0px^2) to allow small and scaled rooms
+        polys = [p for p in polys if p.area >= 10.0]
+        
+        # 4a. Split room polygons if multiple room text labels exist inside
+        polys = _split_polygons_by_multi_texts(polys, texts, walls)
+
+        # 4b. Expand room polygons to include exterior wall thickness (Image 2 effect)
+        polys = _expand_rooms_to_exterior_walls(polys, walls)
         
         # Name rooms using Auto AI's full filtering & matching logic
         rooms_detected = []
@@ -1403,6 +1588,75 @@ def api_generate_rooms_from_walls(
         }
     except Exception as e:
         logger.error(f"[api_generate_rooms_from_walls] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateRoomAtPointRequest(BaseModel):
+    x: float
+    y: float
+    walls: List[Dict[str, Any]]
+    doors: Optional[List[Dict[str, Any]]] = None
+    texts: Optional[List[Dict[str, Any]]] = None
+    gap_threshold: Optional[float] = 120.0
+
+
+@router.post("/api/create-room-at-point")
+def api_create_room_at_point(
+    req: CreateRoomAtPointRequest,
+    username: str = Depends(validate_session)
+):
+    """
+    Creates a new room polygon at the user clicked (x, y) point inside an enclosed wall boundary.
+    Automatically expands the room polygon to include exterior wall thickness (Image 2).
+    Includes progressive gap-threshold fallback when drawings are scaled or have large wall openings.
+    """
+    try:
+        from shapely.geometry import Point, Polygon
+        click_pt = Point(req.x, req.y)
+        
+        # Progressive gap-threshold steps to automatically bridge scaled wall openings
+        gap_steps = [req.gap_threshold or 120.0, 250.0, 450.0, 700.0]
+        gen_res = None
+        matched_room = None
+        
+        for g_thresh in gap_steps:
+            gen_res = api_generate_rooms_from_walls(
+                GenerateRoomsRequest(
+                    walls=req.walls,
+                    doors=req.doors,
+                    texts=req.texts,
+                    gap_threshold=g_thresh
+                ),
+                username=username
+            )
+            
+            if gen_res.get("success") and gen_res.get("rooms"):
+                min_dist = float('inf')
+                for room in gen_res["rooms"]:
+                    poly_coords = [(p["x"], p["y"]) for p in room["polygon"]]
+                    if len(poly_coords) < 3:
+                        continue
+                    poly_obj = Polygon(poly_coords)
+                    
+                    if poly_obj.contains(click_pt) or poly_obj.touches(click_pt):
+                        matched_room = room
+                        break
+                    else:
+                        dist = click_pt.distance(poly_obj)
+                        if dist < 100.0 and dist < min_dist:
+                            min_dist = dist
+                            matched_room = room
+                            
+                if matched_room:
+                    break
+                    
+        if matched_room:
+            matched_room["id"] = f"room_{int(time.time()*1000)}"
+            return {"success": True, "room": matched_room}
+        else:
+            return {"success": False, "message": "Không thể tạo phòng tại vị trí này. Hãy kiểm tra các đoạn tường bao quanh."}
+    except Exception as e:
+        logger.error(f"Error in api_create_room_at_point: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1516,22 +1770,96 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
             cv2.imwrite(check_path, img)
             
         # ── 3. Create JS file → js/ ──
+        import uuid
         formatted_walls = []
         for wall in data.walls:
             c = wall.get("centerline")
-            w_type = wall.get("wall_type", "int")
+            w_type = wall.get("wall_type") or wall.get("type") or "int"
+            w_class = wall.get("class_name") or wall.get("class") or ""
+            is_ext = w_type == "ext" or w_class == "exterior_wall"
+            is_int = not is_ext
+            
             if c and len(c) >= 2:
+                p1 = c[0]
+                p2 = c[1]
+                x1 = float(p1.get("x", p1[0]) if isinstance(p1, dict) else p1[0])
+                y1 = float(p1.get("y", p1[1]) if isinstance(p1, dict) else p1[1])
+                x2 = float(p2.get("x", p2[0]) if isinstance(p2, dict) else p2[0])
+                y2 = float(p2.get("y", p2[1]) if isinstance(p2, dict) else p2[1])
+                
+                wall_id = str(wall.get("id") or uuid.uuid4())
+                level_num = int(wall.get("level", 0)) if str(wall.get("level", "0")).isdigit() else 0
+                level_name = wall.get("level_name") or f"LEVEL_{level_num + 1:02d}"
+                
+                length_val = float(wall.get("length_mm") or wall.get("length") or 0.0)
+                thick_val = float(wall.get("thickness_px") or wall.get("thickness") or 90.0)
+                height_val = float(wall.get("height_mm") or wall.get("height") or 2700.0)
+
                 formatted_walls.append({
-                    "type": w_type,
-                    "centerline": [[float(c[0][0]), float(c[0][1])], [float(c[1][0]), float(c[1][1])]]
+                    "Id": wall_id,
+                    "Shape": "Line",
+                    "StartX": x1,
+                    "StartY": y1,
+                    "StartZ": 0,
+                    "EndX": x2,
+                    "EndY": y2,
+                    "EndZ": 0,
+                    "MidX": None,
+                    "MidY": None,
+                    "MidZ": None,
+                    "EditLength": False,
+                    "LengthMm": length_val,
+                    "LengthAnchor": "Start",
+                    "Thickness": thick_val,
+                    "Height": height_val,
+                    "RakeStartHeightMm": None,
+                    "RakeMidHeightMm": None,
+                    "RakeEndHeightMm": None,
+                    "RakePointX": None,
+                    "RakePointY": None,
+                    "RakePointZ": None,
+                    "Alignment": "Center",
+                    "AllowAlignmentEdit": True,
+                    "LevelName": level_name,
+                    "LocationLine": "WallCenterline",
+                    "Flipped": False,
+                    "OffsetMm": 0,
+                    "ElevationOffsetMm": 0,
+                    "Interior": is_int,
+                    "Exterior": is_ext,
+                    "DwarfWall": False,
+                    "IsVirtualRoofWall": False,
+                    "IsExisting": False,
+                    "AllowInternalRibbonPlateEdit": False,
+                    "LoadBearingWall": is_ext,
+                    "FrameStudSpacing": "450",
+                    "FrameBottomPlateGrade": "MGP10",
+                    "FrameRibbonPlateGrade": "MGP10",
+                    "FrameTopPlateGrade": "MGP10",
+                    "FrameStudGrade": "MGP10",
+                    "FrameNogGrade": "MGP10",
+                    "FrameBottomPlateSize": "90x35",
+                    "FrameRibbonPlateSize": "90x35",
+                    "FrameTopPlateSize": "90x35",
+                    "FrameStudSize": "90x35",
+                    "FrameNogSize": "90x35",
+                    "FrameBottomPlatePlyCount": 1,
+                    "FrameRibbonPlatePlyCount": 1,
+                    "FrameTopPlatePlyCount": 1,
+                    "FrameStudPlyCount": 1,
+                    "FrameWallColorArgb": -16776961 if is_ext else -65281,
+                    "FrameExternalWallColorArgb": -16776961,
+                    "FrameInternalWallColorArgb": -65281,
+                    "FrameLoadBearingWallColorArgb": -16776961,
+                    "FrameNonLoadBearingWallColorArgb": -65281
                 })
                 
-        js_content = f"""// Label data for {clean_name}
+        js_content = f"""// Wall Frame Label Data for {clean_name}
 const labelData = {{
   img: "{img_filename}",
   width: {data.width},
   height: {data.height},
-  walls: {json.dumps(formatted_walls, indent=2)}
+  Walls: {json.dumps(formatted_walls, indent=2)}
 }};
 
 if (typeof module !== 'undefined' && module.exports) {{
@@ -1578,6 +1906,8 @@ if (typeof module !== 'undefined' && module.exports) {{
             "status": "ok",
             "message": f"Exported to {export_dir}",
             "export_dir": export_dir,
+            "js_file": js_path,
+            "js_content": js_content,
             "label_count": len(yolo_lines)
         }
     except Exception as e:

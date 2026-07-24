@@ -38,7 +38,7 @@ import {
   getDoorPoints,
   computeSwingArc,
 } from '@/engines/DoorGeometryEngine';
-import { snapDoorToWalls, cutWallsByDoors, distancePointToSegment } from '@/utils/geometry';
+import { snapDoorToWalls, cutWallsByDoors, distancePointToSegment, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular } from '@/utils/geometry';
 
 /**
  * useDoorController — React hook providing door state and operations.
@@ -651,10 +651,19 @@ export function useDoorController({
     if (!door) return;
 
     const newHinge = (door.hingeSide || door.hinge_side || 'left') === 'left' ? 'right' : 'left';
+    let newPoly = door.polygon || door.mask_polygon;
+    if (door.points && door.points.length >= 2 && newPoly && newPoly.length > 0) {
+      const p1 = Array.isArray(door.points[0]) ? {x: door.points[0][0], y: door.points[0][1]} : door.points[0];
+      const p2 = Array.isArray(door.points[1]) ? {x: door.points[1][0], y: door.points[1][1]} : door.points[1];
+      newPoly = mirrorPolygonAcrossPerpendicular(newPoly, p1, p2);
+    }
+
     updateDoor({
       ...door,
       hingeSide: newHinge,
       hinge_side: newHinge,
+      polygon: newPoly,
+      mask_polygon: newPoly
     });
   }, [getCurrentDoors, updateDoor]);
 
@@ -667,11 +676,20 @@ export function useDoorController({
     if (!door) return;
 
     const newSwing = (door.swingDirection || door.swing || 'inward') === 'inward' ? 'outward' : 'inward';
+    let newPoly = door.polygon || door.mask_polygon;
+    if (door.points && door.points.length >= 2 && newPoly && newPoly.length > 0) {
+      const p1 = Array.isArray(door.points[0]) ? {x: door.points[0][0], y: door.points[0][1]} : door.points[0];
+      const p2 = Array.isArray(door.points[1]) ? {x: door.points[1][0], y: door.points[1][1]} : door.points[1];
+      newPoly = mirrorPolygonAcrossLine(newPoly, p1, p2);
+    }
+
     updateDoor({
       ...door,
       swingDirection: newSwing,
       swing: newSwing,
       swing_direction: newSwing,
+      polygon: newPoly,
+      mask_polygon: newPoly
     });
   }, [getCurrentDoors, updateDoor]);
 
@@ -730,14 +748,94 @@ export function useDoorController({
   const swapFrameLeaf = useCallback((doorId) => {
     const doors = getCurrentDoors();
     const door = doors.find(d => d.id === doorId);
-    if (!door || !door.points || door.points.length < 2) return;
+    if (!door) return;
 
-    const currentIdx = door.frameEdgeIndex || 0;
+    const currentIdx = door.frameEdgeIndex !== undefined ? door.frameEdgeIndex : 0;
+    const newIdx = 1 - currentIdx;
+
+    let newP1 = null;
+    let newP2 = null;
+    let targetWall = null;
+
+    let e1 = null;
+    let e2 = null;
+
+    const maskPoly = (door.polygon && door.polygon.length >= 3) ? door.polygon : (door.mask_polygon || []);
+    if (maskPoly.length >= 3) {
+      const polyPoints = maskPoly.map(p => Array.isArray(p) ? {x: p[0], y: p[1]} : p);
+      const n = polyPoints.length;
+      const edges = [];
+      for (let i = 0; i < n; i++) {
+        const pt1 = polyPoints[i];
+        const pt2 = polyPoints[(i + 1) % n];
+        const len = Math.hypot(pt2.x - pt1.x, pt2.y - pt1.y);
+        if (len < 5) continue;
+        edges.push({ p1: pt1, p2: pt2, len });
+      }
+      edges.sort((a, b) => b.len - a.len);
+      if (edges.length >= 2) {
+        e1 = edges[0];
+        const u1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+        for (let i = 1; i < edges.length; i++) {
+          const cand = edges[i];
+          const u2 = { x: (cand.p2.x - cand.p1.x) / cand.len, y: (cand.p2.y - cand.p1.y) / cand.len };
+          const dot = Math.abs(u1.x * u2.x + u1.y * u2.y);
+          if (dot < 0.75) {
+            e2 = cand;
+            break;
+          }
+        }
+        if (!e2) e2 = edges[1];
+      }
+    }
+
+    if (!e1 || !e2) {
+      if (door.points && door.points.length >= 2) {
+        const p1 = Array.isArray(door.points[0]) ? { x: door.points[0][0], y: door.points[0][1] } : door.points[0];
+        const p2 = Array.isArray(door.points[1]) ? { x: door.points[1][0], y: door.points[1][1] } : door.points[1];
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 0) {
+          const nx = -dy / len;
+          const ny = dx / len;
+          e1 = { p1: p1, p2: p2, len };
+          e2 = { p1: p1, p2: { x: p1.x + nx * len, y: p1.y + ny * len }, len };
+        }
+      }
+    }
+
+    if (e1 && e2) {
+      const candidate = newIdx === 1 ? e2 : e1;
+      const centerPt = { x: (candidate.p1.x + candidate.p2.x)/2, y: (candidate.p1.y + candidate.p2.y)/2 };
+      const walls = getCurrentWalls ? getCurrentWalls() : [];
+
+      let candidateWalls = walls;
+      if (door.parentWallId) {
+        const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
+        const doorBaseId = getBaseWallId(door.parentWallId);
+        candidateWalls = walls.filter(w => w.id !== door.parentWallId && (doorBaseId && getBaseWallId(w.id) !== doorBaseId));
+      }
+
+      targetWall = findParentWall(centerPt, candidateWalls, 120) || findParentWall(centerPt, walls, 120);
+
+      if (targetWall && targetWall.centerline && targetWall.centerline.length === 2) {
+        const proj = projectDoorOntoWall(candidate.p1, candidate.p2, targetWall);
+        newP1 = proj.p1;
+        newP2 = proj.p2;
+      } else {
+        newP1 = candidate.p1;
+        newP2 = candidate.p2;
+      }
+    }
+
     updateDoor({
       ...door,
-      frameEdgeIndex: 1 - currentIdx,
+      frameEdgeIndex: newIdx,
+      points: (newP1 && newP2) ? [newP1, newP2] : door.points,
+      parentWallId: targetWall ? targetWall.id : door.parentWallId
     });
-  }, [getCurrentDoors, updateDoor]);
+  }, [getCurrentDoors, getCurrentWalls, updateDoor]);
 
   // ──────────────────────────────────────────────────────────
   //  SNAP ALL DOORS
@@ -772,8 +870,7 @@ export function useDoorController({
       return snapped;
     });
 
-    const cutWalls = cutWallsByDoors(uncutWalls, snappedDoors, realScale);
-    pushHistory(null, cutWalls, snappedDoors);
+    pushHistory(null, uncutWalls, snappedDoors);
   }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
 
   // ──────────────────────────────────────────────────────────

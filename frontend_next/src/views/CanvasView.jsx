@@ -32,7 +32,7 @@ import {
   getWallType
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
-import { snapPointToWall, rotateDoorGeometry } from "@/engines/DoorGeometryEngine";
+import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall } from "@/engines/DoorGeometryEngine";
 import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
 
 
@@ -498,7 +498,7 @@ const WallLayer = React.memo(({
         if (cls === "exterior_wall") {
           strokeColor = "#a855f7";
         } else if (cls === "interior_wall") {
-          strokeColor = "#b45309";
+          strokeColor = "#ea580c";
         } else if (cls === "partition_wall") {
           strokeColor = "#eab308";
         }
@@ -548,7 +548,7 @@ const WallLayer = React.memo(({
         if (cls === "exterior_wall") {
           fillColor = "rgba(168, 85, 247, 0.15)";
         } else if (cls === "interior_wall") {
-          fillColor = "rgba(180, 83, 9, 0.15)";
+          fillColor = "rgba(234, 88, 12, 0.45)";
         } else if (cls === "partition_wall") {
           fillColor = "rgba(234, 179, 8, 0.15)";
         }
@@ -651,7 +651,7 @@ const WallLayer = React.memo(({
                   setSelectedId(w.id);
                   setSelectedType("wall");
                 }
-                startDrag(w.id, null, 'wall-move');
+                startDrag(w.id, null, 'wall-move', e.shiftKey || e.ctrlKey);
               }
             }}
           />
@@ -671,96 +671,6 @@ const WallLayer = React.memo(({
         />
       ))}
 
-      {/* 2. Render selected wall vertex handles on top of everything */}
-      {interactionMode !== "cut-wall" && (walls || []).map((w, idx) => {
-        const isSelected = selectedWallIds.includes(w.id);
-        if (!isSelected || !w.centerline || w.centerline.length !== 2) return null;
-
-        return (
-          <g key={`handles-${w.id}-${idx}`}>
-            {w.centerline.map((pt, i) => {
-              const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
-              const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) || 
-                                       (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id && sv.index === i));
-              return (
-                <circle
-                  key={i}
-                  cx={pt[0]}
-                  cy={pt[1]}
-                  r={isDraggingThisVertex ? 3.5 : (isSelectedVertex ? 8 : 6)}
-                  fill={isSelectedVertex ? "#f59e0b" : "white"}
-                  stroke={isSelectedVertex ? "#d97706" : "#0284c7"}
-                  strokeWidth={isDraggingThisVertex ? 1.5 : 2.5}
-                  style={{ cursor: 'move' }}
-                  className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''} ${isSelectedVertex ? 'selected-vertex' : ''}`}
-                  onMouseDown={(e) => {
-                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
-
-                    // Double right-click starts move-vertex mode
-                    if (e.button === 2 && e.detail === 2) {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      if (startVertexMove) {
-                        startVertexMove(w.id, i, pt);
-                      }
-                      return;
-                    }
-
-                    if (e.button !== 0) {
-                      e.stopPropagation();
-                      return;
-                    }
-                    e.stopPropagation();
-                    mouseDownPos.current = { x: e.clientX, y: e.clientY };
-                    if (startDrag) {
-                      startDrag(w.id, i, 'wall-vertex');
-                    }
-                    if (setSelectedWallVertex) {
-                      setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
-                    }
-                  }}
-                  onMouseUp={(e) => {
-                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
-                    if (onMouseUp) {
-                      onMouseUp(e);
-                    }
-                    e.stopPropagation();
-                    const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
-                    if (dist < 6) {
-                      if (setSelectedVertices) {
-                        const isShift = e.shiftKey;
-                        setSelectedVertices(prev => {
-                          const isAlreadySelected = (prev || []).some(sv => sv.wallId === w.id && sv.index === i);
-                          if (isShift) {
-                            if (isAlreadySelected) {
-                              return (prev || []).filter(sv => !(sv.wallId === w.id && sv.index === i));
-                            } else {
-                              return [...(prev || []), { wallId: w.id, index: i }];
-                            }
-                          } else {
-                            return [{ wallId: w.id, index: i }];
-                          }
-                        });
-                      }
-                      if (setSelectedWallVertex) {
-                        setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
-                      }
-                    }
-                  }}
-                  onContextMenu={(e) => {
-                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (onVertexClick) {
-                      onVertexClick(e, { wallId: w.id, index: i, pt });
-                    }
-                  }}
-                />
-              );
-            })}
-          </g>
-        );
-      })}
     </g>
   );
 }, (prev, next) => (
@@ -784,6 +694,111 @@ const WallLayer = React.memo(({
   prev.isMeasuring === next.isMeasuring &&
   prev.isDistancing === next.isDistancing
 ));
+
+// ==========================================
+// 3.5. WallHandlesLayer (Memoized)
+// ==========================================
+const WallHandlesLayer = React.memo(({
+  walls,
+  doors = [],
+  selectedId,
+  selectedWallIds = [],
+  selectedWallVertex,
+  setSelectedWallVertex,
+  selectedVertices = [],
+  setSelectedVertices,
+  dragging,
+  startDrag,
+  startVertexMove,
+  onMouseUp,
+  onVertexClick,
+  interactionMode,
+  hoverId
+}) => {
+  if (interactionMode === "cut-wall") return null;
+
+  return (
+    <g id="WallHandlesLayer">
+      {(walls || []).map((w, idx) => {
+        const isSelected = selectedWallIds.includes(w.id);
+        const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
+        const hasSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id) ||
+                                  (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id));
+        const hasSelectedDoorOnWall = (doors || []).some(d =>
+          selectedId && (d.id === selectedId) &&
+          (d.parentWallId === w.id || (getBaseWallId && getBaseWallId(d.parentWallId) === getBaseWallId(w.id)))
+        );
+
+        if ((!isSelected && !isHovered && !hasSelectedVertex && !hasSelectedDoorOnWall) || !w.centerline || w.centerline.length !== 2) return null;
+
+        return (
+          <g key={`handles-${w.id}-${idx}`}>
+            {w.centerline.map((pt, i) => {
+              const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
+              const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) || 
+                                       (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id && sv.index === i));
+              return (
+                <circle
+                  key={i}
+                  cx={pt[0]}
+                  cy={pt[1]}
+                  r={isDraggingThisVertex ? 5 : (isSelectedVertex ? 9 : 7)}
+                  fill={isSelectedVertex ? "#f59e0b" : "white"}
+                  stroke={isSelectedVertex ? "#d97706" : "#0284c7"}
+                  strokeWidth={isDraggingThisVertex ? 2 : 2.5}
+                  style={{ cursor: 'move', pointerEvents: 'auto' }}
+                  className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''} ${isSelectedVertex ? 'selected-vertex' : ''}`}
+                  onMouseDown={(e) => {
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+
+                    if (e.button === 2 && e.detail === 2) {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      if (startVertexMove) {
+                        startVertexMove(w.id, i, pt);
+                      }
+                      return;
+                    }
+
+                    if (e.button !== 0) {
+                      e.stopPropagation();
+                      return;
+                    }
+                    e.stopPropagation();
+                    if (startDrag) {
+                      startDrag(w.id, i, 'wall-vertex', e.shiftKey || e.ctrlKey);
+                    }
+                    if (setSelectedWallVertex) {
+                      setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
+                    }
+                  }}
+                  onMouseUp={(e) => {
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                    if (onMouseUp) {
+                      onMouseUp(e);
+                    }
+                    e.stopPropagation();
+                    if (setSelectedWallVertex) {
+                      setSelectedWallVertex({ wallId: w.id, index: i, pt: [pt[0], pt[1]] });
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (onVertexClick) {
+                      onVertexClick(e, { wallId: w.id, index: i, pt });
+                    }
+                  }}
+                />
+              );
+            })}
+          </g>
+        );
+      })}
+    </g>
+  );
+});
 
 // ==========================================
 // 4. DoorLayer (Memoized)
@@ -932,7 +947,7 @@ const DoorLayer = React.memo(({
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                     >
-                      {d.width || Math.round(geom.widthPx * (realScale || 20))}
+                      {d.width_mm ? Math.round(d.width_mm) : (realScale ? Math.round(geom.widthPx * realScale) : Math.round(geom.widthPx))}
                     </text>
                   </g>
                 )}
@@ -1000,8 +1015,35 @@ const DoorLayer = React.memo(({
             const nx = -uy;
             const ny = ux;
             const thickness = 4;
+            const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const cx = (p1.x + p2.x) / 2;
+            const cy = (p1.y + p2.y) / 2;
+            const overlayThickness = 20;
+
             return (
               <g>
+                {/* Transparent Click Overlay */}
+                <rect
+                  x={-len / 2}
+                  y={-overlayThickness / 2}
+                  width={len}
+                  height={overlayThickness}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill="rgba(0, 0, 0, 0.01)"
+                  stroke="none"
+                />
+
+                {/* Window Visual Fill */}
+                <rect
+                  x={-len / 2}
+                  y={-thickness}
+                  width={len}
+                  height={thickness * 2}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(96, 165, 250, 0.15)" : "rgba(96, 165, 250, 0.05)")}
+                  stroke="none"
+                />
+
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
                 <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
                 <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
@@ -1204,6 +1246,7 @@ const DoorLayer = React.memo(({
             );
           };
 
+          const isWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
           return (
             <g key={`${d.id}-${idx}`} 
                onClick={(e) => {
@@ -1214,12 +1257,14 @@ const DoorLayer = React.memo(({
                   if (interactionMode === "draw-wall") return;
                   if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
                   e.stopPropagation();
-                  if (lastMouseDownSelectedId.current === d.id && selectedType === "door") {
-                    if (onEditDoor) onEditDoor(d);
-                  } else {
-                    setSelectedId(d.id);
-                    setSelectedType("door");
-                  }
+                  setSelectedId(d.id);
+                  setSelectedType(isWindow ? "window" : "door");
+                }}
+                onDoubleClick={(e) => {
+                  if (interactionMode === "draw-wall") return;
+                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                  e.stopPropagation();
+                  if (onEditDoor) onEditDoor(d);
                 }}
                onMouseDown={(e) => {
                  lastMouseDownSelectedId.current = selectedId;
@@ -1229,7 +1274,7 @@ const DoorLayer = React.memo(({
                    e.stopPropagation();
                    if (!isSelected) {
                      setSelectedId(d.id);
-                     setSelectedType("door");
+                     setSelectedType(isWindow ? "window" : "door");
                    }
                    startDrag(d.id, null, 'door-move');
                  }
@@ -2118,6 +2163,7 @@ export default function CanvasView({
   handleClick,
   checkAndResetIgnoreClick,
   finishPolygon,
+  finishRoof,
   finishDoor,
   onMouseMove,
   onMouseDown,
@@ -2172,10 +2218,10 @@ export default function CanvasView({
   const { config, heatmapMode } = useAIConfigStore();
   const { roofsByPage, setRoofsByPage } = useAppModel();
 
-  // Dynamically cut base walls by active doors for 2D visual rendering
+  // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
-    return cutWallsByDoors(walls, doors, realScale);
-  }, [walls, doors, realScale]);
+    return walls || [];
+  }, [walls]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -2276,7 +2322,88 @@ export default function CanvasView({
     const d = doorContextMenu.door;
     if (d && updateDoor) {
       const currentIdx = d.frameEdgeIndex !== undefined ? d.frameEdgeIndex : 0;
-      updateDoor({ ...d, frameEdgeIndex: 1 - currentIdx });
+      const newIdx = 1 - currentIdx;
+
+      let newP1 = null;
+      let newP2 = null;
+      let targetWall = null;
+
+      let e1 = null;
+      let e2 = null;
+
+      const maskPoly = (d.polygon && d.polygon.length >= 3) ? d.polygon : (d.mask_polygon || []);
+      if (maskPoly.length >= 3) {
+        const polyPoints = maskPoly.map(p => Array.isArray(p) ? {x: p[0], y: p[1]} : p);
+        const n = polyPoints.length;
+        const edges = [];
+        for (let i = 0; i < n; i++) {
+          const pt1 = polyPoints[i];
+          const pt2 = polyPoints[(i + 1) % n];
+          const len = Math.hypot(pt2.x - pt1.x, pt2.y - pt1.y);
+          if (len < 5) continue;
+          edges.push({ p1: pt1, p2: pt2, len });
+        }
+        edges.sort((a, b) => b.len - a.len);
+        if (edges.length >= 2) {
+          e1 = edges[0];
+          const u1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
+          for (let i = 1; i < edges.length; i++) {
+            const cand = edges[i];
+            const u2 = { x: (cand.p2.x - cand.p1.x) / cand.len, y: (cand.p2.y - cand.p1.y) / cand.len };
+            const dot = Math.abs(u1.x * u2.x + u1.y * u2.y);
+            if (dot < 0.75) {
+              e2 = cand;
+              break;
+            }
+          }
+          if (!e2) e2 = edges[1];
+        }
+      }
+
+      if (!e1 || !e2) {
+        if (d.points && d.points.length >= 2) {
+          const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+          const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0) {
+            const nx = -dy / len;
+            const ny = dx / len;
+            e1 = { p1: p1, p2: p2, len };
+            e2 = { p1: p1, p2: { x: p1.x + nx * len, y: p1.y + ny * len }, len };
+          }
+        }
+      }
+
+      if (e1 && e2) {
+        const candidate = newIdx === 1 ? e2 : e1;
+        const centerPt = { x: (candidate.p1.x + candidate.p2.x)/2, y: (candidate.p1.y + candidate.p2.y)/2 };
+
+        let candidateWalls = walls;
+        if (d.parentWallId) {
+          const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+          candidateWalls = walls.filter(w => w.id !== d.parentWallId && (!getBaseWallId || getBaseWallId(w.id) !== baseParentId));
+        }
+
+        targetWall = findParentWall(centerPt, candidateWalls, 120) || findParentWall(centerPt, walls, 120);
+
+        if (targetWall && targetWall.centerline && targetWall.centerline.length === 2) {
+          const proj = projectDoorOntoWall(candidate.p1, candidate.p2, targetWall);
+          newP1 = proj.p1;
+          newP2 = proj.p2;
+        } else {
+          newP1 = candidate.p1;
+          newP2 = candidate.p2;
+        }
+      }
+
+      updateDoor({
+        ...d,
+        frameEdgeIndex: newIdx,
+        points: (newP1 && newP2) ? [newP1, newP2] : d.points,
+        parentWallId: targetWall ? targetWall.id : d.parentWallId
+      });
     }
   };
 
@@ -2894,10 +3021,18 @@ export default function CanvasView({
           onClick={(e) => {
             if (editingRoomId) return;
             if (handleClick) handleClick(e);
+            closeDoorContextMenu();
+            closeWallContextMenu();
+            if (setVertexMenu) setVertexMenu({ visible: false, x: 0, y: 0, vertex: null });
+            if (e.target === svgRef.current || e.target.tagName === 'svg') {
+              if (setSelectedId) setSelectedId(null);
+              if (setSelectedType) setSelectedType(null);
+            }
           }}
           onDoubleClick={(e) => { 
             if (editingRoomId) return;
             if (drawing) finishPolygon(); 
+            if (isDrawingRoof && finishRoof) finishRoof();
             if (isDrawingDoor) finishDoor(); 
             if (interactionMode === "draw-wall") {
               e.stopPropagation();
@@ -3056,10 +3191,14 @@ export default function CanvasView({
                 <g key={roof.id}>
                   {/* Roof Base Polygon */}
                   <polygon
-                    points={roof.polygon.map(p => `${p.x},${p.y}`).join(" ")}
-                    fill={isSelected ? "rgba(245,158,11,0.28)" : isHovered ? "rgba(245,158,11,0.22)" : "rgba(245,158,11,0.15)"}
-                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "rgba(245,158,11,0.8)"}
-                    strokeWidth={isSelected ? 3 : isHovered ? 2.5 : 2}
+                    points={(roof.polygon || []).map(p => {
+                      const px = typeof p.x === 'number' ? p.x : (Array.isArray(p) ? p[0] : 0);
+                      const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
+                      return `${px},${py}`;
+                    }).join(" ")}
+                    fill={isSelected ? "rgba(245,158,11,0.35)" : isHovered ? "rgba(245,158,11,0.25)" : "rgba(245,158,11,0.18)"}
+                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706"}
+                    strokeWidth={isSelected ? 3.5 : isHovered ? 3 : 2.5}
                     strokeDasharray={isSelected ? "none" : "8,4"}
                     style={{ cursor: "pointer" }}
                   />
@@ -3067,11 +3206,16 @@ export default function CanvasView({
                   {/* Priority 2: Edge Hover Highlight */}
                   {isHovered && hoveredRoofTarget?.type === 'edge' && (() => {
                     const eIdx = hoveredRoofTarget.edgeIndex;
-                    const p1 = roof.polygon[eIdx];
-                    const p2 = roof.polygon[(eIdx + 1) % roof.polygon.length];
+                    const p1 = (roof.polygon || [])[eIdx];
+                    const p2 = (roof.polygon || [])[(eIdx + 1) % roof.polygon.length];
+                    if (!p1 || !p2) return null;
+                    const p1x = typeof p1.x === 'number' ? p1.x : p1[0];
+                    const p1y = typeof p1.y === 'number' ? p1.y : p1[1];
+                    const p2x = typeof p2.x === 'number' ? p2.x : p2[0];
+                    const p2y = typeof p2.y === 'number' ? p2.y : p2[1];
                     return (
                       <g pointerEvents="none">
-                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
+                        <line x1={p1x} y1={p1y} x2={p2x} y2={p2y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
                         {hoveredRoofTarget.projectionPoint && (
                           <circle cx={hoveredRoofTarget.projectionPoint.x} cy={hoveredRoofTarget.projectionPoint.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
                         )}
@@ -3080,13 +3224,15 @@ export default function CanvasView({
                   })()}
 
                   {/* Priority 1 & Handles: Vertices */}
-                  {(isSelected || isHovered) && roof.polygon.map((v, idx) => {
+                  {(isSelected || isHovered) && (roof.polygon || []).map((v, idx) => {
                     const isVertexHovered = isHovered && hoveredRoofTarget?.type === 'vertex' && hoveredRoofTarget?.index === idx;
+                    const vx = typeof v.x === 'number' ? v.x : v[0];
+                    const vy = typeof v.y === 'number' ? v.y : v[1];
                     return (
                       <circle
                         key={`roof-v-${roof.id}-${idx}`}
-                        cx={v.x}
-                        cy={v.y}
+                        cx={vx}
+                        cy={vy}
                         r={isVertexHovered ? 7 : 5}
                         fill={isVertexHovered ? "#ef4444" : "#f59e0b"}
                         stroke="#ffffff"
@@ -3339,6 +3485,25 @@ export default function CanvasView({
               interactionMode={interactionMode}
               onEditDoor={(door) => setDoorEditDialog({ visible: true, door })}
               checkAndResetIgnoreClick={checkAndResetIgnoreClick}
+            />
+
+            {/* Memoized Layer 4.5: Wall Handles (Rendered on top of doors for easy dragging) */}
+            <WallHandlesLayer
+              walls={walls}
+              doors={doors}
+              selectedId={selectedId}
+              selectedWallIds={selectedWallIds}
+              selectedWallVertex={selectedWallVertex}
+              setSelectedWallVertex={setSelectedWallVertex}
+              selectedVertices={selectedVertices}
+              setSelectedVertices={setSelectedVertices}
+              dragging={dragging}
+              startDrag={startDrag}
+              startVertexMove={startVertexMove}
+              onMouseUp={onMouseUp}
+              onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
+              interactionMode={interactionMode}
+              hoverId={hoverId}
             />
 
             {/* Memoized Layer 5: OCR Text Labels */}

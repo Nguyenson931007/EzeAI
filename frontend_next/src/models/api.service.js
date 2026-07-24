@@ -250,6 +250,19 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async autoDetectRoof(imageBlob, confidence = "0.15") {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("confidence", confidence);
+    const res = await fetch(`${BASE_URL}/predict_roof`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   async detectDoorSeg(imageBlob, confidence = "0.25", realScale = 1.0) {
     const fd = new FormData();
     fd.append("file", imageBlob);
@@ -537,6 +550,22 @@ export const ApiService = {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({
+        walls,
+        doors,
+        texts,
+        gap_threshold: gapThreshold
+      }),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async createRoomAtPoint(x, y, walls, doors = [], texts = [], gapThreshold = 120) {
+    const res = await fetch(`${BASE_URL}/api/create-room-at-point`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        x, y,
         walls,
         doors,
         texts,

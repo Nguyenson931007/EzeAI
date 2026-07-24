@@ -12,13 +12,14 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex } from "@/utils/geometry";
 import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
 import { findParentWall } from "@/models/DoorTypeRegistry";
+import { ApiService } from "@/models/api.service";
 
 export const RoofInteractionState = {
   IDLE: "IDLE",
@@ -98,7 +99,7 @@ export function useInteractionController(svgRef) {
         const parsed = JSON.parse(saved);
         def = parsed.defaultHeight ?? 2700;
       }
-    } catch (e) {}
+    } catch (e) { }
     return def;
   })();
 
@@ -223,7 +224,7 @@ export function useInteractionController(svgRef) {
           const p1 = w.centerline[0];
           const p2 = w.centerline[1];
           if (Math.hypot(p1[0] - pt[0], p1[1] - pt[1]) < 10 ||
-              Math.hypot(p2[0] - pt[0], p2[1] - pt[1]) < 10) {
+            Math.hypot(p2[0] - pt[0], p2[1] - pt[1]) < 10) {
             exemptIds.add(w.id);
           }
         }
@@ -464,6 +465,9 @@ export function useInteractionController(svgRef) {
         } else if (drawing) {
           e.preventDefault();
           finishPolygon();
+        } else if (isDrawingRoof) {
+          e.preventDefault();
+          finishRoof();
         } else if (isDrawingDoor && doorPreset) {
           e.preventDefault();
           finishDoor();
@@ -489,6 +493,13 @@ export function useInteractionController(svgRef) {
             doorController?.flipHingeState();
           } else {
             doorController?.flipSwingState();
+          }
+        } else if ((selectedType === 'door' || selectedType === 'window') && selectedId) {
+          e.preventDefault();
+          if (e.ctrlKey || e.metaKey) {
+            doorController?.flipHinge(selectedId);
+          } else {
+            doorController?.flipSwing(selectedId);
           }
         }
       }
@@ -1013,7 +1024,7 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    if (selectedType === 'door') {
+    if (selectedType === 'door' || selectedType === 'window') {
       if (selectedId) {
         doorController.deleteDoor(selectedId);
       }
@@ -1083,6 +1094,35 @@ export function useInteractionController(svgRef) {
     }
     if (isSpaceDown || isDraggingPan) return; // Prevent clicking while panning
     const p = getMouse(e);
+
+    if (interactionMode === "fill-room") {
+      e.stopPropagation();
+      const clickPt = getMouse(e);
+      try {
+        const currentWalls = wallsByPage[currentPage] || [];
+        const currentDoors = doorsByPage[currentPage] || [];
+        const currentTexts = [];
+        const res = await ApiService.createRoomAtPoint(clickPt.x, clickPt.y, currentWalls, currentDoors, currentTexts, 120);
+        if (res && res.success && res.room) {
+          const newRoom = res.room;
+          setRoomsByPage(prev => {
+            const pageRooms = prev[currentPage] || [];
+            return {
+              ...prev,
+              [currentPage]: [...pageRooms, newRoom]
+            };
+          });
+          setSelectedId(newRoom.id);
+          setSelectedType("room");
+          pushHistory([...(roomsByPage[currentPage] || []), newRoom], currentWalls, currentDoors);
+        } else if (res && res.message) {
+          if (showAlert) showAlert(res.message);
+        }
+      } catch (err) {
+        console.error("[fill-room] Error creating room at point:", err);
+      }
+      return;
+    }
 
     if (interactionMode === "draw-wall" && drawingWall && drawingWallEnd) {
       e.stopPropagation();
@@ -1577,115 +1617,127 @@ export function useInteractionController(svgRef) {
     doorController.updateDoor(newDoor);
   }
 
-function findParentWallForDoor(door, walls) {
-  if (!walls || walls.length === 0 || !door) return null;
+  function findParentWallForDoor(door, walls) {
+    if (!walls || walls.length === 0 || !door) return null;
 
-  // 1. Try exact ID match
-  if (door.parentWallId) {
-    const exactWall = walls.find(w => w.id === door.parentWallId);
-    if (exactWall) return exactWall;
+    const pts = door.points;
+    let centerPt = door.centerPoint;
+    if (!centerPt && pts && pts.length >= 2) {
+      const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
+      const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
+      centerPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    }
 
-    // 2. Try matching base wall ID, picking the closest sub-segment to door center
-    const baseParentId = getBaseWallId(door.parentWallId);
-    const candidateWalls = walls.filter(w => getBaseWallId(w.id) === baseParentId);
-
-    if (candidateWalls.length > 0) {
-      const pts = door.points;
-      let centerPt = door.centerPoint;
-      if (!centerPt && pts && pts.length >= 2) {
-        const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
-        const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
-        centerPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    // 1. Try exact ID match if door has parentWallId
+    if (door.parentWallId) {
+      const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
+      const doorBaseId = getBaseWallId(door.parentWallId);
+      const exactWall = walls.find(w => w.id === door.parentWallId || (doorBaseId && getBaseWallId(w.id) === doorBaseId));
+      if (exactWall) {
+        return exactWall;
       }
 
-      if (centerPt) {
-        let bestWall = candidateWalls[0];
-        let minDist = Infinity;
-        for (const w of candidateWalls) {
-          if (!w.centerline || w.centerline.length !== 2) continue;
-          const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
-          const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
-          const proj = distancePointToSegment(centerPt, a, b);
-          if (proj.dist < minDist) {
-            minDist = proj.dist;
-            bestWall = w;
-          }
+      // 2. Try matching base wall ID, picking the closest sub-segment to door center
+      const baseParentId = getBaseWallId(door.parentWallId);
+      const candidateWalls = walls.filter(w => getBaseWallId(w.id) === baseParentId);
+
+      if (candidateWalls.length > 0) {
+        const pts = door.points;
+        let centerPt = door.centerPoint;
+        if (!centerPt && pts && pts.length >= 2) {
+          const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
+          const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
+          centerPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
         }
-        return bestWall;
-      }
-      return candidateWalls[0];
-    }
-  }
 
-  // 3. Fallback to findBestWallForDoor
-  return findBestWallForDoor(door, walls, 120);
-}
-
-function findBestWallForDoor(door, walls, maxDist = 120) {
-  if (!walls || walls.length === 0 || !door) return null;
-  const pts = door.points;
-  let centerPt = door.centerPoint;
-  if (!centerPt && pts && pts.length >= 2) {
-    const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
-    const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
-    centerPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-  }
-  if (!centerPt) return null;
-
-  let doorVec = null;
-  if (pts && pts.length >= 2) {
-    const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
-    const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len > 1e-3) {
-      doorVec = { x: dx / len, y: dy / len };
-    }
-  }
-
-  let bestWall = null;
-  let bestScore = -Infinity;
-
-  for (const w of walls) {
-    if (!w.centerline || w.centerline.length !== 2) continue;
-    const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
-    const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
-
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const L2 = dx * dx + dy * dy;
-    if (L2 < 0.01) continue;
-    const L = Math.sqrt(L2);
-    const wallVec = { x: dx / L, y: dy / L };
-
-    let t = ((centerPt.x - a.x) * dx + (centerPt.y - a.y) * dy) / L2;
-    t = Math.max(0, Math.min(1, t));
-
-    const px = a.x + t * dx;
-    const py = a.y + t * dy;
-    const dist = Math.hypot(centerPt.x - px, centerPt.y - py);
-
-    if (dist <= maxDist) {
-      let score = 1000 - dist;
-      if (doorVec) {
-        const dot = Math.abs(doorVec.x * wallVec.x + doorVec.y * wallVec.y);
-        score += dot * 500;
-      }
-      if (door.parentWallId && (w.id === door.parentWallId || getBaseWallId(w.id) === getBaseWallId(door.parentWallId))) {
-        score += 50;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestWall = w;
+        if (centerPt) {
+          let bestWall = candidateWalls[0];
+          let minDist = Infinity;
+          for (const w of candidateWalls) {
+            if (!w.centerline || w.centerline.length !== 2) continue;
+            const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+            const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+            const proj = distancePointToSegment(centerPt, a, b);
+            if (proj.dist < minDist) {
+              minDist = proj.dist;
+              bestWall = w;
+            }
+          }
+          return bestWall;
+        }
+        return candidateWalls[0];
       }
     }
+
+    // 3. Fallback to findBestWallForDoor
+    return findBestWallForDoor(door, walls, 120);
   }
 
-  return bestWall;
-}
+  function findBestWallForDoor(door, walls, maxDist = 120) {
+    if (!walls || walls.length === 0 || !door) return null;
+    const pts = door.points;
+    let centerPt = door.centerPoint;
+    if (!centerPt && pts && pts.length >= 2) {
+      const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
+      const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
+      centerPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    }
+    if (!centerPt) return null;
 
-  function startDrag(id, index, type = 'room') {
+    let doorVec = null;
+    if (pts && pts.length >= 2) {
+      const p1 = Array.isArray(pts[0]) ? { x: pts[0][0], y: pts[0][1] } : pts[0];
+      const p2 = Array.isArray(pts[1]) ? { x: pts[1][0], y: pts[1][1] } : pts[1];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 1e-3) {
+        doorVec = { x: dx / len, y: dy / len };
+      }
+    }
+
+    let bestWall = null;
+    let bestScore = -Infinity;
+
+    for (const w of walls) {
+      if (!w.centerline || w.centerline.length !== 2) continue;
+      const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const L2 = dx * dx + dy * dy;
+      if (L2 < 0.01) continue;
+      const L = Math.sqrt(L2);
+      const wallVec = { x: dx / L, y: dy / L };
+
+      let t = ((centerPt.x - a.x) * dx + (centerPt.y - a.y) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+
+      const px = a.x + t * dx;
+      const py = a.y + t * dy;
+      const dist = Math.hypot(centerPt.x - px, centerPt.y - py);
+
+      if (dist <= maxDist) {
+        let score = 1000 - dist;
+        if (doorVec) {
+          const dot = Math.abs(doorVec.x * wallVec.x + doorVec.y * wallVec.y);
+          score += dot * 500;
+        }
+        if (door.parentWallId && (w.id === door.parentWallId || getBaseWallId(w.id) === getBaseWallId(door.parentWallId))) {
+          score += 50;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestWall = w;
+        }
+      }
+    }
+
+    return bestWall;
+  }
+
+  function startDrag(id, index, type = 'room', isShiftSelect = false) {
     if (doorController.showTypeSelector) return;
     if (type === 'wall-move') {
       const currentWalls = wallsByPage[currentPage] || [];
@@ -1700,8 +1752,8 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       // Block dragging connected junction vertices via normal left-drag
       if (wall && wall.centerline && wall.centerline[index]) {
         const pt = wall.centerline[index];
-        const count = currentWalls.filter(w => 
-          w.centerline && 
+        const count = currentWalls.filter(w =>
+          w.centerline &&
           w.centerline.some(otherPt => Math.hypot(otherPt[0] - pt[0], otherPt[1] - pt[1]) < 15)
         ).length;
         if (count >= 2) return;
@@ -1737,7 +1789,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
               const opt = otherW.centerline[oi];
               const distP1 = Math.hypot(opt[0] - wallP1[0], opt[1] - wallP1[1]);
               const distP2 = Math.hypot(opt[0] - wallP2[0], opt[1] - wallP2[1]);
-              
+
               if (distP1 < 15) {
                 connections.push({
                   draggedWallId: wallId,
@@ -1857,12 +1909,17 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       id,
       index,
       type,
+      isShiftSelect: Boolean(isShiftSelect),
       connections,
       startPt,
       startSelectedVertices,
       parentWall: doorParentWall,
       startWalls: currentWalls.map(w => ({ ...w, centerline: w.centerline ? [...w.centerline.map(p => [...p])] : null })),
-      startDoors: currentDoors.map(d => ({ ...d }))
+      startDoors: currentDoors.map(d => ({
+        ...d,
+        points: d.points ? d.points.map(pt => Array.isArray(pt) ? [...pt] : { ...pt }) : null,
+        centerPoint: d.centerPoint ? { ...d.centerPoint } : null
+      }))
     });
   }
 
@@ -1877,13 +1934,21 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       if (!dragging.startMouse) {
         dragging.startMouse = pRaw;
         dragging.hasMovedPastThreshold = false;
-        if (dragging.type === 'wall-move') {
+        if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
           const currentWalls = wallsByPage[currentPage] || [];
           dragging.startWalls = currentWalls.map(w => ({
             id: w.id,
             centerline: JSON.parse(JSON.stringify(w.centerline)),
             polygon: JSON.parse(JSON.stringify(w.polygon)),
             thickness_px: w.thickness_px
+          }));
+          const currentDoors = doorsByPage[currentPage] || [];
+          dragging.startDoors = currentDoors.map(d => ({
+            ...d,
+            points: d.points ? JSON.parse(JSON.stringify(d.points)) : null,
+            centerPoint: d.centerPoint ? { ...d.centerPoint } : null,
+            polygon: d.polygon ? JSON.parse(JSON.stringify(d.polygon)) : null,
+            mask_polygon: d.mask_polygon ? JSON.parse(JSON.stringify(d.mask_polygon)) : null
           }));
         } else if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
           const currentDoors = doorsByPage[currentPage] || [];
@@ -1962,26 +2027,69 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           if (door.id === dragging.id) {
             const startDoor = dragging.startDoors?.find(sd => sd.id === door.id) || door;
 
-            const parentWall = dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
-
             const startMouse = dragging.startMouse || pRaw;
             const dx = pRaw.x - startMouse.x;
             const dy = pRaw.y - startMouse.y;
 
             const startPts = getDoorPoints(startDoor);
-            const startCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x)/2, y: (startPts.p1.y + startPts.p2.y)/2 }) || startDoor.centerPoint || pRaw;
+            const startCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || startDoor.centerPoint || pRaw;
             const targetPoint = { x: startCenter.x + dx, y: startCenter.y + dy };
+
+            const isCtrl = e.ctrlKey || isCtrlDown;
+            if (isCtrl) {
+              let newPoints = startDoor.points;
+              if (startPts) {
+                newPoints = [
+                  { x: startPts.p1.x + dx, y: startPts.p1.y + dy },
+                  { x: startPts.p2.x + dx, y: startPts.p2.y + dy }
+                ];
+              }
+              const newCenter = startDoor.centerPoint
+                ? { x: startDoor.centerPoint.x + dx, y: startDoor.centerPoint.y + dy }
+                : targetPoint;
+
+              let newPolygon = null;
+              let newMaskPoly = null;
+              if (startDoor.polygon && startDoor.polygon.length >= 3) {
+                newPolygon = startDoor.polygon.map(p => {
+                  const isArr = Array.isArray(p);
+                  const px = isArr ? p[0] : p.x;
+                  const py = isArr ? p[1] : p.y;
+                  return isArr ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
+                });
+              }
+              if (startDoor.mask_polygon && startDoor.mask_polygon.length >= 3) {
+                newMaskPoly = startDoor.mask_polygon.map(p => {
+                  const isArr = Array.isArray(p);
+                  const px = isArr ? p[0] : p.x;
+                  const py = isArr ? p[1] : p.y;
+                  return isArr ? [px + dx, py + dy] : { x: px + dx, y: py + dy };
+                });
+              }
+
+              const freeDoor = {
+                ...startDoor,
+                points: newPoints,
+                centerPoint: newCenter,
+                polygon: newPolygon,
+                mask_polygon: newMaskPoly,
+                parentWallId: null
+              };
+              updatedSnappedDoor = freeDoor;
+              return freeDoor;
+            }
+
+            let parentWall = findParentWall(targetPoint, currentWalls, 100) || dragging.parentWall || findParentWallForDoor(startDoor, currentWalls);
+            if (!parentWall) {
+              parentWall = findBestWallForDoor(startDoor, currentWalls, 120);
+            }
 
             let constrainedDoor = null;
             if (parentWall) {
               constrainedDoor = constrainDoorToParentWall(startDoor, parentWall, targetPoint, currentWalls);
               constrainedDoor.parentWallId = parentWall.id;
             } else {
-              const shiftedDoor = {
-                ...startDoor,
-                points: startDoor.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }))
-              };
-              constrainedDoor = snapDoorToWalls(shiftedDoor, currentWalls, 999999, true, currentDoors);
+              constrainedDoor = snapDoorToWalls(startDoor, currentWalls, 999999, true, currentDoors);
             }
 
             updatedSnappedDoor = constrainedDoor;
@@ -2041,6 +2149,34 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             return w;
           });
 
+          const shouldMoveDoors = dragging.isShiftSelect || e.shiftKey || (selectedWallIds && selectedWallIds.length > 1);
+          const startWalls = dragging.startWalls || pageWalls;
+          const startDoors = dragging.startDoors || doorsByPage[currentPage] || [];
+          if (shouldMoveDoors && startDoors.length > 0 && startWalls.length > 0) {
+            const updatedDoors = startDoors.map(d => {
+              const startPts = getDoorPoints(d);
+              const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
+              if (!doorCenter) return d;
+              const oldWall = startWalls.find(w => w.id === d.parentWallId) || findParentWall(doorCenter, startWalls, 120);
+              if (!oldWall) return d;
+              const newWall = updated.find(w => w.id === oldWall.id);
+              if (!newWall || !oldWall.centerline || !newWall.centerline) return d;
+              const oldP1 = oldWall.centerline[0];
+              const oldP2 = oldWall.centerline[1];
+              const newP1 = newWall.centerline[0];
+              const newP2 = newWall.centerline[1];
+              if (Math.abs(oldP1[0] - newP1[0]) > 0.01 || Math.abs(oldP1[1] - newP1[1]) > 0.01 ||
+                Math.abs(oldP2[0] - newP2[0]) > 0.01 || Math.abs(oldP2[1] - newP2[1]) > 0.01) {
+                return recalculateDoorAfterWallChange(d, oldWall, newWall);
+              }
+              return d;
+            });
+            setDoorsByPage(prevDoors => ({
+              ...prevDoors,
+              [currentPage]: updatedDoors
+            }));
+          }
+
           return {
             ...prev,
             [currentPage]: recalculateAllWallsPolygons(updated)
@@ -2071,7 +2207,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           }
         }
 
-
+        let finalUpdatedWalls = [];
 
         setWallsByPage(prev => {
           const pageWalls = prev[currentPage] || [];
@@ -2154,20 +2290,50 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             }
           }
 
+          finalUpdatedWalls = pageWalls.map(w => {
+            const cLine = updatedCenterlines[w.id];
+            if (cLine) {
+              const pts = [{ x: cLine[0][0], y: cLine[0][1] }, { x: cLine[1][0], y: cLine[1][1] }];
+              const newPoly = calculateWallPolygonWithJunctions(pts, w.thickness_px || 20, w.id, pageWalls);
+              const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
+              return { ...w, centerline: cLine, polygon: polyCoords };
+            }
+            return w;
+          });
+
           return {
             ...prev,
-            [currentPage]: pageWalls.map(w => {
-              const cLine = updatedCenterlines[w.id];
-              if (cLine) {
-                const pts = [{ x: cLine[0][0], y: cLine[0][1] }, { x: cLine[1][0], y: cLine[1][1] }];
-                const newPoly = calculateWallPolygonWithJunctions(pts, w.thickness_px || 20, w.id, pageWalls);
-                const polyCoords = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : w.polygon;
-                return { ...w, centerline: cLine, polygon: polyCoords };
-              }
-              return w;
-            })
+            [currentPage]: finalUpdatedWalls
           };
         });
+
+        const shouldMoveDoors = dragging.isShiftSelect || e.shiftKey || (selectedWallIds && selectedWallIds.length > 1);
+        const startWalls = dragging.startWalls || pageWalls;
+        const startDoors = dragging.startDoors || doorsByPage[currentPage] || [];
+        if (shouldMoveDoors && startDoors.length > 0 && startWalls.length > 0 && finalUpdatedWalls.length > 0) {
+          const updatedDoors = startDoors.map(d => {
+            const startPts = getDoorPoints(d);
+            const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
+            if (!doorCenter) return d;
+            const oldWall = startWalls.find(w => w.id === d.parentWallId) || findParentWall(doorCenter, startWalls, 120);
+            if (!oldWall) return d;
+            const newWall = finalUpdatedWalls.find(w => w.id === oldWall.id);
+            if (!newWall || !oldWall.centerline || !newWall.centerline) return d;
+            const oldP1 = oldWall.centerline[0];
+            const oldP2 = oldWall.centerline[1];
+            const newP1 = newWall.centerline[0];
+            const newP2 = newWall.centerline[1];
+            if (Math.abs(oldP1[0] - newP1[0]) > 0.01 || Math.abs(oldP1[1] - newP1[1]) > 0.01 ||
+              Math.abs(oldP2[0] - newP2[0]) > 0.01 || Math.abs(oldP2[1] - newP2[1]) > 0.01) {
+              return recalculateDoorAfterWallChange(d, oldWall, newWall);
+            }
+            return d;
+          });
+          setDoorsByPage(prevDoors => ({
+            ...prevDoors,
+            [currentPage]: updatedDoors
+          }));
+        }
       } else {
         setRoomsByPage(prev => {
           const pageRooms = prev[currentPage] || [];
@@ -2190,11 +2356,9 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       const pageRoofs = roofsByPage[currentPage] || [];
 
       if (activeRoofDragTarget.type === 'vertex') {
-        const updatedRoofs = pageRoofs.map(r => {
-          if (r.id !== activeRoofDragTarget.roofId) return r;
-          const newPoly = r.polygon.map((v, idx) => idx === activeRoofDragTarget.vertexIndex ? { x: pRaw.x, y: pRaw.y } : v);
-          return { ...r, polygon: newPoly };
-        });
+        const origPt = activeRoofDragTarget.initialVertexPos || activeRoofDragTarget.startMousePos;
+        const updatedRoofs = updateSharedRoofVertices(pageRoofs, origPt, pRaw, 18);
+        setActiveRoofDragTarget(prev => prev ? { ...prev, initialVertexPos: { x: pRaw.x, y: pRaw.y } } : null);
         setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
         setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
       } else if (activeRoofDragTarget.type === 'body') {
@@ -2539,8 +2703,9 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
       if (targetRoof) {
         // Topology Mutation: Double-Click or Alt+Shift+Click to Delete Vertex Point
         if (hoveredRoofTarget.type === 'vertex' && (e.detail === 2 || (e.altKey && e.shiftKey))) {
-          const updatedPoly = removeVertex(targetRoof.polygon, hoveredRoofTarget.index);
-          const updatedRoofs = pageRoofs.map(r => r.id === targetRoof.id ? { ...r, polygon: updatedPoly } : r);
+          const targetPt = targetRoof.polygon[hoveredRoofTarget.index];
+          const updatedRoofs = removeSharedRoofVertex(pageRoofs, targetPt, 18);
+          setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
           pushRoofHistory(updatedRoofs);
           return;
         }
@@ -2550,8 +2715,8 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           setSelectedRoofId(targetRoof.id);
           setSelectedId(null);
           setSelectedType(null);
-          const updatedPoly = insertVertex(targetRoof.polygon, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint);
-          const updatedRoofs = pageRoofs.map(r => r.id === targetRoof.id ? { ...r, polygon: updatedPoly } : r);
+          const updatedRoofs = insertSharedRoofVertex(pageRoofs, targetRoof.id, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint, 18);
+          setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
           pushRoofHistory(updatedRoofs);
           return;
         }
@@ -2561,11 +2726,16 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           setSelectedRoofId(targetRoof.id);
           setSelectedId(null);
           setSelectedType(null);
+          const vPt = targetRoof.polygon[hoveredRoofTarget.index];
+          const vx = typeof vPt.x === 'number' ? vPt.x : vPt[0];
+          const vy = typeof vPt.y === 'number' ? vPt.y : vPt[1];
+
           setActiveRoofDragTarget({
             type: 'vertex',
             roofId: targetRoof.id,
             vertexIndex: hoveredRoofTarget.index,
             startMousePos: p,
+            initialVertexPos: { x: vx, y: vy },
             initialPolygon: [...targetRoof.polygon]
           });
           setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
@@ -2683,10 +2853,18 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           const pageDoors = doorsByPage[currentPage] || [];
           const targetDoor = pageDoors.find(d => d.id === dragging.id);
           if (targetDoor) {
-            const parentWall = dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
-            const targetPts = getDoorPoints(targetDoor);
-            const doorCenter = (targetPts && { x: (targetPts.p1.x + targetPts.p2.x)/2, y: (targetPts.p1.y + targetPts.p2.y)/2 }) || targetDoor.centerPoint;
-            const finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, doorCenter, pageWalls) : targetDoor;
+            const isCtrl = e.ctrlKey || isCtrlDown;
+            let finalDoor;
+            if (isCtrl) {
+              finalDoor = { ...targetDoor, parentWallId: null };
+            } else {
+              const currentParent = pageWalls.find(w => w.id === targetDoor.parentWallId);
+              const parentWall = currentParent || findParentWall(doorCenter, pageWalls, 100) || dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
+              const targetPts = getDoorPoints(targetDoor);
+              const doorCenter = (targetPts && { x: (targetPts.p1.x + targetPts.p2.x) / 2, y: (targetPts.p1.y + targetPts.p2.y) / 2 }) || targetDoor.centerPoint;
+              finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, doorCenter, pageWalls) : targetDoor;
+              if (parentWall) finalDoor.parentWallId = parentWall.id;
+            }
             const updatedDoors = pageDoors.map(d => d.id === dragging.id ? finalDoor : d);
             // Commit transaction: update state and history
             setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
@@ -2695,9 +2873,37 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
         } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
           const pageWalls = wallsByPage[currentPage] || [];
           const pageDoors = doorsByPage[currentPage] || [];
+          const startWalls = dragging.startWalls || pageWalls;
+          const startDoors = dragging.startDoors || pageDoors;
+          const shouldMoveDoors = dragging.isShiftSelect || e.shiftKey || (selectedWallIds && selectedWallIds.length > 1);
+
+          let updatedDoors = [...pageDoors];
+          if (shouldMoveDoors && startDoors.length > 0 && startWalls.length > 0) {
+            updatedDoors = startDoors.map(d => {
+              const startPts = getDoorPoints(d);
+              const doorCenter = (startPts && { x: (startPts.p1.x + startPts.p2.x) / 2, y: (startPts.p1.y + startPts.p2.y) / 2 }) || d.centerPoint;
+              if (!doorCenter) return d;
+              const oldWall = startWalls.find(w => w.id === d.parentWallId) || findParentWall(doorCenter, startWalls, 120);
+              if (!oldWall) return d;
+              const newWall = pageWalls.find(w => w.id === oldWall.id);
+              if (!newWall || !oldWall.centerline || !newWall.centerline) return d;
+              const oldP1 = oldWall.centerline[0];
+              const oldP2 = oldWall.centerline[1];
+              const newP1 = newWall.centerline[0];
+              const newP2 = newWall.centerline[1];
+              if (Math.abs(oldP1[0] - newP1[0]) > 0.01 || Math.abs(oldP1[1] - newP1[1]) > 0.01 ||
+                Math.abs(oldP2[0] - newP2[0]) > 0.01 || Math.abs(oldP2[1] - newP2[1]) > 0.01) {
+                return recalculateDoorAfterWallChange(d, oldWall, newWall);
+              }
+              return d;
+            });
+            setDoorsByPage(prev => ({
+              ...prev,
+              [currentPage]: updatedDoors
+            }));
+          }
+
           let updatedWalls = [...pageWalls];
-
-
 
           // Clean up degenerate/very short walls (length < 8px)
           updatedWalls = updatedWalls.filter(w => {
@@ -2714,7 +2920,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
           // Automatically merge collinear/overlapping walls
           const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
           // Cut the merged walls by the current doors list
-          const cutWalls = cutWallsByDoors(merged, pageDoors, realScale);
+          const cutWalls = cutWallsByDoors(merged, updatedDoors, realScale);
           // Recalculate all wall junctions to cleanly snap and connect corners
           const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
           setWallsByPage(prev => ({
@@ -2722,7 +2928,7 @@ function findBestWallForDoor(door, walls, maxDist = 120) {
             [currentPage]: junctionCleanedWalls
           }));
           // Update history with the merged and cut walls
-          pushHistory(null, junctionCleanedWalls, pageDoors);
+          pushHistory(null, junctionCleanedWalls, updatedDoors);
         }
       }
       setDragging(null);

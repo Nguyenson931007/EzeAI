@@ -5,11 +5,34 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType } from "@/utils/geometry";
 
+function insetPolygon3D(pts, offset = 12.0) {
+  if (!pts || pts.length < 3) return pts;
+  let cx = 0, cy = 0;
+  pts.forEach(p => { cx += p.x; cy += p.y; });
+  cx /= pts.length;
+  cy /= pts.length;
+  
+  return pts.map(p => {
+    const dx = cx - p.x;
+    const dy = cy - p.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < offset * 1.5) return p;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    return {
+      x: p.x + ux * offset,
+      y: p.y + uy * offset
+    };
+  });
+}
+
 export default function ThreeDView({
   pages = [],
   wallsByPage = {},
   setWallsByPage,
   doorsByPage = {},
+  setDoorsByPage,
+  updateDoor,
   roomsByPage = {},
   roofsByPage = {},
   currentPage = 0,
@@ -46,8 +69,9 @@ export default function ThreeDView({
   const [heightTier3Color, setHeightTier3Color] = useState("#f59e0b"); // 2850-3250mm (Amber/Orange)
   const [heightTier4Color, setHeightTier4Color] = useState("#8b5cf6"); // > 3250mm (Purple)
 
-  // ── 3D Wall Selection State ──
+  // ── 3D Wall & Door Selection State ──
   const [selected3DWall, setSelected3DWall] = useState(null); // { wallId, pageIndex, wall }
+  const [selected3DDoor, setSelected3DDoor] = useState(null); // { doorId, pageIndex, door }
 
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
@@ -62,6 +86,7 @@ export default function ThreeDView({
   const wallMeshesRef = useRef([]);
   const floorMeshesRef = useRef([]);
   const doorMeshesRef = useRef([]);
+  const roofMeshesRef = useRef([]);
 
   // Compute live wall height from wallsByPage for the selected 3D wall
   const liveSelectedWallHeight = React.useMemo(() => {
@@ -117,6 +142,39 @@ export default function ThreeDView({
       .sort((a, b) => a.level - b.level)
       .map(x => x.originalIndex);
   }, [pages]);
+
+  // Calculate exact cumulative height for each page level
+  const pageHeightsMm = React.useMemo(() => {
+    const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
+    const heights = {};
+    sortedPageIndices.forEach(idx => {
+      const pageWalls = wallsByPage[idx] || [];
+      if (pageWalls.length > 0) {
+        let maxH = 0;
+        pageWalls.forEach(w => {
+          const h = (typeof w.height_mm === 'number' && w.height_mm >= 500) 
+            ? w.height_mm 
+            : ((typeof w.height === 'number' && w.height >= 500) ? w.height : wallHeightMm);
+          if (h > maxH) maxH = h;
+        });
+        heights[idx] = (maxH >= 500 ? maxH : wallHeightMm) / scaleFactor;
+      } else {
+        heights[idx] = wallHeightMm / scaleFactor;
+      }
+    });
+    return heights;
+  }, [sortedPageIndices, wallsByPage, wallHeightMm, realScale]);
+
+  const levelBaseYOffsets = React.useMemo(() => {
+    const offsets = {};
+    let cumulativeY = 0;
+    sortedPageIndices.forEach((idx) => {
+      offsets[idx] = cumulativeY;
+      const h = pageHeightsMm[idx] || (wallHeightMm / ((realScale && realScale !== 1.0) ? realScale : 18.0));
+      cumulativeY += h + floorDepth;
+    });
+    return offsets;
+  }, [sortedPageIndices, pageHeightsMm, wallHeightMm, floorDepth, realScale]);
 
   // Calculate center of the floor plan for OrbitControls target
   const center = React.useMemo(() => {
@@ -439,15 +497,27 @@ export default function ThreeDView({
     const raycaster = raycasterRef.current;
     raycaster.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
 
-    const intersects = raycaster.intersectObjects(wallMeshesRef.current, true);
+    const selectables = [...wallMeshesRef.current, ...doorMeshesRef.current];
+    const intersects = raycaster.intersectObjects(selectables, true);
     if (intersects.length > 0) {
       let hitMesh = intersects[0].object;
-      while (hitMesh && !hitMesh.userData?.isWallMesh && hitMesh.parent) {
+      while (hitMesh && !hitMesh.userData?.isWallMesh && !hitMesh.userData?.isDoorMesh && hitMesh.parent) {
         hitMesh = hitMesh.parent;
+      }
+      if (hitMesh && hitMesh.userData?.isDoorMesh) {
+        const uData = hitMesh.userData;
+        setSelected3DDoor({ doorId: uData.doorId, pageIndex: uData.pageIndex, door: uData.door });
+        setSelected3DWall(null);
+        if (setSelectedId) {
+          setSelectedId(uData.doorId);
+          if (setSelectedType) setSelectedType(uData.door.type === "window" || uData.door.class === "window" ? "window" : "door");
+        }
+        return;
       }
       if (hitMesh && hitMesh.userData?.isWallMesh) {
         const uData = hitMesh.userData;
         setSelected3DWall({ wallId: uData.wallId, pageIndex: uData.pageIndex, wall: uData.wall });
+        setSelected3DDoor(null);
         if (setSelectedId) {
           setSelectedId(uData.wallId);
           if (setSelectedType) setSelectedType("wall");
@@ -456,6 +526,7 @@ export default function ThreeDView({
       }
     }
     setSelected3DWall(null);
+    setSelected3DDoor(null);
   };
 
   // Re-build scene elements whenever inputs, color modes, or selection change
@@ -473,6 +544,9 @@ export default function ThreeDView({
     doorMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
     doorMeshesRef.current = [];
 
+    roofMeshesRef.current.forEach(m => { scene.remove(m); disposeObject3D(m); });
+    roofMeshesRef.current = [];
+
     sortedPageIndices.forEach((originalIndex, k) => {
       if (visibleLevels[originalIndex] === false) return;
 
@@ -481,7 +555,8 @@ export default function ThreeDView({
       const pageDoors = doorsByPage[originalIndex] || [];
       const pageRooms = roomsByPage[originalIndex] || [];
       
-      const yOffset = k * (wallHeight + floorDepth);
+      const yOffset = levelBaseYOffsets[originalIndex] !== undefined ? levelBaseYOffsets[originalIndex] : k * (wallHeight + floorDepth);
+      const levelWallHeight = pageHeightsMm[originalIndex] !== undefined ? pageHeightsMm[originalIndex] : wallHeight;
 
       // --- 1. RENDER ROOMS (FLOORS) ---
       if (showFloors) {
@@ -489,10 +564,21 @@ export default function ThreeDView({
           const poly = room.polygon;
           if (!poly || poly.length < 3) return;
 
+          const pts2d = poly.map(p => ({
+            x: typeof p.x === 'number' ? p.x : (Array.isArray(p) && typeof p[0] === 'number' ? p[0] : 0),
+            y: typeof p.y === 'number' ? p.y : (Array.isArray(p) && typeof p[1] === 'number' ? p[1] : 0)
+          })).filter(p => !isNaN(p.x) && !isNaN(p.y));
+
+          if (pts2d.length < 3) return;
+
+          // Inset room floor polygon slightly into room interior (12px)
+          // so 3D floor mesh stays inside room walls and does NOT protrude onto exterior building facade
+          const insetPts = insetPolygon3D(pts2d, 12.0);
+
           const shape = new THREE.Shape();
-          shape.moveTo(poly[0].x, poly[0].y);
-          for (let i = 1; i < poly.length; i++) {
-            shape.lineTo(poly[i].x, poly[i].y);
+          shape.moveTo(insetPts[0].x, insetPts[0].y);
+          for (let i = 1; i < insetPts.length; i++) {
+            shape.lineTo(insetPts[i].x, insetPts[i].y);
           }
           shape.closePath();
 
@@ -513,7 +599,7 @@ export default function ThreeDView({
             color = 0x3f3f46;
           }
 
-          const extrudeSettings = { depth: k > 0 ? floorDepth : 1, bevelEnabled: false };
+          const extrudeSettings = { depth: 0.5, bevelEnabled: false };
           const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
           const material = new THREE.MeshStandardMaterial({
             color: color,
@@ -524,10 +610,148 @@ export default function ThreeDView({
 
           const mesh = new THREE.Mesh(geometry, material);
           mesh.rotation.x = Math.PI / 2;
-          mesh.position.set(-imgSize.w / 2, k > 0 ? yOffset : yOffset - 0.5, -imgSize.h / 2);
+          mesh.position.set(-imgSize.w / 2, yOffset + 0.5, -imgSize.h / 2);
           mesh.receiveShadow = enableShadows;
           scene.add(mesh);
           floorMeshesRef.current.push(mesh);
+        });
+      }
+
+      // --- 1b. RENDER ROOFS WITH 3D PITCH SLOPE ANGLE ---
+      if (showRoofs) {
+        const pageRoofs = roofsByPage[originalIndex] || [];
+        pageRoofs.forEach(roof => {
+          const poly = roof.polygon;
+          if (!poly || poly.length < 3) return;
+
+          const n = poly.length;
+          const pts2d = poly.map(p => ({
+            x: typeof p.x === 'number' ? p.x : p[0],
+            y: typeof p.y === 'number' ? p.y : p[1]
+          }));
+
+          const topYOffset = yOffset + levelWallHeight;
+          const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
+          const roofThickness = 120 / scaleFactor;
+
+          const pitchDeg = typeof roof.pitchAngle === 'number' ? roof.pitchAngle : 15;
+          const pitchRad = pitchDeg * (Math.PI / 180);
+
+          const material = new THREE.MeshStandardMaterial({
+            color: 0xd97706, // Warm terracotta amber roof
+            roughness: 0.45,
+            metalness: 0.15,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.88
+          });
+
+          if (pitchDeg <= 0 || roof.roof_type === "flat") {
+            // Flat roof extrude
+            const shape = new THREE.Shape();
+            shape.moveTo(pts2d[0].x, pts2d[0].y);
+            for (let i = 1; i < n; i++) shape.lineTo(pts2d[i].x, pts2d[i].y);
+            shape.closePath();
+
+            const extrudeSettings = { depth: roofThickness, bevelEnabled: false };
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.x = Math.PI / 2;
+            mesh.position.set(-imgSize.w / 2, topYOffset + roofThickness, -imgSize.h / 2);
+            mesh.castShadow = enableShadows;
+            mesh.receiveShadow = enableShadows;
+            scene.add(mesh);
+            roofMeshesRef.current.push(mesh);
+          } else {
+            // 3D Pitched Slope Roof Mesh
+            const tanPitch = Math.tan(pitchRad);
+
+            // Compute centroid
+            let cx = 0, cy = 0;
+            pts2d.forEach(p => { cx += p.x; cy += p.y; });
+            cx /= n; cy /= n;
+
+            // Compute average distance from centroid to eave edges
+            let totalDist = 0;
+            for (let i = 0; i < n; i++) {
+              const p1 = pts2d[i];
+              const p2 = pts2d[(i + 1) % n];
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const len = Math.hypot(dx, dy);
+              if (len > 0) {
+                const dist = Math.abs(dx * (cy - p1.y) - dy * (cx - p1.x)) / len;
+                totalDist += dist;
+              }
+            }
+            const avgDist = totalDist / Math.max(1, n);
+            const pitchHeight = avgDist * tanPitch;
+
+            const positions = [];
+            const normals = [];
+
+            const apexX = cx - imgSize.w / 2;
+            const apexY = topYOffset + roofThickness + pitchHeight;
+            const apexZ = cy - imgSize.h / 2;
+
+            for (let i = 0; i < n; i++) {
+              const p1 = pts2d[i];
+              const p2 = pts2d[(i + 1) % n];
+
+              const v1x = p1.x - imgSize.w / 2;
+              const v1y = topYOffset + roofThickness;
+              const v1z = p1.y - imgSize.h / 2;
+
+              const v2x = p2.x - imgSize.w / 2;
+              const v2y = topYOffset + roofThickness;
+              const v2z = p2.y - imgSize.h / 2;
+
+              // Facet Triangle (V1, V2, Apex)
+              positions.push(
+                v1x, v1y, v1z,
+                v2x, v2y, v2z,
+                apexX, apexY, apexZ
+              );
+
+              const ax = v2x - v1x, ay = v2y - v1y, az = v2z - v1z;
+              const bx = apexX - v1x, by = apexY - v1y, bz = apexZ - v1z;
+              let nx = ay * bz - az * by;
+              let ny = az * bx - ax * bz;
+              let nz = ax * by - ay * bx;
+              const normLen = Math.hypot(nx, ny, nz) || 1;
+              nx /= normLen; ny /= normLen; nz /= normLen;
+
+              normals.push(
+                nx, ny, nz,
+                nx, ny, nz,
+                nx, ny, nz
+              );
+
+              // Underside Eave Triangle (V1, Apex_bottom, V2)
+              positions.push(
+                v1x, topYOffset, v1z,
+                apexX, topYOffset, apexZ,
+                v2x, topYOffset, v2z
+              );
+              normals.push(
+                0, -1, 0,
+                0, -1, 0,
+                0, -1, 0
+              );
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+            geometry.computeVertexNormals();
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = enableShadows;
+            mesh.receiveShadow = enableShadows;
+            scene.add(mesh);
+            roofMeshesRef.current.push(mesh);
+          }
         });
       }
 
@@ -573,7 +797,9 @@ export default function ThreeDView({
         const thickness = wall.thickness_px || 20;
 
         const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
-        const wallHeightMmVal = wall.height || wall.height_mm || wallHeightMm;
+        const wallHeightMmVal = (typeof wall.height_mm === 'number' && wall.height_mm >= 500) 
+          ? wall.height_mm 
+          : ((typeof wall.height === 'number' && wall.height >= 500) ? wall.height : wallHeightMm);
         let activeWallHeight = wallHeightMmVal / scaleFactor;
 
         // Determine wall color based on mode
@@ -709,10 +935,7 @@ export default function ThreeDView({
                 const wLen = Math.hypot(wdx, wdy);
 
                 if (wLen > 0.1) {
-                  const wAngle = Math.atan2(wdy, wdx);
-                  const dot = Math.cos(angle) * Math.cos(wAngle) + Math.sin(angle) * Math.sin(wAngle);
-                  hostWallAngle = dot >= 0 ? wAngle : wAngle + Math.PI;
-
+                  hostWallAngle = angle;
                   const uxW = wdx / wLen;
                   const uyW = wdy / wLen;
                   const tProj = (cx - wp1.x) * uxW + (cy - wp1.y) * uyW;
@@ -904,19 +1127,74 @@ export default function ThreeDView({
               doorGroup.add(activeGroup);
             } else if (isDouble) {
               const pWidth = (length - postThickness) / 2;
+
+              // Left panel group (pivot on left side)
+              const leftGroup = new THREE.Group();
+              leftGroup.position.set(-length/2 + postThickness/2, 0, 0);
               const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              leftSlab.position.set(-pWidth/2, slabHeight/2, 0);
+              leftSlab.position.set(pWidth/2, slabHeight/2, 0);
+              leftSlab.castShadow = enableShadows;
+              leftSlab.receiveShadow = enableShadows;
+              leftGroup.add(leftSlab);
+              leftGroup.rotation.y = 0.8; // swing open 45 degrees
+
+              // Right panel group (pivot on right side)
+              const rightGroup = new THREE.Group();
+              rightGroup.position.set(length/2 - postThickness/2, 0, 0);
               const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              rightSlab.position.set(pWidth/2, slabHeight/2, 0);
-              doorGroup.add(leftSlab, rightSlab);
+              rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
+              rightSlab.castShadow = enableShadows;
+              rightSlab.receiveShadow = enableShadows;
+              rightGroup.add(rightSlab);
+              rightGroup.rotation.y = -0.8; // swing open -45 degrees
+
+              doorGroup.add(leftGroup, rightGroup);
             } else {
               const pWidth = length - postThickness;
+              const panelGroup = new THREE.Group();
+
+              const hingeSide = (door.hinge_side || door.hingeSide || "left").toLowerCase();
+              const swingDir = (door.swing_direction || door.swing || "inward").toLowerCase();
+              const isRightHinge = hingeSide === "right";
+              const isOutward = swingDir === "outward";
+
+              const pivotX = isRightHinge ? (length / 2 - postThickness / 2) : (-length / 2 + postThickness / 2);
+              const slabOffsetX = isRightHinge ? -pWidth / 2 : pWidth / 2;
+
+              let swingAngle = 0.85; // 48 degrees open
+              if (isRightHinge) {
+                swingAngle = isOutward ? 0.85 : -0.85;
+              } else {
+                swingAngle = isOutward ? -0.85 : 0.85;
+              }
+
+              panelGroup.position.set(pivotX, 0, 0);
+
               const slabMesh = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              slabMesh.position.set(0, slabHeight/2, 0);
-              doorGroup.add(slabMesh);
+              slabMesh.position.set(slabOffsetX, slabHeight / 2, 0);
+              slabMesh.castShadow = enableShadows;
+              slabMesh.receiveShadow = enableShadows;
+              panelGroup.add(slabMesh);
+
+              // Metallic Lever Handle
+              const handleMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.2, metalness: 0.9 });
+              const handleGroup = new THREE.Group();
+              const knobMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 5, 12), handleMat);
+              knobMesh.rotation.x = Math.PI / 2;
+              const leverMesh = new THREE.Mesh(new THREE.BoxGeometry(6, 1.0, 1.2), handleMat);
+              const handleX = isRightHinge ? (-pWidth + 6) : (pWidth - 6);
+              const handleZ = isOutward ? (-slabThick / 2 - 1.2) : (slabThick / 2 + 1.2);
+              handleGroup.position.set(handleX, slabHeight * 0.5, handleZ);
+              leverMesh.position.set(isRightHinge ? -2.0 : 2.0, 0, isOutward ? -1.2 : 1.2);
+              handleGroup.add(knobMesh, leverMesh);
+              panelGroup.add(handleGroup);
+
+              panelGroup.rotation.y = swingAngle;
+              doorGroup.add(panelGroup);
             }
           }
 
+          doorGroup.userData = { isDoorMesh: true, doorId: door.id, pageIndex: originalIndex, door: door };
           doorGroup.position.set(hostWallCx - imgSize.w / 2, yOffset, hostWallCy - imgSize.h / 2);
           doorGroup.rotation.y = -hostWallAngle;
 
@@ -926,10 +1204,10 @@ export default function ThreeDView({
       }
     });
   }, [
-    pages, wallsByPage, doorsByPage, roomsByPage, sortedPageIndices, visibleLevels,
-    showFloors, showPDF, showDoors, wallHeight, floorDepth, realScale, enableShadows,
+    pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, sortedPageIndices, visibleLevels,
+    showFloors, showPDF, showDoors, showRoofs, wallHeight, floorDepth, realScale, enableShadows,
     wallColorMode, extWallColor, intWallColor, partWallColor, heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
-    selected3DWall, selectedId
+    selected3DWall, selectedId, levelBaseYOffsets, pageHeightsMm
   ]);
 
   return (
@@ -1011,32 +1289,66 @@ export default function ThreeDView({
           </button>
         </div>
 
-        {/* Floor Depth Slider */}
-        {pages.length > 1 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
-              <span>Floor Slab Depth</span>
-              <span style={{ fontFamily: "monospace", color: "#60a5fa" }}>
-                {floorDepthMm >= 1000 ? `${(floorDepthMm / 1000).toFixed(2)}m` : `${floorDepthMm}mm`}
-              </span>
+        {/* Floor Depth Input & Quick Presets */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+            <span>Floor Slab Depth</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <input 
+                type="number" 
+                min="0" 
+                max="5000" 
+                step="50"
+                value={floorDepthMm} 
+                onChange={(e) => {
+                  const str = e.target.value;
+                  if (str === "") {
+                    setFloorDepthMm(0);
+                    return;
+                  }
+                  const val = Math.max(0, parseInt(str, 10) || 0);
+                  setFloorDepthMm(val);
+                }}
+                style={{
+                  width: "80px",
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  fontFamily: "monospace",
+                  color: "#60a5fa",
+                  backgroundColor: "rgba(15, 23, 42, 0.7)",
+                  border: "1px solid rgba(255, 255, 255, 0.15)",
+                  borderRadius: "6px",
+                  outline: "none",
+                  textAlign: "right"
+                }}
+              />
+              <span style={{ fontSize: "11px", color: "#9ca3af" }}>mm</span>
             </div>
-            <input 
-              type="range" 
-              min="100" 
-              max="1000" 
-              step="50"
-              value={floorDepthMm} 
-              onChange={(e) => setFloorDepthMm(Number(e.target.value))}
-              style={{
-                width: "100%",
-                height: "4px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                accentColor: "#3b82f6"
-              }}
-            />
           </div>
-        )}
+          <div style={{ display: "flex", gap: "4px" }}>
+            {[0, 150, 300, 500].map((presetMm) => (
+              <button
+                key={presetMm}
+                onClick={() => setFloorDepthMm(presetMm)}
+                style={{
+                  flex: 1,
+                  padding: "3px 4px",
+                  fontSize: "10px",
+                  fontWeight: "bold",
+                  borderRadius: "4px",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  backgroundColor: floorDepthMm === presetMm ? "#3b82f6" : "rgba(15, 23, 42, 0.5)",
+                  color: floorDepthMm === presetMm ? "#ffffff" : "#9ca3af",
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                {presetMm === 0 ? "0 (Không Sàn)" : `${presetMm}mm`}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* 🎨 WALL COLOR MODE & CUSTOMIZATION */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
@@ -1250,6 +1562,44 @@ export default function ThreeDView({
               }}
             />
           </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span style={{ color: !showRoofs ? "#f87171" : "#d1d5db" }}>Hide Roof (Ẩn Mái)</span>
+            <input 
+              type="checkbox" 
+              checked={!showRoofs} 
+              onChange={() => setShowRoofs(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#ef4444"
+              }}
+            />
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
+            <span style={{ color: visibleLevels[1] === false ? "#f87171" : "#d1d5db" }}>Hide Tầng 2 (Ẩn Lầu 1)</span>
+            <input 
+              type="checkbox" 
+              checked={visibleLevels[1] === false} 
+              onChange={(e) => {
+                const hideL2 = e.target.checked;
+                setVisibleLevels(prev => ({
+                  ...prev,
+                  1: !hideL2
+                }));
+              }}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#ef4444"
+              }}
+            />
+          </label>
         </div>
 
         {/* Action Buttons */}
@@ -1375,21 +1725,7 @@ export default function ThreeDView({
               />
             </div>
 
-            <input
-              type="range"
-              min="1500"
-              max="5000"
-              step="50"
-              value={liveSelectedWallHeight}
-              onChange={(e) => handleUpdateSelectedWallHeight(Number(e.target.value))}
-              style={{
-                width: "100%",
-                height: "5px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                accentColor: "#f97316"
-              }}
-            />
+
 
             {/* Quick Height Presets */}
             <div style={{ display: "flex", gap: "6px", marginTop: "2px" }}>
@@ -1437,6 +1773,159 @@ export default function ThreeDView({
           </div>
         </div>
       )}
+
+      {/* 3D SELECTED DOOR EDITING FLOATING CARD */}
+      {selected3DDoor && (() => {
+        const pageIdx = selected3DDoor.pageIndex !== undefined ? selected3DDoor.pageIndex : currentPage;
+        const liveDoor = (doorsByPage[pageIdx] || []).find(d => d.id === selected3DDoor.doorId) || selected3DDoor.door;
+        const hingeSide = liveDoor.hinge_side || liveDoor.hingeSide || "left";
+        const swingDir = liveDoor.swing_direction || liveDoor.swing || "inward";
+        const widthMm = liveDoor.width_mm || 900;
+        const heightMm = liveDoor.height_mm || 2100;
+
+        const handleUpdate = (updates) => {
+          const updatedDoor = { ...liveDoor, ...updates };
+          if (updateDoor) updateDoor(updatedDoor);
+          else if (setDoorsByPage) {
+            setDoorsByPage(prev => {
+              const pageDoors = prev[pageIdx] || [];
+              return {
+                ...prev,
+                [pageIdx]: pageDoors.map(d => d.id === liveDoor.id ? updatedDoor : d)
+              };
+            });
+          }
+          setSelected3DDoor(prev => prev ? { ...prev, door: updatedDoor } : null);
+        };
+
+        return (
+          <div
+            style={{
+              position: "absolute",
+              bottom: "24px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 20,
+              backgroundColor: "rgba(15, 23, 42, 0.95)",
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              border: "1px solid rgba(59, 130, 246, 0.6)",
+              borderRadius: "16px",
+              padding: "16px 20px",
+              width: "380px",
+              color: "#ffffff",
+              boxShadow: "0 16px 48px rgba(0, 0, 0, 0.7), 0 0 20px rgba(59, 130, 246, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              fontFamily: "'Outfit', 'Inter', sans-serif"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "16px" }}>🚪</span>
+                <div>
+                  <div style={{ fontWeight: "bold", fontSize: "13px", color: "#60a5fa" }}>
+                    Selected 3D Door ({liveDoor.door_name || liveDoor.id})
+                  </div>
+                  <div style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "monospace" }}>
+                    Hinge: {hingeSide} | Swing: {swingDir}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelected3DDoor(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#9ca3af",
+                  fontSize: "14px",
+                  cursor: "pointer",
+                  padding: "2px 6px"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quick Flip Action Buttons */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <button
+                onClick={() => handleUpdate({ hinge_side: hingeSide === "left" ? "right" : "left", hingeSide: hingeSide === "left" ? "right" : "left" })}
+                style={{
+                  padding: "8px 10px",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#3b82f6",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(59, 130, 246, 0.4)",
+                  transition: "all 0.15s"
+                }}
+              >
+                ↔️ Lật Trái/Phải
+              </button>
+              <button
+                onClick={() => handleUpdate({ swing_direction: swingDir === "inward" ? "outward" : "inward", swing: swingDir === "inward" ? "outward" : "inward" })}
+                style={{
+                  padding: "8px 10px",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#10b981",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(16, 185, 129, 0.4)",
+                  transition: "all 0.15s"
+                }}
+              >
+                ↕️ Lật Trong/Ngoài
+              </button>
+            </div>
+
+            {/* Width & Height Inputs */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "4px" }}>
+              <div>
+                <label style={{ fontSize: "11px", color: "#9ca3af", display: "block", marginBottom: "4px" }}>Rộng Width (mm)</label>
+                <input
+                  type="number"
+                  value={widthMm}
+                  onChange={(e) => handleUpdate({ width_mm: Number(e.target.value) || 900 })}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    backgroundColor: "rgba(0,0,0,0.4)",
+                    color: "#ffffff",
+                    fontSize: "12px"
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: "11px", color: "#9ca3af", display: "block", marginBottom: "4px" }}>Cao Height (mm)</label>
+                <input
+                  type="number"
+                  value={heightMm}
+                  onChange={(e) => handleUpdate({ height_mm: Number(e.target.value) || 2100 })}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    backgroundColor: "rgba(0,0,0,0.4)",
+                    color: "#ffffff",
+                    fontSize: "12px"
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Floating Instruction Tips */}
       <div 

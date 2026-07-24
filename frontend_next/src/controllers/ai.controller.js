@@ -5,12 +5,13 @@
  * Manages AbortController instances, progress reporting, cache hit indicators,
  * out-of-order response filtering via monotonic transaction IDs, and timing metrics.
  */
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
 import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
+import { useDialog } from "@/components/DialogContext";
 
 /**
  * Compute bounding-box IoU (Intersection over Union) between two polygons.
@@ -276,7 +277,8 @@ export const useAIController = (
   wallsByPage,
   pushHistory
 ) => {
-  const { pdfOffsetsByPage } = useAppModel();
+  const { pages, pdfOffsetsByPage, setRoofsByPage } = useAppModel();
+  const { showAlert } = useDialog();
   const pdfOffset = pdfOffsetsByPage?.[currentPage] || { x: 0, y: 0 };
 
   const [isDetecting, setIsDetecting] = useState(false);
@@ -675,7 +677,7 @@ export const useAIController = (
 
             // Snap existing doors to the newly detected merged walls!
             const snappedDoors = doors.map(d => {
-              const snapped = snapDoorToWalls(d, mergedWalls, 80);
+              const snapped = snapDoorToWalls(d, mergedWalls, 80, true);
               if (snapped.points && snapped.points.length >= 2) {
                 const pt0 = snapped.points[0];
                 const pt1 = snapped.points[1];
@@ -913,7 +915,21 @@ export const useAIController = (
         // even when the door midpoint sits in the gap between two cut segments.
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true) : [];
         const snappedDoors = uncutWalls.length > 0
-          ? detectedDoors.map(d => snapDoorToWalls(d, uncutWalls, 80))
+          ? detectedDoors.map(d => {
+              const snapped = snapDoorToWalls(d, uncutWalls, 80, true);
+              if (snapped.points && snapped.points.length >= 2) {
+                const pt0 = snapped.points[0];
+                const pt1 = snapped.points[1];
+                const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+                const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+                const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+                const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+                const center = { x: (px0 + px1) / 2, y: (py0 + py1) / 2 };
+                const pw = findParentWall(center, uncutWalls);
+                if (pw) snapped.parentWallId = pw.id;
+              }
+              return snapped;
+            })
           : detectedDoors;
 
         const mergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
@@ -928,9 +944,10 @@ export const useAIController = (
         // Cut existing walls at the new doors and recalculate polygons immediately
         if (setWallsByPage && wallsByPageRef.current) {
           if (currentWalls.length > 0) {
+            const cutWalls = cutWallsByDoors(currentWalls, mergedDoors);
             setWallsByPage(prev => ({
               ...prev,
-              [currentPage]: recalculateAllWallsPolygons(_cutWallsByDoors(currentWalls, mergedDoors, realScale))
+              [currentPage]: recalculateAllWallsPolygons(cutWalls)
             }));
           }
         }
@@ -1156,7 +1173,7 @@ export const useAIController = (
 
           // Snap doors to the newly detected merged walls!
           const snappedDoors = currentDoors.map(d => {
-            const snapped = snapDoorToWalls(d, mergedWalls, 80);
+            const snapped = snapDoorToWalls(d, mergedWalls, 80, true);
             if (snapped.points && snapped.points.length >= 2) {
               const pt0 = snapped.points[0];
               const pt1 = snapped.points[1];
@@ -1469,6 +1486,95 @@ export const useAIController = (
     }
   };
 
+  const detectRoof = useCallback(async (customConf = null) => {
+    console.log("[Roof AI] detectRoof triggered. currentPage:", currentPage, "hasImage:", !!image);
+    if (!image) {
+      const notify = showAlert || alert;
+      notify("Không thể lấy ảnh trang hiện tại để chạy Roof AI.");
+      return;
+    }
+
+    const conf = customConf !== null ? String(customConf) : "0.15";
+    const job = startROIJob();
+
+    try {
+      const blob = await fetch(image).then(r => r.blob());
+      console.log("[Roof AI] Fetching /predict_roof with blob size:", blob.size);
+      const data = await ApiService.autoDetectRoof(blob, conf);
+      console.log("[Roof AI] Response data:", data);
+      const result = Array.isArray(data) ? data[0] : data;
+
+      let roofsArray = [];
+      if (result && result.roofs) {
+        roofsArray = result.roofs;
+      }
+
+      if (roofsArray && roofsArray.length > 0) {
+        const shiftedRoofs = roofsArray.map((r, idx) => {
+          const shiftedPoly = (r.polygon || []).map(pt => {
+            const rx = typeof pt.x === 'number' ? pt.x : (Array.isArray(pt) ? pt[0] : 0);
+            const ry = typeof pt.y === 'number' ? pt.y : (Array.isArray(pt) ? pt[1] : 0);
+            return {
+              x: (Number(rx) || 0) + (pdfOffset.x || 0),
+              y: (Number(ry) || 0) + (pdfOffset.y || 0)
+            };
+          });
+          return {
+            id: r.id || `roof_ai_${Date.now()}_${idx}`,
+            polygon: shiftedPoly,
+            roof_type: r.roof_type || "flat",
+            pitchAngle: r.pitchAngle || 15,
+            overhang: r.overhang || 300,
+            review_state: "AI_GENERATED"
+          };
+        });
+
+        if (setRoofsByPage) {
+          setRoofsByPage(prev => ({
+            ...prev,
+            [currentPage]: shiftedRoofs
+          }));
+        }
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);
+      } else {
+        const notify = showAlert || alert;
+        notify("Không tìm thấy mái nào trong hình.");
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+      }
+    } catch (err) {
+      console.error("[Roof AI] Error:", err);
+      const notify = showAlert || alert;
+      notify(`Lỗi khi chạy Roof AI: ${err.message || err}`);
+      finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+    }
+  }, [currentPage, image, pdfOffset, setRoofsByPage, showAlert]);
+
+  const createRoomAtPoint = async (x, y, gapThreshold = 120) => {
+    try {
+      const currentWalls = wallsByPage[currentPage] || [];
+      const currentDoors = doorsByPage[currentPage] || [];
+      const currentTexts = textAnnotationsByPage[currentPage] || [];
+      
+      const res = await ApiService.createRoomAtPoint(x, y, currentWalls, currentDoors, currentTexts, gapThreshold);
+      if (res && res.success && res.room) {
+        setRoomsByPage(prev => {
+          const pageRooms = prev[currentPage] || [];
+          return {
+            ...prev,
+            [currentPage]: [...pageRooms, res.room]
+          };
+        });
+        return res.room;
+      } else if (res && res.message) {
+        console.warn("[createRoomAtPoint] Server message:", res.message);
+      }
+      return null;
+    } catch (e) {
+      console.error("[createRoomAtPoint] Error:", e);
+      return null;
+    }
+  };
+
   return {
     isDetecting,
     roiProgress,
@@ -1480,12 +1586,14 @@ export const useAIController = (
     detectText,
     detectTemplate,
     detectDoorSeg,
+    detectRoof,
     activeScanRoom,
     // Smart AI pipeline
     smartDetect,
     cancelSmartDetect,
     isSmartDetecting,
     smartProgress,
-    generateRoomsFromWalls
+    generateRoomsFromWalls,
+    createRoomAtPoint
   };
 };
