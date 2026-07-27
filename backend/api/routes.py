@@ -1773,27 +1773,27 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
         import uuid
         formatted_walls = []
         for wall in data.walls:
-            c = wall.get("centerline")
+            c_mm = wall.get("centerline_mm") or wall.get("centerline")
             w_type = wall.get("wall_type") or wall.get("type") or "int"
             w_class = wall.get("class_name") or wall.get("class") or ""
             is_ext = w_type == "ext" or w_class == "exterior_wall"
             is_int = not is_ext
             
-            if c and len(c) >= 2:
-                p1 = c[0]
-                p2 = c[1]
+            if c_mm and len(c_mm) >= 2:
+                p1 = c_mm[0]
+                p2 = c_mm[1]
                 x1 = float(p1.get("x", p1[0]) if isinstance(p1, dict) else p1[0])
                 y1 = float(p1.get("y", p1[1]) if isinstance(p1, dict) else p1[1])
                 x2 = float(p2.get("x", p2[0]) if isinstance(p2, dict) else p2[0])
                 y2 = float(p2.get("y", p2[1]) if isinstance(p2, dict) else p2[1])
                 
-                wall_id = str(wall.get("id") or uuid.uuid4())
+                wall_id = str(uuid.uuid4())
                 level_num = int(wall.get("level", 0)) if str(wall.get("level", "0")).isdigit() else 0
                 level_name = wall.get("level_name") or f"LEVEL_{level_num + 1:02d}"
                 
-                length_val = float(wall.get("length_mm") or wall.get("length") or 0.0)
-                thick_val = float(wall.get("thickness_px") or wall.get("thickness") or 90.0)
-                height_val = float(wall.get("height_mm") or wall.get("height") or 2700.0)
+                length_val = int(wall.get("length_mm") or wall.get("length") or 0)
+                thick_val = int(wall.get("thickness_mm") or wall.get("thickness") or 90)
+                height_val = int(wall.get("height_mm") or wall.get("height") or 2700)
 
                 formatted_walls.append({
                     "Id": wall_id,
@@ -1854,21 +1854,197 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                     "FrameNonLoadBearingWallColorArgb": -65281
                 })
                 
-        js_content = f"""// Wall Frame Label Data for {clean_name}
-const labelData = {{
-  img: "{img_filename}",
-  width: {data.width},
-  height: {data.height},
-  Walls: {json.dumps(formatted_walls, indent=2)}
-}};
+        # ── 3b. Compute dynamic EZPlan values from wall data ──
+        from collections import Counter
+        
+        # Determine level name from wall data
+        level_name_val = "LEVEL_01"
+        if formatted_walls:
+            level_name_val = formatted_walls[0].get("LevelName", "LEVEL_01")
+        
+        # Most common wall height (default 2700)
+        all_heights = [fw["Height"] for fw in formatted_walls if fw.get("Height")]
+        wall_height = int(Counter(all_heights).most_common(1)[0][0]) if all_heights else 2700
+        
+        # Joist height default
+        joist_height = 240
+        storey_height = wall_height + joist_height
+        
+        # Most common thickness by wall type
+        ext_thicknesses = [fw["Thickness"] for fw in formatted_walls if fw.get("Exterior")]
+        int_thicknesses = [fw["Thickness"] for fw in formatted_walls if fw.get("Interior")]
+        ext_wall_width = str(int(Counter(ext_thicknesses).most_common(1)[0][0])) if ext_thicknesses else "90"
+        int_wall_width = str(int(Counter(int_thicknesses).most_common(1)[0][0])) if int_thicknesses else "90"
+        
+        # ── 3c. Build full EZPlan document ──
+        ezplan_doc = {
+            "Version": "0.3",
+            "JobName": "",
+            "CustomerName": "",
+            "JobAddress": "",
+            "DraftedBy": "",
+            "Dxf": None,
+            "Pdf": None,
+            "Levels": {
+                level_name_val: 0
+            },
+            "CurrentLevelName": level_name_val,
+            "LevelWallHeights": {
+                level_name_val: wall_height
+            },
+            "LevelJoistHeights": {
+                level_name_val: joist_height
+            },
+            "LevelStoreyHeights": {
+                level_name_val: storey_height
+            },
+            "LevelStepDowns": {
+                level_name_val: "0"
+            },
+            "LevelNogCenters": {
+                level_name_val: 1350
+            },
+            "LevelFloorSections": {
+                level_name_val: "Ground floor"
+            },
+            "LockedStoreyLevels": None,
+            "Walls": formatted_walls,
+            "CriticalStuds": [],
+            "StripedLines": [],
+            "TextNotes": [],
+            "Openings": [],
+            "PlasterSheets": [],
+            "PlasterOffcuts": [],
+            "PlasterPlacedPieces": [],
+            "Beams": [],
+            "JoistSets": [],
+            "Blockings": [],
+            "Rimboards": [],
+            "Posts": [],
+            "Obstructions": [],
+            "Hangers": [],
+            "StructuralLabelOverrides": [],
+            "Roofs": [],
+            "RoofPlans": [],
+            "AreaLoads": [],
+            "LeaderLabels": [],
+            "DxfUnderlays": None,
+            "PdfUnderlays": None,
+            "PlanScaleByLevel": None,
+            "OffsetByLevel": None,
+            "RotationByLevel": None,
+            "BracingInputsByLevel": None,
+            "JobInfo": {
+                "JobNumber": None,
+                "ClientName": "PlaceMaker",
+                "BuilderName": "",
+                "Representative": "",
+                "JobAddress": None,
+                "Suburb": None,
+                "StandardType": None,
+                "RoofPitch": "22",
+                "RoofMaterial": "Sheet",
+                "TrussCenters": "600",
+                "RafterCenters": "600",
+                "TrussRafterCenters": "600",
+                "Treated": "UNTREATED",
+                "WindClass": "N1",
+                "FloorSection": "Ground floor",
+                "StepDown": "0",
+                "LamBeamsBy": "TILLING",
+                "RevisionNo": "",
+                "RevisionDay": "",
+                "DrawingNo": None,
+                "PreparedBy": None,
+                "CheckedBy": None,
+                "PlanRevisionNo": "",
+                "PlanRevisionDay": "",
+                "TieDown": "1200",
+                "NogCenter": "1350",
+                "LintelOverhang": 30,
+                "WallHeight": str(wall_height),
+                "CeilingHeight": str(wall_height),
+                "ExternalWallWidth": ext_wall_width,
+                "InternalWallWidth": int_wall_width,
+                "ExternalStudSpacing": "450",
+                "InternalStudSpacing": "450",
+                "ExternalBottomPlate": "MGP10",
+                "ExternalRibbonPlate": "MGP10",
+                "ExternalTopPlate": "MGP10",
+                "ExternalStud": "MGP10",
+                "ExternalNog": "MGP10",
+                "InternalBottomPlate": "MGP10",
+                "InternalTopPlate": "MGP10",
+                "InternalStud": "MGP10",
+                "InternalNog": "MGP10",
+                "ExternalWallColorArgb": -16776961,
+                "InternalWallColorArgb": -65281,
+                "LoadBearingWallColorArgb": -16776961,
+                "NonLoadBearingWallColorArgb": -65281,
+                "WindowColorArgb": -7876870,
+                "DoorColorArgb": -744352,
+                "BeamColorArgb": -16711681,
+                "JoistColorArgb": -14513374,
+                "RimboardColorArgb": -4684277,
+                "BlockingColorArgb": -7650029,
+                "HangerColorArgb": -16744448,
+                "LintelColorArgb": -744352,
+                "TextNoteColorArgb": -16777216,
+                "LineColorArgb": -16777216,
+                "OpeningTagColorArgb": -16777216,
+                "PlanLabelSizeMm": 500,
+                "OpeningTagSizeMm": 500,
+                "TextNoteSizeMm": 500,
+                "MeasureInfoSizeMm": 500,
+                "FrameSizingWallType": "90",
+                "LoadBearingFrameSizing": {
+                    "ExternalBottomPlateLength": "35",
+                    "ExternalBottomPlateWidth": "90",
+                    "ExternalRibbonPlateLength": "35",
+                    "ExternalRibbonPlateWidth": "90",
+                    "ExternalTopPlateLength": "35",
+                    "ExternalTopPlateWidth": "90",
+                    "ExternalStudLength": "35",
+                    "ExternalStudWidth": "90",
+                    "ExternalNogLength": "35",
+                    "ExternalNogWidth": "90",
+                    "InternalBottomPlateLength": "35",
+                    "InternalBottomPlateWidth": "90",
+                    "InternalTopPlateLength": "35",
+                    "InternalTopPlateWidth": "90",
+                    "InternalStudLength": "35",
+                    "InternalStudWidth": "90",
+                    "InternalNogLength": "35",
+                    "InternalNogWidth": "90"
+                },
+                "NonLoadBearingFrameSizing": {
+                    "ExternalBottomPlateLength": "35",
+                    "ExternalBottomPlateWidth": "90",
+                    "ExternalRibbonPlateLength": "35",
+                    "ExternalRibbonPlateWidth": "90",
+                    "ExternalTopPlateLength": "35",
+                    "ExternalTopPlateWidth": "90",
+                    "ExternalStudLength": "35",
+                    "ExternalStudWidth": "90",
+                    "ExternalNogLength": "35",
+                    "ExternalNogWidth": "90",
+                    "InternalBottomPlateLength": "35",
+                    "InternalBottomPlateWidth": "90",
+                    "InternalTopPlateLength": "35",
+                    "InternalTopPlateWidth": "90",
+                    "InternalStudLength": "35",
+                    "InternalStudWidth": "90",
+                    "InternalNogLength": "35",
+                    "InternalNogWidth": "90"
+                }
+            }
+        }
+        
+        ezplan_content = json.dumps(ezplan_doc, indent=2)
+        ezplan_path = os.path.join(dirs["js"], f"{clean_name}.ezplan")
+        with open(ezplan_path, "w", encoding="utf-8") as f:
+            f.write(ezplan_content)
 
-if (typeof module !== 'undefined' && module.exports) {{
-  module.exports = labelData;
-}}
-"""
-        js_path = os.path.join(dirs["js"], f"{clean_name}.js")
-        with open(js_path, "w", encoding="utf-8") as f:
-            f.write(js_content)
 
         # ── 4. Generate YOLO .txt label → labels/ ──
         class_id_map = {"ext": 0, "int": 1, "part": 2}
@@ -1906,8 +2082,8 @@ if (typeof module !== 'undefined' && module.exports) {{
             "status": "ok",
             "message": f"Exported to {export_dir}",
             "export_dir": export_dir,
-            "js_file": js_path,
-            "js_content": js_content,
+            "ezplan_file": ezplan_path,
+            "ezplan_content": ezplan_content,
             "label_count": len(yolo_lines)
         }
     except Exception as e:

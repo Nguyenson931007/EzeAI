@@ -473,12 +473,39 @@ export function useDocumentController({
         else if (w.class_name === "partition_wall") wallType = "part";
 
         const centerline = w.centerline || [];
+        const scaleMult = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 1.0;
+        const heightMm = (imgSize?.h || 0) * scaleMult;
+        const centerline_mm = centerline.map(pt => {
+          const x = Array.isArray(pt) ? pt[0] : (pt?.x ?? 0);
+          const y = Array.isArray(pt) ? pt[1] : (pt?.y ?? 0);
+          return [x * scaleMult, heightMm - (y * scaleMult)];
+        });
+
+        let lengthMm = 0;
+        if (centerline.length === 2) {
+          const dx = centerline[1][0] - centerline[0][0];
+          const dy = centerline[1][1] - centerline[0][1];
+          const lengthPx = Math.hypot(dx, dy);
+          lengthMm = (realScale && realScale > 0 && realScale !== 1.0) ? Math.round(lengthPx * realScale) : 0;
+        }
+
+        let thicknessMm = w.thickness;
+        if (!thicknessMm && w.thickness_px) {
+          thicknessMm = (realScale && realScale > 0 && realScale !== 1.0)
+            ? Math.round(w.thickness_px * realScale)
+            : 90;
+        }
+
         return {
           id: w.id,
           wall_type: wallType,
           class_name: w.class_name,
           centerline: centerline,
-          thickness: w.thickness_px || w.thickness || 90,
+          centerline_mm: centerline_mm,
+          thickness: thicknessMm || 90,
+          thickness_mm: thicknessMm || 90,
+          length: lengthMm,
+          length_mm: lengthMm,
           height: w.height_mm || w.height || 2700,
           level: currentPage,
           level_name: `LEVEL_${String(currentPage + 1).padStart(2, '0')}`
@@ -505,19 +532,19 @@ export function useDocumentController({
 
       const resData = await res.json();
 
-      if (resData && resData.js_content) {
-        const blob = new Blob([resData.js_content], { type: "application/javascript" });
+      if (resData && resData.ezplan_content) {
+        const blob = new Blob([resData.ezplan_content], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${exportName}.js`;
+        a.download = `${exportName}.ezplan`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }
 
-      alert(`Xuất dữ liệu JS thành công!\n- Đã tự động tải về tệp: ${exportName}.js\n- Thư mục server: ${resData.export_dir}`);
+      alert(`Xuất dữ liệu EZPlan thành công!\n- Đã tự động tải về tệp: ${exportName}.ezplan\n- Thư mục server: ${resData.export_dir}`);
     } catch (err) {
       console.error("Export labels error:", err);
       alert(`Failed to export labels: ${err.message}`);
