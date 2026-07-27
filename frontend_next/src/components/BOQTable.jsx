@@ -303,7 +303,7 @@ export default function BOQTable({
 
     return Object.values(grouped);
   }, [pages, scaleValue, doorCountByRoom, selectedPageIndex]);
-  const [viewMode, setViewMode] = useState("detail");
+  const [viewMode, setViewMode] = useState("flooring_decking");
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -823,6 +823,822 @@ export default function BOQTable({
     );
   }
 
+  function JobStartupFormView() {
+    const [client, setClient] = useState("Bunnings Trade Tasmania State");
+    const [builderName, setBuilderName] = useState("");
+    const [builderAccNo, setBuilderAccNo] = useState("");
+    const [address, setAddress] = useState("");
+    const [jobNumber, setJobNumber] = useState("");
+    const [dateVal, setDateVal] = useState("7/24/2026");
+    const [accountManager, setAccountManager] = useState("");
+    const [generalNote, setGeneralNote] = useState("");
+
+    const [versionList, setVersionList] = useState([
+      "Ver 1.1 (26/03/25)",
+      "Ver 1.2 (26/03/25)",
+      "Ver 1.3 (21.5.25) update Plumbing",
+      " (21.7.25) update Secura flooring",
+      "Ver 1.4 update Final Fit (24.02.26)",
+      "17/06/2026 update INSU R2.5 PK12",
+      "08/07/26 update cover m2 INSU R2.5"
+    ]);
+    const [newVerText, setNewVerText] = useState("");
+
+    const defaultPresetNotes = [
+      "Aluminium Frame Glazed Door (tên cửa) by Others.",
+      "All doors are subject to a door schedule, prior to ordering.",
+      "We supplied 137x23mm Modwood Deking, please check and confirm.",
+      "Joinery Door & Joinery Shelving by Others.",
+      "No Floor Coverings in this job (all slabs).",
+      "No timber decking.",
+      "Timber decking by Others.",
+      "We supplied 2040h for all internal doors, please check & confirm.",
+      "Unit 1 and Unit 2 are the same. Multiply this by 2 to cover 2 Units.",
+      "All window is Square Set (No Architrave)",
+      "No architrave required to external doors & windows (detail show square set), please check and confirm.",
+      "This plan already has a completed final fit take off with the door furniture, please use this for your pricing of the door furniture.",
+      "No engineer or bracing plan provided, please check.",
+      "Please check color layout and quantities prior to ordering.",
+      "Please check color layout eaves/soffits, cladding and quantities prior to ordering.",
+      "We supplied R3.5 for ceiling insulation in this job, please check.",
+      "No timber posts in this job.",
+      "No FC Soffits in this stage, please check.",
+      "CSR Products are to be sent to CSR Directly as per the Bunnings agreement. Ezequote will proceed with other request except the CSR cladding.",
+      "No Information detailed plumbing plan, please check again.",
+      "No Roof batten over Purlin.",
+      "We supplied Lockup, Fixout & Final Fit as per the client’s email, please check.",
+      "Joinery Robe supplied by Others.",
+      "We don't supply timber post under joist deck, please check and confirm."
+    ];
+
+    const [selectedNotes, setSelectedNotes] = useState({
+      0: true, 1: true, 2: true, 7: true, 9: true, 13: true, 14: true, 21: true
+    });
+
+    const toggleNote = (idx) => {
+      setSelectedNotes(prev => ({ ...prev, [idx]: !prev[idx] }));
+    };
+
+    const addVersionLog = () => {
+      if (newVerText.trim()) {
+        setVersionList(prev => [...prev, newVerText.trim()]);
+        setNewVerText("");
+      }
+    };
+
+    return (
+      <div style={{ background: "#ffffff", padding: "24px", borderRadius: "12px", border: "1px solid #cbd5e1", boxShadow: "0 4px 20px rgba(0,0,0,0.05)", marginBottom: "30px" }}>
+        {/* Header matching Image 1 */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "2px solid #000000", paddingBottom: "12px" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: "24px", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px" }}>Job Information</h2>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "24px", fontWeight: 900, color: "#1e3a8a", fontFamily: "sans-serif" }}>
+              eze<span style={{ color: "#0284c7" }}>qu</span><span style={{ color: "#0ea5e9" }}>te</span>
+            </span>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "1px" }}>
+              YOUR ADVANTAGE
+            </span>
+          </div>
+        </div>
+
+        {/* Excel-Style Job Information Form Table */}
+        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "24px", border: "2px solid #000000" }}>
+          <tbody>
+            <tr>
+              <td style={{ width: "220px", fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Client</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={client}
+                  onChange={e => setClient(e.target.value)}
+                  style={{ width: "100%", border: "none", outline: "none", fontWeight: 700, fontSize: "14px", color: "#0f172a" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Builder's Name</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={builderName}
+                  onChange={e => setBuilderName(e.target.value)}
+                  placeholder="Enter Builder's Name..."
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Builder's Account Number</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={builderAccNo}
+                  onChange={e => setBuilderAccNo(e.target.value)}
+                  placeholder="Enter Account Number..."
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Address</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={e => setAddress(e.target.value)}
+                  placeholder="Enter Job Site Address..."
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Job Number</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={jobNumber}
+                  onChange={e => setJobNumber(e.target.value)}
+                  placeholder="Enter Job Number..."
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Date</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={dateVal}
+                  onChange={e => setDateVal(e.target.value)}
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px" }}>Account Manager</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <input
+                  type="text"
+                  value={accountManager}
+                  onChange={e => setAccountManager(e.target.value)}
+                  placeholder="Enter Account Manager Name..."
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px" }}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700, padding: "10px 14px", border: "1px solid #000000", background: "#f8fafc", fontSize: "14px", verticalAlign: "top" }}>Note:</td>
+              <td style={{ padding: "6px 12px", border: "1px solid #000000" }}>
+                <textarea
+                  rows={2}
+                  value={generalNote}
+                  onChange={e => setGeneralNote(e.target.value)}
+                  placeholder="Additional job notes..."
+                  style={{ width: "100%", border: "none", outline: "none", fontSize: "14px", resize: "vertical", fontFamily: "sans-serif" }}
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Version History Section */}
+        <div style={{ marginBottom: "24px", padding: "16px 20px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>📌</span>
+            <span>Client & Version History Updates</span>
+          </h3>
+          <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: "10px", fontSize: "14px" }}>
+            The client: <span style={{ color: "#2563eb", background: "#eff6ff", padding: "2px 8px", borderRadius: "4px" }}>{client}</span>
+          </div>
+          <ul style={{ margin: 0, paddingLeft: "20px", color: "#334155", fontSize: "13.5px", lineHeight: "1.9" }}>
+            {versionList.map((ver, i) => (
+              <li key={i} style={{ fontFamily: "monospace", fontSize: "13.5px", fontWeight: 600 }}>{ver}</li>
+            ))}
+          </ul>
+          <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
+            <input
+              type="text"
+              value={newVerText}
+              onChange={e => setNewVerText(e.target.value)}
+              placeholder="Add new version update (e.g. Ver 1.5 update cladding)..."
+              style={{ flex: 1, padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+            />
+            <button
+              onClick={addVersionLog}
+              style={{ padding: "8px 16px", background: "#0284c7", color: "#fff", border: "none", borderRadius: "6px", fontWeight: 700, cursor: "pointer" }}
+            >
+              + Add Version
+            </button>
+          </div>
+        </div>
+
+        {/* NOTES Checklist & Picker Section */}
+        <div style={{ padding: "20px", background: "#fff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>📝</span>
+            <span>Standard Project NOTES Checklist</span>
+          </h3>
+          <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
+            Select all relevant specification notes to include in the official job takeoff report:
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "8px" }}>
+            {defaultPresetNotes.map((noteText, idx) => {
+              const isChecked = !!selectedNotes[idx];
+              return (
+                <label
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                    padding: "9px 12px",
+                    borderRadius: "6px",
+                    background: isChecked ? "#f0f9ff" : "#f8fafc",
+                    border: isChecked ? "1px solid #7dd3fc" : "1px solid #e2e8f0",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleNote(idx)}
+                    style={{ marginTop: "3px", width: "16px", height: "16px", cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: "13.5px", color: isChecked ? "#0369a1" : "#475569", fontWeight: isChecked ? 600 : 400, lineHeight: "1.4" }}>
+                    {noteText}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function FrameHardwareView({ walls, scaleValue }) {
+    const calculatedWallLm = useMemo(() => {
+      if (!walls || walls.length === 0) return 120;
+      let totalPx = 0;
+      walls.forEach(w => {
+        const c = w.centerline;
+        if (c && c.length >= 2) {
+          const dx = (c[1][0] || c[1].x || 0) - (c[0][0] || c[0].x || 0);
+          const dy = (c[1][1] || c[1].y || 0) - (c[0][0] || c[0].y || 0);
+          totalPx += Math.hypot(dx, dy);
+        }
+      });
+      return Math.round(totalPx * (scaleValue || 0.05));
+    }, [walls, scaleValue]);
+
+    const [wallsOnSlabLm, setWallsOnSlabLm] = useState(calculatedWallLm || 120);
+    const [upperFloor, setUpperFloor] = useState("No");
+    const [numberOfFloors, setNumberOfFloors] = useState(1);
+    const [jobNumber, setJobNumber] = useState("0");
+    const [jobAddress, setJobAddress] = useState("0");
+
+    useEffect(() => {
+      if (calculatedWallLm > 0) {
+        setWallsOnSlabLm(calculatedWallLm);
+      }
+    }, [calculatedWallLm]);
+
+    const isUpper = upperFloor === "Yes";
+    const strapQty = isUpper ? (numberOfFloors * 2) : 2;
+
+    const ankaScrewQty = Math.ceil(wallsOnSlabLm / 0.9);
+    const concreteNailsQty = Math.max(1, Math.ceil(wallsOnSlabLm / 50));
+    const trueboltsQty = Math.ceil(wallsOnSlabLm / 1.2);
+    const washerQty = Math.ceil(wallsOnSlabLm / 0.9);
+    const chemsetQty = Math.ceil(ankaScrewQty / 40);
+
+    const fullSlabItems = [
+      { name: "100x10 Anka Screw", qty: ankaScrewQty, unit: "each", code: "2260285" },
+      { name: "Concrete Nails 65x3.6 / 2kg", qty: concreteNailsQty, unit: "Box", code: "2360471" },
+      { name: "Truebolts 12mmx100mm", qty: trueboltsQty, unit: "each", code: "2260396" },
+      { name: "Washer Square Cyclone M10", qty: washerQty, unit: "each", code: "2442070" },
+      { name: "Chemset Tube 101 Injection (1 per 40 Anka Bolts)", qty: chemsetQty, unit: "each", code: "2260403" },
+      { name: "30x.8x30m Punched Strap Roll (10 Tensioners)", qty: strapQty, unit: "each", code: "0553627" }
+    ];
+
+    const upperFloorItems = [
+      { name: "30x.8x30m Punched Strap Roll (10 Tensioners)", qty: strapQty, unit: "each", code: "0553627" }
+    ];
+
+    const displayItems = isUpper ? upperFloorItems : fullSlabItems;
+
+    return (
+      <div style={{ background: "#ffffff", padding: "24px", borderRadius: "12px", border: "1px solid #cbd5e1", boxShadow: "0 4px 20px rgba(0,0,0,0.05)", marginBottom: "30px" }}>
+        
+        {/* Setup Banner Box matching Image 2 & Image 3 */}
+        <div style={{ background: "#fca5a5", padding: "16px 20px", borderRadius: "8px", border: "2px solid #ef4444", marginBottom: "24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <span style={{ fontWeight: 800, color: "#0f172a", fontSize: "14px", letterSpacing: "0.5px" }}>THIS IS SETUP FOR SLAB ONLY,</span>
+            <span style={{ fontWeight: 800, color: "#0f172a", fontSize: "15px" }}>at 900c</span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxWidth: "500px" }}>
+            {/* Walls On Slab Row */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <span style={{ minWidth: "140px", fontWeight: 700, color: "#0f172a", fontSize: "14px" }}>Walls On Slab</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 600, color: "#334155" }}>Lm</span>
+                <input
+                  type="number"
+                  value={wallsOnSlabLm}
+                  onChange={e => setWallsOnSlabLm(Number(e.target.value))}
+                  style={{ width: "90px", padding: "4px 8px", background: "#fef08a", border: "1px solid #eab308", fontWeight: 700, fontSize: "14px", textAlign: "right" }}
+                />
+              </div>
+            </div>
+
+            {/* Upper Floor Row */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <span style={{ minWidth: "140px", fontWeight: 700, color: "#0f172a", fontSize: "14px" }}>Upper Floor</span>
+              <select
+                value={upperFloor}
+                onChange={e => setUpperFloor(e.target.value)}
+                style={{ padding: "4px 16px", background: "#fef08a", border: "1px solid #eab308", fontWeight: 700, fontSize: "14px", cursor: "pointer" }}
+              >
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+
+            {/* Number of Floor Row (Shown when Upper Floor === "Yes") */}
+            {isUpper && (
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
+                <span style={{ minWidth: "140px", fontWeight: 700, color: "#0f172a", fontSize: "14px", paddingLeft: "16px" }}>Number of Floor</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={numberOfFloors}
+                  onChange={e => setNumberOfFloors(Math.max(1, Number(e.target.value)))}
+                  style={{ width: "60px", padding: "4px 8px", background: "#fef08a", border: "1px solid #eab308", fontWeight: 700, fontSize: "14px", textAlign: "center" }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Frame Hardware Table matching Image 1 */}
+        <div style={{ border: "2px solid #000000", padding: "16px", borderRadius: "4px" }}>
+          {/* Header block with Job info and Logo */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px solid #000000", paddingBottom: "12px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <span style={{ fontWeight: 700, fontSize: "13px", minWidth: "90px" }}>Job Number</span>
+                <input
+                  type="text"
+                  value={jobNumber}
+                  onChange={e => setJobNumber(e.target.value)}
+                  style={{ width: "100px", padding: "2px 6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <span style={{ fontWeight: 700, fontSize: "13px", minWidth: "90px" }}>Job Address</span>
+                <input
+                  type="text"
+                  value={jobAddress}
+                  onChange={e => setJobAddress(e.target.value)}
+                  style={{ width: "180px", padding: "2px 6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "24px", fontWeight: 900, color: "#1e3a8a", fontFamily: "sans-serif" }}>
+                eze<span style={{ color: "#0284c7" }}>qu</span><span style={{ color: "#0ea5e9" }}>te</span>
+              </span>
+              <span style={{ fontSize: "10px", fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>
+                YOUR ADVANTAGE
+              </span>
+            </div>
+          </div>
+
+          <h2 style={{ margin: "0 0 16px 0", fontSize: "28px", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px" }}>
+            Frame Hardware
+          </h2>
+
+          {/* Table matching Image 1 exact structure */}
+          <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000000" }}>
+            <tbody>
+              {displayItems.map((item, idx) => (
+                <tr key={idx} style={{ borderBottom: "1px solid #000000" }}>
+                  <td style={{ padding: "10px 16px", fontWeight: 600, fontSize: "14px", color: "#0f172a", width: "55%" }}>
+                    {item.name}
+                  </td>
+                  <td style={{ padding: "10px 16px", fontWeight: 700, fontSize: "14px", textAlign: "center", width: "15%", borderLeft: "1px solid #000000" }}>
+                    {item.qty}
+                  </td>
+                  <td style={{ padding: "10px 16px", fontWeight: 500, fontSize: "14px", textAlign: "center", width: "15%", borderLeft: "1px solid #000000" }}>
+                    {item.unit}
+                  </td>
+                  <td style={{ padding: "10px 16px", fontWeight: 600, fontSize: "14px", textAlign: "center", width: "15%", borderLeft: "1px solid #000000", fontFamily: "monospace" }}>
+                    {item.code}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    );
+  }
+
+  function EavesSoffitsView() {
+    const [thick, setThick] = useState("4.5");
+    const [inputs, setInputs] = useState({
+      eaves450: 0, eaves600: 0, eaves900: 0,
+      single1800: 0, single2400: 0, single2700: 0, single3000: 0,
+      double3600: 0, double4800: 0, double5400: 0, double6000: 0,
+      multi1800: 0, multi2400: 0, multi2700: 0, multi3000: 0,
+      extraBattens: 0, extraBead: 0, metalBattens: 0
+    });
+    const [jobNum, setJobNum] = useState("0");
+    const [jobAddr, setJobAddr] = useState("0");
+
+    const setVal = (key, val) => setInputs(p => ({ ...p, [key]: Number(val) || 0 }));
+
+    const s450 = Math.ceil(inputs.eaves450 / 2.4);
+    const s600 = Math.ceil(inputs.eaves600 / 2.4);
+    const s900 = Math.ceil(inputs.eaves900 / 2.4);
+    const soff18 = Math.ceil((inputs.single1800 / 1.2) + (inputs.multi1800 / 1.8));
+    const soff24 = Math.ceil((inputs.single2400 / 1.2) + (inputs.multi2400 / 2.4));
+    const soff27 = Math.ceil((inputs.single2700 / 1.2) + (inputs.multi2700 / 2.7));
+    const soff30 = Math.ceil((inputs.single3000 / 1.2) + (inputs.multi3000 / 3.0));
+
+    const totalEavesLm = inputs.eaves450 + inputs.eaves600 + inputs.eaves900;
+    const totalSoffitLm = inputs.single1800 + inputs.single2400 + inputs.single2700 + inputs.single3000;
+    const pineBattenLen = Math.ceil(inputs.extraBattens / 5.4);
+    const pvc2400 = Math.ceil(totalEavesLm / 2.4);
+    const pvc3000 = Math.ceil(totalSoffitLm / 3.0);
+    const beadLen = Math.ceil(inputs.extraBead / 5.4);
+    const totalSheets = s450 + s600 + s900 + soff18 + soff24 + soff27 + soff30;
+    const fcNailBox = Math.max(totalSheets > 0 ? 1 : 0, Math.ceil(totalSheets / 25));
+
+    const materialsOutput = [
+      { code: "8032415", name: "90x35 Merch Pine Batten @5.4m Lengths", qty: pineBattenLen, unit: "Length" },
+      { code: "0714491", name: `2400x450mm x${thick}mm Eaves Sheets`, qty: s450, unit: "Sheets" },
+      { code: "0714506", name: `2400x600mm x${thick}mm Eaves Sheets`, qty: s600, unit: "Sheets" },
+      { code: "0711249", name: `2400x900mm x${thick}mm Eaves Sheets`, qty: s900, unit: "Sheets" },
+      { code: "0711370", name: `1800x1200mm x ${thick}mm Soffit Sheets`, qty: soff18, unit: "Sheets" },
+      { code: "0711396", name: `2400x1200mm x ${thick}mm Soffit Sheets`, qty: soff24, unit: "Sheets" },
+      { code: "0711401", name: `2700x1200mm x ${thick}mm Soffit Sheets`, qty: soff27, unit: "Sheets" },
+      { code: "0711419", name: `3000x1200mm x ${thick}mm Soffit Sheets`, qty: soff30, unit: "Sheets" },
+      { code: "1100631", name: `2400mm x${thick}mm PVC Joiner Strips`, qty: pvc2400, unit: "Lengths" },
+      { code: "1100632", name: `3000mm x${thick}mm PVC Joiner Strips`, qty: pvc3000, unit: "Lengths" },
+      { code: "0052832", name: "18x18 Pre Primed H3 Treated Eaves Bead / DAR - 5400mm", qty: beadLen, unit: "Lengths" },
+      { code: "2360508", name: "40x2.8 Fibre Cement Eaves Nail / 2Kg (qtys 900)", qty: fcNailBox, unit: "Box" }
+    ];
+
+    const inputStyle = { width: "80px", padding: "4px", background: "#fef08a", border: "1px solid #eab308", fontWeight: "700", textAlign: "center" };
+    const labelStyle = { padding: "6px 10px", fontWeight: "600", fontSize: "13px" };
+    const bannerStyle = (bg = "#86efac", color = "#166534") => ({ background: bg, color, padding: "4px 8px", fontWeight: "700", fontSize: "13px" });
+
+    return (
+      <div style={{ background: "#ffffff", padding: "20px", borderRadius: "12px", border: "1px solid #cbd5e1", marginBottom: "30px" }}>
+        
+        {/* INPUT PANEL (Image 1 & Image 3) */}
+        <div style={{ border: "2px solid #e2e8f0", padding: "16px", borderRadius: "8px", marginBottom: "24px", background: "#fafafa" }}>
+          <h3 style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: "800", color: "#0f172a" }}>
+            ✏️ Eaves & Soffit Dimensions Entry (Image 1 & 3 Input Setup)
+          </h3>
+
+          {/* Section 0: Eaves Thick Size */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", padding: "8px", background: "#fef08a", borderRadius: "6px" }}>
+            <span style={{ fontWeight: "800", color: "#991b1b" }}>Eaves Thick Size:</span>
+            <input type="text" value={thick} onChange={e => setThick(e.target.value)} style={{ ...inputStyle, width: "60px" }} />
+            <span style={{ fontWeight: "700" }}>mm</span>
+            <span style={{ marginLeft: "auto", fontWeight: "700", color: "#854d0e" }}>Choose Soffit and eaves thick in here</span>
+          </div>
+
+          {/* Grid Layout for Working Input Sections */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            
+            {/* Standard Eaves working out */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", background: "#fff", padding: "10px" }}>
+              <div style={bannerStyle("#fef08a", "#854d0e")}>Standard Eaves Working out (x2.4)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
+                {[["450mm Eaves working out", "eaves450"], ["600mm Eaves working out", "eaves600"], ["900mm Eaves working out", "eaves900"]].map(([lbl, k]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={labelStyle}>{lbl}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>Total Lm</span>
+                      <input type="number" value={inputs[k] || ""} onChange={e => setVal(k, e.target.value)} style={inputStyle} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Single Sheet Working */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", background: "#fff", padding: "10px" }}>
+              <div style={bannerStyle("#bbf7d0", "#166534")}>If use Single sheet, please type in here (x1.2)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
+                {[["1800x1200mm Soffit", "single1800"], ["2400x1200mm Soffit", "single2400"], ["2700x1200mm Soffit", "single2700"], ["3000x1200mm Soffit", "single3000"]].map(([lbl, k]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={labelStyle}>{lbl}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>Total Lm</span>
+                      <input type="number" value={inputs[k] || ""} onChange={e => setVal(k, e.target.value)} style={inputStyle} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Double Sheet Working */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", background: "#fff", padding: "10px" }}>
+              <div style={bannerStyle("#bbf7d0", "#166534")}>If use Double sheet, please type in here (x0.6)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
+                {[["3600x1200mm Double Soffit", "double3600"], ["4800x1200mm Double Soffit", "double4800"], ["5400x1200mm Double Soffit", "double5400"], ["6000x1200mm Double Soffit", "double6000"]].map(([lbl, k]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={labelStyle}>{lbl}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>Total Lm</span>
+                      <input type="number" value={inputs[k] || ""} onChange={e => setVal(k, e.target.value)} style={inputStyle} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Multi Sheet Working (Image 3) */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", background: "#fff", padding: "10px" }}>
+              <div style={bannerStyle("#bbf7d0", "#166534")}>If use multi sheet please type in here</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
+                {[["1800x1200mm Multi Soffit (1.8)", "multi1800"], ["2400x1200mm Multi Soffit (2.4)", "multi2400"], ["2700x1200mm Multi Soffit (2.7)", "multi2700"], ["3000x1200mm Multi Soffit (3.0)", "multi3000"]].map(([lbl, k]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={labelStyle}>{lbl}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>Total Lm</span>
+                      <input type="number" value={inputs[k] || ""} onChange={e => setVal(k, e.target.value)} style={inputStyle} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Extras Section */}
+          <div style={{ marginTop: "14px", padding: "10px", background: "#fff", borderRadius: "6px", border: "1px solid #cbd5e1", display: "flex", gap: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={labelStyle}>Extra Eaves Battens</span>
+              <input type="number" value={inputs.extraBattens || ""} onChange={e => setVal("extraBattens", e.target.value)} style={inputStyle} />
+              <span style={{ fontSize: "12px", fontWeight: "700" }}>Lm</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={labelStyle}>Extra Eaves Bead</span>
+              <input type="number" value={inputs.extraBead || ""} onChange={e => setVal("extraBead", e.target.value)} style={inputStyle} />
+              <span style={{ fontSize: "12px", fontWeight: "700" }}>Lm</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={labelStyle}>Metal Ceiling Battens @450c</span>
+              <input type="number" value={inputs.metalBattens || ""} onChange={e => setVal("metalBattens", e.target.value)} style={inputStyle} />
+              <span style={{ fontSize: "12px", fontWeight: "700" }}>M2</span>
+            </div>
+          </div>
+        </div>
+
+        {/* OUTPUT MATERIALS TAKEOFF TABLE (Image 2) */}
+        <div style={{ border: "2px solid #000000", padding: "16px", borderRadius: "4px", background: "#fff" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px solid #000000", paddingBottom: "12px" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                <span style={{ fontWeight: "700", fontSize: "13px" }}>Job Number</span>
+                <input type="text" value={jobNum} onChange={e => setJobNum(e.target.value)} style={{ width: "80px", border: "1px solid #cbd5e1", padding: "2px 4px" }} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontWeight: "700", fontSize: "13px" }}>Job Address</span>
+                <input type="text" value={jobAddr} onChange={e => setJobAddr(e.target.value)} style={{ width: "160px", border: "1px solid #cbd5e1", padding: "2px 4px" }} />
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <span style={{ fontSize: "22px", fontWeight: "900", color: "#1e3a8a" }}>eze<span style={{ color: "#0284c7" }}>qu</span><span style={{ color: "#0ea5e9" }}>te</span></span>
+              <div style={{ fontSize: "10px", fontWeight: "700", color: "#475569" }}>YOUR ADVANTAGE</div>
+            </div>
+          </div>
+
+          <h2 style={{ margin: "0 0 16px 0", fontSize: "24px", fontWeight: "800", color: "#0f172a" }}>
+            Eaves & Soffit Materials
+          </h2>
+
+          <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000000" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #000000", background: "#f8fafc" }}>
+                <th style={{ padding: "8px 12px", textAlign: "left", width: "12%", borderRight: "1px solid #000000" }}>Code</th>
+                <th style={{ padding: "8px 12px", textAlign: "left", width: "58%", borderRight: "1px solid #000000" }}>Material Name / Description</th>
+                <th style={{ padding: "8px 12px", textAlign: "center", width: "15%", borderRight: "1px solid #000000" }}>QTY</th>
+                <th style={{ padding: "8px 12px", textAlign: "center", width: "15%" }}>Unit / Length</th>
+              </tr>
+            </thead>
+            <tbody>
+              {materialsOutput.map((row, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid #000000" }}>
+                  <td style={{ padding: "8px 12px", fontFamily: "monospace", fontWeight: "700", borderRight: "1px solid #000000" }}>{row.code}</td>
+                  <td style={{ padding: "8px 12px", fontWeight: "600", color: "#0f172a", borderRight: "1px solid #000000" }}>{row.name}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: "800", color: "#16a34a", fontSize: "15px", borderRight: "1px solid #000000" }}>{row.qty}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: "600", color: "#475569" }}>{row.unit}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    );
+  }
+
+  function TradeCategoryView({ viewMode }) {
+    const tradeConfigs = {
+      job_startup: {
+        title: "Job Startup Page & Project Overview",
+        icon: "📋",
+        items: [
+          { code: "ST-001", name: "Site Setup & Safety Signage", qty: 1, unit: "item", status: "Ready", notes: "Includes boundary fencing & site office setup" },
+          { code: "ST-002", name: "Temporary Power & Water Connection", qty: 1, unit: "lot", status: "Ready", notes: "Temporary builder supply meter & tap" },
+          { code: "ST-003", name: "Building Permit & Soil Test Verification", qty: 1, unit: "doc", status: "Verified", notes: "Class 1a residential dwelling permit approved" },
+          { code: "ST-004", name: "Engineering & Architectural Plan Alignment", qty: 1, unit: "set", status: "Verified", notes: "Scale & wall dimensions verified" },
+          { code: "ST-005", name: "Waste Management & Bin Hire", qty: 2, unit: "bins", status: "Scheduled", notes: "12m³ heavy construction skip bins" }
+        ]
+      },
+      flooring_decking: {
+        title: "Flooring & Decking Takeoff",
+        icon: "🪵",
+        items: summaryData.map((s, idx) => ({
+          code: s.id || `FL-${idx + 100}`,
+          name: s.name,
+          qty: s.finalQty || s.area || 1,
+          unit: s.unit || "unit",
+          status: "Calculated",
+          notes: s.name.includes("Yellow") ? "Sheet floor to dry areas" : s.name.includes("Scyon") ? "Wet area substrate" : "Decking substrate"
+        }))
+      },
+      frame_hardware: {
+        title: "Frame Hardware & Fasteners",
+        icon: "🔩",
+        items: [
+          { code: "FH-101", name: "M12 x 150mm Masonry Anchors / Hold-Down Bolts", qty: Math.ceil(totalAll * 0.4), unit: "pcs", status: "Estimated", notes: "Bottom plate anchoring @ 900mm CTRS" },
+          { code: "FH-102", name: "Framing Nails 75x3.06mm Bright (Box of 3000)", qty: Math.ceil(totalAll / 35), unit: "boxes", status: "Estimated", notes: "Pneumatic framing gun nails" },
+          { code: "FH-103", name: "Framing Nails 90x3.15mm Galvanized (Box of 3000)", qty: Math.ceil(totalAll / 40), unit: "boxes", status: "Estimated", notes: "Exterior framing & treated timber" },
+          { code: "FH-104", name: "Triple Grip Roof Truss Tie Downs (Left & Right)", qty: Math.ceil(totalAll * 0.5), unit: "pairs", status: "Estimated", notes: "Top plate to truss connection" },
+          { code: "FH-105", name: "Speedbrace Tensioners & Galvanized Strapping", qty: 8, unit: "rolls", status: "Estimated", notes: "50m x 0.8mm wall brace strapping" }
+        ]
+      },
+      cladding: {
+        title: "Cladding & Weatherboard Materials",
+        icon: "🧱",
+        items: [
+          { code: "CL-201", name: "HardiePlank / Fiber Cement Weatherboard Cladding", qty: Math.ceil(totalAll * 0.85), unit: "m²", status: "Calculated", notes: "230mm smooth lap weatherboards" },
+          { code: "CL-202", name: "Vapour Permeable Wall Wrap / Sarking (50m Roll)", qty: Math.max(1, Math.ceil((totalAll * 0.85) / 60)), unit: "rolls", status: "Estimated", notes: "Breathable wall insulation membrane" },
+          { code: "CL-203", name: "Aluminium External Corner Stops / Trim", qty: Math.ceil(totalAll * 0.15), unit: "lm", status: "Calculated", notes: "External corner weather-proofing" },
+          { code: "CL-204", name: "Cladding Joint Sealant Parfix / Sikaflex", qty: Math.ceil(totalAll / 15), unit: "tubes", status: "Estimated", notes: "Polyurethane exterior sealant" }
+        ]
+      },
+      eaves_soffits: {
+        title: "Eaves & Soffits Linings",
+        icon: "🏠",
+        items: [
+          { code: "ES-301", name: "4.5mm HardieFlex Fiber Cement Eave Linings", qty: Math.ceil(totalAll * 0.18), unit: "m²", status: "Calculated", notes: "External eave soffit sheets" },
+          { code: "ES-302", name: "PVC Eave Joiners (4.5mm H-Mould)", qty: Math.ceil(totalAll * 0.08), unit: "lm", status: "Calculated", notes: "Soffit jointing strips" },
+          { code: "ES-303", name: "Eave Continuous Ventilation Grilles", qty: Math.ceil(totalAll * 0.05), unit: "lm", status: "Estimated", notes: "Roof space ventilation" }
+        ]
+      },
+      insulation: {
+        title: "Insulation & Acoustic Batts",
+        icon: "🧽",
+        items: [
+          { code: "IN-401", name: "R2.5 HD Wall Acoustic & Thermal Insulation Batts", qty: Math.ceil(totalAll * 0.8), unit: "m²", status: "Calculated", notes: "430mm stud spacing wall insulation" },
+          { code: "IN-402", name: "R4.0 High Performance Ceiling Insulation Batts", qty: Math.ceil(totalAll * 0.95), unit: "m²", status: "Calculated", notes: "Roof ceiling insulation coverage" },
+          { code: "IN-403", name: "Underfloor Foil & Foam Insulation Board", qty: Math.ceil(totalDry), unit: "m²", status: "Calculated", notes: "Underfloor thermal barrier" }
+        ]
+      },
+      opening: {
+        title: "Openings (Doors, Windows & Lintels)",
+        icon: "🚪",
+        items: [
+          { code: "OP-501", name: "Internal Timber Door Frames & Openings", qty: lockupData.length || 12, unit: "sets", status: "Detected", notes: "Pre-hung jamb & architrave openings" },
+          { code: "OP-502", name: "Aluminum Powdercoated Window Frames", qty: Math.max(6, Math.ceil(totalAll / 18)), unit: "units", status: "Estimated", notes: "Double glazed thermal windows" },
+          { code: "OP-503", name: "Galvanized Steel Window & Door Lintels", qty: Math.ceil((lockupData.length || 12) * 1.1), unit: "lm", status: "Calculated", notes: "Over-opening wall load lintels" }
+        ]
+      },
+      fixout: {
+        title: "Fixout Timber, Architraves & Skirtings",
+        icon: "🛠️",
+        items: [
+          { code: "FX-601", name: "67x18mm MDF Single Bevel Architrave", qty: Math.ceil(totalAll * 1.4), unit: "lm", status: "Calculated", notes: "Door & window internal trim" },
+          { code: "FX-602", name: "92x18mm MDF Single Bevel Skirting Board", qty: Math.ceil(totalDry * 1.8), unit: "lm", status: "Calculated", notes: "Perimeter floor skirting" },
+          { code: "FX-603", name: "Internal Door Jamb Sets (110x19mm MDF)", qty: lockupData.length || 12, unit: "sets", status: "Calculated", notes: "Standard 2040mm jamb height" },
+          { code: "FX-604", name: "Fixing Adhesive & Brad Nails (Finish Nails)", qty: 4, unit: "packs", status: "Estimated", notes: "Second-fix carpenter hardware" }
+        ]
+      },
+      reveal: {
+        title: "Window & Door Timber Reveals",
+        icon: "🖼️",
+        items: [
+          { code: "RV-701", name: "135x19mm Primed Pine Window Timber Reveals", qty: Math.ceil(totalAll * 0.45), unit: "lm", status: "Calculated", notes: "Internal window lining reveals" },
+          { code: "RV-702", name: "Aluminum Window Sub-Sill Flashing Liners", qty: Math.ceil(totalAll * 0.25), unit: "lm", status: "Calculated", notes: "Sub-sill water barrier" }
+        ]
+      },
+      final_fit: {
+        title: "Final Fit & Door Hardware Sets",
+        icon: "✨",
+        items: [
+          { code: "FF-801", name: "Lockwood Passage Lever Sets (Chrome Finish)", qty: Math.ceil((lockupData.length || 12) * 0.6), unit: "sets", status: "Calculated", notes: "Internal hallway & bedroom doors" },
+          { code: "FF-802", name: "Lockwood Privacy Lever Sets (Chrome Finish)", qty: Math.ceil((lockupData.length || 12) * 0.3), unit: "sets", status: "Calculated", notes: "Bathroom & WC doors" },
+          { code: "FF-803", name: "Lockwood External Entrance Lockset & Deadbolt", qty: 2, unit: "sets", status: "Calculated", notes: "Front & rear external doors" },
+          { code: "FF-804", name: "Cushioned Skirting Door Stops (White / Satin)", qty: lockupData.length || 12, unit: "pcs", status: "Calculated", notes: "Wall impact protection" }
+        ]
+      },
+      shelving: {
+        title: "Shelving, Robes & Storage Fittings",
+        icon: "🗄️",
+        items: [
+          { code: "SH-901", name: "16mm Melamine White Robe Shelving Board", qty: Math.ceil(totalDry * 0.25), unit: "lm", status: "Calculated", notes: "Bedroom wardrobe top shelves" },
+          { code: "SH-902", name: "Chrome Oval Hanging Rail 25mm + Flanges", qty: Math.ceil(totalDry * 0.2), unit: "lm", status: "Calculated", notes: "Wardrobe clothes hanging rail" },
+          { code: "SH-903", name: "Walk-in Pantry 4-Tier Melamine Shelving System", qty: 1, unit: "set", status: "Calculated", notes: "Pantry storage shelving" },
+          { code: "SH-904", name: "Linen Closet Slatted Timber Shelving", qty: Math.ceil(totalDry * 0.1), unit: "lm", status: "Calculated", notes: "Aired linen closet shelves" }
+        ]
+      },
+      fow_plumbing: {
+        title: "FOW Plumbing & Wet Area Waterproofing",
+        icon: "🚰",
+        items: [
+          { code: "PL-001", name: "Wet Area Polyurethane Waterproofing Membrane", qty: Math.ceil(totalWet * 1.3), unit: "m²", status: "Calculated", notes: "Shower walls & wet bathroom floors" },
+          { code: "PL-002", name: "PVC Floor Waste Droppers & P-Traps 100mm", qty: Math.max(3, Math.ceil(totalWet / 4)), unit: "pcs", status: "Calculated", notes: "Bathroom & laundry drainage" },
+          { code: "PL-003", name: "In-Wall Pipe Penetration Collars & Sealant", qty: Math.max(8, Math.ceil(totalWet * 1.5)), unit: "sets", status: "Calculated", notes: "Waterproofing pipe seals" }
+        ]
+      },
+      beams_posts: {
+        title: "Beams, Posts & Structural Steel",
+        icon: "🏗️",
+        items: [
+          { code: "BM-101", name: "240x45mm Laminated Veneer Lumber (LVL) Beams", qty: Math.ceil(totalAll * 0.15), unit: "lm", status: "Calculated", notes: "Internal wall opening lintels & structural beams" },
+          { code: "BM-102", name: "90x90x4.0mm Galvanized Steel Structural Posts", qty: 4, unit: "pcs", status: "Estimated", notes: "Carport & verandah roof posts" },
+          { code: "BM-103", name: "Post Base Stirrups & High-Tensile Bolts", qty: 4, unit: "sets", status: "Estimated", notes: "Concrete pad footings connection" }
+        ]
+      }
+    };
+
+    const config = tradeConfigs[viewMode];
+    if (!config) return null;
+
+    return (
+      <div style={{ marginBottom: 30 }}>
+        <h4 style={{ marginBottom: 12, color: "#1e293b", fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18 }}>{config.icon}</span>
+          <span>{config.title}</span>
+        </h4>
+        <table style={styles.summaryTable}>
+          <thead style={styles.summaryHead}>
+            <tr>
+              <th style={{ ...styles.th, textAlign: "center", width: 60 }}>#</th>
+              <th style={{ ...styles.th, textAlign: "center", width: 110 }}>Code</th>
+              <th style={{ ...styles.th, textAlign: "left" }}>Description / Material Name</th>
+              <th style={{ ...styles.th, textAlign: "center", width: 100 }}>Quantity</th>
+              <th style={{ ...styles.th, textAlign: "center", width: 90 }}>Unit</th>
+              <th style={{ ...styles.th, textAlign: "center", width: 110 }}>Status</th>
+              <th style={{ ...styles.th, textAlign: "left" }}>Notes & Specifications</th>
+            </tr>
+          </thead>
+          <tbody>
+            {config.items.map((item, idx) => (
+              <tr key={`${item.code}_${idx}`} style={styles.rowHover}>
+                <td style={{ ...styles.td, ...styles.tdCenter, fontWeight: 600 }}>{idx + 1}</td>
+                <td style={{ ...styles.td, ...styles.tdCenter, fontFamily: "monospace", color: "#2563eb", fontWeight: 700 }}>{item.code}</td>
+                <td style={{ ...styles.td, textAlign: "left", fontWeight: 600, color: "#0f172a" }}>{item.name}</td>
+                <td style={{ ...styles.td, ...styles.tdCenter, fontWeight: 700, color: "#16a34a", fontSize: 15 }}>{item.qty}</td>
+                <td style={{ ...styles.td, ...styles.tdCenter, textTransform: "lowercase", color: "#64748b" }}>{item.unit}</td>
+                <td style={{ ...styles.td, ...styles.tdCenter }}>
+                  <span style={{
+                    display: "inline-block",
+                    padding: "3px 8px",
+                    borderRadius: "12px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    background: item.status === "Ready" || item.status === "Verified" ? "#dcfce7" : "#e0f2fe",
+                    color: item.status === "Ready" || item.status === "Verified" ? "#15803d" : "#0369a1"
+                  }}>
+                    {item.status}
+                  </span>
+                </td>
+                <td style={{ ...styles.td, textAlign: "left", color: "#64748b", fontSize: 13 }}>{item.notes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   /* ================= CSV Export ================= */
 
   const exportCSV = () => {
@@ -1104,48 +1920,73 @@ export default function BOQTable({
         </button>
       </div>
 
-      <div style={styles.tabBar}>
-        <button
-          onClick={() => setViewMode("detail")}
-          style={{
-            ...styles.tabBtn,
-            background:
-              viewMode === "detail" ? "#111827" : "white",
-            color:
-              viewMode === "detail" ? "white" : "#111827",
-          }}
-        >
-          Floor List
-        </button>
-
-        <button
-          onClick={() => setViewMode("summary")}
-          style={{
-            ...styles.tabBtn,
-            background:
-              viewMode === "summary" ? "#111827" : "white",
-            color:
-              viewMode === "summary" ? "white" : "#111827",
-          }}
-        >
-          Area Summary
-        </button>
-        <button
-          onClick={() => setViewMode("Lock_up")}
-          style={{
-            ...styles.tabBtn,
-            background:
-              viewMode === "Lock_up" ? "#111827" : "white",
-            color:
-              viewMode === "Lock_up" ? "white" : "#111827",
-          }}
-        >
-          Lock_up
-        </button>
+      {/* BOQ Trade Navigation Tabs */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        overflowX: "auto",
+        padding: "10px 4px",
+        marginBottom: "20px",
+        borderBottom: "2px solid #f1f5f9",
+        whiteSpace: "nowrap",
+        WebkitOverflowScrolling: "touch"
+      }}>
+        {[
+          { id: "job_startup", label: "Job Startup Page", icon: "📋" },
+          { id: "flooring_decking", label: "Flooring & Decking", icon: "🪵" },
+          { id: "frame_hardware", label: "Frame Hardware", icon: "🔩" },
+          { id: "cladding", label: "Cladding", icon: "🧱" },
+          { id: "eaves_soffits", label: "Eaves & Soffits", icon: "🏠" },
+          { id: "insulation", label: "Insulation", icon: "🧽" },
+          { id: "opening", label: "Opening", icon: "🚪" },
+          { id: "Lock_up", label: "Lock Up", icon: "🔒" },
+          { id: "fixout", label: "Fixout", icon: "🛠️" },
+          { id: "reveal", label: "Reveal", icon: "🖼️" },
+          { id: "final_fit", label: "Final Fit", icon: "✨" },
+          { id: "shelving", label: "Shelving", icon: "🗄️" },
+          { id: "fow_plumbing", label: "FOW Plumbing", icon: "🚰" },
+          { id: "beams_posts", label: "Beams & Posts", icon: "🏗️" }
+        ].map(tab => {
+          const isActive = viewMode === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setViewMode(tab.id)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 14px",
+                fontSize: "13px",
+                fontWeight: isActive ? 700 : 500,
+                borderRadius: "8px",
+                border: isActive ? "1px solid #1e293b" : "1px solid #cbd5e1",
+                background: isActive ? "#1e293b" : "#ffffff",
+                color: isActive ? "#ffffff" : "#475569",
+                cursor: "pointer",
+                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                boxShadow: isActive ? "0 4px 12px rgba(15, 23, 42, 0.15)" : "none",
+                flexShrink: 0
+              }}
+            >
+              <span style={{ fontSize: "14px" }}>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
-      <br />
-      {viewMode === "detail" && (
+
+      {(viewMode === "flooring_decking") && (
         <>
+          <SummaryTable
+            title="Internal Area Summary"
+            data={summaryData.filter(r => (r.unit === "sheet" && r.id !== "0851523") || r.unit === "tube")}
+          />
+          <SummaryTable
+            title="External Deck Summary"
+            data={summaryData.filter(r => r.unit === "L/M" || r.id === "0851523")}
+          />
           <DetailTable
             title="Internal Floor Rooms"
             data={paginatedData.filter(r => r.zone !== "deck")}
@@ -1159,21 +2000,24 @@ export default function BOQTable({
         </>
       )}
 
-      {viewMode === "summary" && (
-        <>
-          <SummaryTable
-            title="Internal Area Summary"
-            data={summaryData.filter(r => (r.unit === "sheet" && r.id !== "0851523") || r.unit === "tube")}
-          />
-          <SummaryTable
-            title="External Deck Summary"
-            data={summaryData.filter(r => r.unit === "L/M" || r.id === "0851523")}
-          />
-        </>
+      {viewMode === "job_startup" && (
+        <JobStartupFormView />
+      )}
+
+      {viewMode === "frame_hardware" && (
+        <FrameHardwareView walls={pages.flatMap(p => p.walls || [])} scaleValue={scaleValue} />
+      )}
+
+      {viewMode === "eaves_soffits" && (
+        <EavesSoffitsView />
       )}
 
       {viewMode === "Lock_up" && (
         <LockUpTable data={lockupData} />
+      )}
+
+      {!["flooring_decking", "Lock_up", "job_startup", "frame_hardware", "eaves_soffits"].includes(viewMode) && (
+        <TradeCategoryView viewMode={viewMode} />
       )}
 
       <div style={styles.paginationWrapper}>
