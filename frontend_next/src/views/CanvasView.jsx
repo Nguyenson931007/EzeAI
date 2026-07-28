@@ -213,6 +213,8 @@ const RoomPolygonLayer = React.memo(({
                 if (setSelectedWallIds) setSelectedWallIds([]);
               }}
               onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
                 if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
                 if (handleRoomDoubleClick) {
@@ -290,7 +292,7 @@ const RoomHandlesLayer = React.memo(({
               className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
               onMouseDown={(e) => {
                 e.stopPropagation();
-                if (startDrag) startDrag(r.id, i);
+                if (startDrag) startDrag(r.id, i, 'room', false, displayPolygon);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();

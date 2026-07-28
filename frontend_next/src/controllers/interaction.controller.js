@@ -1487,25 +1487,50 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     }
   }
 
+  const lastDblClickRef = useRef(0);
+
+  /**
+   * handleRoomDoubleClick - Xử lý sự kiện Nhấp 2 Lần Chuột Trái (Double Left-Click)
+   * Chuyên trách giải quyết toán học tìm điểm nhúng gần nhất trên cạnh phòng và chèn đỉnh mới.
+   */
   function handleRoomDoubleClick(e, roomParam = null) {
+    // Chỉ chấp nhận Chuột Trái (Left Click)
+    if (e && e.button !== undefined && e.button !== 0) return;
+
+    const now = Date.now();
+    if (now - lastDblClickRef.current < 400) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      return;
+    }
+    lastDblClickRef.current = now;
+
     if (isSpaceDown || isDraggingPan || drawing || isMeasuring || isDistancing || isDrawingRoof || isDrawingDoor || interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
 
-    // Chỉ hoạt động khi lớp Sàn đang hiển thị và không phải thao tác trên Tường
+    // Chỉ hoạt động khi lớp Sàn (floor) đang hiển thị và không phải thao tác trên Tường
     if (layerVisibility?.floor === false || selectedType === "wall") return;
 
     const p = getMouse(e);
     const targetRoomId = roomParam ? roomParam.id : (selectedType === "room" ? selectedId : null);
 
-    // Tìm cạnh phòng tối ưu để chèn điểm bằng solver chung
-    const match = findBestRoomInsertionPoint(p, rooms, targetRoomId, ADD_POINT_SNAP_DISTANCE);
+    // Tìm cạnh phòng gần nhất để chèn điểm bằng solver chiếu vuông góc (Orthogonal projection)
+    const snapDist = targetRoomId ? 10000 : ADD_POINT_SNAP_DISTANCE;
+    const match = findBestRoomInsertionPoint(p, rooms, targetRoomId, snapDist);
     if (match) {
-      if (e.stopPropagation) e.stopPropagation();
+      if (e && e.stopPropagation) e.stopPropagation();
       const { room, insertIndex, snappedPoint } = match;
+
+      // Toán học nhúng điểm: Chèn điểm chiếu mới tại insertIndex + 1
       const newPoly = insertVertex(room.polygon, insertIndex, snappedPoint);
       const updatedRooms = rooms.map(r => r.id === room.id ? { ...r, polygon: newPoly } : r);
+
+      // Đồng bộ state và lịch sử Undo/Redo
+      setRoomsByPage(prev => ({ ...prev, [currentPage]: updatedRooms }));
       pushHistory(updatedRooms);
+
+      // Chọn phòng và kích hoạt trạng thái chọn đỉnh
       setSelectedId(room.id);
       setSelectedType("room");
+      if (typeof setSelectedPointIndex === "function") setSelectedPointIndex(insertIndex + 1);
       setIsAddingPoint(false);
       if (setInteractionMode) setInteractionMode("select");
     }
@@ -1732,7 +1757,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     return bestWall;
   }
 
-  function startDrag(id, index, type = 'room', isShiftSelect = false) {
+  function startDrag(id, index, type = 'room', isShiftSelect = false, customStartPoly = null) {
     if (doorController.showTypeSelector) return;
     if (type === 'wall-move') {
       const currentWalls = wallsByPage[currentPage] || [];
@@ -1900,10 +1925,24 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
     }
 
+    let roomStartPoly = null;
+    if (type === 'room' || !type) {
+      if (customStartPoly && Array.isArray(customStartPoly)) {
+        roomStartPoly = customStartPoly.map(pt => ({ ...pt }));
+      } else {
+        const currentRooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
+        const targetR = currentRooms.find(rr => rr.id === id);
+        if (targetR && targetR.polygon) {
+          roomStartPoly = targetR.polygon.map(pt => ({ ...pt }));
+        }
+      }
+    }
+
     setDragging({
       id,
       index,
       type,
+      startPoly: roomStartPoly,
       isShiftSelect: Boolean(isShiftSelect),
       connections,
       startPt,
@@ -2926,10 +2965,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         // Commit room vertex drag on mouse up (once per drag) and record history
         const pageRooms = roomsByPage[currentPage] || [];
         const targetRoom = pageRooms.find(r => r.id === dragging.id);
-        if (targetRoom && dragging.index != null && dragging.index >= 0 && dragging.index < targetRoom.polygon.length) {
+        const basePolygon = (dragging.startPoly && dragging.startPoly.length > dragging.index)
+          ? dragging.startPoly
+          : (targetRoom ? targetRoom.polygon : null);
+
+        if (targetRoom && basePolygon && dragging.index != null && dragging.index >= 0 && dragging.index < basePolygon.length) {
+          const updatedPolygon = basePolygon.map((pt, i) => i === dragging.index ? dragging.currentPos : pt);
           const updatedRooms = pageRooms.map(room =>
             room.id === dragging.id
-              ? { ...room, polygon: room.polygon.map((pt, i) => i === dragging.index ? dragging.currentPos : pt) }
+              ? { ...room, polygon: updatedPolygon }
               : room
           );
           setRoomsByPage(prev => ({ ...prev, [currentPage]: updatedRooms }));

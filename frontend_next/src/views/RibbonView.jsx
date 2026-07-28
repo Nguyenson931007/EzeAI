@@ -239,9 +239,9 @@ export default function RibbonView({
             {/* DRAW */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                {/* <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); if (doorController) doorController.setShowPenetrations(false); }}>
+                <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); if (doorController) doorController.setShowPenetrations(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
-                </button> */}
+                </button>
                 <button
                   className={`ribbon-btn ${interactionMode === "fill-room" ? "active" : ""}`}
                   onClick={() => {

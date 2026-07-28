@@ -371,8 +371,8 @@ export function overlapsWithAnyDoor(wall, doors) {
 }
 
 export function getBaseWallId(id) {
-  if (!id) return '';
-  return id.split('-A-')[0].split('-B-')[0].split('-C-')[0].split('-D-')[0].split('-door_')[0].split('-sub-')[0];
+  if (id == null || id === '') return '';
+  return String(id).split('-A-')[0].split('-B-')[0].split('-C-')[0].split('-D-')[0].split('-door_')[0].split('-sub-')[0];
 }
 
 export function restoreBaseWalls(walls) {
@@ -1160,15 +1160,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
     return { x: curX, y: curY };
   });
 
-  // Post-process pipeline:
-  // 1. Align near-orthogonal edges to 100% horizontal/vertical
-  const aligned = alignOrthogonalEdges(snappedPts, 15.0);
-  // 2. Remove step notches
-  const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
-  // 3. Clean INT<->EXT transition steps
-  const cleaned = cleanExtWallWrapping(simplified, segments, maxThick);
-  // 4. Remove all collinear T-junction vertices along straight walls (tolerance: 3.5px)
-  return simplifyCollinearVertices(cleaned, 3.5);
+  return snappedPts;
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {
