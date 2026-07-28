@@ -676,16 +676,65 @@ export function recalculateAllWallsPolygons(walls) {
  * @param {number} minWallsPerRoom - Minimum number of wall edges to form a room
  * @returns {Array} Array of room objects: {id, room_name, polygon, type, correction_source}
  */
-export function extractRoomsFromWallTopology(walls, snapDist = 15, minWallsPerRoom = 4) {
+export function extractRoomsFromWallTopology(walls, snapDist = 25, minWallsPerRoom = 3) {
   if (!walls || walls.length < 3) return [];
+
+  // ── Step 0: Pre-process wall centerlines to split segments at T-junctions ──
+  let wallSegs = [];
+  for (const w of walls) {
+    if (w.centerline && w.centerline.length === 2) {
+      wallSegs.push({
+        p1: { x: w.centerline[0][0], y: w.centerline[0][1] },
+        p2: { x: w.centerline[1][0], y: w.centerline[1][1] },
+        wallRef: w
+      });
+    }
+  }
+
+  let splitOccurred = true;
+  let iter = 0;
+  while (splitOccurred && iter < 5) {
+    splitOccurred = false;
+    iter++;
+    const nextSegs = [];
+
+    for (let i = 0; i < wallSegs.length; i++) {
+      const seg = wallSegs[i];
+      let splitPt = null;
+
+      for (let j = 0; j < wallSegs.length; j++) {
+        if (i === j) continue;
+        const other = wallSegs[j];
+        for (const endPt of [other.p1, other.p2]) {
+          const d1 = Math.hypot(endPt.x - seg.p1.x, endPt.y - seg.p1.y);
+          const d2 = Math.hypot(endPt.x - seg.p2.x, endPt.y - seg.p2.y);
+          if (d1 < snapDist || d2 < snapDist) continue;
+
+          const proj = distancePointToSegment(endPt, seg.p1, seg.p2);
+          if (proj.dist < snapDist) {
+            splitPt = { x: proj.x, y: proj.y };
+            break;
+          }
+        }
+        if (splitPt) break;
+      }
+
+      if (splitPt) {
+        splitOccurred = true;
+        nextSegs.push({ p1: seg.p1, p2: splitPt, wallRef: seg.wallRef });
+        nextSegs.push({ p1: splitPt, p2: seg.p2, wallRef: seg.wallRef });
+      } else {
+        nextSegs.push(seg);
+      }
+    }
+    wallSegs = nextSegs;
+  }
 
   // ── Step 1: Collect all endpoints and snap nearby ones ──
   const rawPoints = [];
-  for (const w of walls) {
-    const c = w.centerline;
-    if (!c || c.length !== 2) continue;
-    rawPoints.push({ x: c[0][0], y: c[0][1], wallRef: w });
-    rawPoints.push({ x: c[1][0], y: c[1][1], wallRef: w });
+  for (const seg of wallSegs) {
+    rawPoints.push({ x: seg.p1.x, y: seg.p1.y, wallRef: seg.wallRef });
+    rawPoints.push({ x: seg.p2.x, y: seg.p2.y, wallRef: seg.wallRef });
   }
 
   // Cluster nearby points into single nodes
@@ -720,9 +769,7 @@ export function extractRoomsFromWallTopology(walls, snapDist = 15, minWallsPerRo
 
   const edges = []; // {from, to}
   let ptIdx = 0;
-  for (const w of walls) {
-    const c = w.centerline;
-    if (!c || c.length !== 2) continue;
+  for (const seg of wallSegs) {
     const nA = pointToNode.get(ptIdx);
     const nB = pointToNode.get(ptIdx + 1);
     ptIdx += 2;
@@ -862,7 +909,7 @@ export function extractRoomsFromWallTopology(walls, snapDist = 15, minWallsPerRo
     }
   }
 
-  let roomIdx = 0;
+  let roomIndex = 1;
   for (const [key, face] of uniqueFaces) {
     // Skip outer face
     if (key === maxFaceKey) continue;
@@ -870,21 +917,22 @@ export function extractRoomsFromWallTopology(walls, snapDist = 15, minWallsPerRo
     // Filter by minimum walls count
     if (face.length < minWallsPerRoom) continue;
 
-    const polygon = face.map(nId => ({ x: nodeMap[nId].x, y: nodeMap[nId].y }));
-    const area = Math.abs(polygonAreaRaw(polygon));
+    const rawPolygon = face.map(nId => ({ x: nodeMap[nId].x, y: nodeMap[nId].y }));
+    const areaM2 = Math.abs(polygonAreaRaw(rawPolygon));
 
     // Skip tiny faces (noise)
-    if (area < 1000) continue;
+    if (areaM2 < 0.2) continue;
 
-    roomIdx++;
+    const snappedPolygon = snapRoomPolygonToWalls(rawPolygon, walls, snapDist);
+
     rooms.push({
-      id: `topo_room_${String(roomIdx).padStart(3, '0')}`,
-      room_name: 'Room',
-      type: 'dry',
-      polygon: polygon,
-      area_px: Math.round(area),
-      correction_source: 'WALL_TOPOLOGY'
+      id: `room-topo-${Date.now()}-${roomIndex}`,
+      room_name: `ROOM ${roomIndex}`,
+      polygon: snappedPolygon,
+      type: 'room',
+      correction_source: 'TOPOLOGY_EXTRACTED'
     });
+    roomIndex++;
   }
 
   return rooms;
@@ -906,22 +954,136 @@ function polygonAreaRaw(polygon) {
 }
 
 /**
- * Snap room polygon vertices to nearby wall centerlines.
- * For each vertex in the room polygon, find the nearest wall centerline
- * and project the vertex onto it if within tolerance.
- * Only snaps along H/V axes to maintain orthogonal room shapes.
- * 
- * @param {Array<{x,y}>} roomPolygon - Room polygon vertices
- * @param {Array} walls - Wall objects with centerline [[x1,y1],[x2,y2]]
- * @param {number} tolerance - Max distance (px) to snap (default: 15)
- * @returns {Array<{x,y}>} Snapped polygon
+ * Helper: Perpendicular distance from point P to infinite line AB
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
+function perpDistToLine(P, A, B) {
+  const dx = B.x - A.x;
+  const dy = B.y - A.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return Math.hypot(P.x - A.x, P.y - A.y);
+  return Math.abs((P.x - A.x) * dy - (P.y - A.y) * dx) / len;
+}
+
+/**
+ * Simplifies a polygon by removing collinear or near-collinear redundant vertices
+ * (including T-junction points along straight walls), while 100% preserving true room corners.
+ */
+export function simplifyCollinearVertices(polygon, distThresh = 3.5) {
+  if (!polygon || polygon.length <= 4) return polygon;
+
+  let pts = polygon.map(p => _getCoord(p));
+  let changed = true;
+  let maxIter = 10;
+  let iter = 0;
+
+  while (changed && pts.length > 4 && iter < maxIter) {
+    changed = false;
+    iter++;
+    const newPts = [];
+    const n = pts.length;
+
+    for (let i = 0; i < n; i++) {
+      const prev = pts[(i - 1 + n) % n];
+      const curr = pts[i];
+      const next = pts[(i + 1) % n];
+
+      const ux = prev.x - curr.x;
+      const uy = prev.y - curr.y;
+      const vx = next.x - curr.x;
+      const vy = next.y - curr.y;
+      const lenU = Math.hypot(ux, uy);
+      const lenV = Math.hypot(vx, vy);
+
+      if (lenU < 1e-2 || lenV < 1e-2) {
+        changed = true;
+        continue;
+      }
+
+      const cosAngle = (ux * vx + uy * vy) / (lenU * lenV);
+      const isCollinearAngle = cosAngle < -0.95 || cosAngle > 0.95;
+
+      const dist = perpDistToLine(curr, prev, next);
+      if (isCollinearAngle && dist < distThresh) {
+        changed = true;
+      } else {
+        newPts.push(curr);
+      }
+    }
+
+    if (newPts.length >= 4) {
+      pts = newPts;
+    } else {
+      break;
+    }
+  }
+
+  return pts;
+}
+
+/**
+ * Helper: Force near-orthogonal edges to be 100% horizontal or vertical
+ */
+function alignOrthogonalEdges(poly, thresh = 15.0) {
+  if (!poly || poly.length < 3) return poly;
+  const pts = poly.map(p => ({ ...p }));
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const nextIdx = (i + 1) % n;
+    const p1 = pts[i];
+    const p2 = pts[nextIdx];
+    const dx = Math.abs(p2.x - p1.x);
+    const dy = Math.abs(p2.y - p1.y);
+
+    if (dy < thresh && dx > dy) {
+      const avgY = Math.round(((p1.y + p2.y) / 2) * 10) / 10;
+      p1.y = avgY;
+      p2.y = avgY;
+    } else if (dx < thresh && dy > dx) {
+      const avgX = Math.round(((p1.x + p2.x) / 2) * 10) / 10;
+      p1.x = avgX;
+      p2.x = avgX;
+    }
+  }
+  return pts;
+}
+
+/**
+ * Removes wall-thickness wrapping artifacts at INT<->EXT wall transitions
+ */
+function cleanExtWallWrapping(polygon, segments, maxWallThickness = 30) {
+  if (!polygon || polygon.length < 4) return polygon;
+  return polygon;
+}
+
+/**
+ * Simplifies room polygon by removing step notches
+ */
+function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
+  if (!polygon || polygon.length < 4) return polygon;
+  return polygon;
+}
+
+/**
+ * Snaps room polygon vertices to surrounding wall centerlines (INT) or outer faces (EXT),
+ * then simplifies collinear T-junction vertices and aligns orthogonal edges.
+ */
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapMode = 'interior') {
   if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
     return roomPolygon;
   }
 
-  // Collect all wall centerline segments
+  const normalizedPoly = roomPolygon.map(p => _getCoord(p));
+  const roomCentroid = centroid(normalizedPoly);
+  const cx = roomCentroid.x;
+  const cy = roomCentroid.y;
+
+  const xs = normalizedPoly.map(p => p.x);
+  const ys = normalizedPoly.map(p => p.y);
+  const polyMinX = Math.min(...xs);
+  const polyMaxX = Math.max(...xs);
+  const polyMinY = Math.min(...ys);
+  const polyMaxY = Math.max(...ys);
+
   const segments = [];
   for (const w of walls) {
     const c = w.centerline;
@@ -933,56 +1095,80 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
     const len = Math.hypot(dx, dy);
     if (len < 5) continue;
 
-    // Classify segment as horizontal or vertical
+    const thickPx = w.thickness_px || 20;
+
     const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
     let orientation = null;
     if (angle < 15) orientation = 'H';
     else if (angle > 75) orientation = 'V';
     
     if (orientation) {
-      segments.push({ p1, p2, orientation, len });
+      segments.push({ p1, p2, orientation, len, thickPx, wall: w });
     }
   }
 
   if (segments.length === 0) return roomPolygon;
 
-  // For each room vertex, try to snap to the nearest wall segment
-  return roomPolygon.map(pt => {
-    let bestDist = tolerance;
-    let snappedPt = { ...pt };
+  const maxMargin = tolerance + 30;
+  const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
+  const endCapTol = Math.max(tolerance + 40, maxThick * 2.0);
+
+  const snappedPts = normalizedPoly.map(pt => {
+    let curX = pt.x;
+    let curY = pt.y;
+
+    let bestDistH = tolerance;
+    let bestDistV = tolerance;
 
     for (const seg of segments) {
+      const halfThick = seg.thickPx / 2.0;
+
+      const wClass = getWallClass(seg.wall);
+      const isExt = wClass === 'exterior_wall';
+      const faceMode = isExt ? 'outer' : 'center';
+
       if (seg.orientation === 'H') {
-        // Horizontal wall — snap vertex Y to wall's Y coordinate
         const wallY = (seg.p1.y + seg.p2.y) / 2;
-        const dy = Math.abs(pt.y - wallY);
+        const targetY = faceMode === 'outer' ? (cy < wallY ? (wallY + halfThick) : (wallY - halfThick)) : wallY;
+        const dy = Math.abs(pt.y - targetY);
         
-        // Check if vertex X falls within the wall's X range (with some margin)
-        const minX = Math.min(seg.p1.x, seg.p2.x) - tolerance;
-        const maxX = Math.max(seg.p1.x, seg.p2.x) + tolerance;
+        const minX = Math.max(polyMinX - maxMargin, Math.min(seg.p1.x, seg.p2.x) - endCapTol);
+        const maxX = Math.min(polyMaxX + maxMargin, Math.max(seg.p1.x, seg.p2.x) + endCapTol);
         
-        if (dy < bestDist && pt.x >= minX && pt.x <= maxX) {
-          bestDist = dy;
-          snappedPt = { x: pt.x, y: wallY };
+        if (dy < bestDistH && pt.x >= minX && pt.x <= maxX) {
+          bestDistH = dy;
+          curY = Math.round(targetY * 10) / 10;
         }
       } else if (seg.orientation === 'V') {
-        // Vertical wall — snap vertex X to wall's X coordinate
         const wallX = (seg.p1.x + seg.p2.x) / 2;
-        const dx = Math.abs(pt.x - wallX);
+        const targetX = faceMode === 'outer' ? (cx < wallX ? (wallX + halfThick) : (wallX - halfThick)) : wallX;
+        const dx = Math.abs(pt.x - targetX);
         
-        // Check if vertex Y falls within the wall's Y range (with some margin)
-        const minY = Math.min(seg.p1.y, seg.p2.y) - tolerance;
-        const maxY = Math.max(seg.p1.y, seg.p2.y) + tolerance;
+        const minY = Math.max(polyMinY - maxMargin, Math.min(seg.p1.y, seg.p2.y) - endCapTol);
+        const maxY = Math.min(polyMaxY + maxMargin, Math.max(seg.p1.y, seg.p2.y) + endCapTol);
         
-        if (dx < bestDist && pt.y >= minY && pt.y <= maxY) {
-          bestDist = dx;
-          snappedPt = { x: wallX, y: pt.y };
+        if (dx < bestDistV && pt.y >= minY && pt.y <= maxY) {
+          bestDistV = dx;
+          curX = Math.round(targetX * 10) / 10;
         }
       }
     }
 
-    return snappedPt;
+    curX = Math.max(polyMinX - maxMargin, Math.min(polyMaxX + maxMargin, curX));
+    curY = Math.max(polyMinY - maxMargin, Math.min(polyMaxY + maxMargin, curY));
+
+    return { x: curX, y: curY };
   });
+
+  // Post-process pipeline:
+  // 1. Align near-orthogonal edges to 100% horizontal/vertical
+  const aligned = alignOrthogonalEdges(snappedPts, 15.0);
+  // 2. Remove step notches
+  const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
+  // 3. Clean INT<->EXT transition steps
+  const cleaned = cleanExtWallWrapping(simplified, segments, maxThick);
+  // 4. Remove all collinear T-junction vertices along straight walls (tolerance: 3.5px)
+  return simplifyCollinearVertices(cleaned, 3.5);
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {

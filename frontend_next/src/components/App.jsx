@@ -18,7 +18,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import dynamic from "next/dynamic";
-import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon, getBaseWallId } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon, getBaseWallId, snapRoomPolygonToWalls } from "@/utils/geometry";
 import LoginView from "@/views/LoginView";
 import RibbonView from "@/views/RibbonView";
 import RightPropertyPaneView from "@/views/RightPropertyPaneView";
@@ -326,12 +326,6 @@ export default function App() {
       window.location.href = "/";
     }
   };
-
-  const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
-
-
-
-
   // Tự động reset selectedId/selectedType khi layer tương ứng bị tắt
   useEffect(() => {
     if (!layerVisibility.wall) {
@@ -387,13 +381,38 @@ export default function App() {
     return newObj;
   }, [doorsByPage, roomsByPage, wallsByPage, realScale]);
 
+  const processedRoomsByPage = useMemo(() => {
+    const newObj = {};
+    Object.keys(roomsByPage).forEach(page => {
+      const pageRooms = roomsByPage[page];
+      const pageWalls = wallsByPage[page] || [];
+      if (!Array.isArray(pageRooms)) {
+        newObj[page] = pageRooms;
+        return;
+      }
+      newObj[page] = pageRooms.map(r => {
+        if (!r.polygon || r.polygon.length < 3) return r;
+        const snappedPoly = snapRoomPolygonToWalls(r.polygon, pageWalls, 15);
+        return {
+          ...r,
+          polygon: snappedPoly
+        };
+      });
+    });
+    return newObj;
+  }, [roomsByPage, wallsByPage]);
+
+  const rooms = Array.isArray(processedRoomsByPage[currentPage])
+    ? processedRoomsByPage[currentPage]
+    : (Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : []);
+
   const boqPages = useMemo(() =>
     pages.map((p, idx) => ({
       ...p,
-      objects: Array.isArray(roomsByPage[idx]) ? roomsByPage[idx] : [],
+      objects: Array.isArray(processedRoomsByPage[idx]) ? processedRoomsByPage[idx] : (Array.isArray(roomsByPage[idx]) ? roomsByPage[idx] : []),
       doors: Array.isArray(processedDoorsByPage[idx]) ? processedDoorsByPage[idx] : []
     })),
-    [pages, roomsByPage, processedDoorsByPage]
+    [pages, processedRoomsByPage, roomsByPage, processedDoorsByPage]
   );
 
   const allDoors = useMemo(() => {

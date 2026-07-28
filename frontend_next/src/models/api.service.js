@@ -323,7 +323,8 @@ export const ApiService = {
     });
 
     if (!res.ok) {
-      throw new Error(`Server returned ${res.status}`);
+      await handleResponse(res);
+      return;
     }
 
     const reader = res.body.getReader();
@@ -415,7 +416,8 @@ export const ApiService = {
     });
 
     if (!res.ok) {
-      throw new Error(`Server returned ${res.status}`);
+      await handleResponse(res);
+      return;
     }
 
     const reader = res.body.getReader();
