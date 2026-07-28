@@ -31,7 +31,7 @@ export default function RibbonView({
   cancelROI,
   showBOQ, setShowBOQ,
   show3D, setShow3D,
-  showLayer, setShowLayer,
+  layerVisibility, setLayerVisibility,
   // Handlers from App.jsx
   handleLogout,
   handleSaveJob,
@@ -660,11 +660,6 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={rotatePlan90}>
                   <span className="icon">🔄</span><span className="label">Rotate</span>
                 </button>
-                <button className={`ribbon-btn ${showLayer !== 'all' ? "active" : ""}`}
-                  onClick={() => setShowLayer(l => l === 'all' ? 'floor' : l === 'floor' ? 'wall' : l === 'wall' ? 'door' : 'all')}>
-                  <span className="icon">{showLayer === 'all' ? '👁' : showLayer === 'floor' ? '🟦' : showLayer === 'wall' ? '🧱' : '🚪'}</span>
-                  <span className="label">Layer: {showLayer === 'all' ? 'All' : showLayer === 'floor' ? 'Floor' : showLayer === 'wall' ? 'Wall' : 'Door'}</span>
-                </button>
                 <button className={`ribbon-btn ${show3D ? "active" : ""}`} onClick={() => setShow3D(v => !v)}>
                   <span className="icon">🧱🏠</span><span className="label">3D View</span>
                 </button>
@@ -674,6 +669,49 @@ export default function RibbonView({
                 </button>
               </div>
               <span className="ribbon-group-title">NAVIGATE</span>
+            </div>
+            <div className="ribbon-divider" />
+
+            {/* LAYERS */}
+            <div className="ribbon-group">
+              <div className="ribbon-buttons">
+                <button
+                  className={`ribbon-btn ${layerVisibility?.floor ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, floor: !prev?.floor }))}
+                  title="Bật/Tắt lớp Phòng & Sàn (Floor/Rooms Layer)"
+                >
+                  <span className="icon">🟦</span><span className="label">Floor</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${layerVisibility?.wall ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, wall: !prev?.wall }))}
+                  title="Bật/Tắt lớp Tường (Walls Layer)"
+                >
+                  <span className="icon">🧱</span><span className="label">Wall</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${layerVisibility?.door ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, door: !prev?.door }))}
+                  title="Bật/Tắt lớp Cửa (Doors Layer)"
+                >
+                  <span className="icon">🚪</span><span className="label">Door</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${layerVisibility?.ocr ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, ocr: !prev?.ocr }))}
+                  title="Bật/Tắt lớp Nhãn chữ OCR (Text/OCR Labels)"
+                >
+                  <span className="icon">📝</span><span className="label">Text</span>
+                </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true })}
+                  title="Hiển thị tất cả các lớp (Show All Layers)"
+                >
+                  <span className="icon">👁</span><span className="label">All</span>
+                </button>
+              </div>
+              <span className="ribbon-group-title">LAYERS</span>
             </div>
             <div className="ribbon-divider" />
 

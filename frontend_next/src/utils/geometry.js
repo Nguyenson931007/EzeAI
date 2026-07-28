@@ -1568,6 +1568,50 @@ export function removeVertex(polygon, vertexIndex) {
   return polygon.filter((_, idx) => idx !== vertexIndex);
 }
 
+export const ADD_POINT_SNAP_DISTANCE = 25;
+
+export function findBestRoomInsertionPoint(point, rooms, selectedId, maxDist = ADD_POINT_SNAP_DISTANCE) {
+  if (!point || !rooms || !rooms.length) return null;
+
+  // Step 1: Prioritize the selected room if one exists and is currently selected
+  if (selectedId) {
+    const selectedRoom = rooms.find(r => r.id === selectedId);
+    if (selectedRoom && selectedRoom.polygon) {
+      const match = nearestEdge(selectedRoom.polygon, point, maxDist, 1);
+      if (match) {
+        return {
+          room: selectedRoom,
+          insertIndex: match.edgeIndex,
+          snappedPoint: match.projectionPoint,
+          distance: match.distance
+        };
+      }
+    }
+  }
+
+  // Step 2: If no match on selected room (or no room selected), find the closest edge among all unselected rooms
+  let bestMatch = null;
+  let minDistance = maxDist;
+
+  for (const r of rooms) {
+    if (selectedId && r.id === selectedId) continue; // Already checked above
+    if (!r.polygon || r.polygon.length < 3) continue;
+
+    const match = nearestEdge(r.polygon, point, minDistance, 1);
+    if (match && match.distance < minDistance) {
+      minDistance = match.distance;
+      bestMatch = {
+        room: r,
+        insertIndex: match.edgeIndex,
+        snappedPoint: match.projectionPoint,
+        distance: match.distance
+      };
+    }
+  }
+
+  return bestMatch;
+}
+
 export function translatePolygon(polygon, dx, dy) {
   if (!polygon) return [];
   return polygon.map(p => ({ x: p.x + dx, y: p.y + dy }));

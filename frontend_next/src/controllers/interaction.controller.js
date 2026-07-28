@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex, ADD_POINT_SNAP_DISTANCE, findBestRoomInsertionPoint } from "@/utils/geometry";
 import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
@@ -76,7 +76,7 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
   return bestP;
 }
 
-export function useInteractionController(svgRef) {
+export function useInteractionController(svgRef, layerVisibility = { floor: true, wall: true, door: true, ocr: true }) {
   const { showAlert, showConfirm, showPrompt, showScalePrompt } = useDialog();
 
   const {
@@ -1331,118 +1331,89 @@ export function useInteractionController(svgRef) {
       return;
     }
 
-    if ((isShiftDown || isAddingPoint) && !e.altKey) {
-      // First, check if there is a wall centerline close to the click.
-      const pageWalls = wallsByPage[currentPage] || [];
-      let targetWall = null;
-      let bestWallDist = Infinity;
-      let bestWallProj = null;
-      for (const w of pageWalls) {
-        if (w.centerline && w.centerline.length === 2) {
-          const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
-          const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
-          const proj = distancePointToSegment(p, a, b);
-          if (proj.dist < bestWallDist && proj.dist < 15) {
-            bestWallDist = proj.dist;
-            targetWall = w;
-            bestWallProj = proj;
-          }
-        }
-      }
+    // Chỉ thực thi Add Point / Split Wall khi KHÔNG ở trong các chế độ đo hoặc vẽ (như Set Scale, Đo kích thước, Vẽ tường/cửa)
+    if (!isMeasuring && !isDistancing && !drawing && !isDrawingDoor && interactionMode !== "cut-wall" && (isShiftDown || isAddingPoint) && !e.altKey) {
+      // State-aware tool:
+      // - Split Wall: cho phép bằng Shift+Click hoặc công cụ Add Point (trừ khi đang chọn phòng hoặc ẩn tường)
+      // - Room Add Point qua chuột trái: CHỈ thi hành khi bật công cụ Add Point từ Ribbon (bỏ phím tắt Shift+click để tránh xung đột với Shift kéo vuông góc đỉnh phòng)
+      const allowWallSplit = (isShiftDown || isAddingPoint) && selectedType !== "room" && layerVisibility?.wall !== false;
+      const allowRoomAddPoint = isAddingPoint && selectedType !== "wall" && layerVisibility?.floor !== false;
 
-      if (targetWall) {
-        if (targetWall.locked) return; // Prevent splitting locked walls
-        const p1 = targetWall.centerline[0];
-        const p2 = targetWall.centerline[1];
-        const splitPt = [bestWallProj.x, bestWallProj.y];
-
-        // Prevent creating 0-length wall segments
-        if (Math.hypot(p1[0] - splitPt[0], p1[1] - splitPt[1]) > 5 &&
-          Math.hypot(p2[0] - splitPt[0], p2[1] - splitPt[1]) > 5) {
-
-          const w1_id = `man_wall_${Date.now()}_s1`;
-          const w2_id = `man_wall_${Date.now()}_s2`;
-
-          const w1 = {
-            ...targetWall,
-            id: w1_id,
-            centerline: [p1, splitPt]
-          };
-          const w2 = {
-            ...targetWall,
-            id: w2_id,
-            centerline: [splitPt, p2]
-          };
-
-          const filteredWalls = pageWalls.filter(w => w.id !== targetWall.id);
-          const recalculated = recalculateAllWallsPolygons([...filteredWalls, w1, w2]);
-          pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
-          setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
-          setIsAddingPoint(false);
-          setDrawingWall({
-            startX: splitPt[0],
-            startY: splitPt[1],
-            lock: null,
-            wallType: targetWall.class_name || "interior_wall",
-            thickness: targetWall.thickness_px || 20,
-            wallId: w1_id
-          });
-          setDrawingWallEnd({ x: splitPt[0], y: splitPt[1] });
-          if (setInteractionMode) {
-            setInteractionMode("draw-wall");
-          }
-          return;
-        }
-      }
-
-      let targetR = rooms.find(r => r.id === selectedId && pointInPolygon(p, r.polygon));
-      if (!targetR) {
-        targetR = rooms.find(r => pointInPolygon(p, r.polygon));
-      }
-      if (!targetR) {
-        let bestDist = Infinity;
-        for (let r of rooms) {
-          for (let i = 0; i < r.polygon.length; i++) {
-            const a = r.polygon[i];
-            const b = r.polygon[(i + 1) % r.polygon.length];
+      if (allowWallSplit) {
+        const pageWalls = wallsByPage[currentPage] || [];
+        let targetWall = null;
+        let bestWallDist = Infinity;
+        let bestWallProj = null;
+        for (const w of pageWalls) {
+          if (w.centerline && w.centerline.length === 2) {
+            const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+            const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
             const proj = distancePointToSegment(p, a, b);
-            if (proj.dist < bestDist && proj.dist < 15) {
-              bestDist = proj.dist;
-              targetR = r;
+            if (proj.dist < bestWallDist && proj.dist < 15) {
+              bestWallDist = proj.dist;
+              targetWall = w;
+              bestWallProj = proj;
             }
           }
         }
-      }
-      if (targetR) {
-        let bestDist = Infinity;
-        let insertIdx = -1;
-        let bestProj = null;
-        for (let i = 0; i < targetR.polygon.length; i++) {
-          const a = targetR.polygon[i];
-          const b = targetR.polygon[(i + 1) % targetR.polygon.length];
-          const proj = distancePointToSegment(p, a, b);
-          if (proj.dist < bestDist) {
-            bestDist = proj.dist;
-            insertIdx = i;
-            bestProj = proj;
+
+        if (targetWall) {
+          if (targetWall.locked) return;
+          const p1 = targetWall.centerline[0];
+          const p2 = targetWall.centerline[1];
+          const splitPt = [bestWallProj.x, bestWallProj.y];
+
+          if (Math.hypot(p1[0] - splitPt[0], p1[1] - splitPt[1]) > 5 &&
+            Math.hypot(p2[0] - splitPt[0], p2[1] - splitPt[1]) > 5) {
+
+            const w1_id = `man_wall_${Date.now()}_s1`;
+            const w2_id = `man_wall_${Date.now()}_s2`;
+
+            const w1 = {
+              ...targetWall,
+              id: w1_id,
+              centerline: [p1, splitPt]
+            };
+            const w2 = {
+              ...targetWall,
+              id: w2_id,
+              centerline: [splitPt, p2]
+            };
+
+            const filteredWalls = pageWalls.filter(w => w.id !== targetWall.id);
+            const recalculated = recalculateAllWallsPolygons([...filteredWalls, w1, w2]);
+            pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
+            setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
+            setIsAddingPoint(false);
+            setDrawingWall({
+              startX: splitPt[0],
+              startY: splitPt[1],
+              lock: null,
+              wallType: targetWall.class_name || "interior_wall",
+              thickness: targetWall.thickness_px || 20,
+              wallId: w1_id
+            });
+            setDrawingWallEnd({ x: splitPt[0], y: splitPt[1] });
+            if (setInteractionMode) {
+              setInteractionMode("draw-wall");
+            }
+            return;
           }
         }
-        if (insertIdx !== -1) {
-          const newPoint = bestDist < 10 ? { x: bestProj.x, y: bestProj.y } : { x: p.x, y: p.y };
-          const newPoly = [...targetR.polygon];
-          newPoly.splice(insertIdx + 1, 0, newPoint);
-          pushHistory(rooms.map(room => room.id === targetR.id ? { ...room, polygon: newPoly } : room));
-          setSelectedId(targetR.id);
-          setIsAddingPoint(false); // Auto-exit after adding
-          if (setInteractionMode) setInteractionMode("select");
-          return;
-        }
       }
-    }
-    if (isAltDown) {
-      for (let r of rooms) {
-        if (pointInPolygon(p, r.polygon)) {
-          pushHistory(rooms.map(room => room.id === r.id ? { ...room, polygon: [...room.polygon, p] } : room));
+
+      if (allowRoomAddPoint) {
+        // Use shared insertion solver with ADD_POINT_SNAP_DISTANCE, prioritizing selected room
+        const match = findBestRoomInsertionPoint(p, rooms, selectedType === "room" ? selectedId : null, ADD_POINT_SNAP_DISTANCE);
+        if (match) {
+          const { room, insertIndex, snappedPoint } = match;
+          const newPoly = insertVertex(room.polygon, insertIndex, snappedPoint);
+          const updatedRooms = rooms.map(r => r.id === room.id ? { ...r, polygon: newPoly } : r);
+          pushHistory(updatedRooms);
+          setSelectedId(room.id);
+          setSelectedType("room");
+          setIsAddingPoint(false);
+          if (setInteractionMode) setInteractionMode("select");
           return;
         }
       }
@@ -1513,6 +1484,30 @@ export function useInteractionController(svgRef) {
           break;
         }
       }
+    }
+  }
+
+  function handleRoomDoubleClick(e, roomParam = null) {
+    if (isSpaceDown || isDraggingPan || drawing || isMeasuring || isDistancing || isDrawingRoof || isDrawingDoor || interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+
+    // Chỉ hoạt động khi lớp Sàn đang hiển thị và không phải thao tác trên Tường
+    if (layerVisibility?.floor === false || selectedType === "wall") return;
+
+    const p = getMouse(e);
+    const targetRoomId = roomParam ? roomParam.id : (selectedType === "room" ? selectedId : null);
+
+    // Tìm cạnh phòng tối ưu để chèn điểm bằng solver chung
+    const match = findBestRoomInsertionPoint(p, rooms, targetRoomId, ADD_POINT_SNAP_DISTANCE);
+    if (match) {
+      if (e.stopPropagation) e.stopPropagation();
+      const { room, insertIndex, snappedPoint } = match;
+      const newPoly = insertVertex(room.polygon, insertIndex, snappedPoint);
+      const updatedRooms = rooms.map(r => r.id === room.id ? { ...r, polygon: newPoly } : r);
+      pushHistory(updatedRooms);
+      setSelectedId(room.id);
+      setSelectedType("room");
+      setIsAddingPoint(false);
+      if (setInteractionMode) setInteractionMode("select");
     }
   }
 
@@ -2335,16 +2330,9 @@ export function useInteractionController(svgRef) {
           }));
         }
       } else {
-        setRoomsByPage(prev => {
-          const pageRooms = prev[currentPage] || [];
-          return {
-            ...prev, [currentPage]: pageRooms.map(room =>
-              room.id === dragging.id
-                ? { ...room, polygon: room.polygon.map((pt, i) => i === dragging.index ? pSnapped : pt) }
-                : room
-            )
-          };
-        });
+        // Transient Dragging: Do not update roomsByPage continuously to eliminate lag on Right Panel/BOQ.
+        // Save current position into transient dragging state for instant Z-Index handle preview.
+        setDragging(prev => prev ? { ...prev, hasMovedPastThreshold: true, currentPos: pSnapped } : null);
       }
       setCurrentMouse(pRaw);
       return; // Don't do anything else during drag
@@ -2848,7 +2836,9 @@ export function useInteractionController(svgRef) {
     if (dragging) {
       if (dragging.hasMovedPastThreshold) {
         ignoreClickRef.current = true;
-        if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
+      }
+      if (dragging.type === 'door-move' || dragging.type === 'door-polygon') {
+        if (dragging.hasMovedPastThreshold) {
           const pageWalls = dragging.startWalls || wallsByPage[currentPage] || [];
           const pageDoors = doorsByPage[currentPage] || [];
           const targetDoor = pageDoors.find(d => d.id === dragging.id);
@@ -2870,7 +2860,9 @@ export function useInteractionController(svgRef) {
             setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
             pushHistory(null, pageWalls, updatedDoors);
           }
-        } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
+        }
+      } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
+        if (dragging.hasMovedPastThreshold) {
           const pageWalls = wallsByPage[currentPage] || [];
           const pageDoors = doorsByPage[currentPage] || [];
           const startWalls = dragging.startWalls || pageWalls;
@@ -2929,6 +2921,19 @@ export function useInteractionController(svgRef) {
           }));
           // Update history with the merged and cut walls
           pushHistory(null, junctionCleanedWalls, updatedDoors);
+        }
+      } else if ((dragging.type === 'room' || (!dragging.type && selectedType === 'room')) && dragging.currentPos) {
+        // Commit room vertex drag on mouse up (once per drag) and record history
+        const pageRooms = roomsByPage[currentPage] || [];
+        const targetRoom = pageRooms.find(r => r.id === dragging.id);
+        if (targetRoom && dragging.index != null && dragging.index >= 0 && dragging.index < targetRoom.polygon.length) {
+          const updatedRooms = pageRooms.map(room =>
+            room.id === dragging.id
+              ? { ...room, polygon: room.polygon.map((pt, i) => i === dragging.index ? dragging.currentPos : pt) }
+              : room
+          );
+          setRoomsByPage(prev => ({ ...prev, [currentPage]: updatedRooms }));
+          pushHistory(updatedRooms);
         }
       }
       setDragging(null);
@@ -3085,7 +3090,7 @@ export function useInteractionController(svgRef) {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
+    handleClick, handleRoomDoubleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
     deleteDoor: typeof doorController !== 'undefined' ? doorController.deleteDoor : deleteDoor,
     doorController: typeof doorController !== 'undefined' ? doorController : null,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,

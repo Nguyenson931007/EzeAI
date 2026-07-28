@@ -19,17 +19,19 @@ import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
-import { 
-  distancePointToSegment, 
-  pointInPolygon, 
-  calcDimOffset, 
-  centroid, 
-  polygonAreaM2 as polygonAreaM2Util, 
+import {
+  distancePointToSegment,
+  pointInPolygon,
+  calcDimOffset,
+  centroid,
+  polygonAreaM2 as polygonAreaM2Util,
   calculateWallPolygon,
   cutWallsByDoors,
   getBaseWallId,
   getWallClass,
-  getWallType
+  getWallType,
+  ADD_POINT_SNAP_DISTANCE,
+  findBestRoomInsertionPoint
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall } from "@/engines/DoorGeometryEngine";
@@ -102,10 +104,10 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, 
       }}
     />
   );
-}, (prev, next) => 
-  prev.image === next.image && 
-  prev.w === next.w && 
-  prev.h === next.h && 
+}, (prev, next) =>
+  prev.image === next.image &&
+  prev.w === next.w &&
+  prev.h === next.h &&
   prev.showPDF === next.showPDF &&
   prev.pdfOffset?.x === next.pdfOffset?.x &&
   prev.pdfOffset?.y === next.pdfOffset?.y
@@ -116,7 +118,7 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, 
 // ==========================================
 const RoomPolygonLayer = React.memo(({
   rooms,
-  showLayer,
+  layerVisibility,
   scaleValue,
   highlightType,
   selectedId,
@@ -124,6 +126,7 @@ const RoomPolygonLayer = React.memo(({
   setHoverId,
   setSelectedId,
   setSelectedType,
+  setSelectedWallIds,
   startDrag,
   dragging,
   pushHistory,
@@ -135,9 +138,10 @@ const RoomPolygonLayer = React.memo(({
   getRoomStyle,
   config,
   heatmapMode,
-  interactionMode
+  interactionMode,
+  handleRoomDoubleClick
 }) => {
-  if (showLayer !== 'all' && showLayer !== 'floor') return null;
+  if (!layerVisibility?.floor) return null;
 
   return (
     <g id="RoomPolygonLayer">
@@ -180,10 +184,15 @@ const RoomPolygonLayer = React.memo(({
           opacity = 0.95;
         }
 
+        // Use transient drag coordinate for smooth visual deform during vertex dragging
+        const displayPolygon = (dragging && dragging.id === r.id && dragging.index != null && dragging.currentPos)
+          ? r.polygon.map((p, i) => i === dragging.index ? dragging.currentPos : p)
+          : r.polygon;
+
         return (
           <g key={r.id}>
             <polygon
-              points={r.polygon.map(p => `${p.x},${p.y}`).join(" ")}
+              points={displayPolygon.map(p => `${p.x},${p.y}`).join(" ")}
               fill={fill}
               stroke={stroke}
               strokeWidth={strokeWidth}
@@ -201,41 +210,16 @@ const RoomPolygonLayer = React.memo(({
                 e.stopPropagation();
                 setSelectedId(r.id);
                 setSelectedType("room");
+                if (setSelectedWallIds) setSelectedWallIds([]);
+              }}
+              onDoubleClick={(e) => {
+                if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
+                if (handleRoomDoubleClick) {
+                  handleRoomDoubleClick(e, r);
+                }
               }}
             />
-            {/* Polygon vertex handles - ONLY show if the room is selected! */}
-            {!isText && isSelected && r.polygon.map((p, i) => {
-              const isDraggingThisVertex = dragging && dragging.id === r.id && dragging.index === i;
-              return (
-                <g key={`vertex-${r.id}-${i}`}>
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r={isDraggingThisVertex ? 3.5 : 4.5}
-                    fill="white"
-                    stroke={revStyle ? revStyle.stroke : "#6366f1"}
-                    strokeWidth={1.5}
-                    style={{ cursor: 'move', transition: 'r 0.2s' }}
-                    className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      startDrag(r.id, i);
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      if (r.polygon.length <= 3) return;
-                      const newPoly = r.polygon.filter((_, idx) => idx !== i);
-                      pushHistory(
-                        rooms.map(room =>
-                          room.id === r.id ? { ...room, polygon: newPoly } : room
-                        )
-                      );
-                    }}
-                  />
-                  <circle cx={p.x} cy={p.y} r={isDraggingThisVertex ? 1 : 1.5} fill={revStyle ? revStyle.stroke : "#6366f1"} pointerEvents="none" />
-                </g>
-              );
-            })}
           </g>
         );
       })}
@@ -244,7 +228,7 @@ const RoomPolygonLayer = React.memo(({
 }, (prev, next) => {
   return (
     prev.rooms === next.rooms &&
-    prev.showLayer === next.showLayer &&
+    prev.layerVisibility?.floor === next.layerVisibility?.floor &&
     prev.scaleValue === next.scaleValue &&
     prev.highlightType === next.highlightType &&
     prev.selectedId === next.selectedId &&
@@ -255,7 +239,95 @@ const RoomPolygonLayer = React.memo(({
     prev.isAddingPoint === next.isAddingPoint &&
     prev.heatmapMode === next.heatmapMode &&
     prev.config === next.config &&
-    prev.dragging === next.dragging
+    prev.dragging === next.dragging &&
+    prev.handleRoomDoubleClick === next.handleRoomDoubleClick
+  );
+});
+
+// ==========================================
+// 2.1 RoomHandlesLayer (Memoized & Top Z-Index)
+// ==========================================
+const RoomHandlesLayer = React.memo(({
+  rooms,
+  layerVisibility,
+  selectedId,
+  selectedType,
+  startDrag,
+  dragging,
+  pushHistory,
+  getRoomStyle
+}) => {
+  if (layerVisibility && layerVisibility.floor === false) return null;
+  if (selectedType !== "room" || !selectedId) return null;
+
+  const r = rooms.find(room => room.id === selectedId);
+  if (!r || !r.polygon) return null;
+
+  const isText = r.type === "detected_text_box";
+  if (isText) return null;
+
+  const revStyle = typeof getRoomStyle === "function" ? getRoomStyle(r) : null;
+
+  // Utilize transient drag coordinate if vertex is being dragged
+  const displayPolygon = (dragging && dragging.id === r.id && dragging.index != null && dragging.currentPos)
+    ? r.polygon.map((p, i) => i === dragging.index ? dragging.currentPos : p)
+    : r.polygon;
+
+  return (
+    <g className="room-handles-layer" style={{ pointerEvents: 'auto' }}>
+      {displayPolygon.map((p, i) => {
+        const isDraggingThisVertex = dragging && dragging.id === r.id && dragging.index === i;
+        return (
+          <g key={`vertex-${r.id}-${i}`}>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={isDraggingThisVertex ? 4 : 5.5}
+              fill="white"
+              stroke={revStyle ? revStyle.stroke : "#3b82f6"}
+              strokeWidth={2}
+              style={{ cursor: 'move', transition: 'r 0.15s ease' }}
+              className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''}`}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                if (startDrag) startDrag(r.id, i);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (r.polygon.length <= 3) return;
+                const newPoly = r.polygon.filter((_, idx) => idx !== i);
+                if (pushHistory) {
+                  pushHistory(
+                    rooms.map(room =>
+                      room.id === r.id ? { ...room, polygon: newPoly } : room
+                    )
+                  );
+                }
+              }}
+            />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={isDraggingThisVertex ? 1.5 : 2}
+              fill={revStyle ? revStyle.stroke : "#3b82f6"}
+              pointerEvents="none"
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+}, (prev, next) => {
+  return (
+    prev.rooms === next.rooms &&
+    prev.layerVisibility?.floor === next.layerVisibility?.floor &&
+    prev.selectedId === next.selectedId &&
+    prev.selectedType === next.selectedType &&
+    prev.dragging === next.dragging &&
+    prev.startDrag === next.startDrag &&
+    prev.pushHistory === next.pushHistory &&
+    prev.getRoomStyle === next.getRoomStyle
   );
 });
 
@@ -366,7 +438,7 @@ UnderlayWallLayer.displayName = "UnderlayWallLayer";
 // ==========================================
 const WallLayer = React.memo(({
   walls,
-  showLayer,
+  layerVisibility,
   selectedId,
   selectedType,
   setSelectedId,
@@ -392,6 +464,7 @@ const WallLayer = React.memo(({
   isMeasuring,
   isDistancing
 }) => {
+  if (!layerVisibility?.wall) return null;
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
   const chains = [];
@@ -675,7 +748,7 @@ const WallLayer = React.memo(({
   );
 }, (prev, next) => (
   prev.walls === next.walls &&
-  prev.showLayer === next.showLayer &&
+  prev.layerVisibility?.wall === next.layerVisibility?.wall &&
   prev.selectedId === next.selectedId &&
   prev.selectedType === next.selectedType &&
   prev.selectedWallIds === next.selectedWallIds &&
@@ -701,6 +774,7 @@ const WallLayer = React.memo(({
 const WallHandlesLayer = React.memo(({
   walls,
   doors = [],
+  layerVisibility,
   selectedId,
   selectedWallIds = [],
   selectedWallVertex,
@@ -715,7 +789,7 @@ const WallHandlesLayer = React.memo(({
   interactionMode,
   hoverId
 }) => {
-  if (interactionMode === "cut-wall") return null;
+  if (interactionMode === "cut-wall" || !layerVisibility?.wall) return null;
 
   return (
     <g id="WallHandlesLayer">
@@ -723,7 +797,7 @@ const WallHandlesLayer = React.memo(({
         const isSelected = selectedWallIds.includes(w.id);
         const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
         const hasSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id) ||
-                                  (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id));
+          (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id));
         const hasSelectedDoorOnWall = (doors || []).some(d =>
           selectedId && (d.id === selectedId) &&
           (d.parentWallId === w.id || (getBaseWallId && getBaseWallId(d.parentWallId) === getBaseWallId(w.id)))
@@ -735,8 +809,8 @@ const WallHandlesLayer = React.memo(({
           <g key={`handles-${w.id}-${idx}`}>
             {w.centerline.map((pt, i) => {
               const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
-              const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) || 
-                                       (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id && sv.index === i));
+              const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) ||
+                (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id && sv.index === i));
               return (
                 <circle
                   key={i}
@@ -805,7 +879,7 @@ const WallHandlesLayer = React.memo(({
 // ==========================================
 const DoorLayer = React.memo(({
   doors,
-  showLayer,
+  layerVisibility,
   selectedId,
   selectedType,
   realScale,
@@ -826,7 +900,7 @@ const DoorLayer = React.memo(({
   onEditDoor,
   checkAndResetIgnoreClick
 }) => {
-  if (showLayer !== 'all' && showLayer !== 'door') return null;
+  if (!layerVisibility?.door) return null;
   const lastMouseDownSelectedId = React.useRef(null);
 
   return (
@@ -922,12 +996,12 @@ const DoorLayer = React.memo(({
                   style={{ pointerEvents: 'auto' }}
                 />
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
-                <path 
+                <path
                   d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
                   fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1.5} strokeDasharray="3,2"
                 />
                 <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2.5)} />
-                
+
                 {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
                 {isSelected && (
                   <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
@@ -1059,7 +1133,7 @@ const DoorLayer = React.memo(({
             const uy = dy / len;
             const nx = -uy;
             const ny = ux;
-            
+
             // Get wall thickness (default 20px)
             let thickness = 20;
             if (walls && walls.length > 0) {
@@ -1127,9 +1201,9 @@ const DoorLayer = React.memo(({
           const renderManualJambs = () => {
             const doorType = (d.type || "").toLowerCase();
             const doorClass = (d.class_name || "").toLowerCase();
-            if (doorType.includes("sliding") || doorType.includes("slider") || 
-                doorClass.includes("sliding") || doorClass.includes("slider") ||
-                doorType.includes("garage") || doorClass.includes("garage")) {
+            if (doorType.includes("sliding") || doorType.includes("slider") ||
+              doorClass.includes("sliding") || doorClass.includes("slider") ||
+              doorType.includes("garage") || doorClass.includes("garage")) {
               return null;
             }
             if (!p1 || !p2 || len <= 0) return null;
@@ -1151,21 +1225,21 @@ const DoorLayer = React.memo(({
                 if (!w.centerline || w.centerline.length < 2) return;
                 const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
                 const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-                
+
                 // thickness and direction calculation
                 const wdx = wp2.x - wp1.x;
                 const wdy = wp2.y - wp1.y;
                 const wLen = Math.hypot(wdx, wdy);
                 if (wLen < 1e-3) return;
-                
+
                 // Only consider walls parallel to door vector for jamb extension
                 const isParallel = Math.abs((wdx / wLen) * ux + (wdy / wLen) * uy) > 0.8;
                 if (!isParallel) return;
 
                 const L2 = wdx * wdx + wdy * wdy;
-                const cx = (p1.x + p2.x)/2;
-                const cy = (p1.y + p2.y)/2;
-                
+                const cx = (p1.x + p2.x) / 2;
+                const cy = (p1.y + p2.y) / 2;
+
                 let tVal = L2 < 0.1 ? 0 : ((cx - wp1.x) * wdx + (cy - wp1.y) * wdy) / L2;
                 tVal = Math.max(0, Math.min(1, tVal));
                 const dist = Math.hypot(cx - (wp1.x + tVal * wdx), cy - (wp1.y + tVal * wdy));
@@ -1178,7 +1252,7 @@ const DoorLayer = React.memo(({
                     const dxPt = pt.x - p1.x;
                     const dyPt = pt.y - p1.y;
                     const t = dxPt * ux + dyPt * uy; // projection along door centerline
-                    
+
                     const projX = p1.x + t * ux;
                     const projY = p1.y + t * uy;
                     const perpDist = Math.hypot(pt.x - projX, pt.y - projY);
@@ -1248,41 +1322,41 @@ const DoorLayer = React.memo(({
 
           const isWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
           return (
-            <g key={`${d.id}-${idx}`} 
-               onClick={(e) => {
-                  if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) {
-                    e.stopPropagation();
-                    return;
+            <g key={`${d.id}-${idx}`}
+              onClick={(e) => {
+                if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) {
+                  e.stopPropagation();
+                  return;
+                }
+                if (interactionMode === "draw-wall") return;
+                if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                e.stopPropagation();
+                setSelectedId(d.id);
+                setSelectedType(isWindow ? "window" : "door");
+              }}
+              onDoubleClick={(e) => {
+                if (interactionMode === "draw-wall") return;
+                if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                e.stopPropagation();
+                if (onEditDoor) onEditDoor(d);
+              }}
+              onMouseDown={(e) => {
+                lastMouseDownSelectedId.current = selectedId;
+                if (interactionMode === "draw-wall") return;
+                if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                if (startDrag) {
+                  e.stopPropagation();
+                  if (!isSelected) {
+                    setSelectedId(d.id);
+                    setSelectedType(isWindow ? "window" : "door");
                   }
-                  if (interactionMode === "draw-wall") return;
-                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                  e.stopPropagation();
-                  setSelectedId(d.id);
-                  setSelectedType(isWindow ? "window" : "door");
-                }}
-                onDoubleClick={(e) => {
-                  if (interactionMode === "draw-wall") return;
-                  if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                  e.stopPropagation();
-                  if (onEditDoor) onEditDoor(d);
-                }}
-               onMouseDown={(e) => {
-                 lastMouseDownSelectedId.current = selectedId;
-                 if (interactionMode === "draw-wall") return;
-                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                 if (startDrag) {
-                   e.stopPropagation();
-                   if (!isSelected) {
-                     setSelectedId(d.id);
-                     setSelectedType(isWindow ? "window" : "door");
-                   }
-                   startDrag(d.id, null, 'door-move');
-                 }
-               }}
-               style={{ cursor: 'pointer', pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto" }}
-               onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
-               onMouseEnter={() => setHoverId(d.id)}
-               onMouseLeave={() => setHoverId(null)}
+                  startDrag(d.id, null, 'door-move');
+                }
+              }}
+              style={{ cursor: 'pointer', pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto" }}
+              onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
+              onMouseEnter={() => setHoverId(d.id)}
+              onMouseLeave={() => setHoverId(null)}
             >
               {/* Door Jamb Rectangles */}
               {renderManualJambs()}
@@ -1291,12 +1365,12 @@ const DoorLayer = React.memo(({
               {type === "double" ? (
                 <>
                   {renderDoubleDoor()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={isSelected ? color : "#1e293b"} 
+                  <text
+                    x={(p1.x + p2.x) / 2}
+                    y={(p1.y + p2.y) / 2 - 10}
+                    fontSize="10"
+                    textAnchor="middle"
+                    fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
@@ -1307,12 +1381,12 @@ const DoorLayer = React.memo(({
               ) : (type === "sliding" ? (
                 <>
                   {renderSlidingDoor()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={isSelected ? color : "#1e293b"} 
+                  <text
+                    x={(p1.x + p2.x) / 2}
+                    y={(p1.y + p2.y) / 2 - 10}
+                    fontSize="10"
+                    textAnchor="middle"
+                    fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
@@ -1323,12 +1397,12 @@ const DoorLayer = React.memo(({
               ) : (type === "window" ? (
                 <>
                   {renderWindow()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={isSelected ? color : "#1e293b"} 
+                  <text
+                    x={(p1.x + p2.x) / 2}
+                    y={(p1.y + p2.y) / 2 - 10}
+                    fontSize="10"
+                    textAnchor="middle"
+                    fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
@@ -1339,12 +1413,12 @@ const DoorLayer = React.memo(({
               ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage" ? (
                 <>
                   {renderGarageDoor()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={isSelected ? color : "#1e293b"} 
+                  <text
+                    x={(p1.x + p2.x) / 2}
+                    y={(p1.y + p2.y) / 2 - 10}
+                    fontSize="10"
+                    textAnchor="middle"
+                    fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
@@ -1355,12 +1429,12 @@ const DoorLayer = React.memo(({
               ) : (
                 <>
                   {renderSingleDoor()}
-                  <text 
-                    x={(p1.x + p2.x) / 2} 
-                    y={(p1.y + p2.y) / 2 - 10} 
-                    fontSize="10" 
-                    textAnchor="middle" 
-                    fill={isSelected ? color : "#1e293b"} 
+                  <text
+                    x={(p1.x + p2.x) / 2}
+                    y={(p1.y + p2.y) / 2 - 10}
+                    fontSize="10"
+                    textAnchor="middle"
+                    fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
                     style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
@@ -1384,7 +1458,7 @@ const DoorLayer = React.memo(({
                     height={30}
                     style={{ overflow: 'visible' }}
                   >
-                    <div 
+                    <div
                       style={{
                         display: 'inline-flex',
                         gap: '4px',
@@ -1519,7 +1593,7 @@ const DoorLayer = React.memo(({
   return (
     prev.walls === next.walls &&
     prev.doors === next.doors &&
-    prev.showLayer === next.showLayer &&
+    prev.layerVisibility?.door === next.layerVisibility?.door &&
     prev.selectedId === next.selectedId &&
     prev.selectedType === next.selectedType &&
     prev.realScale === next.realScale &&
@@ -1541,7 +1615,7 @@ const DoorLayer = React.memo(({
 // ==========================================
 const OCRLabelLayer = React.memo(({
   rooms,
-  showLayer,
+  layerVisibility,
   scaleValue,
   editingRoomId,
   editValue,
@@ -1564,7 +1638,7 @@ const OCRLabelLayer = React.memo(({
 }) => {
   const [activeDropdownRoomId, setActiveDropdownRoomId] = React.useState(null);
 
-  if (showLayer !== 'all' && showLayer !== 'floor') return null;
+  if (!layerVisibility?.ocr) return null;
 
   return (
     <g id="OCRLabelLayer">
@@ -1577,7 +1651,7 @@ const OCRLabelLayer = React.memo(({
         const bboxW = Math.max(...xs) - Math.min(...xs);
         const bboxH = Math.max(...ys) - Math.min(...ys);
         const dim = Math.min(bboxW, bboxH);
-        
+
         // Sizing override for detected text boxes
         const nameFontSize = isText
           ? Math.max(9, Math.min(28, bboxH * 0.75))
@@ -1611,25 +1685,25 @@ const OCRLabelLayer = React.memo(({
           return (
             <g key={`ocr-label-${r.id}`}>
               {editingRoomId === r.id ? (
-                <foreignObject 
-                  x={c.x - 100} 
-                  y={c.y - nameFontSize * 1.5} 
-                  width={200} 
+                <foreignObject
+                  x={c.x - 100}
+                  y={c.y - nameFontSize * 1.5}
+                  width={200}
                   height={nameFontSize * 3 + 150}
                   style={{ overflow: 'visible' }}
                 >
                   <div style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
                     background: 'rgba(22, 28, 45, 0.95)', border: '1px solid #3b82f6',
                     padding: '8px', borderRadius: '8px', color: '#fff',
                     boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
                   }}
-                  onMouseDown={stopEvent}
-                  onMouseUp={stopEvent}
-                  onClick={stopEvent}
+                    onMouseDown={stopEvent}
+                    onMouseUp={stopEvent}
+                    onClick={stopEvent}
                   >
                     <div style={{ display: 'flex', gap: '4px' }}>
-                      <input 
+                      <input
                         autoFocus
                         value={editValue}
                         onChange={e => setEditValue(e.target.value)}
@@ -1645,11 +1719,11 @@ const OCRLabelLayer = React.memo(({
                         }}
                       />
                       {editValue !== r.room_name && (
-                        <button 
+                        <button
                           onClick={() => handleEditSubmit(r)}
                           disabled={isSubmitting}
                           style={{
-                            background: '#3b82f6', color: 'white', border: 'none', 
+                            background: '#3b82f6', color: 'white', border: 'none',
                             borderRadius: '4px', padding: '2px 8px', cursor: 'pointer',
                             fontSize: '12px', fontWeight: 'bold'
                           }}
@@ -1657,10 +1731,10 @@ const OCRLabelLayer = React.memo(({
                           {isSubmitting ? "..." : "✓"}
                         </button>
                       )}
-                      <button 
+                      <button
                         onClick={() => setEditingRoomId(null)}
                         style={{
-                          background: '#ef4444', color: 'white', border: 'none', 
+                          background: '#ef4444', color: 'white', border: 'none',
                           borderRadius: '4px', padding: '2px 8px', cursor: 'pointer',
                           fontSize: '12px', fontWeight: 'bold'
                         }}
@@ -1671,7 +1745,7 @@ const OCRLabelLayer = React.memo(({
                   </div>
                 </foreignObject>
               ) : (
-                <g 
+                <g
                   style={{
                     cursor: 'text',
                     pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
@@ -1695,7 +1769,7 @@ const OCRLabelLayer = React.memo(({
                     {r.room_name}
                   </text>
                   {successId === r.id && (
-                    <text x={c.x + bboxW/2 + 10} y={c.y} fill="#22c55e" fontSize={nameFontSize} fontWeight="bold">✓</text>
+                    <text x={c.x + bboxW / 2 + 10} y={c.y} fill="#22c55e" fontSize={nameFontSize} fontWeight="bold">✓</text>
                   )}
                 </g>
               )}
@@ -1716,7 +1790,7 @@ const OCRLabelLayer = React.memo(({
               strokeWidth={strokeWidth}
               style={{ pointerEvents: 'none' }}
             />
-            
+
             {r.id === selectedId && !editingRoomId && (
               <foreignObject
                 x={c.x + pillW / 2 + 5}
@@ -1725,7 +1799,7 @@ const OCRLabelLayer = React.memo(({
                 height={350}
                 style={{ overflow: 'visible' }}
               >
-                <div 
+                <div
                   style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px' }}
                   onMouseDown={stopEvent}
                   onMouseUp={stopEvent}
@@ -1782,8 +1856,8 @@ const OCRLabelLayer = React.memo(({
                             key={idx}
                             onClick={(e) => {
                               stopEvent(e);
-                              pushHistory(rooms.map(room => room.id === r.id ? { 
-                                ...room, 
+                              pushHistory(rooms.map(room => room.id === r.id ? {
+                                ...room,
                                 room_name: cand.text,
                                 correction_source: "human_verified"
                               } : room));
@@ -1819,25 +1893,25 @@ const OCRLabelLayer = React.memo(({
             )}
 
             {editingRoomId === r.id ? (
-              <foreignObject 
-                x={c.x - 100} 
-                y={c.y - nameFontSize * 1.5} 
-                width={200} 
+              <foreignObject
+                x={c.x - 100}
+                y={c.y - nameFontSize * 1.5}
+                width={200}
                 height={nameFontSize * 3 + 150}
                 style={{ overflow: 'visible' }}
               >
                 <div style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
                   background: 'rgba(22, 28, 45, 0.95)', border: '1px solid #3b82f6',
                   padding: '8px', borderRadius: '8px', color: '#fff',
                   boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
                 }}
-                onMouseDown={stopEvent}
-                onMouseUp={stopEvent}
-                onClick={stopEvent}
+                  onMouseDown={stopEvent}
+                  onMouseUp={stopEvent}
+                  onClick={stopEvent}
                 >
                   <div style={{ display: 'flex', gap: '4px' }}>
-                    <input 
+                    <input
                       autoFocus
                       value={editValue}
                       onChange={e => setEditValue(e.target.value)}
@@ -1853,11 +1927,11 @@ const OCRLabelLayer = React.memo(({
                       }}
                     />
                     {editValue !== r.room_name && (
-                      <button 
+                      <button
                         onClick={() => handleEditSubmit(r)}
                         disabled={isSubmitting}
                         style={{
-                          background: '#3b82f6', color: 'white', border: 'none', 
+                          background: '#3b82f6', color: 'white', border: 'none',
                           borderRadius: '4px', padding: '2px 8px', cursor: 'pointer',
                           fontSize: '12px', fontWeight: 'bold'
                         }}
@@ -1865,10 +1939,10 @@ const OCRLabelLayer = React.memo(({
                         {isSubmitting ? "..." : "✓"}
                       </button>
                     )}
-                    <button 
+                    <button
                       onClick={() => setEditingRoomId(null)}
                       style={{
-                        background: '#ef4444', color: 'white', border: 'none', 
+                        background: '#ef4444', color: 'white', border: 'none',
                         borderRadius: '4px', padding: '2px 8px', cursor: 'pointer',
                         fontSize: '12px', fontWeight: 'bold'
                       }}
@@ -1907,7 +1981,7 @@ const OCRLabelLayer = React.memo(({
                 </div>
               </foreignObject>
             ) : (
-              <g 
+              <g
                 style={{ cursor: 'text' }}
                 onMouseDown={stopEvent}
                 onMouseUp={stopEvent}
@@ -1926,7 +2000,7 @@ const OCRLabelLayer = React.memo(({
                     <text x={5} y={8.5} fontSize={7} fill="#000" textAnchor="middle" fontWeight="bold">!</text>
                   </g>
                 )}
-                
+
                 <text
                   x={c.x} y={c.y + nameFontSize * 0.25}
                   fontSize={nameFontSize} textAnchor="middle" fill={heatmapMode && isLowConfidence ? "#b91c1c" : "#0f172a"}
@@ -1934,26 +2008,26 @@ const OCRLabelLayer = React.memo(({
                 >
                   {r.room_name}{heatmapMode && r.conf !== undefined ? ` (${Math.round(r.conf * 100)}%)` : ''}
                 </text>
-                
+
                 {/* Visual Status Indicators */}
                 {revStyle && (
-                  <circle 
-                    cx={c.x + pillW/2 - 6} 
-                    cy={c.y - nameFontSize*0.5 + 4} 
-                    r={4} 
-                    fill={revStyle.stroke} 
+                  <circle
+                    cx={c.x + pillW / 2 - 6}
+                    cy={c.y - nameFontSize * 0.5 + 4}
+                    r={4}
+                    fill={revStyle.stroke}
                     title={revStyle.label}
                   />
                 )}
                 {successId === r.id && (
-                  <text x={c.x + pillW/2 + 10} y={c.y} fill="#22c55e" fontSize={nameFontSize} fontWeight="bold">✓</text>
+                  <text x={c.x + pillW / 2 + 10} y={c.y} fill="#22c55e" fontSize={nameFontSize} fontWeight="bold">✓</text>
                 )}
-                
+
                 {areaText && (
                   <text
-                     x={c.x} y={c.y + nameFontSize * 0.25 + lineGap}
-                     fontSize={areaFontSize} textAnchor="middle" fill="#475569"
-                     fontFamily="Outfit, Inter, sans-serif" fontWeight="500"
+                    x={c.x} y={c.y + nameFontSize * 0.25 + lineGap}
+                    fontSize={areaFontSize} textAnchor="middle" fill="#475569"
+                    fontFamily="Outfit, Inter, sans-serif" fontWeight="500"
                   >
                     {areaText}
                   </text>
@@ -1968,7 +2042,7 @@ const OCRLabelLayer = React.memo(({
 }, (prev, next) => {
   return (
     prev.rooms === next.rooms &&
-    prev.showLayer === next.showLayer &&
+    prev.layerVisibility?.ocr === next.layerVisibility?.ocr &&
     prev.scaleValue === next.scaleValue &&
     prev.editingRoomId === next.editingRoomId &&
     prev.editValue === next.editValue &&
@@ -2007,7 +2081,7 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 
         x={rx} y={ry}
         width={roiRect.w} height={roiRect.h}
         fill="none" stroke="#3b82f6" strokeWidth={2.5 / scale}
-        strokeDasharray={`${8/scale} ${4/scale}`}
+        strokeDasharray={`${8 / scale} ${4 / scale}`}
         className="roi-marching-ants" pointerEvents="none"
       />
       {/* Glow border */}
@@ -2019,12 +2093,12 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 
       />
       {/* Size label */}
       <rect
-        x={rx} y={ry - 22/scale}
-        width={135/scale} height={18/scale}
-        rx={4/scale} fill="rgba(22,28,45,0.9)" pointerEvents="none"
+        x={rx} y={ry - 22 / scale}
+        width={135 / scale} height={18 / scale}
+        rx={4 / scale} fill="rgba(22,28,45,0.9)" pointerEvents="none"
       />
       <text
-        x={rx + 6/scale} y={ry - 8/scale}
+        x={rx + 6 / scale} y={ry - 8 / scale}
         fontSize={11 / scale} fill="#60a5fa" fontWeight="700" fontFamily="Inter, sans-serif"
         pointerEvents="none"
       >
@@ -2032,9 +2106,9 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 
       </text>
     </g>
   );
-}, (prev, next) => 
-  prev.roiRect === next.roiRect && 
-  prev.scale === next.scale && 
+}, (prev, next) =>
+  prev.roiRect === next.roiRect &&
+  prev.scale === next.scale &&
   prev.imgSize === next.imgSize &&
   prev.pdfOffset?.x === next.pdfOffset?.x &&
   prev.pdfOffset?.y === next.pdfOffset?.y
@@ -2147,6 +2221,7 @@ export default function CanvasView({
   rect,
   roiRect,
   selectedWallIds = [],
+  setSelectedWallIds,
   selectWall,
   cutPreviewPoint,
   interactionMode,
@@ -2161,6 +2236,7 @@ export default function CanvasView({
   currentPage,
   pages,
   handleClick,
+  handleRoomDoubleClick,
   checkAndResetIgnoreClick,
   finishPolygon,
   finishRoof,
@@ -2171,7 +2247,7 @@ export default function CanvasView({
   onWheel,
   startDrag,
   pushHistory,
-  showLayer,
+  layerVisibility = { floor: true, wall: true, door: true, ocr: true },
   updateDoor,
   deleteDoor,
   doorController,
@@ -2220,8 +2296,8 @@ export default function CanvasView({
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
-    return walls || [];
-  }, [walls]);
+    return layerVisibility?.wall === false ? [] : (walls || []);
+  }, [walls, layerVisibility]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -2286,7 +2362,7 @@ export default function CanvasView({
     const d = doorContextMenu.door;
     if (d && updateDoor) {
       const rotated = rotateDoorGeometry(d, -90);
-      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x)/2, y: (rotated.points[0].y + rotated.points[1].y)/2 });
+      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x) / 2, y: (rotated.points[0].y + rotated.points[1].y) / 2 });
       const newParent = findParentWall(centerPt, walls, 120);
       updateDoor({ ...rotated, parentWallId: newParent ? newParent.id : d.parentWallId });
     }
@@ -2296,7 +2372,7 @@ export default function CanvasView({
     const d = doorContextMenu.door;
     if (d && updateDoor) {
       const rotated = rotateDoorGeometry(d, 90);
-      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x)/2, y: (rotated.points[0].y + rotated.points[1].y)/2 });
+      const centerPt = rotated.centerPoint || (rotated.points && { x: (rotated.points[0].x + rotated.points[1].x) / 2, y: (rotated.points[0].y + rotated.points[1].y) / 2 });
       const newParent = findParentWall(centerPt, walls, 120);
       updateDoor({ ...rotated, parentWallId: newParent ? newParent.id : d.parentWallId });
     }
@@ -2333,7 +2409,7 @@ export default function CanvasView({
 
       const maskPoly = (d.polygon && d.polygon.length >= 3) ? d.polygon : (d.mask_polygon || []);
       if (maskPoly.length >= 3) {
-        const polyPoints = maskPoly.map(p => Array.isArray(p) ? {x: p[0], y: p[1]} : p);
+        const polyPoints = maskPoly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
         const n = polyPoints.length;
         const edges = [];
         for (let i = 0; i < n; i++) {
@@ -2378,7 +2454,7 @@ export default function CanvasView({
 
       if (e1 && e2) {
         const candidate = newIdx === 1 ? e2 : e1;
-        const centerPt = { x: (candidate.p1.x + candidate.p2.x)/2, y: (candidate.p1.y + candidate.p2.y)/2 };
+        const centerPt = { x: (candidate.p1.x + candidate.p2.x) / 2, y: (candidate.p1.y + candidate.p2.y) / 2 };
 
         let candidateWalls = walls;
         if (d.parentWallId) {
@@ -2414,7 +2490,7 @@ export default function CanvasView({
       const category = isExternal ? 'external' : 'internal';
       const newTypeId = resolveDoorTypeId(newClass, category);
       const doorDef = DOOR_TYPE_REGISTRY[newTypeId];
-      
+
       const updated = {
         ...d,
         class: newClass,
@@ -2505,7 +2581,7 @@ export default function CanvasView({
       setEditingRoomId(null);
       return;
     }
-    
+
     setIsSubmitting(true);
     try {
       const userStr = localStorage.getItem("user");
@@ -2575,35 +2651,35 @@ export default function CanvasView({
   const minimapInfo = useMemo(() => {
     const minimapMaxW = 150;
     const minimapMaxH = 120;
-    
+
     const aspect = imgSize.w / imgSize.h;
     let minimapW = minimapMaxW;
     let minimapH = minimapMaxW / aspect;
-    
+
     if (minimapH > minimapMaxH) {
       minimapH = minimapMaxH;
       minimapW = minimapMaxH * aspect;
     }
-    
+
     const scaleFactor = minimapW / imgSize.w;
-    
+
     // Viewport calculation in SVG/Image coordinate bounds
     const container = containerRef.current || { clientWidth: 800, clientHeight: 600 };
     const viewW = container.clientWidth || 800;
     const viewH = container.clientHeight || 600;
-    
+
     const viewImageLeft = -offset.x / scale;
     const viewImageTop = -offset.y / scale;
     const viewImageW = viewW / scale;
     const viewImageH = viewH / scale;
-    
+
     const minimapBox = {
       x: Math.max(0, viewImageLeft * scaleFactor),
       y: Math.max(0, viewImageTop * scaleFactor),
       w: Math.min(minimapW, viewImageW * scaleFactor),
       h: Math.min(minimapH, viewImageH * scaleFactor)
     };
-    
+
     return {
       w: minimapW,
       h: minimapH,
@@ -2617,16 +2693,16 @@ export default function CanvasView({
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
-    
+
     // Convert to Image coordinates
     const imgX = clickX / minimapInfo.scaleFactor;
     const imgY = clickY / minimapInfo.scaleFactor;
-    
+
     // Center viewport at this coordinate
     const container = containerRef.current || { clientWidth: 800, clientHeight: 600 };
     const viewW = container.clientWidth || 800;
     const viewH = container.clientHeight || 600;
-    
+
     setOffset({
       x: viewW / 2 - imgX * scale,
       y: viewH / 2 - imgY * scale
@@ -2777,10 +2853,10 @@ export default function CanvasView({
         onMouseUp={onMouseUp}
       >
         <style>{scanStyles}</style>
-        
+
         {/* Floating Glassmorphic PDF Toggle Button */}
         {image && (
-          <div 
+          <div
             className="glassmorphic"
             style={{
               position: "absolute",
@@ -2872,7 +2948,7 @@ export default function CanvasView({
           </div>
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
-        
+
         {/* Floating Dynamic Diagnostic ROI Panel (Requirement 10) */}
         {roiRect && (
           <div className="roi-debug-panel glassmorphic">
@@ -2899,12 +2975,12 @@ export default function CanvasView({
             </div>
             <div className="debug-status-indicator">
               <span className={`status-badge ${cacheStatus}`}>
-                {cacheStatus === "processing" ? "🤖 Processing" 
-                 : cacheStatus === "cached" ? "⚡ LRU Cache Hit" 
-                 : cacheStatus === "completed" ? "✓ Done" 
-                 : cacheStatus === "canceled" ? "🛑 Canceled" 
-                 : cacheStatus === "failed" ? "❌ Failed" 
-                 : "Idle"}
+                {cacheStatus === "processing" ? "🤖 Processing"
+                  : cacheStatus === "cached" ? "⚡ LRU Cache Hit"
+                    : cacheStatus === "completed" ? "✓ Done"
+                      : cacheStatus === "canceled" ? "🛑 Canceled"
+                        : cacheStatus === "failed" ? "❌ Failed"
+                          : "Idle"}
               </span>
               {inferenceTiming && <span className="metrics-badge">{inferenceTiming}</span>}
             </div>
@@ -2922,10 +2998,10 @@ export default function CanvasView({
                 Room {activeScanRoom.index + 1} of {activeScanRoom.total}
               </span>
             </div>
-            
+
             <div className="scanner-target-title">CURRENT OCR DETECTION</div>
             <div className="scanner-target-name">{activeScanRoom.name}</div>
-            
+
             <div className="scanner-candidates-label">OCR Candidates Match</div>
             <div className="scanner-candidates-list">
               {activeScanRoom.candidates && activeScanRoom.candidates.length > 0 ? (
@@ -2945,9 +3021,9 @@ export default function CanvasView({
             </div>
 
             <div className="scanner-bar-container">
-              <div 
-                className="scanner-bar-fill" 
-                style={{ width: `${((activeScanRoom.index + 1) / activeScanRoom.total) * 100}%` }} 
+              <div
+                className="scanner-bar-fill"
+                style={{ width: `${((activeScanRoom.index + 1) / activeScanRoom.total) * 100}%` }}
               />
             </div>
           </div>
@@ -2964,24 +3040,24 @@ export default function CanvasView({
                 {roiProgress}%
               </span>
             </div>
-            
+
             <div className="scanner-target-title">ACTIVE PIPELINE PROCESS</div>
             <div className="scanner-target-name" style={{ fontSize: '16px', background: 'linear-gradient(135deg, #a5b4fc 0%, #3b82f6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.4' }}>
               {cacheStatus === "processing" ? "Analyzing Architectural Drawings..." : cacheStatus}
             </div>
-            
+
             <div className="scanner-bar-container" style={{ marginTop: '14px', marginBottom: '14px' }}>
-              <div 
-                className="scanner-bar-fill" 
-                style={{ 
+              <div
+                className="scanner-bar-fill"
+                style={{
                   width: `${roiProgress}%`,
-                  background: 'linear-gradient(90deg, #6366f1, #3b82f6)' 
-                }} 
+                  background: 'linear-gradient(90deg, #6366f1, #3b82f6)'
+                }}
               />
             </div>
-            
+
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button 
+              <button
                 onClick={cancelROI}
                 style={{
                   background: 'rgba(239, 68, 68, 0.2)',
@@ -3016,7 +3092,7 @@ export default function CanvasView({
                       : isAddingPoint ? "crosshair"
                         : interactionMode === "draw-ext-rect" ? "crosshair"
                           : interactionMode === "align-pdf" ? "move"
-                          : "default"
+                            : "default"
           }}
           onClick={(e) => {
             if (editingRoomId) return;
@@ -3029,17 +3105,21 @@ export default function CanvasView({
               if (setSelectedType) setSelectedType(null);
             }
           }}
-          onDoubleClick={(e) => { 
+          onDoubleClick={(e) => {
             if (editingRoomId) return;
-            if (drawing) finishPolygon(); 
-            if (isDrawingRoof && finishRoof) finishRoof();
-            if (isDrawingDoor) finishDoor(); 
+            if (drawing) { finishPolygon(); return; }
+            if (isDrawingRoof && finishRoof) { finishRoof(); return; }
+            if (isDrawingDoor) { finishDoor(); return; }
             if (interactionMode === "draw-wall") {
               e.stopPropagation();
               if (setDrawingWall) setDrawingWall(null);
               if (setDrawingWallEnd) setDrawingWallEnd(null);
               if (setSelectedWallVertex) setSelectedWallVertex(null);
               if (setInteractionMode) setInteractionMode("select");
+              return;
+            }
+            if (handleRoomDoubleClick) {
+              handleRoomDoubleClick(e);
             }
           }}
           onMouseDown={(e) => {
@@ -3066,13 +3146,13 @@ export default function CanvasView({
           </defs>
           {/* Main Transformation Matrix */}
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
-            
+
             {/* Memoized Layer 1: Base Floor Image */}
             <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
 
             {/* Underlay Ghost Walls of Previous Page */}
             <UnderlayWallLayer walls={underlayWalls} />
-            
+
             {/* Snap Guides */}
             {(isShiftDown || isSnapMode) && currentMouse && (() => {
               let snapBase = null;
@@ -3154,15 +3234,15 @@ export default function CanvasView({
                 {currentPoly.length >= 2 && currentMouse && Math.hypot(
                   currentMouse.x - currentPoly[0].x, currentMouse.y - currentPoly[0].y
                 ) < 15 && (
-                  <circle
-                    cx={currentPoly[0].x}
-                    cy={currentPoly[0].y}
-                    r={10}
-                    fill="rgba(239,68,68,0.3)"
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                  />
-                )}
+                    <circle
+                      cx={currentPoly[0].x}
+                      cy={currentPoly[0].y}
+                      r={10}
+                      fill="rgba(239,68,68,0.3)"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                    />
+                  )}
                 {currentMouse && (
                   <circle
                     cx={currentMouse.x}
@@ -3369,12 +3449,12 @@ export default function CanvasView({
                 <line x1={pullStepPreview.w1[0][0]} y1={pullStepPreview.w1[0][1]} x2={pullStepPreview.w1[1][0]} y2={pullStepPreview.w1[1][1]} stroke="#ef4444" strokeWidth={2} strokeDasharray="5,3" />
                 <line x1={pullStepPreview.w_conn[0][0]} y1={pullStepPreview.w_conn[0][1]} x2={pullStepPreview.w_conn[1][0]} y2={pullStepPreview.w_conn[1][1]} stroke="#ef4444" strokeWidth={2} strokeDasharray="5,3" />
                 <line x1={pullStepPreview.w2[0][0]} y1={pullStepPreview.w2[0][1]} x2={pullStepPreview.w2[1][0]} y2={pullStepPreview.w2[1][1]} stroke="#ef4444" strokeWidth={2} strokeDasharray="5,3" />
-                
+
                 {/* 2. Thickness previews */}
                 <line x1={pullStepPreview.w1[0][0]} y1={pullStepPreview.w1[0][1]} x2={pullStepPreview.w1[1][0]} y2={pullStepPreview.w1[1][1]} stroke="#ef4444" strokeWidth={pullStepPreview.thickness} opacity={0.3} />
                 <line x1={pullStepPreview.w_conn[0][0]} y1={pullStepPreview.w_conn[0][1]} x2={pullStepPreview.w_conn[1][0]} y2={pullStepPreview.w_conn[1][1]} stroke="#ef4444" strokeWidth={pullStepPreview.thickness} opacity={0.3} />
                 <line x1={pullStepPreview.w2[0][0]} y1={pullStepPreview.w2[0][1]} x2={pullStepPreview.w2[1][0]} y2={pullStepPreview.w2[1][1]} stroke="#ef4444" strokeWidth={pullStepPreview.thickness} opacity={0.3} />
-                
+
                 {/* 3. Join handles */}
                 <circle cx={pullStepPreview.splitPt.x} cy={pullStepPreview.splitPt.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
                 <circle cx={pullStepPreview.newPt.x} cy={pullStepPreview.newPt.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
@@ -3409,127 +3489,154 @@ export default function CanvasView({
             )}
 
             {/* Memoized Layer 2: Room Polygons */}
-            <RoomPolygonLayer
-              rooms={rooms}
-              showLayer={showLayer}
-              scaleValue={scaleValue}
-              highlightType={highlightType}
-              selectedId={selectedId}
-              hoverId={hoverId}
-              setHoverId={setHoverId}
-              setSelectedId={setSelectedId}
-              setSelectedType={setSelectedType}
-              startDrag={startDrag}
-              dragging={dragging}
-              pushHistory={pushHistory}
-              drawing={drawing}
-              isMeasuring={isMeasuring}
-              isDistancing={isDistancing}
-              isAddingPoint={isAddingPoint}
-              getRoomStyle={getRoomStyle}
-              config={config}
-              heatmapMode={heatmapMode}
-              interactionMode={interactionMode}
-            />
+            {layerVisibility?.floor && (
+              <RoomPolygonLayer
+                rooms={rooms}
+                layerVisibility={layerVisibility}
+                scaleValue={scaleValue}
+                highlightType={highlightType}
+                selectedId={selectedId}
+                hoverId={hoverId}
+                setHoverId={setHoverId}
+                setSelectedId={setSelectedId}
+                setSelectedType={setSelectedType}
+                setSelectedWallIds={setSelectedWallIds}
+                startDrag={startDrag}
+                dragging={dragging}
+                pushHistory={pushHistory}
+                drawing={drawing}
+                isMeasuring={isMeasuring}
+                isDistancing={isDistancing}
+                isAddingPoint={isAddingPoint}
+                getRoomStyle={getRoomStyle}
+                config={config}
+                heatmapMode={heatmapMode}
+                interactionMode={interactionMode}
+                handleRoomDoubleClick={handleRoomDoubleClick}
+              />
+            )}
 
             {/* Memoized Layer 3: Wall Polygons */}
-            <WallLayer
-              walls={displayWalls}
-              showLayer={showLayer}
-              selectedId={selectedId}
-              selectedType={selectedType}
-              setSelectedId={setSelectedId}
-              setSelectedType={setSelectedType}
-              selectedWallIds={selectedWallIds}
-              selectWall={selectWall}
-              startDrag={startDrag}
-              dragging={dragging}
-              hoverId={hoverId}
-              setHoverId={setHoverId}
-              interactionMode={interactionMode}
-              selectedWallVertex={selectedWallVertex}
-              setSelectedWallVertex={setSelectedWallVertex}
-              onWallContextMenu={handleWallContextMenu}
-              onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
-              selectedVertices={selectedVertices}
-              setSelectedVertices={setSelectedVertices}
-              startVertexMove={startVertexMove}
-              handleWallDoubleClick={handleWallDoubleClick}
-              onMouseUp={onMouseUp}
-              drawing={drawing}
-              isDrawingDoor={isDrawingDoor}
-              isMeasuring={isMeasuring}
-              isDistancing={isDistancing}
-            />
+            {layerVisibility?.wall && (
+              <WallLayer
+                walls={displayWalls}
+                layerVisibility={layerVisibility}
+                selectedId={selectedId}
+                selectedType={selectedType}
+                setSelectedId={setSelectedId}
+                setSelectedType={setSelectedType}
+                selectedWallIds={selectedWallIds}
+                selectWall={selectWall}
+                startDrag={startDrag}
+                dragging={dragging}
+                hoverId={hoverId}
+                setHoverId={setHoverId}
+                interactionMode={interactionMode}
+                selectedWallVertex={selectedWallVertex}
+                setSelectedWallVertex={setSelectedWallVertex}
+                onWallContextMenu={handleWallContextMenu}
+                onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
+                selectedVertices={selectedVertices}
+                setSelectedVertices={setSelectedVertices}
+                startVertexMove={startVertexMove}
+                handleWallDoubleClick={handleWallDoubleClick}
+                onMouseUp={onMouseUp}
+                drawing={drawing}
+                isDrawingDoor={isDrawingDoor}
+                isMeasuring={isMeasuring}
+                isDistancing={isDistancing}
+              />
+            )}
 
             {/* Memoized Layer 4: Doors */}
-            <DoorLayer
-              walls={walls}
-              doors={doors}
-              showLayer={showLayer}
-              selectedId={selectedId}
-              selectedType={selectedType}
-              realScale={realScale}
-              drawing={drawing}
-              isDrawingDoor={isDrawingDoor}
-              isMeasuring={isMeasuring}
-              isDistancing={isDistancing}
-              setSelectedId={setSelectedId}
-              setSelectedType={setSelectedType}
-              startDrag={startDrag}
-              updateDoor={updateDoor}
-              dragging={dragging}
-              hoverId={hoverId}
-              setHoverId={setHoverId}
-              onDoorContextMenu={handleDoorContextMenu}
-              interactionMode={interactionMode}
-              onEditDoor={(door) => setDoorEditDialog({ visible: true, door })}
-              checkAndResetIgnoreClick={checkAndResetIgnoreClick}
-            />
+            {layerVisibility?.door && (
+              <DoorLayer
+                walls={walls}
+                doors={doors}
+                layerVisibility={layerVisibility}
+                selectedId={selectedId}
+                selectedType={selectedType}
+                realScale={realScale}
+                drawing={drawing}
+                isDrawingDoor={isDrawingDoor}
+                isMeasuring={isMeasuring}
+                isDistancing={isDistancing}
+                setSelectedId={setSelectedId}
+                setSelectedType={setSelectedType}
+                startDrag={startDrag}
+                updateDoor={updateDoor}
+                dragging={dragging}
+                hoverId={hoverId}
+                setHoverId={setHoverId}
+                onDoorContextMenu={handleDoorContextMenu}
+                interactionMode={interactionMode}
+                onEditDoor={(door) => setDoorEditDialog({ visible: true, door })}
+                checkAndResetIgnoreClick={checkAndResetIgnoreClick}
+              />
+            )}
 
             {/* Memoized Layer 4.5: Wall Handles (Rendered on top of doors for easy dragging) */}
-            <WallHandlesLayer
-              walls={walls}
-              doors={doors}
-              selectedId={selectedId}
-              selectedWallIds={selectedWallIds}
-              selectedWallVertex={selectedWallVertex}
-              setSelectedWallVertex={setSelectedWallVertex}
-              selectedVertices={selectedVertices}
-              setSelectedVertices={setSelectedVertices}
-              dragging={dragging}
-              startDrag={startDrag}
-              startVertexMove={startVertexMove}
-              onMouseUp={onMouseUp}
-              onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
-              interactionMode={interactionMode}
-              hoverId={hoverId}
-            />
+            {layerVisibility?.wall && (
+              <WallHandlesLayer
+                walls={displayWalls}
+                doors={doors}
+                layerVisibility={layerVisibility}
+                selectedId={selectedId}
+                selectedWallIds={selectedWallIds}
+                selectedWallVertex={selectedWallVertex}
+                setSelectedWallVertex={setSelectedWallVertex}
+                selectedVertices={selectedVertices}
+                setSelectedVertices={setSelectedVertices}
+                dragging={dragging}
+                startDrag={startDrag}
+                startVertexMove={startVertexMove}
+                onMouseUp={onMouseUp}
+                onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
+                interactionMode={interactionMode}
+                hoverId={hoverId}
+              />
+            )}
 
             {/* Memoized Layer 5: OCR Text Labels */}
-            <OCRLabelLayer
-              rooms={rooms}
-              showLayer={showLayer}
-              scaleValue={scaleValue}
-              editingRoomId={editingRoomId}
-              editValue={editValue}
-              applyGlobal={applyGlobal}
-              isSubmitting={isSubmitting}
-              successId={successId}
-              setEditingRoomId={setEditingRoomId}
-              setEditValue={setEditValue}
-              setApplyGlobal={setApplyGlobal}
-              handleEditSubmit={handleEditSubmit}
-              stopEvent={stopEvent}
-              drawing={drawing}
-              isMeasuring={isMeasuring}
-              isDrawingDoor={isDrawingDoor}
-              isDistancing={isDistancing}
-              config={config}
-              heatmapMode={heatmapMode}
-              selectedId={selectedId}
-              pushHistory={pushHistory}
-            />
+            {layerVisibility?.ocr && (
+              <OCRLabelLayer
+                rooms={rooms}
+                layerVisibility={layerVisibility}
+                scaleValue={scaleValue}
+                editingRoomId={editingRoomId}
+                editValue={editValue}
+                applyGlobal={applyGlobal}
+                isSubmitting={isSubmitting}
+                successId={successId}
+                setEditingRoomId={setEditingRoomId}
+                setEditValue={setEditValue}
+                setApplyGlobal={setApplyGlobal}
+                handleEditSubmit={handleEditSubmit}
+                stopEvent={stopEvent}
+                drawing={drawing}
+                isMeasuring={isMeasuring}
+                isDrawingDoor={isDrawingDoor}
+                isDistancing={isDistancing}
+                config={config}
+                heatmapMode={heatmapMode}
+                selectedId={selectedId}
+                pushHistory={pushHistory}
+              />
+            )}
+
+            {/* Memoized Layer 6: Top Z-Index Room Handles (Rendered above all rooms, walls & text to guarantee smooth editing) */}
+            {layerVisibility?.floor && (
+              <RoomHandlesLayer
+                rooms={rooms}
+                layerVisibility={layerVisibility}
+                selectedId={selectedId}
+                selectedType={selectedType}
+                startDrag={startDrag}
+                dragging={dragging}
+                pushHistory={pushHistory}
+                getRoomStyle={getRoomStyle}
+              />
+            )}
 
             {/* Measuring Preview */}
             {isMeasuring && measurePoints.length === 1 && (
@@ -3576,7 +3683,7 @@ export default function CanvasView({
               const d2 = seg.dimP2 || seg.p2;
               const isHov = hoveredDistIdx === idx;
               const color = isHov ? '#ff7043' : '#00e5ff';
-              
+
               const ddx = d2.x - d1.x, ddy = d2.y - d1.y;
               const dlen = Math.hypot(ddx, ddy) || 1;
               const ux = ddx / dlen, uy = ddy / dlen;
@@ -3601,7 +3708,7 @@ export default function CanvasView({
               const label = seg.distMm >= 1000
                 ? `${(seg.distMm / 1000).toFixed(3)} m`
                 : `${seg.distMm.toFixed(0)} mm`;
-              
+
               const angDeg = Math.atan2(ddy, ddx) * 180 / Math.PI;
               const textAng = angDeg > 90 || angDeg < -90 ? angDeg + 180 : angDeg;
               const lblOffX = nx * 9, lblOffY = ny * 9;
@@ -3644,23 +3751,14 @@ export default function CanvasView({
             })}
 
             {/* Add Point Ghost Preview */}
-            {isAddingPoint && currentMouse && (() => {
-              let bestDist = Infinity;
-              let bestProj = null;
-              for (let r of rooms) {
-                for (let i = 0; i < r.polygon.length; i++) {
-                  const proj = distancePointToSegment(currentMouse, r.polygon[i], r.polygon[(i + 1) % r.polygon.length]);
-                  if (proj.dist < bestDist) {
-                    bestDist = proj.dist;
-                    bestProj = proj;
-                  }
-                }
-              }
-              if (bestProj && bestDist < 30) {
+            {isAddingPoint && currentMouse && layerVisibility?.floor !== false && selectedType !== "wall" && (() => {
+              const match = findBestRoomInsertionPoint(currentMouse, rooms, selectedType === "room" ? selectedId : null, ADD_POINT_SNAP_DISTANCE);
+              if (match && match.snappedPoint) {
+                const { x, y } = match.snappedPoint;
                 return (
                   <g pointerEvents="none">
-                    <circle cx={bestProj.x} cy={bestProj.y} r={6} fill="rgba(99,102,241,0.4)" stroke="#6366f1" strokeDasharray="2,1" />
-                    <circle cx={bestProj.x} cy={bestProj.y} r={2} fill="#6366f1" />
+                    <circle cx={x} cy={y} r={7} fill="rgba(99,102,241,0.35)" stroke="#6366f1" strokeWidth={2} strokeDasharray="3,2" />
+                    <circle cx={x} cy={y} r={2.5} fill="#3b82f6" />
                   </g>
                 );
               }
@@ -3723,13 +3821,13 @@ export default function CanvasView({
                   fill={rect.isMarquee ? "rgba(16, 185, 129, 0.05)" : "rgba(59,130,246,0.08)"}
                   stroke={rect.isMarquee ? "#10b981" : "#3b82f6"}
                   strokeWidth={2 / scale}
-                  strokeDasharray={`${6/scale} ${3/scale}`}
+                  strokeDasharray={`${6 / scale} ${3 / scale}`}
                   className="roi-marching-ants"
                 />
                 {!rect.isMarquee && (
                   <text
                     x={Math.min(rect.x1, rect.x2)}
-                    y={Math.min(rect.y1, rect.y2) - 6/scale}
+                    y={Math.min(rect.y1, rect.y2) - 6 / scale}
                     fontSize={11 / scale} fill="#3b82f6" fontWeight="700" fontFamily="Inter, sans-serif"
                   >
                     {Math.round(Math.abs(rect.x2 - rect.x1))}×{Math.round(Math.abs(rect.y2 - rect.y1))}px
@@ -3741,22 +3839,22 @@ export default function CanvasView({
             {/* Smart Search Results Highlights Layer (Requirement 6) */}
             {searchResultsVisible && searchResults && searchResults.map((match, idx) => {
               if (match.page !== currentPage) return null;
-              
+
               const [x1, y1, x2, y2] = match.bbox;
               const width = x2 - x1;
               const height = y2 - y1;
-              
+
               const isHovered = idx === hoveredSearchResultId;
               const score = match.similarity ? Math.round(match.similarity * 100) : 100;
-              
+
               // Colors matching requirements: strict/green, balanced/yellow, loose/orange
               let color = "#fbbf24"; // yellow match
               if (score >= 95) color = "#10b981"; // green exact match
               else if (score < 85) color = "#f97316"; // orange/low confidence
-              
+
               return (
                 <g key={`search-match-highlight-${idx}`} style={{ cursor: "pointer" }}
-                   onClick={() => zoomToBbox(match.page, match.bbox)}>
+                  onClick={() => zoomToBbox(match.page, match.bbox)}>
                   {/* Bounding Box Outline */}
                   <rect
                     x={x1}
@@ -3770,7 +3868,7 @@ export default function CanvasView({
                     filter={isHovered ? "url(#glow)" : undefined}
                     style={{ transition: "all 0.15s ease" }}
                   />
-                  
+
                   {/* Badge showing Class and Score */}
                   <g transform={`translate(${x1}, ${y1 - 6 / scale})`}>
                     <rect
@@ -4012,7 +4110,7 @@ export default function CanvasView({
               return (
                 <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
                   <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} strokeDasharray="3,3" />
-                  <path 
+                  <path
                     d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
                     fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2"
                   />
@@ -4040,10 +4138,10 @@ export default function CanvasView({
               }
 
               // Use current doorPreview class/type if available
-              const doorClass = doorController?.doorPreview?.class || 
-                                doorController?.doorPreset?.class || 
-                                doorController?.doorPreset?.renderClass || 
-                                'single_door';
+              const doorClass = doorController?.doorPreview?.class ||
+                doorController?.doorPreset?.class ||
+                doorController?.doorPreset?.renderClass ||
+                'single_door';
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
               const isDouble = doorClass.includes('double');
               const isWindow = doorClass.includes('window');
@@ -4178,7 +4276,7 @@ export default function CanvasView({
               return (
                 <g style={{ pointerEvents: 'none' }}>
                   <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.5} strokeDasharray="3,3" />
-                  <path 
+                  <path
                     d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
                     fill="none" stroke="#2196F3" strokeWidth={1.5} strokeDasharray="3,2"
                   />
@@ -4196,7 +4294,7 @@ export default function CanvasView({
         {image && (
           <div className="cad-minimap glassmorphic" onClick={handleMinimapInteraction}>
             <div className="minimap-title">🗺 MINIMAP</div>
-            <div 
+            <div
               className="minimap-canvas-wrapper"
               style={{
                 width: minimapInfo.w,
@@ -4208,9 +4306,9 @@ export default function CanvasView({
                 overflow: "hidden"
               }}
             >
-              <img 
-                src={image} 
-                alt="" 
+              <img
+                src={image}
+                alt=""
                 style={{
                   width: "100%",
                   height: "100%",
@@ -4218,11 +4316,11 @@ export default function CanvasView({
                   opacity: 0.45,
                   pointerEvents: "none",
                   userSelect: "none"
-                }} 
+                }}
               />
               {/* ROI bounding overlay on minimap */}
               {roiRect && (
-                <div 
+                <div
                   style={{
                     position: "absolute",
                     left: roiRect.x * minimapInfo.scaleFactor,
@@ -4239,7 +4337,7 @@ export default function CanvasView({
               {rooms.filter(r => r.conf < 0.5 || r.correction_source === "low_confidence").map(r => {
                 const c = centroid(r.polygon);
                 return (
-                  <div 
+                  <div
                     key={`hotspot-${r.id}`}
                     className="minimap-hotspot pulsing"
                     style={{
@@ -4256,7 +4354,7 @@ export default function CanvasView({
                 );
               })}
               {/* Viewport rectangle (Requirement 3) */}
-              <div 
+              <div
                 style={{
                   position: "absolute",
                   left: minimapInfo.box.x,
@@ -4275,7 +4373,7 @@ export default function CanvasView({
         )}
 
         {/* Temporary Developer Debug Panel (Requirement 4) */}
-        {selectedId && selectedType === "room" && (() => {
+        {/* {selectedId && selectedType === "room" && (() => {
           const r = rooms.find(room => room.id === selectedId);
           if (!r) return null;
           return (
@@ -4292,16 +4390,16 @@ export default function CanvasView({
               <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 6 }}>
                 <span style={{ color: "#94a3b8" }}>Polygon Conf:</span>
                 <span style={{ color: r.conf > 0.6 ? "#4ade80" : "#f87171" }}>{r.conf ? r.conf.toFixed(3) : "N/A"}</span>
-                
+
                 <span style={{ color: "#94a3b8" }}>OCR Source:</span>
                 <span>{r.room_name_source || "AutoAI"}</span>
-                
+
                 <span style={{ color: "#94a3b8" }}>Class / Type:</span>
                 <span>{r.room_class || "N/A"}</span>
-                
+
                 <span style={{ color: "#94a3b8" }}>Wet/Dry Zone:</span>
                 <span><strong style={{ color: r.wetness === "wet" ? "#f87171" : "#38bdf8" }}>{r.wetness || r.type || "dry"}</strong></span>
-                
+
                 <span style={{ color: "#94a3b8" }}>BIM Vertex:</span>
                 <span>{r.polygon?.length} pts</span>
 
@@ -4327,7 +4425,7 @@ export default function CanvasView({
               </div>
             </div>
           );
-        })()}
+        })()} */}
 
         {/* ===== STATUS BAR ===== */}
         <div className="cad-statusbar">

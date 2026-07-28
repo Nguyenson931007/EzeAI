@@ -208,7 +208,12 @@ export default function App() {
   const [highlightType, setHighlightType] = useState(null);
   const [showBOQ, setShowBOQ] = useState(false);
   const [show3D, setShow3D] = useState(false);
-  const [showLayer, setShowLayer] = useState("all"); // 'all', 'floor'
+  const [layerVisibility, setLayerVisibility] = useState({
+    floor: true,
+    wall: true,
+    door: true,
+    ocr: true,
+  });
   const [showExportPageSelector, setShowExportPageSelector] = useState(false);
   const [exportSelectedPages, setExportSelectedPages] = useState([]);
   const [showImportPageSelector, setShowImportPageSelector] = useState(false);
@@ -260,7 +265,7 @@ export default function App() {
     selectedId, setSelectedId,
     selectedType, setSelectedType,
     selectedPointIndex,
-    selectedWallIds,
+    selectedWallIds, setSelectedWallIds,
     cutPreviewPoint,
     selectWall,
     deleteWalls,
@@ -269,7 +274,7 @@ export default function App() {
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
-    handleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
+    handleClick, handleRoomDoubleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -293,7 +298,7 @@ export default function App() {
     selectedVertices,
     setSelectedVertices,
     startVertexMove
-  } = useInteractionController(svgRef);
+  } = useInteractionController(svgRef, layerVisibility);
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -326,6 +331,27 @@ export default function App() {
 
 
 
+
+  // Tự động reset selectedId/selectedType khi layer tương ứng bị tắt
+  useEffect(() => {
+    if (!layerVisibility.wall) {
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (selectedType === "wall") {
+        setSelectedId(null);
+        setSelectedType(null);
+      }
+    }
+    if (!layerVisibility.floor && selectedType === "room") {
+      setSelectedId(null);
+      setSelectedType(null);
+    }
+    if (!layerVisibility.door && selectedType === "door") {
+      setSelectedId(null);
+      setSelectedType(null);
+    }
+    if (setHoverId) setHoverId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layerVisibility]);
 
   // Thêm door_name (D-1, D-2) và page_index tự động cho các cửa để hiển thị đồng nhất và liên kết với tầng chính xác
   const processedDoorsByPage = useMemo(() => {
@@ -726,7 +752,7 @@ export default function App() {
         cancelROI={cancelROI}
         showBOQ={showBOQ} setShowBOQ={setShowBOQ}
         show3D={show3D} setShow3D={setShow3D}
-        showLayer={showLayer} setShowLayer={setShowLayer}
+        layerVisibility={layerVisibility} setLayerVisibility={setLayerVisibility}
         handleLogout={handleLogout}
         handleSaveJob={handleSaveJob}
         undo={undo} redo={redo}
@@ -872,13 +898,14 @@ export default function App() {
               setSelectedType={setSelectedType}
               selectedPointIndex={selectedPointIndex}
               selectedWallIds={selectedWallIds}
+              setSelectedWallIds={setSelectedWallIds}
               selectWall={selectWall}
               cutPreviewPoint={cutPreviewPoint}
               interactionMode={interactionMode}
               setInteractionMode={setInteractionMode}
               hoverId={hoverId}
               setHoverId={setHoverId}
-              showLayer={showLayer}
+              layerVisibility={layerVisibility}
               isPanning={isPanning}
               isDistancing={isDistancing}
               isMeasuring={isMeasuring}
@@ -909,6 +936,7 @@ export default function App() {
               currentPage={currentPage}
               pages={pages}
               handleClick={handleClick}
+              handleRoomDoubleClick={handleRoomDoubleClick}
               finishPolygon={finishPolygon}
               finishRoof={finishRoof}
               finishDoor={finishDoor}
