@@ -1067,7 +1067,7 @@ function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
  * Snaps room polygon vertices to surrounding wall centerlines (INT) or outer faces (EXT),
  * then simplifies collinear T-junction vertices and aligns orthogonal edges.
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapMode = 'interior') {
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 28, snapMode = 'interior') {
   if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
     return roomPolygon;
   }
@@ -1109,9 +1109,9 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
 
   if (segments.length === 0) return roomPolygon;
 
-  const maxMargin = tolerance + 30;
+  const maxMargin = tolerance + 35;
   const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
-  const endCapTol = 10;
+  const endCapTol = 30;
 
   const snappedPts = normalizedPoly.map(pt => {
     let curX = pt.x;
