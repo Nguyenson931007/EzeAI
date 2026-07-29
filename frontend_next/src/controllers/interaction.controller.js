@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex, ADD_POINT_SNAP_DISTANCE, findBestRoomInsertionPoint, snapRoomPolygonToWalls } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex, ADD_POINT_SNAP_DISTANCE, findBestRoomInsertionPoint, snapRoomPolygonToWalls, recalculateRoomsFromWallTopology } from "@/utils/geometry";
 import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
@@ -3044,20 +3044,12 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             [currentPage]: junctionCleanedWalls
           }));
           const currentRooms = roomsByPage[currentPage] || [];
-          if (currentRooms.length > 0) {
-            const reSnappedRooms = currentRooms.map(r => {
-              if (!r.polygon || r.polygon.length < 3) return r;
-              return {
-                ...r,
-                polygon: snapRoomPolygonToWalls(r.polygon, junctionCleanedWalls, 25)
-              };
-            });
-            setRoomsByPage(prev => ({
-              ...prev,
-              [currentPage]: reSnappedRooms
-            }));
-            pushHistory(reSnappedRooms, junctionCleanedWalls, updatedDoors);
-          } else {
+          const recalculatedRooms = recalculateRoomsFromWallTopology(currentRooms, junctionCleanedWalls);
+          setRoomsByPage(prev => ({
+            ...prev,
+            [currentPage]: recalculatedRooms
+          }));
+          pushHistory(recalculatedRooms, junctionCleanedWalls, updatedDoors);
             pushHistory(null, junctionCleanedWalls, updatedDoors);
           }
         }

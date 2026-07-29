@@ -939,6 +939,94 @@ export function extractRoomsFromWallTopology(walls, snapDist = 25, minWallsPerRo
 }
 
 /**
+ * Synchronizes room polygons with the current wall graph topology.
+ * When walls are drawn, edited, split, or moved:
+ *   - For each existing room, finds the enclosing CAD wall topology face.
+ *   - Updates existing room polygon with the clean CAD wall boundary.
+ *   - If a wall split an existing room into multiple enclosed spaces, creates new room(s) for the extra space(s).
+ */
+export function recalculateRoomsFromWallTopology(existingRooms, walls) {
+  if (!walls || walls.length < 3) return existingRooms || [];
+  const topoRooms = extractRoomsFromWallTopology(walls, 30, 3);
+  if (!topoRooms || topoRooms.length === 0) {
+    if (!existingRooms) return [];
+    return existingRooms.map(r => ({
+      ...r,
+      polygon: snapRoomPolygonToWalls(r.polygon, walls, 25)
+    }));
+  }
+
+  const updatedRooms = [];
+  const matchedTopoIds = new Set();
+  const safeExisting = Array.isArray(existingRooms) ? existingRooms : [];
+
+  // Match existing rooms to extracted topology faces by centroid/point-in-polygon
+  for (const existing of safeExisting) {
+    if (!existing.polygon || existing.polygon.length < 3) {
+      updatedRooms.push(existing);
+      continue;
+    }
+
+    const c = centroid(existing.polygon);
+    let bestTopo = null;
+    let bestDist = Infinity;
+
+    for (const topo of topoRooms) {
+      if (!topo.polygon || topo.polygon.length < 3) continue;
+      const isInside = pointInPolygon(c, topo.polygon);
+      const topoCentroid = centroid(topo.polygon);
+      const dist = Math.hypot(c.x - topoCentroid.x, c.y - topoCentroid.y);
+
+      if (isInside) {
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestTopo = topo;
+        }
+      } else if (dist < 80 && dist < bestDist) {
+        bestDist = dist;
+        bestTopo = topo;
+      }
+    }
+
+    if (bestTopo) {
+      matchedTopoIds.add(bestTopo.id);
+      updatedRooms.push({
+        ...existing,
+        polygon: bestTopo.polygon
+      });
+    } else {
+      // Fallback to snapping existing polygon if no topology face matched
+      updatedRooms.push({
+        ...existing,
+        polygon: snapRoomPolygonToWalls(existing.polygon, walls, 25)
+      });
+    }
+  }
+
+  // Create new rooms for any newly enclosed spaces (e.g. when drawing a wall to split a room)
+  let newRoomCount = 1;
+  for (const topo of topoRooms) {
+    if (!matchedTopoIds.has(topo.id)) {
+      const existingNames = new Set(updatedRooms.map(r => (r.room_name || '').toUpperCase()));
+      let name = `ROOM ${safeExisting.length + newRoomCount}`;
+      while (existingNames.has(name.toUpperCase())) {
+        newRoomCount++;
+        name = `ROOM ${safeExisting.length + newRoomCount}`;
+      }
+
+      updatedRooms.push({
+        ...topo,
+        id: `room-split-${Date.now()}-${newRoomCount}`,
+        room_name: name
+      });
+      newRoomCount++;
+    }
+  }
+
+  return updatedRooms;
+}
+
+/**
  * Raw polygon area (signed) using Shoelace formula.
  * Positive = CCW, Negative = CW.
  */

@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType, recalculateRoomsFromWallTopology } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
@@ -1298,47 +1298,15 @@ export const useAIController = (
         // Step 3b: Wall Topology Room Extraction
         if (detectedWalls.length >= 4) {
           try {
-            const topoRooms = extractRoomsFromWallTopology(detectedWalls);
-            console.log(`[Smart AI] Wall topology found ${topoRooms.length} enclosed regions`);
-
-            if (topoRooms.length > 0) {
-              // Filter topology rooms that don't overlap with YOLO rooms
-              const IOU_THRESHOLD = 0.3;
-              const newTopoRooms = topoRooms.filter(tRoom => {
-                const tPoly = tRoom.polygon;
-                for (const yRoom of yoloRooms) {
-                  const yPoly = yRoom.polygon || yRoom.points;
-                  if (yPoly && _bboxIoU(tPoly, yPoly) >= IOU_THRESHOLD) {
-                    return false; // Already covered by YOLO
-                  }
-                }
-                return true;
-              });
-
-              if (newTopoRooms.length > 0) {
-                console.log(`[Smart AI] Adding ${newTopoRooms.length} topology rooms not covered by YOLO`);
-                const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : []);
-                const snappedRooms = newTopoRooms.map(r => {
-                  if (r.polygon) {
-                    return {
-                      ...r,
-                      polygon: snapRoomPolygonToWalls(r.polygon, currentWalls, 15)
-                    };
-                  }
-                  return r;
-                });
-                setRoomsByPage(prev => ({
-                  ...prev,
-                  [currentPage]: [
-                    ...(prev[currentPage] || []),
-                    ...snappedRooms.map(r => ({
-                      ...r,
-                      correction_source: 'WALL_TOPOLOGY'
-                    }))
-                  ]
-                }));
-              }
-            }
+            const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : []);
+            setRoomsByPage(prev => {
+              const currentRooms = prev[currentPage] || yoloRooms;
+              const recalculated = recalculateRoomsFromWallTopology(currentRooms, currentWalls);
+              return {
+                ...prev,
+                [currentPage]: recalculated
+              };
+            });
           } catch (topoErr) {
             console.warn('[Smart AI] Wall topology extraction failed:', topoErr);
           }
