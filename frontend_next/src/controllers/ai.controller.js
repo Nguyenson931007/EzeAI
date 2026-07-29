@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType, recalculateRoomsFromWallTopology } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
@@ -1299,14 +1299,15 @@ export const useAIController = (
         if (detectedWalls.length >= 4) {
           try {
             const currentWalls = detectedWalls.length > 0 ? detectedWalls : (wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : []);
-            setRoomsByPage(prev => {
-              const currentRooms = prev[currentPage] || yoloRooms;
-              const recalculated = recalculateRoomsFromWallTopology(currentRooms, currentWalls);
-              return {
+            const topoRooms = extractRoomsFromWallTopology(currentWalls, 30, 3);
+            if (topoRooms && topoRooms.length > 0) {
+              const currentRooms = (roomsByPageRef.current && roomsByPageRef.current[currentPage]) || yoloRooms;
+              const merged = _mergeDetectedRooms(currentRooms, topoRooms);
+              setRoomsByPage(prev => ({
                 ...prev,
-                [currentPage]: recalculated
-              };
-            });
+                [currentPage]: merged
+              }));
+            }
           } catch (topoErr) {
             console.warn('[Smart AI] Wall topology extraction failed:', topoErr);
           }
