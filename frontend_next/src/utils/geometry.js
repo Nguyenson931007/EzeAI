@@ -1112,6 +1112,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
   if (segments.length === 0) return roomPolygon;
 
   const maxMargin = tolerance + 40;
+  const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
   const capTol = 50;
 
   const snappedPts = normalizedPoly.map(pt => {
