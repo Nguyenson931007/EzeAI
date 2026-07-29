@@ -968,10 +968,10 @@ function perpDistToLine(P, A, B) {
  * Simplifies a polygon by removing collinear or near-collinear redundant vertices
  * (including T-junction points along straight walls), while 100% preserving true room corners.
  */
-export function simplifyCollinearVertices(polygon, distThresh = 2.0) {
+export function simplifyCollinearVertices(polygon, distThresh = 3.5) {
   if (!polygon || polygon.length <= 4) return polygon;
 
-  let pts = polygon.map(p => ({ ..._getCoord(p), userAdded: Boolean(p.userAdded) }));
+  let pts = polygon.map(p => _getCoord(p));
   let changed = true;
   let maxIter = 10;
   let iter = 0;
@@ -987,12 +987,6 @@ export function simplifyCollinearVertices(polygon, distThresh = 2.0) {
       const curr = pts[i];
       const next = pts[(i + 1) % n];
 
-      // Never remove user-added vertices
-      if (curr.userAdded) {
-        newPts.push(curr);
-        continue;
-      }
-
       const ux = prev.x - curr.x;
       const uy = prev.y - curr.y;
       const vx = next.x - curr.x;
@@ -1005,10 +999,8 @@ export function simplifyCollinearVertices(polygon, distThresh = 2.0) {
         continue;
       }
 
-      // Only simplify if 3 consecutive vertices are strictly 100% collinear (angle ≈ 180°).
-      // NEVER remove direction-changing vertices (L-corners, Z-corners, recesses, step offsets).
       const cosAngle = (ux * vx + uy * vy) / (lenU * lenV);
-      const isCollinearAngle = cosAngle < -0.998;
+      const isCollinearAngle = cosAngle < -0.95 || cosAngle > 0.95;
 
       const dist = perpDistToLine(curr, prev, next);
       if (isCollinearAngle && dist < distThresh) {
@@ -1031,27 +1023,25 @@ export function simplifyCollinearVertices(polygon, distThresh = 2.0) {
 /**
  * Helper: Force near-orthogonal edges to be 100% horizontal or vertical
  */
-function alignOrthogonalEdges(poly, thresh = 20.0) {
+function alignOrthogonalEdges(poly, thresh = 15.0) {
   if (!poly || poly.length < 3) return poly;
   const pts = poly.map(p => ({ ...p }));
   const n = pts.length;
-  for (let pass = 0; pass < 2; pass++) {
-    for (let i = 0; i < n; i++) {
-      const nextIdx = (i + 1) % n;
-      const p1 = pts[i];
-      const p2 = pts[nextIdx];
-      const dx = Math.abs(p2.x - p1.x);
-      const dy = Math.abs(p2.y - p1.y);
+  for (let i = 0; i < n; i++) {
+    const nextIdx = (i + 1) % n;
+    const p1 = pts[i];
+    const p2 = pts[nextIdx];
+    const dx = Math.abs(p2.x - p1.x);
+    const dy = Math.abs(p2.y - p1.y);
 
-      if (dy < thresh && dx > dy) {
-        const avgY = Math.round(((p1.y + p2.y) / 2) * 10) / 10;
-        p1.y = avgY;
-        p2.y = avgY;
-      } else if (dx < thresh && dy > dx) {
-        const avgX = Math.round(((p1.x + p2.x) / 2) * 10) / 10;
-        p1.x = avgX;
-        p2.x = avgX;
-      }
+    if (dy < thresh && dx > dy) {
+      const avgY = Math.round(((p1.y + p2.y) / 2) * 10) / 10;
+      p1.y = avgY;
+      p2.y = avgY;
+    } else if (dx < thresh && dy > dx) {
+      const avgX = Math.round(((p1.x + p2.x) / 2) * 10) / 10;
+      p1.x = avgX;
+      p2.x = avgX;
     }
   }
   return pts;
@@ -1077,7 +1067,7 @@ function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
  * Snaps room polygon vertices to surrounding wall centerlines (INT) or outer faces (EXT),
  * then simplifies collinear T-junction vertices and aligns orthogonal edges.
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapMode = 'interior') {
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapMode = 'interior') {
   if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
     return roomPolygon;
   }
@@ -1119,9 +1109,9 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
 
   if (segments.length === 0) return roomPolygon;
 
-  const maxMargin = tolerance + 40;
+  const maxMargin = tolerance + 30;
   const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
-  const capTol = 50;
+  const endCapTol = 10;
 
   const snappedPts = normalizedPoly.map(pt => {
     let curX = pt.x;
@@ -1142,8 +1132,8 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
         const targetY = faceMode === 'outer' ? (cy < wallY ? (wallY + halfThick) : (wallY - halfThick)) : wallY;
         const dy = Math.abs(pt.y - targetY);
         
-        const minX = Math.min(seg.p1.x, seg.p2.x) - capTol;
-        const maxX = Math.max(seg.p1.x, seg.p2.x) + capTol;
+        const minX = Math.max(polyMinX - maxMargin, Math.min(seg.p1.x, seg.p2.x) - endCapTol);
+        const maxX = Math.min(polyMaxX + maxMargin, Math.max(seg.p1.x, seg.p2.x) + endCapTol);
         
         if (dy < bestDistH && pt.x >= minX && pt.x <= maxX) {
           bestDistH = dy;
@@ -1154,8 +1144,8 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
         const targetX = faceMode === 'outer' ? (cx < wallX ? (wallX + halfThick) : (wallX - halfThick)) : wallX;
         const dx = Math.abs(pt.x - targetX);
         
-        const minY = Math.min(seg.p1.y, seg.p2.y) - capTol;
-        const maxY = Math.max(seg.p1.y, seg.p2.y) + capTol;
+        const minY = Math.max(polyMinY - maxMargin, Math.min(seg.p1.y, seg.p2.y) - endCapTol);
+        const maxY = Math.min(polyMaxY + maxMargin, Math.max(seg.p1.y, seg.p2.y) + endCapTol);
         
         if (dx < bestDistV && pt.y >= minY && pt.y <= maxY) {
           bestDistV = dx;
@@ -1164,79 +1154,21 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
       }
     }
 
+    curX = Math.max(polyMinX - maxMargin, Math.min(polyMaxX + maxMargin, curX));
+    curY = Math.max(polyMinY - maxMargin, Math.min(polyMaxY + maxMargin, curY));
+
     return { x: curX, y: curY };
   });
 
-/**
- * Automatically inserts step corner vertices for Z-shaped / jogged step walls so room floor
- * polygons follow Z-shaped walls cleanly instead of connecting wall ends with diagonal lines.
- */
-function insertZStepVertices(poly, segments) {
-  if (!poly || poly.length < 3 || !segments || segments.length === 0) return poly;
-
-  const pts = poly.map(p => ({ ...p }));
-  const result = [];
-  const n = pts.length;
-
-  for (let i = 0; i < n; i++) {
-    const p1 = pts[i];
-    const p2 = pts[(i + 1) % n];
-    result.push(p1);
-
-    const dx = Math.abs(p2.x - p1.x);
-    const dy = Math.abs(p2.y - p1.y);
-
-    if (dx > 12 && dy > 12) {
-      const minX = Math.min(p1.x, p2.x);
-      const maxX = Math.max(p1.x, p2.x);
-      const minY = Math.min(p1.y, p2.y);
-      const maxY = Math.max(p1.y, p2.y);
-
-      // Find all wall endpoints / T-junctions / L-junctions lying inside the bbox of [p1, p2]
-      const stepCorners = [];
-
-      for (const s of segments) {
-        for (const pt of [s.p1, s.p2]) {
-          if (pt.x >= minX - 35 && pt.x <= maxX + 35 && pt.y >= minY - 35 && pt.y <= maxY + 35) {
-            const proj = distancePointToSegment(pt, p1, p2);
-            if (proj.dist < 150 && proj.t > 0.02 && proj.t < 0.98) {
-              stepCorners.push({ x: Math.round(pt.x * 10) / 10, y: Math.round(pt.y * 10) / 10, t: proj.t });
-            }
-          }
-        }
-      }
-
-      if (stepCorners.length > 0) {
-        // Sort corners along segment parameter t (from p1 to p2)
-        stepCorners.sort((a, b) => a.t - b.t);
-
-        // Deduplicate nearby step corners
-        for (const sc of stepCorners) {
-          const lastAdded = result[result.length - 1];
-          const distToLast = Math.hypot(sc.x - lastAdded.x, sc.y - lastAdded.y);
-          const distToP2 = Math.hypot(sc.x - p2.x, sc.y - p2.y);
-          if (distToLast > 10 && distToP2 > 10) {
-            result.push({ x: sc.x, y: sc.y });
-          }
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
   // Post-process pipeline:
-  // 1. Insert corner vertices along Z-shaped / jogged step walls
-  const withZSteps = insertZStepVertices(snappedPts, segments);
-  // 2. Align near-orthogonal edges to 100% horizontal/vertical
-  const aligned = alignOrthogonalEdges(withZSteps, 25.0);
-  // 3. Remove step notches
+  // 1. Align near-orthogonal edges to 100% horizontal/vertical
+  const aligned = alignOrthogonalEdges(snappedPts, 15.0);
+  // 2. Remove step notches
   const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
-  // 4. Clean INT<->EXT transition steps
+  // 3. Clean INT<->EXT transition steps
   const cleaned = cleanExtWallWrapping(simplified, segments, maxThick);
-  // 5. Remove only strictly collinear vertices along straight walls (tolerance: 2.0px)
-  return simplifyCollinearVertices(cleaned, 2.0);
+  // 4. Remove all collinear T-junction vertices along straight walls (tolerance: 15.0px)
+  return simplifyCollinearVertices(cleaned, 15.0);
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {

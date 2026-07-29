@@ -397,7 +397,7 @@ export default function App() {
       }
       newObj[page] = pageRooms.map(r => {
         if (!r.polygon || r.polygon.length < 3) return r;
-        const snappedPoly = snapRoomPolygonToWalls(r.polygon, pageWalls, 38);
+        const snappedPoly = snapRoomPolygonToWalls(r.polygon, pageWalls, 15);
         return {
           ...r,
           polygon: snappedPoly
