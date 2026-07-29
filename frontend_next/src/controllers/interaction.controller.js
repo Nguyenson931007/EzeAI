@@ -3051,7 +3051,6 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           }));
           pushHistory(recalculatedRooms, junctionCleanedWalls, updatedDoors);
         }
-        }
       } else if ((dragging.type === 'room' || (!dragging.type && selectedType === 'room')) && dragging.currentPos) {
         // Commit room vertex drag on mouse up (once per drag) and record history
         const pageRooms = roomsByPage[currentPage] || [];
