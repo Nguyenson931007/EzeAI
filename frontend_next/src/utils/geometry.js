@@ -1064,26 +1064,14 @@ function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
 }
 
 /**
- * Snaps room polygon vertices to surrounding wall centerlines (INT) or outer faces (EXT),
- * then simplifies collinear T-junction vertices and aligns orthogonal edges.
+ * Snaps room polygon vertices to surrounding interior wall centerlines.
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapMode = 'interior') {
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
   if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
     return roomPolygon;
   }
 
-  const normalizedPoly = roomPolygon.map(p => _getCoord(p));
-  const roomCentroid = centroid(normalizedPoly);
-  const cx = roomCentroid.x;
-  const cy = roomCentroid.y;
-
-  const xs = normalizedPoly.map(p => p.x);
-  const ys = normalizedPoly.map(p => p.y);
-  const polyMinX = Math.min(...xs);
-  const polyMaxX = Math.max(...xs);
-  const polyMinY = Math.min(...ys);
-  const polyMaxY = Math.max(...ys);
-
+  // Collect all wall centerline segments
   const segments = [];
   for (const w of walls) {
     const c = w.centerline;
@@ -1095,72 +1083,56 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
     const len = Math.hypot(dx, dy);
     if (len < 5) continue;
 
-    const thickPx = w.thickness_px || 20;
-
+    // Classify segment as horizontal or vertical
     const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
     let orientation = null;
     if (angle < 15) orientation = 'H';
     else if (angle > 75) orientation = 'V';
     
     if (orientation) {
-      segments.push({ p1, p2, orientation, len, thickPx, wall: w });
+      segments.push({ p1, p2, orientation, len });
     }
   }
 
   if (segments.length === 0) return roomPolygon;
 
-  const maxMargin = tolerance + 30;
-  const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
-  const endCapTol = Math.max(tolerance + 40, maxThick * 2.0);
-
-  const snappedPts = normalizedPoly.map(pt => {
-    let curX = pt.x;
-    let curY = pt.y;
-
-    let bestDistH = tolerance;
-    let bestDistV = tolerance;
+  // For each room vertex, try to snap to the nearest wall segment
+  return roomPolygon.map(pt => {
+    let bestDist = tolerance;
+    let snappedPt = { ...pt };
 
     for (const seg of segments) {
-      const halfThick = seg.thickPx / 2.0;
-
-      const wClass = getWallClass(seg.wall);
-      const isExt = wClass === 'exterior_wall';
-      const faceMode = isExt ? 'outer' : 'center';
-
       if (seg.orientation === 'H') {
+        // Horizontal wall — snap vertex Y to wall's Y coordinate
         const wallY = (seg.p1.y + seg.p2.y) / 2;
-        const targetY = faceMode === 'outer' ? (cy < wallY ? (wallY + halfThick) : (wallY - halfThick)) : wallY;
-        const dy = Math.abs(pt.y - targetY);
+        const dy = Math.abs(pt.y - wallY);
         
-        const minX = Math.max(polyMinX - maxMargin, Math.min(seg.p1.x, seg.p2.x) - endCapTol);
-        const maxX = Math.min(polyMaxX + maxMargin, Math.max(seg.p1.x, seg.p2.x) + endCapTol);
+        // Check if vertex X falls within the wall's X range (with some margin)
+        const minX = Math.min(seg.p1.x, seg.p2.x) - tolerance;
+        const maxX = Math.max(seg.p1.x, seg.p2.x) + tolerance;
         
-        if (dy < bestDistH && pt.x >= minX && pt.x <= maxX) {
-          bestDistH = dy;
-          curY = Math.round(targetY * 10) / 10;
+        if (dy < bestDist && pt.x >= minX && pt.x <= maxX) {
+          bestDist = dy;
+          snappedPt = { x: pt.x, y: wallY };
         }
       } else if (seg.orientation === 'V') {
+        // Vertical wall — snap vertex X to wall's X coordinate
         const wallX = (seg.p1.x + seg.p2.x) / 2;
-        const targetX = faceMode === 'outer' ? (cx < wallX ? (wallX + halfThick) : (wallX - halfThick)) : wallX;
-        const dx = Math.abs(pt.x - targetX);
+        const dx = Math.abs(pt.x - wallX);
         
-        const minY = Math.max(polyMinY - maxMargin, Math.min(seg.p1.y, seg.p2.y) - endCapTol);
-        const maxY = Math.min(polyMaxY + maxMargin, Math.max(seg.p1.y, seg.p2.y) + endCapTol);
+        // Check if vertex Y falls within the wall's Y range (with some margin)
+        const minY = Math.min(seg.p1.y, seg.p2.y) - tolerance;
+        const maxY = Math.max(seg.p1.y, seg.p2.y) + tolerance;
         
-        if (dx < bestDistV && pt.y >= minY && pt.y <= maxY) {
-          bestDistV = dx;
-          curX = Math.round(targetX * 10) / 10;
+        if (dx < bestDist && pt.y >= minY && pt.y <= maxY) {
+          bestDist = dx;
+          snappedPt = { x: wallX, y: pt.y };
         }
       }
     }
 
-    curX = Math.max(polyMinX - maxMargin, Math.min(polyMaxX + maxMargin, curX));
-    curY = Math.max(polyMinY - maxMargin, Math.min(polyMaxY + maxMargin, curY));
-
-    return { x: curX, y: curY };
+    return snappedPt;
   });
-
-  return snappedPts;
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {

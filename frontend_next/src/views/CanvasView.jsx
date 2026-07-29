@@ -1001,14 +1001,40 @@ const WallHandlesLayer = React.memo(({
   onMouseUp,
   onVertexClick,
   interactionMode,
-  hoverId
+  hoverId,
+  selectWall,
+  setSelectedId,
+  setSelectedType,
+  setSelectedWallIds
 }) => {
   if (interactionMode === "cut-wall" || !layerVisibility?.wall) return null;
+
+  function handleSelectWall(wallId, isShiftKey) {
+    if (typeof selectWall === 'function') {
+      selectWall(wallId, isShiftKey);
+    }
+    if (setSelectedWallIds) {
+      setSelectedWallIds(prev => isShiftKey ? (prev.includes(wallId) ? prev.filter(id => id !== wallId) : [...prev, wallId]) : [wallId]);
+    }
+    if (setSelectedId) setSelectedId(wallId);
+    if (setSelectedType) setSelectedType('wall');
+  }
+
+  function formatWallDisplayName(w, index) {
+    if (w.name) return w.name;
+    if (!w.id) return `W-${index + 1}`;
+    const strId = String(w.id);
+    if (strId.startsWith("man_wall_") || strId.startsWith("wall-topo-") || strId.startsWith("wall-") || strId.length > 10) {
+      return `W-${index + 1}`;
+    }
+    return strId;
+  }
 
   return (
     <g id="WallHandlesLayer">
       {(walls || []).map((w, idx) => {
-        const isSelected = selectedWallIds.includes(w.id);
+        if (!w.centerline || w.centerline.length !== 2) return null;
+        const isSelected = selectedWallIds.includes(w.id) || selectedId === w.id;
         const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
         const hasSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id) ||
           (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id));
@@ -1017,11 +1043,53 @@ const WallHandlesLayer = React.memo(({
           (d.parentWallId === w.id || (getBaseWallId && getBaseWallId(d.parentWallId) === getBaseWallId(w.id)))
         );
 
-        if ((!isSelected && !isHovered && !hasSelectedVertex && !hasSelectedDoorOnWall) || !w.centerline || w.centerline.length !== 2) return null;
+        const p1 = w.centerline[0];
+        const p2 = w.centerline[1];
+        const mx = (p1[0] + p2[0]) / 2;
+        const my = (p1[1] + p2[1]) / 2;
+        const wallLabel = formatWallDisplayName(w, idx);
+
+        let angle = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]) * 180 / Math.PI;
+        if (angle > 90 || angle < -90) angle += 180;
+        const badgeWidth = Math.max(32, wallLabel.length * 6.5 + 10);
 
         return (
-          <g key={`handles-${w.id}-${idx}`}>
-            {w.centerline.map((pt, i) => {
+          <g key={`wall-group-${w.id}-${idx}`}>
+            {/* 2D Wall Name Badge */}
+            <g
+              transform={`translate(${mx}, ${my}) rotate(${angle})`}
+              style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectWall(w.id, e.shiftKey);
+              }}
+            >
+              <rect
+                x={-badgeWidth / 2}
+                y={-8}
+                width={badgeWidth}
+                height={16}
+                rx={4}
+                fill={isSelected ? "rgba(245, 158, 11, 0.92)" : (isHovered ? "rgba(59, 130, 246, 0.9)" : "rgba(30, 41, 59, 0.82)")}
+                stroke={isSelected ? "#fef3c7" : (isHovered ? "#93c5fd" : "rgba(148, 163, 184, 0.4)")}
+                strokeWidth={1}
+              />
+              <text
+                x={0}
+                y={3}
+                fontSize={9.5}
+                fontWeight="700"
+                fill="#ffffff"
+                textAnchor="middle"
+                fontFamily="Outfit, Inter, sans-serif"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {wallLabel}
+              </text>
+            </g>
+
+            {/* Vertex Handles (rendered when selected or hovered) */}
+            {(isSelected || isHovered || hasSelectedVertex || hasSelectedDoorOnWall) && w.centerline.map((pt, i) => {
               const isDraggingThisVertex = dragging && dragging.id === w.id && dragging.index === i && dragging.type === 'wall-vertex';
               const isSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id && selectedWallVertex.index === i) ||
                 (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id && sv.index === i));
@@ -1866,27 +1934,27 @@ const OCRLabelLayer = React.memo(({
         const bboxH = Math.max(...ys) - Math.min(...ys);
         const dim = Math.min(bboxW, bboxH);
 
-        // Sizing override for detected text boxes
+        // Sizing override for detected text boxes - sleek compact badge sizing
         const nameFontSize = isText
-          ? Math.max(9, Math.min(28, bboxH * 0.75))
-          : Math.max(9, Math.min(28, dim * 0.13));
-        const areaFontSize = Math.max(7, nameFontSize * 0.75);
-        const lineGap = nameFontSize * 1.25;
+          ? Math.max(9, Math.min(18, bboxH * 0.6))
+          : Math.max(10, Math.min(13, dim * 0.07));
+        const areaFontSize = Math.max(8, nameFontSize * 0.82);
+        const lineGap = nameFontSize * 1.15;
         const areaText = scaleValue ? `${area.toFixed(2)} m²` : "";
         const pillW = Math.max(
-          ((r.room_name || "").length + (heatmapMode && r.conf !== undefined ? 6 : 0)) * nameFontSize * 0.6,
-          areaText.length * areaFontSize * 0.6
-        ) + nameFontSize;
-        const pillH = nameFontSize + (areaText ? areaFontSize + 4 : 0) + nameFontSize * 0.6;
+          ((r.room_name || "").length + (heatmapMode && r.conf !== undefined ? 6 : 0)) * nameFontSize * 0.62,
+          areaText.length * areaFontSize * 0.62
+        ) + 16;
+        const pillH = nameFontSize + (areaText ? areaFontSize + 4 : 0) + 8;
 
         // Review state color boost
         const isLowConfidence = r.conf !== undefined && r.conf < (config?.rooms ?? 0.55);
         const reviewState = r.correction_source || (isLowConfidence ? "low_confidence" : "AI_GENERATED");
         const revStyle = REVIEW_COLORS[reviewState];
 
-        let strokeColor = revStyle ? revStyle.stroke : "rgba(0,0,0,0.08)";
-        let strokeWidth = revStyle ? 2 : 0.5;
-        let pillFill = "rgba(255,255,255,0.72)";
+        let strokeColor = r.id === selectedId ? "#3b82f6" : (revStyle ? revStyle.stroke : "rgba(148, 163, 184, 0.5)");
+        let strokeWidth = r.id === selectedId ? 1.5 : (revStyle ? 1.5 : 1);
+        let pillFill = r.id === selectedId ? "rgba(238, 242, 255, 0.96)" : "rgba(255, 255, 255, 0.92)";
 
         if (heatmapMode && isLowConfidence) {
           strokeColor = "#EF4444"; // bold warning red outline
@@ -3754,6 +3822,7 @@ export default function CanvasView({
                 setSelectedId={setSelectedId}
                 setSelectedType={setSelectedType}
                 selectedWallIds={selectedWallIds}
+                setSelectedWallIds={setSelectedWallIds}
                 selectWall={selectWall}
                 startDrag={startDrag}
                 dragging={dragging}

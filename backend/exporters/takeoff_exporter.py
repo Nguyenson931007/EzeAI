@@ -1028,9 +1028,12 @@ class TakeoffExporter:
 
             first_data_row = r
             height_to_rows = defaultdict(list)
-            for w in walls_list:
+            for idx, w in enumerate(walls_list):
                 add_wall_data_row(r)
-                ws[f"A{r}"] = f"{label_prefix} {w.id}"
+                wall_display_id = str(w.id)
+                if wall_display_id.startswith(("man_wall_", "wall-topo-", "wall_", "wall-")) or len(wall_display_id) > 10:
+                    wall_display_id = f"W-{idx + 1}"
+                ws[f"A{r}"] = f"{label_prefix} {wall_display_id}"
                 ws[f"D{r}"] = round(w.length_mm)
                 ws[f"E{r}"] = round(w.height_mm)
                 height_to_rows[round(w.height_mm)].append(r)

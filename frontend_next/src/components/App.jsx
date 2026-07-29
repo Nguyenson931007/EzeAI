@@ -402,7 +402,7 @@ export default function App() {
       }
       newObj[page] = pageRooms.map(r => {
         if (!r.polygon || r.polygon.length < 3) return r;
-        const snappedPoly = snapRoomPolygonToWalls(r.polygon, pageWalls, 15);
+        const snappedPoly = snapRoomPolygonToWalls(r.polygon, pageWalls, 25);
         return {
           ...r,
           polygon: snappedPoly
@@ -638,22 +638,27 @@ export default function App() {
     const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => pendingPages[idx]);
 
     if (isAddingPagesMode) {
-      // Append the newly selected pages to the existing project pages
+      // Append the newly selected pages to the existing project as new independent entries
+      const startIdx = pages.length;
       setPages(prev => [...prev, ...selectedData]);
 
       // Jump to the first newly added page
-      const newPageIdx = pages.length;
-      setCurrentPage(newPageIdx);
+      setCurrentPage(startIdx);
       setImage(selectedData[0].image);
       setImgSize({
         w: selectedData[0].w,
         h: selectedData[0].h
       });
     } else {
-      // Clear ALL previous data when opening new file
+      // Clear ALL previous data when opening a new file
       setRoomsByPage({});
       setDoorsByPage({});
       setWallsByPage({});
+      setWasteByPage({});
+      setPdfOffsetsByPage({});
+      setRoofsByPage({});
+      setLintelsByPage({});
+      if (setCurrentJobId) setCurrentJobId(null);
 
       setPages(selectedData);
       setCurrentPage(0);
@@ -667,10 +672,32 @@ export default function App() {
     setShowImportPageSelector(false);
     setImportSelectedPages([]);
     setIsAddingPagesMode(false);
-    setPendingPages([]); // Clear the temporary cache
+    setPendingPages([]); // Clear temporary import cache
 
     setTimeout(fitToScreen, 100);
   }
+
+  const openAddPagesSelector = (file) => {
+    if (file) {
+      if (file.type === "application/pdf") {
+        loadPDF(file, true);
+      } else {
+        const url = URL.createObjectURL(file);
+        const imgData = {
+          id: `img_pg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          image: url,
+          w: 2000,
+          h: 1500,
+          fileName: file.name ? file.name.replace(/\.[^/.]+$/, "") : "Image",
+          pageNumber: 1
+        };
+        setPendingPages([imgData]);
+        setImportSelectedPages([0]);
+        setIsAddingPagesMode(true);
+        setShowImportPageSelector(true);
+      }
+    }
+  };
 
   const handleDeletePage = (pageIndexToDelete) => {
     if (pages.length <= 1) {
@@ -726,20 +753,7 @@ export default function App() {
     }
   };
 
-  const openAddPagesSelector = (file) => {
-    if (file) {
-      if (file.type === "application/pdf") {
-        loadPDF(file, true);
-      } else {
-        const url = URL.createObjectURL(file);
-        const imgData = { image: url, w: 2000, h: 1500 };
-        setPendingPages([imgData]);
-        setImportSelectedPages([0]);
-        setIsAddingPagesMode(true);
-        setShowImportPageSelector(true);
-      }
-    }
-  };
+
 
   function getClassId(type) {
     if (type === "dry") return 0;
