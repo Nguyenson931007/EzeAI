@@ -1189,7 +1189,7 @@ function insertZStepVertices(poly, segments) {
     const dx = Math.abs(p2.x - p1.x);
     const dy = Math.abs(p2.y - p1.y);
 
-    if (dx > 15 && dy > 15) {
+    if (dx > 12 && dy > 12) {
       const minX = Math.min(p1.x, p2.x);
       const maxX = Math.max(p1.x, p2.x);
       const minY = Math.min(p1.y, p2.y);
@@ -1198,9 +1198,11 @@ function insertZStepVertices(poly, segments) {
       // Check for a vertical step wall connecting p1.y and p2.y
       const stepVertWall = vertSegs.find(s => {
         const wallX = (s.p1.x + s.p2.x) / 2;
-        const wMinY = Math.min(s.p1.y, s.p2.y) - 25;
-        const wMaxY = Math.max(s.p1.y, s.p2.y) + 25;
-        return wallX >= minX - 25 && wallX <= maxX + 25 && wMinY <= minY && wMaxY >= maxY;
+        const wMinY = Math.min(s.p1.y, s.p2.y) - 35;
+        const wMaxY = Math.max(s.p1.y, s.p2.y) + 35;
+        const isXInside = wallX >= minX - 35 && wallX <= maxX + 35;
+        const isYOverlapping = Math.max(wMinY, minY) < Math.min(wMaxY, maxY);
+        return isXInside && isYOverlapping;
       });
 
       if (stepVertWall) {
@@ -1213,9 +1215,11 @@ function insertZStepVertices(poly, segments) {
       // Check for a horizontal step wall connecting p1.x and p2.x
       const stepHorizWall = horizSegs.find(s => {
         const wallY = (s.p1.y + s.p2.y) / 2;
-        const wMinX = Math.min(s.p1.x, s.p2.x) - 25;
-        const wMaxX = Math.max(s.p1.x, s.p2.x) + 25;
-        return wallY >= minY - 25 && wallY <= maxY + 25 && wMinX <= minX && wMaxX >= maxX;
+        const wMinX = Math.min(s.p1.x, s.p2.x) - 35;
+        const wMaxX = Math.max(s.p1.x, s.p2.x) + 35;
+        const isYInside = wallY >= minY - 35 && wallY <= maxY + 35;
+        const isXOverlapping = Math.max(wMinX, minX) < Math.min(wMaxX, maxX);
+        return isYInside && isXOverlapping;
       });
 
       if (stepHorizWall) {
