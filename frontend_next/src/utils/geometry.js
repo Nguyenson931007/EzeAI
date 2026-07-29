@@ -1067,16 +1067,12 @@ function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
  * Snaps room polygon vertices to surrounding wall centerlines (INT) or outer faces (EXT),
  * then simplifies collinear T-junction vertices and aligns orthogonal edges.
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapMode = 'interior') {
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25) {
   if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
     return roomPolygon;
   }
 
   const normalizedPoly = roomPolygon.map(p => _getCoord(p));
-  const roomCentroid = centroid(normalizedPoly);
-  const cx = roomCentroid.x;
-  const cy = roomCentroid.y;
-
   const xs = normalizedPoly.map(p => p.x);
   const ys = normalizedPoly.map(p => p.y);
   const polyMinX = Math.min(...xs);
@@ -1095,22 +1091,19 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
     const len = Math.hypot(dx, dy);
     if (len < 5) continue;
 
-    const thickPx = w.thickness_px || 20;
-
     const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
     let orientation = null;
     if (angle < 15) orientation = 'H';
     else if (angle > 75) orientation = 'V';
     
     if (orientation) {
-      segments.push({ p1, p2, orientation, len, thickPx, wall: w });
+      segments.push({ p1, p2, orientation, len, wall: w });
     }
   }
 
   if (segments.length === 0) return roomPolygon;
 
   const maxMargin = tolerance + 30;
-  const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
   const endCapTol = 10;
 
   const snappedPts = normalizedPoly.map(pt => {
@@ -1121,35 +1114,27 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
     let bestDistV = tolerance;
 
     for (const seg of segments) {
-      const halfThick = seg.thickPx / 2.0;
-
-      const wClass = getWallClass(seg.wall);
-      const isExt = wClass === 'exterior_wall';
-      const faceMode = isExt ? 'outer' : 'center';
-
       if (seg.orientation === 'H') {
         const wallY = (seg.p1.y + seg.p2.y) / 2;
-        const targetY = faceMode === 'outer' ? (cy < wallY ? (wallY + halfThick) : (wallY - halfThick)) : wallY;
-        const dy = Math.abs(pt.y - targetY);
+        const dy = Math.abs(pt.y - wallY);
         
         const minX = Math.max(polyMinX - maxMargin, Math.min(seg.p1.x, seg.p2.x) - endCapTol);
         const maxX = Math.min(polyMaxX + maxMargin, Math.max(seg.p1.x, seg.p2.x) + endCapTol);
         
         if (dy < bestDistH && pt.x >= minX && pt.x <= maxX) {
           bestDistH = dy;
-          curY = Math.round(targetY * 10) / 10;
+          curY = Math.round(wallY * 10) / 10;
         }
       } else if (seg.orientation === 'V') {
         const wallX = (seg.p1.x + seg.p2.x) / 2;
-        const targetX = faceMode === 'outer' ? (cx < wallX ? (wallX + halfThick) : (wallX - halfThick)) : wallX;
-        const dx = Math.abs(pt.x - targetX);
+        const dx = Math.abs(pt.x - wallX);
         
         const minY = Math.max(polyMinY - maxMargin, Math.min(seg.p1.y, seg.p2.y) - endCapTol);
         const maxY = Math.min(polyMaxY + maxMargin, Math.max(seg.p1.y, seg.p2.y) + endCapTol);
         
         if (dx < bestDistV && pt.y >= minY && pt.y <= maxY) {
           bestDistV = dx;
-          curX = Math.round(targetX * 10) / 10;
+          curX = Math.round(wallX * 10) / 10;
         }
       }
     }
@@ -1160,15 +1145,8 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
     return { x: curX, y: curY };
   });
 
-  // Post-process pipeline:
-  // 1. Align near-orthogonal edges to 100% horizontal/vertical
   const aligned = alignOrthogonalEdges(snappedPts, 15.0);
-  // 2. Remove step notches
-  const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
-  // 3. Clean INT<->EXT transition steps
-  const cleaned = cleanExtWallWrapping(simplified, segments, maxThick);
-  // 4. Remove all collinear T-junction vertices along straight walls (tolerance: 15.0px)
-  return simplifyCollinearVertices(cleaned, 15.0);
+  return simplifyCollinearVertices(aligned, 15.0);
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {
