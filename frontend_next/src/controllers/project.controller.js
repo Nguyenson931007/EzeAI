@@ -16,7 +16,8 @@ export const useProjectController = (
   setImage, setImgSize, setActiveTab, currentJobId, setCurrentJobId,
   doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
   pdfOffsetsByPage, setPdfOffsetsByPage,
-  roofsByPage, setRoofsByPage
+  roofsByPage, setRoofsByPage,
+  lintelsByPage, setLintelsByPage
 ) => {
   const { showAlert } = useDialog();
   
@@ -31,7 +32,7 @@ export const useProjectController = (
     
     const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
-    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, wasteByPage, pdfOffsetsByPage, roofsByPage };
+    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage };
 
     try {
       const payload = {
@@ -67,6 +68,8 @@ export const useProjectController = (
     else setPdfOffsetsByPage({});
     if (jobData.roofsByPage) setRoofsByPage(jobData.roofsByPage);
     else setRoofsByPage({});
+    if (jobData.lintelsByPage) setLintelsByPage(jobData.lintelsByPage);
+    else setLintelsByPage({});
     
     if (jobData.pages?.length > 0) {
       setCurrentPage(0);

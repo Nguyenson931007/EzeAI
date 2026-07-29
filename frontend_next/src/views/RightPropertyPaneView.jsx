@@ -334,10 +334,12 @@ export default function RightPropertyPaneView({
   selectedRoofId,
   setSelectedRoofId,
   updateRoofPitch,
-  deleteRoof
+  deleteRoof,
+  lintelController,
+  selectedId
 }) {
   const { showConfirm } = useDialog();
-  const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user } = useAppModel();
+  const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user, lintelsByPage } = useAppModel();
   const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
 
   // Resolve savedDefault wall height using the specified precedence rules
@@ -349,7 +351,7 @@ export default function RightPropertyPaneView({
         const parsed = JSON.parse(saved);
         def = parsed.defaultHeight ?? 2700;
       }
-    } catch (e) {}
+    } catch (e) { }
     return def;
   }, []);
 
@@ -576,9 +578,26 @@ export default function RightPropertyPaneView({
         };
       });
 
+      const pageLintels = lintelsByPage[currentPage] || [];
+      const mappedLintels = pageLintels.map(l => ({
+        id: String(l.id),
+        wall_id: String(l.wallId),
+        start_offset: l.startOffset,
+        end_offset: l.endOffset,
+        measured_length: l.measuredLength,
+        final_length: l.finalLength,
+        catalog_id: l.catalogId,
+        type: l.type || "LVL",
+        size: l.size || 90,
+        width: l.width || 35,
+        height: l.height || 90,
+        description: l.description || "Lintels"
+      }));
+
       const payload = {
         walls: mappedWalls,
         doors: mappedDoors,
+        lintels: mappedLintels,
         project_name: takeoffForm.projectName,
         client_name: takeoffForm.clientName,
         detailer_name: takeoffForm.detailerName,
@@ -1430,8 +1449,89 @@ export default function RightPropertyPaneView({
               </>
             );
           })()
+        ) : selectedType === "lintel" ? (
+          (() => {
+            const pageLintels = lintelsByPage[currentPage] || [];
+            const selectedLintel = pageLintels.find(l => l.id === selectedId);
+            if (!selectedLintel) return <div className="panel-hint" style={{ padding: "8px 0" }}>Lintel not found.</div>;
+
+            return (
+              <>
+                <div className="panel-field">
+                  <span className="panel-label">Lintel ID</span>
+                  <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
+                    {selectedLintel.id}
+                  </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Description</span>
+                  <div style={{ fontSize: 13, color: "#f1f5f9" }}>
+                    {selectedLintel.description || "Lintels"} ({selectedLintel.type || "LVL"})
+                  </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Size</span>
+                  <div style={{ fontSize: 13, color: "#f1f5f9" }}>
+                    {selectedLintel.height}x{selectedLintel.width} mm
+                  </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Measured Length</span>
+                  <div style={{ fontSize: 16, color: "#3b82f6", fontWeight: "bold" }}>
+                    {selectedLintel.measuredLength ? `${selectedLintel.measuredLength.toFixed(3)} m` : "0.000 m"}
+                  </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Final Length (Rounded)</span>
+                  <div style={{ fontSize: 18, color: "#f59e0b", fontWeight: "bold" }}>
+                    {selectedLintel.finalLength ? `${selectedLintel.finalLength.toFixed(3)} m` : "0.000 m"}
+                  </div>
+                  {/* Per-lintel "Round Length" action */}
+                  <button
+                    className="rp-action-btn"
+                    style={{ padding: '6px 8px', fontSize: '11px', background: '#f59e0b', marginTop: '6px', marginBottom: 0, width: '100%' }}
+                    onClick={() => {
+                      if (lintelController) {
+                        lintelController.roundSingleLintel(selectedLintel.id);
+                      }
+                    }}
+                    title="Round this lintel's length to the nearest 0.3m increment"
+                  >
+                    🔄 Round Length (0.3m increments)
+                  </button>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Parent Wall ID</span>
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                    {selectedLintel.wallId}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
+                    e.stopPropagation();
+                    if (await showConfirm("Are you sure you want to delete this lintel?")) {
+                      if (lintelController) {
+                        lintelController.deleteLintel(selectedLintel.id);
+                      } else {
+                        deleteItem && deleteItem();
+                      }
+                    }
+                  }}
+                  >
+                    Delete Selected Lintel
+                  </button>
+                </div>
+              </>
+            );
+          })()
         ) : (
-          <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, or door to edit properties.</div>
+          <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, or lintel to edit properties.</div>
         )}
       </div>
 
@@ -1554,7 +1654,7 @@ export default function RightPropertyPaneView({
               {/* <ExportButton onClick={exportWallExcel} disabled={!scaleValue}>
                 📥 Export Wall Summary (.xlsx)
               </ExportButton> */}
-              <ExportButton onClick={openTakeoffModal} disabled={!scaleValue}>
+              <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
                 📊 Export Takeoff Form (.xlsx)
               </ExportButton>
             </div>

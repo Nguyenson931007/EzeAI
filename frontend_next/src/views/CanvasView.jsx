@@ -114,6 +114,216 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, 
 );
 
 // ==========================================
+// Lintel Layer (Memoized)
+// ==========================================
+const LintelsLayer = React.memo(({
+  lintels = [],
+  walls = [],
+  rooms = [],
+  layerVisibility,
+  selectedId,
+  selectedType,
+  setSelectedId,
+  setSelectedType,
+  setHoverId,
+  hoverId
+}) => {
+  if (layerVisibility?.lintel === false) return null;
+
+  return (
+    <g id="LintelLayer">
+      {lintels.map((l) => {
+        const isSelected = selectedId === l.id && selectedType === "lintel";
+        const isHovered = l.id === hoverId;
+
+        // Find the parent wall
+        const wall = walls.find(w => w.id === l.wallId);
+        if (!wall || !wall.centerline || wall.centerline.length !== 2) return null;
+
+        const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+        const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+
+        // Calculate absolute XY coordinates from parametric offsets
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+
+        const startPt = {
+          x: p1.x + l.startOffset * dx,
+          y: p1.y + l.startOffset * dy
+        };
+        const endPt = {
+          x: p1.x + l.endOffset * dx,
+          y: p1.y + l.endOffset * dy
+        };
+
+        const len = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+        const wallThickness = wall.thickness_px || 20;
+        // Render lintel slightly thinner than the wall: 70% of wall thickness
+        const lintelThickness = wallThickness * 0.7;
+
+        const angle = Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x);
+        const angleDeg = angle * 180 / Math.PI;
+
+        const cx = (startPt.x + endPt.x) / 2;
+        const cy = (startPt.y + endPt.y) / 2;
+
+        const color = isSelected ? "#FF5722" : (isHovered ? "#3b82f6" : "#f59e0b");
+
+        // Determine text offset direction based on wall class & orientation
+        const segmentLen = Math.hypot(dx, dy) || 1;
+        const ux = dx / segmentLen;
+        const uy = dy / segmentLen;
+
+        // Default perpendicular normal (points up/left)
+        let nx = -uy;
+        let ny = ux;
+        if (ny > 0) {
+          nx = -nx;
+          ny = -ny;
+        } else if (ny === 0 && nx > 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+
+        // For exterior walls, determine inside vs outside of the floor area
+        const isExterior = getWallClass(wall) === "exterior_wall";
+        if (isExterior && rooms.length > 0) {
+          const testDist = 15;
+          const pPos = { x: cx + nx * testDist, y: cy + ny * testDist };
+          const pNeg = { x: cx - nx * testDist, y: cy - ny * testDist };
+          const inRoomPos = rooms.some(r => pointInPolygon(pPos, r.polygon));
+          const inRoomNeg = rooms.some(r => pointInPolygon(pNeg, r.polygon));
+
+          if (inRoomPos && !inRoomNeg) {
+            // pPos points inside room, so text should go negative (outside)
+            nx = -nx;
+            ny = -ny;
+          } else if (inRoomNeg && !inRoomPos) {
+            // pNeg points inside room, so text should go positive (outside)
+            // nx and ny remain positive
+          }
+        }
+
+        const isHorizontal = Math.abs(dx) >= Math.abs(dy);
+        let textAngle = angleDeg;
+        if (isHorizontal) {
+          if (textAngle > 90 || textAngle < -90) textAngle += 180;
+        } else {
+          if (textAngle > 0) textAngle -= 180;
+          else if (textAngle < -180) textAngle += 180;
+        }
+
+        let typeStr = "";
+        if (l.height && l.width) {
+          typeStr = `${l.height}x${l.width}`;
+        } else if (l.size) {
+          typeStr = `${l.size}`;
+        }
+        const dimStr = `${(l.measuredLength || 0).toFixed(2)}m`;
+
+        // Final text offset distance (add extra padding for two lines)
+        const offsetDist = lintelThickness / 2 + (typeStr ? 16 : 8);
+        const tx = cx + nx * offsetDist;
+        const ty = cy + ny * offsetDist;
+
+        return (
+          <g
+            key={l.id}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedId(l.id);
+              setSelectedType("lintel");
+            }}
+            onMouseEnter={() => setHoverId(l.id)}
+            onMouseLeave={() => setHoverId(null)}
+            style={{ cursor: "pointer" }}
+          >
+            {/* Lintel body */}
+            <rect
+              x={-len / 2}
+              y={-lintelThickness / 2}
+              width={len}
+              height={lintelThickness}
+              transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+              fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(59, 130, 246, 0.12)" : "rgba(245, 158, 11, 0.1)")}
+              stroke={color}
+              strokeWidth={1.5}
+            />
+
+            {/* Inner guideline */}
+            <line
+              x1={startPt.x}
+              y1={startPt.y}
+              x2={endPt.x}
+              y2={endPt.y}
+              stroke={color}
+              strokeWidth={1}
+              strokeDasharray="4,2"
+              opacity={0.8}
+            />
+
+            {/* Lintel Label (Type and Length) */}
+            <g transform={`translate(${tx}, ${ty}) rotate(${textAngle})`}>
+              {typeStr ? (
+                <>
+                  <text
+                    x={0}
+                    y={-8}
+                    dominantBaseline="central"
+                    fontSize="16"
+                    textAnchor="middle"
+                    fill={color}
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {typeStr}
+                  </text>
+                  <text
+                    x={0}
+                    y={6}
+                    dominantBaseline="central"
+                    fontSize="10"
+                    textAnchor="middle"
+                    fill={color}
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="bold"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {dimStr}
+                  </text>
+                </>
+              ) : (
+                <text
+                  x={0}
+                  y={0}
+                  dominantBaseline="central"
+                  fontSize="10"
+                  textAnchor="middle"
+                  fill={color}
+                  fontFamily="Inter, sans-serif"
+                  fontWeight="bold"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {dimStr}
+                </text>
+              )}
+            </g>
+          </g>
+        );
+      })}
+    </g>
+  );
+}, (prev, next) => (
+  prev.lintels === next.lintels &&
+  prev.walls === next.walls &&
+  prev.layerVisibility?.lintel === next.layerVisibility?.lintel &&
+  prev.selectedId === next.selectedId &&
+  prev.selectedType === next.selectedType &&
+  prev.hoverId === next.hoverId
+));
+
+// ==========================================
 // 2. RoomPolygonLayer (Memoized)
 // ==========================================
 const RoomPolygonLayer = React.memo(({
@@ -464,7 +674,8 @@ const WallLayer = React.memo(({
   drawing,
   isDrawingDoor,
   isMeasuring,
-  isDistancing
+  isDistancing,
+  isDrawingLintel
 }) => {
   if (!layerVisibility?.wall) return null;
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
@@ -692,8 +903,8 @@ const WallLayer = React.memo(({
             stroke={strokeColor}
             strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
             style={{
-              cursor: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "crosshair" : "pointer",
-              pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+              cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
+              pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
             }}
             onMouseEnter={() => setHoverId(w.id)}
             onMouseLeave={() => setHoverId(null)}
@@ -2286,7 +2497,10 @@ export default function CanvasView({
   separateJunction,
   selectedVertices,
   setSelectedVertices,
-  startVertexMove
+  startVertexMove,
+  lintelController,
+  isDrawingLintel,
+  lintelPreview
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -2294,7 +2508,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { roofsByPage, setRoofsByPage } = useAppModel();
+  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -3103,6 +3317,7 @@ export default function CanvasView({
             closeWallContextMenu();
             if (setVertexMenu) setVertexMenu({ visible: false, x: 0, y: 0, vertex: null });
             if (e.target === svgRef.current || e.target.tagName === 'svg') {
+              if (isDrawingLintel) return; // Don't deselect during lintel draw mode
               if (setSelectedId) setSelectedId(null);
               if (setSelectedType) setSelectedType(null);
             }
@@ -3547,6 +3762,7 @@ export default function CanvasView({
                 isDrawingDoor={isDrawingDoor}
                 isMeasuring={isMeasuring}
                 isDistancing={isDistancing}
+                isDrawingLintel={isDrawingLintel}
               />
             )}
 
@@ -3576,6 +3792,20 @@ export default function CanvasView({
                 checkAndResetIgnoreClick={checkAndResetIgnoreClick}
               />
             )}
+
+            {/* Lintel Layer */}
+            <LintelsLayer
+              lintels={lintelsByPage[currentPage] || []}
+              walls={walls}
+              rooms={rooms}
+              layerVisibility={layerVisibility}
+              selectedId={selectedId}
+              selectedType={selectedType}
+              setSelectedId={setSelectedId}
+              setSelectedType={setSelectedType}
+              setHoverId={setHoverId}
+              hoverId={hoverId}
+            />
 
             {/* Memoized Layer 4.5: Wall Handles (Rendered on top of doors for easy dragging) */}
             {layerVisibility?.wall && (
@@ -4287,6 +4517,66 @@ export default function CanvasView({
                   <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
                 </g>
               );
+            })()}
+
+            {/* Lintel Snapping / Active Drawing Preview */}
+            {isDrawingLintel && lintelPreview && (() => {
+              if (lintelPreview.phase === 'idle' && lintelPreview.snapDot) {
+                return (
+                  <circle
+                    cx={lintelPreview.snapDot.x}
+                    cy={lintelPreview.snapDot.y}
+                    r={5}
+                    fill="#f59e0b"
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    pointerEvents="none"
+                  />
+                );
+              }
+
+              if (lintelPreview.phase === 'drawing' && lintelPreview.startPt && lintelPreview.endPt) {
+                const wall = walls.find(w => w.id === lintelPreview.wallId);
+                const wallThickness = wall ? (wall.thickness_px || 20) : 20;
+                const thickness = wallThickness * 0.7;
+                const p1 = lintelPreview.startPt;
+                const p2 = lintelPreview.endPt;
+                const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+                const angleDeg = angle * 180 / Math.PI;
+                const cx = (p1.x + p2.x) / 2;
+                const cy = (p1.y + p2.y) / 2;
+
+                const color = lintelPreview.isValid ? "#f59e0b" : "#ef4444";
+                const fill = lintelPreview.isValid ? "rgba(245, 158, 11, 0.25)" : "rgba(239, 68, 68, 0.15)";
+                const dash = lintelPreview.isValid ? undefined : "4,3";
+                const labelText = lintelPreview.isValid
+                  ? `${(lintelPreview.liveLength || 0).toFixed(2)}m`
+                  : `${(lintelPreview.liveLength || 0).toFixed(2)}m (Invalid)`;
+
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <rect
+                      x={-len / 2}
+                      y={-thickness / 2}
+                      width={len}
+                      height={thickness}
+                      transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                      fill={fill}
+                      stroke={color}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                    <g transform={`translate(${cx}, ${cy - thickness / 2 - 8})`}>
+                      <rect x={-30} y={-8} width={60} height={12} rx={2} fill="rgba(15, 23, 42, 0.85)" stroke={color} strokeWidth={0.5} />
+                      <text x={0} y={1} fontSize="8.5" textAnchor="middle" fill={color} fontFamily="Inter, sans-serif" fontWeight="bold">
+                        {labelText}
+                      </text>
+                    </g>
+                  </g>
+                );
+              }
+              return null;
             })()}
 
           </g>

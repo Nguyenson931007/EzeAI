@@ -26,6 +26,7 @@ import CanvasView from "@/views/CanvasView";
 import SearchSidebarView from "@/views/SearchSidebarView";
 import ThumbnailSidebarView from "@/views/ThumbnailSidebarView";
 import DoorTypePanel from "@/components/DoorTypePanel";
+import LintelCatalogPanel from "@/components/LintelCatalogPanel";
 import TrainButton from "@/components/TrainButton";
 import AIConfidenceBar from "@/features/ai/AIConfidenceBar";
 import { ApiService } from "@/models/api.service";
@@ -188,7 +189,8 @@ export default function App() {
     pdfOffsetsByPage, setPdfOffsetsByPage,
     roofsByPage, setRoofsByPage,
     activeTab, setActiveTab,
-    currentJobId, setCurrentJobId
+    currentJobId, setCurrentJobId,
+    lintelsByPage, setLintelsByPage
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -283,6 +285,9 @@ export default function App() {
     drawingWall, setDrawingWall,
     drawingWallEnd, setDrawingWallEnd,
     doorController, // also expose the controller itself if needed
+    lintelController,
+    isDrawingLintel,
+    lintelPreview,
     createDefaultExtEnvelope,
     pullStepInfo,
     setPullStepInfo,
@@ -445,7 +450,8 @@ export default function App() {
     setPages, setRoomsByPage, setRealScale, setWasteByPage, setCurrentPage, setImage, setImgSize, setActiveTab,
     currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
     pdfOffsetsByPage, setPdfOffsetsByPage,
-    roofsByPage, setRoofsByPage
+    roofsByPage, setRoofsByPage,
+    lintelsByPage, setLintelsByPage
   );
 
   // Pass down context for global access
@@ -608,45 +614,27 @@ export default function App() {
   };
 
   function confirmImport() {
-    if (importSelectedPages.length === 0) return;
+    if (importSelectedPages.length === 0) {
+      setShowImportPageSelector(false);
+      setPendingPages([]);
+      setIsAddingPagesMode(false);
+      return;
+    }
 
     const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => pendingPages[idx]);
 
     if (isAddingPagesMode) {
-      // Shifting existing page data to their new indices
-      const newRoomsByPage = {};
-      const newWallsByPage = {};
-      const newDoorsByPage = {};
+      // Append the newly selected pages to the existing project pages
+      setPages(prev => [...prev, ...selectedData]);
 
-      selectedData.forEach((newPage, newIdx) => {
-        const oldIdx = pages.findIndex(p => p.image === newPage.image);
-        if (oldIdx !== -1) {
-          if (roomsByPage[oldIdx]) newRoomsByPage[newIdx] = roomsByPage[oldIdx];
-          if (wallsByPage[oldIdx]) newWallsByPage[newIdx] = wallsByPage[oldIdx];
-          if (doorsByPage[oldIdx]) newDoorsByPage[newIdx] = doorsByPage[oldIdx];
-        }
+      // Jump to the first newly added page
+      const newPageIdx = pages.length;
+      setCurrentPage(newPageIdx);
+      setImage(selectedData[0].image);
+      setImgSize({
+        w: selectedData[0].w,
+        h: selectedData[0].h
       });
-
-      setRoomsByPage(newRoomsByPage);
-      setWallsByPage(newWallsByPage);
-      setDoorsByPage(newDoorsByPage);
-
-      setPages(selectedData);
-
-      const stillExists = selectedData.some(p => p.image === image);
-      if (!stillExists) {
-        setCurrentPage(0);
-        setImage(selectedData[0].image);
-        setImgSize({
-          w: selectedData[0].w,
-          h: selectedData[0].h
-        });
-      } else {
-        const newCurrentIdx = selectedData.findIndex(p => p.image === image);
-        if (newCurrentIdx !== -1) {
-          setCurrentPage(newCurrentIdx);
-        }
-      }
     } else {
       // Clear ALL previous data when opening new file
       setRoomsByPage({});
@@ -665,19 +653,76 @@ export default function App() {
     setShowImportPageSelector(false);
     setImportSelectedPages([]);
     setIsAddingPagesMode(false);
+    setPendingPages([]); // Clear the temporary cache
 
     setTimeout(fitToScreen, 100);
   }
 
-  const openAddPagesSelector = () => {
-    if (!pendingPages || pendingPages.length === 0) {
-      alert("Không tìm thấy tệp gốc để thêm trang. Vui lòng tải lại tệp PDF!");
+  const handleDeletePage = (pageIndexToDelete) => {
+    if (pages.length <= 1) {
+      // Clear project if deleting the last page
+      setRoomsByPage({});
+      setDoorsByPage({});
+      setWallsByPage({});
+      setRoofsByPage({});
+      setLintelsByPage({});
+      setWasteByPage({});
+      setPdfOffsetsByPage({});
+      setPages([]);
+      setCurrentPage(0);
+      setImage(null);
+      setImgSize({ w: 0, h: 0 });
       return;
     }
-    const currentIndices = pages.map(p => pendingPages.findIndex(pending => pending.image === p.image)).filter(idx => idx !== -1);
-    setImportSelectedPages(currentIndices);
-    setIsAddingPagesMode(true);
-    setShowImportPageSelector(true);
+
+    // Filter out the deleted page
+    const newPages = pages.filter((_, i) => i !== pageIndexToDelete);
+    setPages(newPages);
+
+    // Shift data maps
+    const shiftMap = (mapObj) => {
+      if (!mapObj) return {};
+      const newMap = {};
+      Object.keys(mapObj).forEach(key => {
+        const i = parseInt(key);
+        if (i < pageIndexToDelete) newMap[i] = mapObj[i];
+        if (i > pageIndexToDelete) newMap[i - 1] = mapObj[i];
+      });
+      return newMap;
+    };
+
+    setRoomsByPage(shiftMap(roomsByPage));
+    setWallsByPage(shiftMap(wallsByPage));
+    setDoorsByPage(shiftMap(doorsByPage));
+    setRoofsByPage(shiftMap(roofsByPage));
+    setLintelsByPage(shiftMap(lintelsByPage));
+    setWasteByPage(shiftMap(wasteByPage));
+    setPdfOffsetsByPage(shiftMap(pdfOffsetsByPage));
+
+    // Update current page if needed
+    if (currentPage === pageIndexToDelete) {
+      const nextIdx = Math.max(0, currentPage - 1);
+      setCurrentPage(nextIdx);
+      setImage(newPages[nextIdx].image);
+      setImgSize({ w: newPages[nextIdx].w, h: newPages[nextIdx].h });
+    } else if (currentPage > pageIndexToDelete) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const openAddPagesSelector = (file) => {
+    if (file) {
+      if (file.type === "application/pdf") {
+        loadPDF(file, true);
+      } else {
+        const url = URL.createObjectURL(file);
+        const imgData = { image: url, w: 2000, h: 1500 };
+        setPendingPages([imgData]);
+        setImportSelectedPages([0]);
+        setIsAddingPagesMode(true);
+        setShowImportPageSelector(true);
+      }
+    }
   };
 
   function getClassId(type) {
@@ -752,6 +797,7 @@ export default function App() {
         isDrawingDoor={isDrawingDoor} setIsDrawingDoor={setIsDrawingDoor}
         showPenetrations={showPenetrations} setShowPenetrations={setShowPenetrations}
         doorController={doorController}
+        lintelController={lintelController}
         isDrawingRoof={isDrawingRoof} setIsDrawingRoof={setIsDrawingRoof}
         setSelectedRoofId={setSelectedRoofId}
         setSelectedId={setSelectedId}
@@ -829,6 +875,7 @@ export default function App() {
               onPageClick={goPage}
               roomsByPage={roomsByPage}
               onAddPagesClick={openAddPagesSelector}
+              onDeletePage={handleDeletePage}
             />
           )}
 
@@ -859,6 +906,43 @@ export default function App() {
                 }}
                 activePreset={doorPreset}
                 mode={doorController?.doorPanelMode || 'door'}
+              />
+            </div>
+          )}
+
+          {!show3D && (lintelController?.showCatalogPanel || (selectedType === 'lintel' && !isDrawingLintel)) && (
+            <div
+              style={{
+                zIndex: 10,
+                display: 'flex',
+                height: '100%'
+              }}
+            >
+              <LintelCatalogPanel
+                selectedLintel={(lintelsByPage[currentPage] || []).find(l => l.id === selectedId)}
+                onSelectCatalogItem={(item) => {
+                  const pageLintels = lintelsByPage[currentPage] || [];
+                  if (selectedId && selectedType === 'lintel') {
+                    const selectedLintel = pageLintels.find(l => l.id === selectedId);
+                    if (selectedLintel) {
+                      const updated = {
+                        ...selectedLintel,
+                        catalogId: item.id,
+                        size: item.height,
+                        width: item.width,
+                        height: item.height,
+                        type: item.type,
+                        description: item.description
+                      };
+                      lintelController.updateLintel(updated);
+                    }
+                  }
+                  if (isDrawingLintel) {
+                    lintelController.setShowCatalogPanel(false);
+                    setSelectedId(null);
+                    setSelectedType(null);
+                  }
+                }}
               />
             </div>
           )}
@@ -999,6 +1083,9 @@ export default function App() {
               selectedVertices={selectedVertices}
               setSelectedVertices={setSelectedVertices}
               startVertexMove={startVertexMove}
+              lintelController={lintelController}
+              isDrawingLintel={isDrawingLintel}
+              lintelPreview={lintelPreview}
             />
           )}
 
@@ -1057,6 +1144,8 @@ export default function App() {
                 setSelectedRoofId={setSelectedRoofId}
                 updateRoofPitch={updateRoofPitch}
                 deleteRoof={deleteRoof}
+                lintelController={lintelController}
+                selectedId={selectedId}
               />
             )
           )}
