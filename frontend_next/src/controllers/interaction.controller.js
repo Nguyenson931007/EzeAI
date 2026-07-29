@@ -20,6 +20,7 @@ import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
 import { findParentWall } from "@/models/DoorTypeRegistry";
 import { ApiService } from "@/models/api.service";
+import { useLintelController } from "./lintel.controller";
 
 export const RoofInteractionState = {
   IDLE: "IDLE",
@@ -86,7 +87,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     roofsByPage, setRoofsByPage,
     currentPage, realScale, setRealScale,
     activeTab,
-    pdfOffsetsByPage, setPdfOffsetsByPage
+    pdfOffsetsByPage, setPdfOffsetsByPage,
+    lintelsByPage, setLintelsByPage
   } = useAppModel();
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
@@ -204,6 +206,25 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   const [roiUpscale, setRoiUpscale] = useState(1.0);   // upscale factor
   const [interactionMode, setInteractionMode] = useState("select");
   // select | draw | pan | roi_select | edit_text | refine_ai
+
+  const lintelController = useLintelController({
+    lintelsByPage,
+    setLintelsByPage,
+    wallsByPage,
+    currentPage,
+    realScale,
+    scaleValue: realScale ? realScale / 1000 : null,
+    pushHistory,
+    setSelectedId,
+    setSelectedType,
+    setInteractionMode,
+    doorsByPage
+  });
+
+  const {
+    isDrawingLintel,
+    lintelPreview
+  } = lintelController;
 
   function clearROI() {
     setRoiRect(null);
@@ -392,6 +413,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         } else {
           setIsDrawingDoor(false);
         }
+        if (lintelController) {
+          lintelController.cancelLintelDraw();
+        }
         setIsDrawingRoof(false);
         setRoofInteractionState(RoofInteractionState.IDLE);
         setSelectedRoofId(null);
@@ -563,8 +587,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     return () => el.removeEventListener("wheel", handleWheel);
   }, [svgRef, activeTab]);
 
-  function pushHistory(newRooms, arg2, arg3) {
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage })]);
+  function pushHistory(newRooms, arg2, arg3, arg4) {
+    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage })]);
     setFuture([]);
     if (newRooms) {
       setRoomsByPage(prev => ({
@@ -575,8 +599,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     let newWalls = null;
     let newDoors = null;
+    let newLintels = null;
 
-    if (arg3 !== undefined) {
+    if (arg3 !== undefined && arg4 !== undefined) {
+      newWalls = arg2;
+      newDoors = arg3;
+      newLintels = arg4;
+    } else if (arg3 !== undefined) {
       newWalls = arg2;
       newDoors = arg3;
     } else if (arg2 !== undefined && arg2 !== null) {
@@ -584,12 +613,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       if (firstItem) {
         if (firstItem.class_name || firstItem.thickness_px !== undefined) {
           newWalls = arg2;
+        } else if (firstItem.startOffset !== undefined || firstItem.endOffset !== undefined) {
+          newLintels = arg2;
         } else {
           newDoors = arg2;
         }
       } else {
         if (selectedType === 'wall') {
           newWalls = arg2;
+        } else if (selectedType === 'lintel') {
+          newLintels = arg2;
         } else {
           newDoors = arg2;
         }
@@ -608,16 +641,25 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         [currentPage]: newDoors
       }));
     }
+    if (newLintels) {
+      setLintelsByPage(prev => ({
+        ...prev,
+        [currentPage]: newLintels
+      }));
+    }
   }
 
   function undo() {
     if (!history.length) return;
     const prev = JSON.parse(history[history.length - 1]);
-    setFuture(f => [JSON.stringify({ roomsByPage, doorsByPage, wallsByPage }), ...f]);
+    setFuture(f => [JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage }), ...f]);
     setRoomsByPage(prev.roomsByPage || {});
     setDoorsByPage(prev.doorsByPage || {});
     if (setWallsByPage) {
       setWallsByPage(prev.wallsByPage || {});
+    }
+    if (setLintelsByPage) {
+      setLintelsByPage(prev.lintelsByPage || {});
     }
     setHistory(h => h.slice(0, -1));
   }
@@ -625,11 +667,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   function redo() {
     if (!future.length) return;
     const next = JSON.parse(future[0]);
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage })]);
+    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage })]);
     setRoomsByPage(next.roomsByPage || {});
     setDoorsByPage(next.doorsByPage || {});
     if (setWallsByPage) {
       setWallsByPage(next.wallsByPage || {});
+    }
+    if (setLintelsByPage) {
+      setLintelsByPage(next.lintelsByPage || {});
     }
     setFuture(f => f.slice(1));
   }
@@ -685,11 +730,20 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const pageWalls = wallsByPage[currentPage] || [];
     const targetBaseIds = wallIds.map(id => getBaseWallId(id));
     const newWalls = pageWalls.filter(w => (!wallIds.includes(w.id) && !targetBaseIds.includes(w.id) && !targetBaseIds.includes(getBaseWallId(w.id))) || w.locked);
+    
+    // Cascaded delete: remove lintels whose wallId is among the deleted wall IDs
+    const pageLintels = lintelsByPage[currentPage] || [];
+    const newLintels = pageLintels.filter(l => !wallIds.includes(l.wallId) && !targetBaseIds.includes(l.wallId));
+    
     setWallsByPage({
       ...wallsByPage,
       [currentPage]: newWalls
     });
-    pushHistory(null, newWalls, doorsByPage[currentPage] || []);
+    setLintelsByPage({
+      ...lintelsByPage,
+      [currentPage]: newLintels
+    });
+    pushHistory(null, newWalls, doorsByPage[currentPage] || [], newLintels);
     setSelectedWallIds([]);
     setSelectedId(null);
     setSelectedType(null);
@@ -1030,6 +1084,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
       setSelectedId(null);
       setSelectedType(null);
+    } else if (selectedType === 'lintel') {
+      if (selectedId) {
+        const pageLintels = lintelsByPage[currentPage] || [];
+        const newLintels = pageLintels.filter(l => l.id !== selectedId);
+        setLintelsByPage(prev => ({ ...prev, [currentPage]: newLintels }));
+        pushHistory(null, wallsByPage[currentPage] || [], doorsByPage[currentPage] || [], newLintels);
+      }
+      setSelectedId(null);
+      setSelectedType(null);
     } else if (selectedType === 'wall') {
       const idsToDelete = selectedWallIds.length > 0 ? selectedWallIds : (selectedId ? [selectedId] : []);
       deleteWalls(idsToDelete);
@@ -1048,14 +1111,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const hasWalls = (wallsByPage[currentPage] || []).length > 0;
     const hasDoors = (doorsByPage[currentPage] || []).length > 0;
     const hasRoofs = (roofsByPage[currentPage] || []).length > 0;
-    if (!hasRooms && !hasWalls && !hasDoors && !hasRoofs) return;
+    const hasLintels = (lintelsByPage[currentPage] || []).length > 0;
+    if (!hasRooms && !hasWalls && !hasDoors && !hasRoofs && !hasLintels) return;
     if (!skipConfirm) {
-      const confirmed = await showConfirm("Delete all rooms, walls, doors, and roofs on this page?");
+      const confirmed = await showConfirm("Delete all rooms, walls, doors, lintels, and roofs on this page?");
       if (!confirmed) return;
     }
     pushHistory([]);
     setWallsByPage(prev => ({ ...prev, [currentPage]: [] }));
     setDoorsByPage(prev => ({ ...prev, [currentPage]: [] }));
+    setLintelsByPage(prev => ({ ...prev, [currentPage]: [] }));
     pushRoofHistory([]);
     setSelectedId(null);
     setSelectedRoofId(null);
@@ -1093,6 +1158,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       return;
     }
     if (isSpaceDown || isDraggingPan) return; // Prevent clicking while panning
+    if (isDrawingLintel) return;
     const p = getMouse(e);
 
     if (interactionMode === "fill-room") {
@@ -2622,6 +2688,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (isDrawingDoor && doorPreset) {
       doorController.onDoorMouseMove(snappedP, isShiftDown, isSnapMode);
     }
+    if (isDrawingLintel) {
+      lintelController.handleMouseMove(snappedP, scale);
+    }
     setCurrentMouse(snappedP);
 
     // ===== ROOF PRIORITY-BASED HOVER DETECTION (Pruned by Bounding Box) =====
@@ -2680,6 +2749,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function onMouseDown(e) {
     if (doorController.showTypeSelector) return;
+    if (isDrawingLintel) {
+      if (e.button === 0) {
+        const p = getMouse(e);
+        lintelController.handleMouseDown(p, scale);
+      } else if (e.button === 2) {
+        e.preventDefault();
+        e.stopPropagation();
+        lintelController.cancelLintelDraw();
+      }
+      return;
+    }
     if (isDrawingDoor && doorPreset) {
       const pageDoors = doorsByPage[currentPage] || [];
       const isHoveringDoor = pageDoors.some(d => d.id === hoverId);
@@ -2857,6 +2937,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function onMouseUp(e) {
+    if (isDrawingLintel) {
+      const p = getMouse(e);
+      lintelController.handleMouseUp(p, scale);
+      return;
+    }
     if (activeRoofDragTarget) {
       pushRoofHistory(roofsByPage[currentPage] || []);
       setActiveRoofDragTarget(null);
@@ -3137,6 +3222,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     handleClick, handleRoomDoubleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
     deleteDoor: typeof doorController !== 'undefined' ? doorController.deleteDoor : deleteDoor,
     doorController: typeof doorController !== 'undefined' ? doorController : null,
+    lintelController,
+    isDrawingLintel,
+    lintelPreview,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     selectWall, deleteWalls, updateWallsProperty, pxToMm, mmToPx, autoMergeCollinearWalls,
     handleWallDoubleClick,

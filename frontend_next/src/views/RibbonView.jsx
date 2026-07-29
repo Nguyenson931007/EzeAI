@@ -12,6 +12,7 @@ export default function RibbonView({
   isDrawingDoor, setIsDrawingDoor,
   showPenetrations, setShowPenetrations,
   doorController,
+  lintelController,
   isDrawingRoof, setIsDrawingRoof,
   setSelectedRoofId,
   setSelectedId,
@@ -328,12 +329,43 @@ export default function RibbonView({
                       } else {
                         setIsDrawingDoor(true);
                       }
+                      if (lintelController) lintelController.cancelLintelDraw();
                     }
                   }}
                   title="Vẽ cửa sổ thủ công bằng cách kéo thả"
                 >
                   <span className="icon">🪟</span><span className="label">Window</span>
                 </button>
+                <button
+                  className={`ribbon-btn ${lintelController?.isDrawingLintel ? "active" : ""}`}
+                  onClick={() => {
+                    if (lintelController?.isDrawingLintel) {
+                      lintelController.cancelLintelDraw();
+                    } else {
+                      // Deselect other states and reset tools
+                      setDrawing(false);
+                      setIsDrawingRoof(false);
+                      if (setSelectedRoofId) setSelectedRoofId(null);
+                      if (setSelectedId) setSelectedId(null);
+                      if (setSelectedType) setSelectedType(null);
+                      if (setCurrentPoly) setCurrentPoly([]);
+                      if (setInteractionMode) setInteractionMode("select");
+                      if (doorController) doorController.cancelDoorDraw();
+
+                      lintelController?.startLintelDraw();
+                    }
+                  }}
+                  title="Draw manual Lintel by clicking and dragging along a wall"
+                >
+                  <span className="icon">🪵</span><span className="label">Lintel</span>
+                </button>
+                {/* <button
+                  className="ribbon-btn"
+                  onClick={() => lintelController?.roundAllLintels()}
+                  title="Round all lintel lengths to nearest 0.3m increments"
+                >
+                  <span className="icon">🔄</span><span className="label">Round Lintels</span>
+                </button> */}
                 {/* <button
                   className={`ribbon-btn ${interactionMode === "draw-ext-rect" ? "active" : ""}`}
                   onClick={() => {
@@ -910,11 +942,36 @@ export default function RibbonView({
                 </button>
               </div>
               <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
+                {isAddingPagesMode && pages.map((pg, i) => (
+                  <label
+                    key={`existing-${i}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                      borderRadius: 12, cursor: 'not-allowed',
+                      background: 'rgba(59,130,246,0.15)',
+                      marginBottom: 8,
+                      border: '1px solid #3b82f6', opacity: 0.7
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={true}
+                      readOnly
+                      style={{ accentColor: '#3b82f6', width: 18, height: 18 }}
+                    />
+                    <img src={pg.image} alt="" style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 8, border: '1px solid #374151' }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600 }}>Page {i + 1} (In Project)</div>
+                      <div style={{ fontSize: 12, color: '#9ca3af' }}>{pg.w} x {pg.h} px</div>
+                    </div>
+                  </label>
+                ))}
+
                 {pendingPages.map((pg, i) => {
                   const isChecked = importSelectedPages.includes(i);
                   return (
                     <label
-                      key={i}
+                      key={`pending-${i}`}
                       onMouseEnter={() => setHoveredPageIdx(i)}
                       onMouseLeave={() => setHoveredPageIdx(null)}
                       style={{
@@ -936,7 +993,7 @@ export default function RibbonView({
                       />
                       <img src={pg.image} alt="" style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 8, border: '1px solid #374151' }} />
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600 }}>Page {i + 1}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>Page {isAddingPagesMode ? pages.length + i + 1 : i + 1} (New)</div>
                         <div style={{ fontSize: 12, color: '#9ca3af' }}>{pg.w} x {pg.h} px</div>
                       </div>
                     </label>

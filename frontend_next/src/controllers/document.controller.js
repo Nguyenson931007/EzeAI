@@ -45,7 +45,7 @@ export function useDocumentController({
   // --- LOAD PDF --- 
   const rooms = roomsByPage[currentPage] || [];
 
-  async function loadPDF(file) {
+  async function loadPDF(file, isAppend = false) {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
@@ -71,7 +71,7 @@ export function useDocumentController({
 
     setPendingPages(pagesData);
     setImportSelectedPages(pagesData.map((_, i) => i)); // Select all by default
-    if (setIsAddingPagesMode) setIsAddingPagesMode(false);
+    if (setIsAddingPagesMode) setIsAddingPagesMode(isAppend);
     setShowImportPageSelector(true);
   }
 
