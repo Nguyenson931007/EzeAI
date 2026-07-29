@@ -1000,9 +1000,29 @@ const WallHandlesLayer = React.memo(({
   onMouseUp,
   onVertexClick,
   interactionMode,
-  hoverId
+  hoverId,
+  selectWall,
+  setSelectedId,
+  setSelectedType,
+  setSelectedWallIds
 }) => {
   if (interactionMode === "cut-wall" || !layerVisibility?.wall) return null;
+
+  function handleSelectWall(wallId, isShiftKey) {
+    if (typeof selectWall === 'function') {
+      selectWall(wallId, isShiftKey);
+    } else {
+      if (setSelectedWallIds) {
+        if (isShiftKey) {
+          setSelectedWallIds(prev => prev.includes(wallId) ? prev.filter(id => id !== wallId) : [...prev, wallId]);
+        } else {
+          setSelectedWallIds([wallId]);
+        }
+      }
+      if (setSelectedId) setSelectedId(wallId);
+      if (setSelectedType) setSelectedType('wall');
+    }
+  }
 
   function formatWallDisplayName(w, index) {
     if (w.name) return w.name;
@@ -1045,7 +1065,7 @@ const WallHandlesLayer = React.memo(({
               style={{ cursor: 'pointer', pointerEvents: 'auto' }}
               onClick={(e) => {
                 e.stopPropagation();
-                if (selectWall) selectWall(w.id, e.shiftKey);
+                handleSelectWall(w.id, e.shiftKey);
               }}
             >
               <rect
@@ -3796,6 +3816,7 @@ export default function CanvasView({
                 setSelectedId={setSelectedId}
                 setSelectedType={setSelectedType}
                 selectedWallIds={selectedWallIds}
+                setSelectedWallIds={setSelectedWallIds}
                 selectWall={selectWall}
                 startDrag={startDrag}
                 dragging={dragging}
