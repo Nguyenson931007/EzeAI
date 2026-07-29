@@ -3043,8 +3043,23 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             ...prev,
             [currentPage]: junctionCleanedWalls
           }));
-          // Update history with the merged and cut walls
-          pushHistory(null, junctionCleanedWalls, updatedDoors);
+          const currentRooms = roomsByPage[currentPage] || [];
+          if (currentRooms.length > 0) {
+            const reSnappedRooms = currentRooms.map(r => {
+              if (!r.polygon || r.polygon.length < 3) return r;
+              return {
+                ...r,
+                polygon: snapRoomPolygonToWalls(r.polygon, junctionCleanedWalls, 25)
+              };
+            });
+            setRoomsByPage(prev => ({
+              ...prev,
+              [currentPage]: reSnappedRooms
+            }));
+            pushHistory(reSnappedRooms, junctionCleanedWalls, updatedDoors);
+          } else {
+            pushHistory(null, junctionCleanedWalls, updatedDoors);
+          }
         }
       } else if ((dragging.type === 'room' || (!dragging.type && selectedType === 'room')) && dragging.currentPos) {
         // Commit room vertex drag on mouse up (once per drag) and record history
