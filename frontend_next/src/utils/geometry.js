@@ -1197,9 +1197,9 @@ function insertZStepVertices(poly, segments) {
 
       for (const s of segments) {
         for (const pt of [s.p1, s.p2]) {
-          if (pt.x >= minX - 25 && pt.x <= maxX + 25 && pt.y >= minY - 25 && pt.y <= maxY + 25) {
+          if (pt.x >= minX - 35 && pt.x <= maxX + 35 && pt.y >= minY - 35 && pt.y <= maxY + 35) {
             const proj = distancePointToSegment(pt, p1, p2);
-            if (proj.dist < 80 && proj.t > 0.05 && proj.t < 0.95) {
+            if (proj.dist < 150 && proj.t > 0.02 && proj.t < 0.98) {
               stepCorners.push({ x: Math.round(pt.x * 10) / 10, y: Math.round(pt.y * 10) / 10, t: proj.t });
             }
           }
