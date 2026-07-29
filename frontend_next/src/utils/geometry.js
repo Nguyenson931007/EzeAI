@@ -1023,25 +1023,27 @@ export function simplifyCollinearVertices(polygon, distThresh = 3.5) {
 /**
  * Helper: Force near-orthogonal edges to be 100% horizontal or vertical
  */
-function alignOrthogonalEdges(poly, thresh = 15.0) {
+function alignOrthogonalEdges(poly, thresh = 20.0) {
   if (!poly || poly.length < 3) return poly;
   const pts = poly.map(p => ({ ...p }));
   const n = pts.length;
-  for (let i = 0; i < n; i++) {
-    const nextIdx = (i + 1) % n;
-    const p1 = pts[i];
-    const p2 = pts[nextIdx];
-    const dx = Math.abs(p2.x - p1.x);
-    const dy = Math.abs(p2.y - p1.y);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < n; i++) {
+      const nextIdx = (i + 1) % n;
+      const p1 = pts[i];
+      const p2 = pts[nextIdx];
+      const dx = Math.abs(p2.x - p1.x);
+      const dy = Math.abs(p2.y - p1.y);
 
-    if (dy < thresh && dx > dy) {
-      const avgY = Math.round(((p1.y + p2.y) / 2) * 10) / 10;
-      p1.y = avgY;
-      p2.y = avgY;
-    } else if (dx < thresh && dy > dx) {
-      const avgX = Math.round(((p1.x + p2.x) / 2) * 10) / 10;
-      p1.x = avgX;
-      p2.x = avgX;
+      if (dy < thresh && dx > dy) {
+        const avgY = Math.round(((p1.y + p2.y) / 2) * 10) / 10;
+        p1.y = avgY;
+        p2.y = avgY;
+      } else if (dx < thresh && dy > dx) {
+        const avgX = Math.round(((p1.x + p2.x) / 2) * 10) / 10;
+        p1.x = avgX;
+        p2.x = avgX;
+      }
     }
   }
   return pts;
@@ -1067,7 +1069,7 @@ function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
  * Snaps room polygon vertices to surrounding wall centerlines (INT) or outer faces (EXT),
  * then simplifies collinear T-junction vertices and aligns orthogonal edges.
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 28, snapMode = 'interior') {
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapMode = 'interior') {
   if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
     return roomPolygon;
   }
@@ -1109,9 +1111,9 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 28, snapM
 
   if (segments.length === 0) return roomPolygon;
 
-  const maxMargin = tolerance + 35;
+  const maxMargin = tolerance + 40;
   const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
-  const endCapTol = 30;
+  const endCapTol = 35;
 
   const snappedPts = normalizedPoly.map(pt => {
     let curX = pt.x;
