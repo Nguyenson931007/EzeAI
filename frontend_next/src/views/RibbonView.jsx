@@ -764,7 +764,7 @@ export default function RibbonView({
       </div>
 
       {/* ===== ROI CONTEXT TOOLBAR ===== */}
-      {
+      {/* {
         roiRect && (
           <div className={`roi-toolbar glassmorphic ${cacheStatus}`}>
             <div className="roi-toolbar-header">
@@ -829,7 +829,6 @@ export default function RibbonView({
               <button className="roi-clear" onClick={clearROI} disabled={isDetecting}>✕ Close</button>
             </div>
 
-            {/* Linear Progress Bar with cancel button (Requirement 5) */}
             {isDetecting && (
               <div className="roi-progress-container">
                 <div className="roi-progress-bar-wrapper">
@@ -845,7 +844,7 @@ export default function RibbonView({
             )}
           </div>
         )
-      }
+      } */}
 
       {/* === Export Page Selector Modal === */}
       {

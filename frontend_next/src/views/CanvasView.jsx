@@ -3001,7 +3001,6 @@ export default function CanvasView({
       };
     }
 
-
     const aspect = imgSize.w / imgSize.h;
     let minimapW = minimapMaxW;
     let minimapH = minimapMaxW / aspect;
@@ -3300,7 +3299,7 @@ export default function CanvasView({
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
 
         {/* Floating Dynamic Diagnostic ROI Panel (Requirement 10) */}
-        {roiRect && (
+        {/* {roiRect && (
           <div className="roi-debug-panel glassmorphic">
             <div className="debug-header">🛠 ROI DIAGNOSTICS</div>
             <div className="debug-row">
@@ -3335,7 +3334,7 @@ export default function CanvasView({
               {inferenceTiming && <span className="metrics-badge">{inferenceTiming}</span>}
             </div>
           </div>
-        )}
+        )} */}
 
         {activeScanRoom && (
           <div className="scanner-panel">
