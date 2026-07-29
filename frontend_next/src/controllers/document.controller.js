@@ -52,6 +52,8 @@ export function useDocumentController({
       wasmUrl: typeof window !== "undefined" ? window.location.origin + "/wasm/" : undefined
     }).promise;
     const pagesData = [];
+    const importTime = Date.now();
+    const rawFileName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "PDF";
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -63,9 +65,12 @@ export function useDocumentController({
 
       await page.render({ canvasContext: context, viewport: viewport }).promise;
       pagesData.push({
+        id: `pdf_pg_${importTime}_${i}_${Math.random().toString(36).substring(2, 7)}`,
         image: canvas.toDataURL("image/jpeg", 0.75),
         w: viewport.width,
-        h: viewport.height
+        h: viewport.height,
+        fileName: rawFileName,
+        pageNumber: i
       });
     }
 
