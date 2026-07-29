@@ -968,10 +968,10 @@ function perpDistToLine(P, A, B) {
  * Simplifies a polygon by removing collinear or near-collinear redundant vertices
  * (including T-junction points along straight walls), while 100% preserving true room corners.
  */
-export function simplifyCollinearVertices(polygon, distThresh = 3.5) {
+export function simplifyCollinearVertices(polygon, distThresh = 2.0) {
   if (!polygon || polygon.length <= 4) return polygon;
 
-  let pts = polygon.map(p => _getCoord(p));
+  let pts = polygon.map(p => ({ ..._getCoord(p), userAdded: Boolean(p.userAdded) }));
   let changed = true;
   let maxIter = 10;
   let iter = 0;
@@ -987,6 +987,12 @@ export function simplifyCollinearVertices(polygon, distThresh = 3.5) {
       const curr = pts[i];
       const next = pts[(i + 1) % n];
 
+      // Never remove user-added vertices
+      if (curr.userAdded) {
+        newPts.push(curr);
+        continue;
+      }
+
       const ux = prev.x - curr.x;
       const uy = prev.y - curr.y;
       const vx = next.x - curr.x;
@@ -999,8 +1005,10 @@ export function simplifyCollinearVertices(polygon, distThresh = 3.5) {
         continue;
       }
 
+      // Only simplify if 3 consecutive vertices are strictly 100% collinear (angle ≈ 180°).
+      // NEVER remove direction-changing vertices (L-corners, Z-corners, recesses, step offsets).
       const cosAngle = (ux * vx + uy * vy) / (lenU * lenV);
-      const isCollinearAngle = cosAngle < -0.95 || cosAngle > 0.95;
+      const isCollinearAngle = cosAngle < -0.998;
 
       const dist = perpDistToLine(curr, prev, next);
       if (isCollinearAngle && dist < distThresh) {
@@ -1231,8 +1239,8 @@ function insertZStepVertices(poly, segments) {
   const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
   // 4. Clean INT<->EXT transition steps
   const cleaned = cleanExtWallWrapping(simplified, segments, maxThick);
-  // 5. Remove all collinear T-junction vertices along straight walls (tolerance: 15.0px)
-  return simplifyCollinearVertices(cleaned, 15.0);
+  // 5. Remove only strictly collinear vertices along straight walls (tolerance: 2.0px)
+  return simplifyCollinearVertices(cleaned, 2.0);
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {
