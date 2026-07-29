@@ -23,6 +23,7 @@ export const AppProvider = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(() => safeGetItem("isLoggedIn") === "true");
   const [currentProjectName, setCurrentProjectName] = useState(null);
   const [realScale, setRealScale] = useState(null);
+  const [scalesByPage, setScalesByPage] = useState({});
   const [wasteByPage, setWasteByPage] = useState({});
   const [pdfOffsetsByPage, setPdfOffsetsByPage] = useState({});
   const [roofsByPage, setRoofsByPage] = useState({});
@@ -72,6 +73,7 @@ export const AppProvider = ({ children }) => {
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
+    scalesByPage, setScalesByPage,
     wasteByPage, setWasteByPage,
     pdfOffsetsByPage, setPdfOffsetsByPage,
     roofsByPage, setRoofsByPage,

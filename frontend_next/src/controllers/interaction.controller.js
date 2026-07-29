@@ -88,6 +88,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     currentPage, realScale, setRealScale,
     activeTab,
     pdfOffsetsByPage, setPdfOffsetsByPage,
+    scalesByPage, setScalesByPage,
     lintelsByPage, setLintelsByPage
   } = useAppModel();
 
@@ -1504,7 +1505,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         }
         const realMm = parseFloat(real);
         if (realMm && realMm > 0 && pixelDist > 0) {
-          setRealScale(realMm / pixelDist);
+          const newScale = realMm / pixelDist;
+          setRealScale(newScale);
+          setScalesByPage(prev => ({ ...prev, [currentPage]: newScale }));
           // await showAlert(`Scale set: ${(realMm / pixelDist / 1000).toFixed(6)} m/px`, { x: e.clientX, y: e.clientY });
         }
         setMeasurePoints([]);

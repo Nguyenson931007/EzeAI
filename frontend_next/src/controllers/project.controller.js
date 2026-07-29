@@ -17,7 +17,8 @@ export const useProjectController = (
   doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
   pdfOffsetsByPage, setPdfOffsetsByPage,
   roofsByPage, setRoofsByPage,
-  lintelsByPage, setLintelsByPage
+  lintelsByPage, setLintelsByPage,
+  scalesByPage, setScalesByPage
 ) => {
   const { showAlert } = useDialog();
   
@@ -25,14 +26,16 @@ export const useProjectController = (
     if (!user) { await showAlert("Please login to save jobs"); return; }
     if (pages.length === 0) { await showAlert("Nothing to save"); return; }
 
-    const scaleValue = realScale ? realScale / 1000 : null;
-    const totalArea = Object.values(roomsByPage).reduce((acc, pageRooms) => 
-      acc + (pageRooms || []).reduce((pAcc, room) => 
-        pAcc + (scaleValue ? polygonAreaM2(room.polygon, scaleValue) : 0), 0), 0);
+    const totalArea = Object.entries(roomsByPage).reduce((acc, [pageIdx, pageRooms]) => {
+      const pageScale = scalesByPage[pageIdx];
+      const scaleValue = pageScale ? pageScale / 1000 : null;
+      return acc + (pageRooms || []).reduce((pAcc, room) => 
+        pAcc + (scaleValue ? polygonAreaM2(room.polygon, scaleValue) : 0), 0);
+    }, 0);
     
     const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
-    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage };
+    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage };
 
     try {
       const payload = {
@@ -62,6 +65,17 @@ export const useProjectController = (
     else setDoorsByPage({});
     if (jobData.wallsByPage) setWallsByPage(jobData.wallsByPage);
     else setWallsByPage({});
+    
+    if (jobData.scalesByPage) setScalesByPage(jobData.scalesByPage);
+    else if (jobData.realScale) {
+      // Backward compatibility
+      const fallback = {};
+      (jobData.pages || []).forEach((_, idx) => fallback[idx] = jobData.realScale);
+      setScalesByPage(fallback);
+    } else {
+      setScalesByPage({});
+    }
+    
     if (jobData.realScale) setRealScale(jobData.realScale);
     if (jobData.wasteByPage) setWasteByPage(jobData.wasteByPage);
     if (jobData.pdfOffsetsByPage) setPdfOffsetsByPage(jobData.pdfOffsetsByPage);
