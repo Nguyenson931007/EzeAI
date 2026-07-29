@@ -1174,9 +1174,6 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
 function insertZStepVertices(poly, segments) {
   if (!poly || poly.length < 3 || !segments || segments.length === 0) return poly;
 
-  const horizSegs = segments.filter(s => s.orientation === 'H');
-  const vertSegs = segments.filter(s => s.orientation === 'V');
-
   const pts = poly.map(p => ({ ...p }));
   const result = [];
   const n = pts.length;
@@ -1195,38 +1192,33 @@ function insertZStepVertices(poly, segments) {
       const minY = Math.min(p1.y, p2.y);
       const maxY = Math.max(p1.y, p2.y);
 
-      // Check for a vertical step wall connecting p1.y and p2.y
-      const stepVertWall = vertSegs.find(s => {
-        const wallX = (s.p1.x + s.p2.x) / 2;
-        const wMinY = Math.min(s.p1.y, s.p2.y) - 35;
-        const wMaxY = Math.max(s.p1.y, s.p2.y) + 35;
-        const isXInside = wallX >= minX - 35 && wallX <= maxX + 35;
-        const isYOverlapping = Math.max(wMinY, minY) < Math.min(wMaxY, maxY);
-        return isXInside && isYOverlapping;
-      });
+      // Find all wall endpoints / T-junctions / L-junctions lying inside the bbox of [p1, p2]
+      const stepCorners = [];
 
-      if (stepVertWall) {
-        const wallX = Math.round(((stepVertWall.p1.x + stepVertWall.p2.x) / 2) * 10) / 10;
-        result.push({ x: wallX, y: p1.y });
-        result.push({ x: wallX, y: p2.y });
-        continue;
+      for (const s of segments) {
+        for (const pt of [s.p1, s.p2]) {
+          if (pt.x >= minX - 25 && pt.x <= maxX + 25 && pt.y >= minY - 25 && pt.y <= maxY + 25) {
+            const proj = distancePointToSegment(pt, p1, p2);
+            if (proj.dist < 80 && proj.t > 0.05 && proj.t < 0.95) {
+              stepCorners.push({ x: Math.round(pt.x * 10) / 10, y: Math.round(pt.y * 10) / 10, t: proj.t });
+            }
+          }
+        }
       }
 
-      // Check for a horizontal step wall connecting p1.x and p2.x
-      const stepHorizWall = horizSegs.find(s => {
-        const wallY = (s.p1.y + s.p2.y) / 2;
-        const wMinX = Math.min(s.p1.x, s.p2.x) - 35;
-        const wMaxX = Math.max(s.p1.x, s.p2.x) + 35;
-        const isYInside = wallY >= minY - 35 && wallY <= maxY + 35;
-        const isXOverlapping = Math.max(wMinX, minX) < Math.min(wMaxX, maxX);
-        return isYInside && isXOverlapping;
-      });
+      if (stepCorners.length > 0) {
+        // Sort corners along segment parameter t (from p1 to p2)
+        stepCorners.sort((a, b) => a.t - b.t);
 
-      if (stepHorizWall) {
-        const wallY = Math.round(((stepHorizWall.p1.y + stepHorizWall.p2.y) / 2) * 10) / 10;
-        result.push({ x: p1.x, y: wallY });
-        result.push({ x: p2.x, y: wallY });
-        continue;
+        // Deduplicate nearby step corners
+        for (const sc of stepCorners) {
+          const lastAdded = result[result.length - 1];
+          const distToLast = Math.hypot(sc.x - lastAdded.x, sc.y - lastAdded.y);
+          const distToP2 = Math.hypot(sc.x - p2.x, sc.y - p2.y);
+          if (distToLast > 10 && distToP2 > 10) {
+            result.push({ x: sc.x, y: sc.y });
+          }
+        }
       }
     }
   }
