@@ -899,12 +899,18 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const currentPageDoors = doorsByPage[currentPage] || [];
     const cutWalls = cutWallsByDoors(finalWalls, currentPageDoors, realScale);
     const finalized = recalculateAllWallsPolygons(cutWalls);
+    const currentRooms = roomsByPage[currentPage] || [];
+    const recalculatedRooms = recalculateRoomsFromWallTopology(currentRooms, finalized);
 
+    setRoomsByPage(prev => ({
+      ...prev,
+      [currentPage]: recalculatedRooms
+    }));
     setWallsByPage(prev => ({
       ...prev,
       [currentPage]: finalized
     }));
-    pushHistory(null, finalized, currentPageDoors);
+    pushHistory(recalculatedRooms, finalized, currentPageDoors);
     setSelectedWallIds([]);
     setSelectedId(null);
     setSelectedType(null);
@@ -1223,9 +1229,12 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         const updatedWalls = [...pageWalls, newWall];
         const recalculatedWalls = recalculateAllWallsPolygons(updatedWalls);
+        const currentRooms = roomsByPage[currentPage] || [];
+        const recalculatedRooms = recalculateRoomsFromWallTopology(currentRooms, recalculatedWalls);
 
-        pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+        setRoomsByPage(prev => ({ ...prev, [currentPage]: recalculatedRooms }));
         setWallsByPage(prev => ({ ...prev, [currentPage]: recalculatedWalls }));
+        pushHistory(recalculatedRooms, recalculatedWalls, doorsByPage[currentPage] || []);
       }
 
       // Always clear drawing state and return to select mode
