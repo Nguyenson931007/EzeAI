@@ -1011,17 +1011,12 @@ const WallHandlesLayer = React.memo(({
   function handleSelectWall(wallId, isShiftKey) {
     if (typeof selectWall === 'function') {
       selectWall(wallId, isShiftKey);
-    } else {
-      if (setSelectedWallIds) {
-        if (isShiftKey) {
-          setSelectedWallIds(prev => prev.includes(wallId) ? prev.filter(id => id !== wallId) : [...prev, wallId]);
-        } else {
-          setSelectedWallIds([wallId]);
-        }
-      }
-      if (setSelectedId) setSelectedId(wallId);
-      if (setSelectedType) setSelectedType('wall');
     }
+    if (setSelectedWallIds) {
+      setSelectedWallIds(prev => isShiftKey ? (prev.includes(wallId) ? prev.filter(id => id !== wallId) : [...prev, wallId]) : [wallId]);
+    }
+    if (setSelectedId) setSelectedId(wallId);
+    if (setSelectedType) setSelectedType('wall');
   }
 
   function formatWallDisplayName(w, index) {
@@ -1038,7 +1033,7 @@ const WallHandlesLayer = React.memo(({
     <g id="WallHandlesLayer">
       {(walls || []).map((w, idx) => {
         if (!w.centerline || w.centerline.length !== 2) return null;
-        const isSelected = selectedWallIds.includes(w.id);
+        const isSelected = selectedWallIds.includes(w.id) || selectedId === w.id;
         const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
         const hasSelectedVertex = (selectedWallVertex && selectedWallVertex.wallId === w.id) ||
           (selectedVertices && selectedVertices.some(sv => sv.wallId === w.id));

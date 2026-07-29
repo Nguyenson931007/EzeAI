@@ -743,14 +743,21 @@ export default function RightPropertyPaneView({
           </>
         ) : selectedType === "wall" && (selectedWall || selectedWallIds.length > 0) ? (
           <>
-            {selectedWallIds.length <= 1 && selectedWall && (
-              <div className="panel-field">
-                <span className="panel-label">Wall ID</span>
-                <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
-                  {selectedWall.id}
+            {selectedWallIds.length <= 1 && selectedWall && (() => {
+              const wallIdx = (walls || []).findIndex(w => w.id === selectedWall.id);
+              const formattedWallId = selectedWall.name || (wallIdx >= 0 ? `W-${wallIdx + 1}` : selectedWall.id);
+              return (
+                <div className="panel-field">
+                  <span className="panel-label">Wall ID</span>
+                  <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
+                    {formattedWallId}
+                    {selectedWall.id && selectedWall.id !== formattedWallId && (
+                      <span style={{ fontSize: 10, color: "#64748b", marginLeft: 6, fontWeight: "normal" }}>({selectedWall.id})</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {selectedWallIds.length > 1 && (
               <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 12 }}>
