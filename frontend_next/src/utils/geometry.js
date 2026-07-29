@@ -1112,8 +1112,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
   if (segments.length === 0) return roomPolygon;
 
   const maxMargin = tolerance + 40;
-  const maxThick = segments.reduce((mx, s) => Math.max(mx, s.thickPx), 30);
-  const endCapTol = 35;
+  const capTol = 50;
 
   const snappedPts = normalizedPoly.map(pt => {
     let curX = pt.x;
@@ -1134,8 +1133,8 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
         const targetY = faceMode === 'outer' ? (cy < wallY ? (wallY + halfThick) : (wallY - halfThick)) : wallY;
         const dy = Math.abs(pt.y - targetY);
         
-        const minX = Math.max(polyMinX - maxMargin, Math.min(seg.p1.x, seg.p2.x) - endCapTol);
-        const maxX = Math.min(polyMaxX + maxMargin, Math.max(seg.p1.x, seg.p2.x) + endCapTol);
+        const minX = Math.min(seg.p1.x, seg.p2.x) - capTol;
+        const maxX = Math.max(seg.p1.x, seg.p2.x) + capTol;
         
         if (dy < bestDistH && pt.x >= minX && pt.x <= maxX) {
           bestDistH = dy;
@@ -1146,8 +1145,8 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
         const targetX = faceMode === 'outer' ? (cx < wallX ? (wallX + halfThick) : (wallX - halfThick)) : wallX;
         const dx = Math.abs(pt.x - targetX);
         
-        const minY = Math.max(polyMinY - maxMargin, Math.min(seg.p1.y, seg.p2.y) - endCapTol);
-        const maxY = Math.min(polyMaxY + maxMargin, Math.max(seg.p1.y, seg.p2.y) + endCapTol);
+        const minY = Math.min(seg.p1.y, seg.p2.y) - capTol;
+        const maxY = Math.max(seg.p1.y, seg.p2.y) + capTol;
         
         if (dx < bestDistV && pt.y >= minY && pt.y <= maxY) {
           bestDistV = dx;
@@ -1156,15 +1155,12 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 38, snapM
       }
     }
 
-    curX = Math.max(polyMinX - maxMargin, Math.min(polyMaxX + maxMargin, curX));
-    curY = Math.max(polyMinY - maxMargin, Math.min(polyMaxY + maxMargin, curY));
-
     return { x: curX, y: curY };
   });
 
   // Post-process pipeline:
   // 1. Align near-orthogonal edges to 100% horizontal/vertical
-  const aligned = alignOrthogonalEdges(snappedPts, 15.0);
+  const aligned = alignOrthogonalEdges(snappedPts, 25.0);
   // 2. Remove step notches
   const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
   // 3. Clean INT<->EXT transition steps
