@@ -1160,15 +1160,76 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 25, snapM
     return { x: curX, y: curY };
   });
 
+/**
+ * Automatically inserts step corner vertices for Z-shaped / jogged step walls so room floor
+ * polygons follow Z-shaped walls cleanly instead of connecting wall ends with diagonal lines.
+ */
+function insertZStepVertices(poly, segments) {
+  if (!poly || poly.length < 3 || !segments || segments.length === 0) return poly;
+
+  const pts = poly.map(p => ({ ...p }));
+  const result = [];
+  const n = pts.length;
+
+  for (let i = 0; i < n; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    result.push(p1);
+
+    const dx = Math.abs(p2.x - p1.x);
+    const dy = Math.abs(p2.y - p1.y);
+
+    if (dx > 12 && dy > 12) {
+      const minX = Math.min(p1.x, p2.x);
+      const maxX = Math.max(p1.x, p2.x);
+      const minY = Math.min(p1.y, p2.y);
+      const maxY = Math.max(p1.y, p2.y);
+
+      // Find all wall endpoints / T-junctions / L-junctions lying inside the bbox of [p1, p2]
+      const stepCorners = [];
+
+      for (const s of segments) {
+        for (const pt of [s.p1, s.p2]) {
+          if (pt.x >= minX - 35 && pt.x <= maxX + 35 && pt.y >= minY - 35 && pt.y <= maxY + 35) {
+            const proj = distancePointToSegment(pt, p1, p2);
+            if (proj.dist < 250 && proj.t > 0.01 && proj.t < 0.99) {
+              stepCorners.push({ x: Math.round(pt.x * 10) / 10, y: Math.round(pt.y * 10) / 10, t: proj.t });
+            }
+          }
+        }
+      }
+
+      if (stepCorners.length > 0) {
+        // Sort corners along segment parameter t (from p1 to p2)
+        stepCorners.sort((a, b) => a.t - b.t);
+
+        // Deduplicate nearby step corners
+        for (const sc of stepCorners) {
+          const lastAdded = result[result.length - 1];
+          const distToLast = Math.hypot(sc.x - lastAdded.x, sc.y - lastAdded.y);
+          const distToP2 = Math.hypot(sc.x - p2.x, sc.y - p2.y);
+          if (distToLast > 8 && distToP2 > 8) {
+            result.push({ x: sc.x, y: sc.y });
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
   // Post-process pipeline:
-  // 1. Align near-orthogonal edges to 100% horizontal/vertical
-  const aligned = alignOrthogonalEdges(snappedPts, 15.0);
-  // 2. Remove step notches
+  // 1. Insert corner vertices along Z-shaped / jogged step walls
+  const withZSteps = insertZStepVertices(snappedPts, segments);
+  // 2. Align near-orthogonal edges to 100% horizontal/vertical
+  const aligned = alignOrthogonalEdges(withZSteps, 25.0);
+  // 3. Remove step notches
   const simplified = simplifyRoomPolygon(aligned, maxThick + 5);
-  // 3. Clean INT<->EXT transition steps
+  // 4. Clean INT<->EXT transition steps
   const cleaned = cleanExtWallWrapping(simplified, segments, maxThick);
-  // 4. Remove all collinear T-junction vertices along straight walls (tolerance: 15.0px)
-  return simplifyCollinearVertices(cleaned, 15.0);
+  // 5. Remove only strictly collinear vertices along straight walls (tolerance: 2.0px)
+  return simplifyCollinearVertices(cleaned, 2.0);
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {
