@@ -506,7 +506,10 @@ export default function RightPropertyPaneView({
       if (group.walls.length === 0) continue;
       s(r, 0, `── ${group.label} Wall (${group.walls.length}) ──`); r++;
       group.walls.forEach((w) => {
-        s(r, 0, String(w.id)); s(r, 1, `${group.label} Wall`);
+        const wallIdx = (walls || []).findIndex(orig => orig.id === w.id);
+        const strId = String(w.id);
+        const wallIdFormatted = w.name || (wallIdx >= 0 ? `W-${wallIdx + 1}` : (strId.startsWith("man_wall_") || strId.startsWith("wall-topo-") || strId.startsWith("wall-") || strId.startsWith("wall_") || strId.length > 10 ? `W-${wallIdx + 1}` : strId));
+        s(r, 0, wallIdFormatted); s(r, 1, `${group.label} Wall`);
         n(r, 2, w.lengthM || 0); n(r, 3, w.heightM || 0);
         n(r, 4, w.areaM2 || 0); n(r, 5, w.thicknessMm); r++;
       });
@@ -533,7 +536,7 @@ export default function RightPropertyPaneView({
     try {
       setIsExporting(true);
 
-      const mappedWalls = walls.map(w => {
+      const mappedWalls = walls.map((w, idx) => {
         const c = w.centerline;
         let lengthMm = 0;
         if (c && c.length === 2) {
@@ -542,8 +545,11 @@ export default function RightPropertyPaneView({
           const lengthPx = Math.hypot(dx, dy);
           lengthMm = scaleValue ? lengthPx * scaleValue * 1000 : 0;
         }
+        const strId = String(w.id);
+        const wallIdFormatted = w.name || (strId.startsWith("man_wall_") || strId.startsWith("wall-topo-") || strId.startsWith("wall-") || strId.startsWith("wall_") || strId.length > 10 ? `W-${idx + 1}` : strId);
+
         return {
-          id: String(w.id),
+          id: wallIdFormatted,
           class_name: getWallClass(w),
           length_mm: lengthMm,
           height_mm: w.height ?? savedDefault,
