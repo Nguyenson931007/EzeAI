@@ -53,7 +53,7 @@ const EMPTY_ARRAY = [];
 export default function BOQTable({
   pages = EMPTY_ARRAY,
   doors = EMPTY_ARRAY,
-  scaleValue,
+  scalesByPage = {},
   wasteInternal = 10,
   wasteExternal = 15,
   initialPageIndex = 0,
@@ -209,7 +209,8 @@ export default function BOQTable({
       }
 
       const rooms = findRoomsFromDoor(d, page, center);
-      const width = getDoorWidth(d, scaleValue);
+      const pageScale = scalesByPage[d.page_index] ? scalesByPage[d.page_index] / 1000 : null;
+      const width = getDoorWidth(d, pageScale);
       const height = getDoorHeight(d);
       
       const validLeft = getValidRoomName(rooms.left.room_name);
@@ -239,7 +240,7 @@ export default function BOQTable({
         height: Number(height.toFixed(2)),
       };
     });
-  }, [pages, doors, scaleValue, selectedPageIndex]);
+  }, [pages, doors, scalesByPage, selectedPageIndex]);
 
   const doorCountByRoom = useMemo(() => {
     const map = {};
@@ -255,17 +256,21 @@ export default function BOQTable({
   }, [enrichedDoors]);
 
   const baseList = useMemo(() => {
-    if (!scaleValue || scaleValue <= 0) return [];
+    if (Object.keys(scalesByPage || {}).length === 0) return [];
     const rows = [];
     const activePages = selectedPageIndex === "all"
       ? pages
       : [pages[selectedPageIndex]].filter(Boolean);
 
-    activePages.forEach(p =>
+    activePages.forEach(p => {
+      const actualPageIndex = pages.indexOf(p);
+      const pageScale = scalesByPage[actualPageIndex] ? scalesByPage[actualPageIndex] / 1000 : null;
+      if (!pageScale) return;
+
       (p.objects || []).forEach((r) => {
         if (!r?.polygon || r.polygon.length < 3) return;
         if (r.id && String(r.id).startsWith("text-")) return;
-        const areaCalc = polygonAreaM2(r.polygon, scaleValue);
+        const areaCalc = polygonAreaM2(r.polygon, pageScale);
         if (!areaCalc || areaCalc <= 0) return;
         const roomName = r.room_name || "Uned"; // ✅ define trước
         const roomWetness = r.wetness || "dry";
@@ -287,8 +292,8 @@ export default function BOQTable({
           areaOverride: null,
           doorCount,
         });
-      })
-    );
+      });
+    });
     const grouped = {};
 
     rows.forEach(r => {
@@ -1080,20 +1085,21 @@ export default function BOQTable({
     );
   }
 
-  function FrameHardwareView({ walls, scaleValue }) {
+  function FrameHardwareView({ walls, scalesByPage }) {
     const calculatedWallLm = useMemo(() => {
       if (!walls || walls.length === 0) return 120;
-      let totalPx = 0;
-      walls.forEach(w => {
-        const c = w.centerline;
-        if (c && c.length >= 2) {
-          const dx = (c[1][0] || c[1].x || 0) - (c[0][0] || c[0].x || 0);
-          const dy = (c[1][1] || c[1].y || 0) - (c[0][0] || c[0].y || 0);
-          totalPx += Math.hypot(dx, dy);
+      let total = 0;
+      walls.forEach((w) => {
+        const pts = w.polygon || w.points;
+        if (pts && pts.length >= 2) {
+          const dx = (pts[1].x || pts[1][0]) - (pts[0].x || pts[0][0]);
+          const dy = (pts[1].y || pts[1][1]) - (pts[0].y || pts[0][1]);
+          const pageScale = scalesByPage[w.page_index] ? scalesByPage[w.page_index] / 1000 : 0.05;
+          total += Math.hypot(dx, dy) * pageScale;
         }
       });
-      return Math.round(totalPx * (scaleValue || 0.05));
-    }, [walls, scaleValue]);
+      return Math.round(total);
+    }, [walls, scalesByPage]);
 
     const [wallsOnSlabLm, setWallsOnSlabLm] = useState(calculatedWallLm || 120);
     const [upperFloor, setUpperFloor] = useState("No");
@@ -1817,17 +1823,25 @@ export default function BOQTable({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  if (!scaleValue || scaleValue <= 0)
+  const missingScalePages = pages.filter((p, i) => !scalesByPage[i]);
+
+  if (Object.keys(scalesByPage || {}).length === 0)
     return (
       <div style={styles.card}>
         <h3>📊 BOQ – Floor Area</h3>
-        <p style={{ color: "#666" }}>📐 Please set scale using the Measure tool first to calculate areas.</p>
+        <p style={{ color: "#666" }}>📏 Please set scale using the Measure tool first to calculate areas.</p>
       </div>
     );
 
   return (
     <div style={styles.card}>
       <h3 style={{ marginBottom: 20 }}>BOQ – Enterprise</h3>
+
+      {missingScalePages.length > 0 && (
+        <div style={{ background: "#fee2e2", border: "1px solid #ef4444", padding: "12px", borderRadius: "6px", marginBottom: "20px", color: "#b91c1c", fontWeight: "bold" }}>
+          ⚠ Cảnh báo: Có {missingScalePages.length} trang chưa được thiết lập Scale. Dữ liệu khối lượng trên các trang này sẽ bị bỏ qua!
+        </div>
+      )}
 
       {/* Floor Selector */}
       <div style={{
@@ -2005,7 +2019,7 @@ export default function BOQTable({
       )}
 
       {viewMode === "frame_hardware" && (
-        <FrameHardwareView walls={pages.flatMap(p => p.walls || [])} scaleValue={scaleValue} />
+        <FrameHardwareView walls={pages.flatMap((p, i) => (p.walls || []).map(w => ({...w, page_index: i})))} scalesByPage={scalesByPage} />
       )}
 
       {viewMode === "eaves_soffits" && (
@@ -2290,18 +2304,18 @@ const styles = {
   },
 };
 
-function getDoorWidth(door, walls, scaleValue) {
+function getDoorWidth(door, scaleValue) {
   // 1. If door has width_mm (from OCR/edit), use it (convert to meters)
   if (door.width_mm && door.width_mm > 0) {
     return door.width_mm > 10 ? door.width_mm / 1000 : door.width_mm;
   }
-  
-  // 2. If door has width (from YOLO/detection), use it (convert to meters)
-  if (door.width && door.width > 0) {
-    return door.width > 10 ? door.width / 1000 : door.width;
+
+  // 2. Optional: use geometry properties from AI
+  if (door.geometry_properties?.width_mm) {
+    return door.geometry_properties.width_mm / 1000;
   }
 
-  // 3. Calculate from points
+  // 3. Fallback to pixel distance if standard points exist
   if (door.points && door.points.length >= 2) {
     const [p1, p2] = door.points;
     const distPx = Math.hypot(getX(p2) - getX(p1), getY(p2) - getY(p1));
@@ -2309,16 +2323,13 @@ function getDoorWidth(door, walls, scaleValue) {
   }
 
   // 4. Bounding box fallback
-  const poly = door.polygon || door.mask_polygon;
-  if (poly && poly.length >= 2) {
-    const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+  if (door.polygon || door.mask_polygon) {
+    const poly = door.polygon || door.mask_polygon;
     let maxDistPx = 0;
-    for (let i = 0; i < pts.length; i++) {
-      for (let j = i + 1; j < pts.length; j++) {
-        const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
-        if (d > maxDistPx) {
-          maxDistPx = d;
-        }
+    for (let i = 0; i < poly.length; i++) {
+      for (let j = i + 1; j < poly.length; j++) {
+        const d = Math.hypot(getX(poly[i]) - getX(poly[j]), getY(poly[i]) - getY(poly[j]));
+        if (d > maxDistPx) maxDistPx = d;
       }
     }
     if (maxDistPx > 0) {

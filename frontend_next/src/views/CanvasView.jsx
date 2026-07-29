@@ -2936,6 +2936,16 @@ export default function CanvasView({
     const minimapMaxW = 150;
     const minimapMaxH = 120;
 
+    if (!imgSize || !imgSize.w || !imgSize.h) {
+      return {
+        w: minimapMaxW,
+        h: minimapMaxH,
+        scaleFactor: 1,
+        box: { x: 0, y: 0, w: 0, h: 0 }
+      };
+    }
+
+
     const aspect = imgSize.w / imgSize.h;
     let minimapW = minimapMaxW;
     let minimapH = minimapMaxW / aspect;

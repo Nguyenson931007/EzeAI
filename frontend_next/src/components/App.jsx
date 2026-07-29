@@ -190,7 +190,8 @@ export default function App() {
     roofsByPage, setRoofsByPage,
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId,
-    lintelsByPage, setLintelsByPage
+    lintelsByPage, setLintelsByPage,
+    scalesByPage, setScalesByPage
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -304,6 +305,10 @@ export default function App() {
     setSelectedVertices,
     startVertexMove
   } = useInteractionController(svgRef, layerVisibility);
+
+  useEffect(() => {
+    setRealScale(scalesByPage[currentPage] || null);
+  }, [currentPage, scalesByPage, setRealScale]);
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -451,7 +456,8 @@ export default function App() {
     currentJobId, setCurrentJobId, doorsByPage, setDoorsByPage, wallsByPage, setWallsByPage,
     pdfOffsetsByPage, setPdfOffsetsByPage,
     roofsByPage, setRoofsByPage,
-    lintelsByPage, setLintelsByPage
+    lintelsByPage, setLintelsByPage,
+    scalesByPage, setScalesByPage
   );
 
   // Pass down context for global access
@@ -492,17 +498,20 @@ export default function App() {
   }, [activeTab, image]);
 
   function fitToScreen() {
-    const container = svgRef.current.parentElement;
+    const container = svgRef.current?.parentElement;
     if (!container) return;
     const cw = container.clientWidth;
     const ch = container.clientHeight;
-    const scaleX = cw / imgSize.w;
-    const scaleY = ch / imgSize.h;
-    const newScale = Math.min(scaleX, scaleY);
+    if (cw === 0 || ch === 0) return;
+    const safeW = imgSize.w || 1;
+    const safeH = imgSize.h || 1;
+    const scaleX = cw / safeW;
+    const scaleY = ch / safeH;
+    const newScale = Math.max(0.001, Math.min(scaleX, scaleY));
     setScale(newScale);
     setOffset({
-      x: (cw - imgSize.w * newScale) / 2,
-      y: (ch - imgSize.h * newScale) / 2
+      x: (cw - safeW * newScale) / 2,
+      y: (ch - safeH * newScale) / 2
     });
   }
 
@@ -511,13 +520,18 @@ export default function App() {
     if (!container) return;
     const cw = container.clientWidth;
     const ch = container.clientHeight;
+    if (cw === 0 || ch === 0) return;
+    const safeW = imgSize.w || 1;
+    const safeH = imgSize.h || 1;
     const newScale = 1.0;
     setScale(newScale);
     setOffset({
-      x: (cw - imgSize.w * newScale) / 2,
-      y: (ch - imgSize.h * newScale) / 2
+      x: (cw - safeW * newScale) / 2,
+      y: (ch - safeH * newScale) / 2
     });
   }
+
+
 
   function goPage(index) {
     if (!pages[index]) return;
@@ -693,6 +707,7 @@ export default function App() {
       setWallsByPage({});
       setRoofsByPage({});
       setLintelsByPage({});
+      setScalesByPage({});
       setWasteByPage({});
       setPdfOffsetsByPage({});
       setPages([]);
@@ -723,6 +738,7 @@ export default function App() {
     setDoorsByPage(shiftMap(doorsByPage));
     setRoofsByPage(shiftMap(roofsByPage));
     setLintelsByPage(shiftMap(lintelsByPage));
+    setScalesByPage(shiftMap(scalesByPage));
     setWasteByPage(shiftMap(wasteByPage));
     setPdfOffsetsByPage(shiftMap(pdfOffsetsByPage));
 
@@ -1175,11 +1191,11 @@ export default function App() {
               <h3>📊 BOQ – Enterprise</h3>
               <button className="boq-close-btn" onClick={() => setShowBOQ(false)}>✕ Close</button>
             </div>
-            {scaleValue ? (
+            {Object.keys(scalesByPage).length > 0 ? (
               <BOQTable
                 pages={boqPages}
                 doors={allDoors}
-                scaleValue={scaleValue}
+                scalesByPage={scalesByPage}
                 wasteInternal={wasteByPage[currentPage]?.internal ?? 10}
                 wasteExternal={wasteByPage[currentPage]?.external ?? 15}
                 initialPageIndex={currentPage}
