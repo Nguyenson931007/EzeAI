@@ -591,7 +591,8 @@ export default function RightPropertyPaneView({
         size: l.size || 90,
         width: l.width || 35,
         height: l.height || 90,
-        description: l.description || "Lintels"
+        description: l.description || "Lintels",
+        ply: l.ply || 1
       }));
 
       const payload = {
@@ -1476,6 +1477,28 @@ export default function RightPropertyPaneView({
                   <div style={{ fontSize: 13, color: "#f1f5f9" }}>
                     {selectedLintel.height}x{selectedLintel.width} mm
                   </div>
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Ply</span>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="1"
+                    className="panel-input"
+                    value={selectedLintel.ply || ""}
+                    onChange={(e) => {
+                      const val = e.target.value === "" ? "" : parseInt(e.target.value);
+                      if (val === "" || (!isNaN(val) && val > 0)) {
+                        if (lintelController) {
+                          lintelController.updateLintel({
+                            ...selectedLintel,
+                            ply: val === "" ? null : val
+                          });
+                        }
+                      }
+                    }}
+                  />
                 </div>
 
                 <div className="panel-field">

@@ -214,10 +214,11 @@ const LintelsLayer = React.memo(({
         }
 
         let typeStr = "";
+        const plyValue = l.ply || 1;
         if (l.height && l.width) {
-          typeStr = `${l.height}x${l.width}`;
+          typeStr = `${l.height}x${l.width} - ${plyValue}ply`;
         } else if (l.size) {
-          typeStr = `${l.size}`;
+          typeStr = `${l.size} - ${plyValue}ply`;
         }
         const dimStr = `${(l.measuredLength || 0).toFixed(2)}m`;
 

@@ -22,6 +22,8 @@ export default function LintelCatalogPanel({
       });
   }, []);
 
+  const [customPlys, setCustomPlys] = useState({});
+
   // Filter catalog based on height search
   const filteredCatalog = catalog.filter(item => {
     if (!searchTerm) return true;
@@ -38,7 +40,7 @@ export default function LintelCatalogPanel({
   });
 
   return (
-    <div 
+    <div
       style={{
         width: '280px',
         background: '#0f172a',
@@ -100,11 +102,14 @@ export default function LintelCatalogPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {filteredCatalog.map(item => {
               const isSelected = selectedLintel && selectedLintel.catalogId === item.id;
-              
+
               return (
                 <div
                   key={item.id}
-                  onClick={() => onSelectCatalogItem(item)}
+                  onClick={() => onSelectCatalogItem({
+                    ...item,
+                    ply: customPlys[item.id] ?? item.ply ?? 1
+                  })}
                   style={{
                     background: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.02)',
                     border: isSelected ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.05)',
@@ -134,9 +139,54 @@ export default function LintelCatalogPanel({
                       {item.type}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Code: {item.id}</span>
-                    <span>Unit: {item.unit}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#94a3b8' }}>
+                      <span>Code: {item.id}</span>
+                      <span>Unit: {item.unit}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>Ply:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder={item.ply ?? 1}
+                        value={isSelected ? (selectedLintel.ply || "") : (customPlys[item.id] || "")}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const val = e.target.value === "" ? "" : parseInt(e.target.value);
+                          if (val === "" || (!isNaN(val) && val > 0)) {
+                            if (val !== "") {
+                              setCustomPlys(prev => ({ ...prev, [item.id]: val }));
+                            } else {
+                              setCustomPlys(prev => {
+                                const newPlys = { ...prev };
+                                delete newPlys[item.id];
+                                return newPlys;
+                              });
+                            }
+
+                            if (isSelected) {
+                              onSelectCatalogItem({
+                                ...item,
+                                ply: val === "" ? (item.ply || 1) : val
+                              });
+                            }
+                          }
+                        }}
+                        style={{
+                          width: '46px',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '2px solid rgba(255,255,255,0.1)',
+                          borderRadius: '6px',
+                          color: '#f8fafc',
+                          fontSize: '12px',
+                          padding: '4px 6px',
+                          textAlign: 'center',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               );

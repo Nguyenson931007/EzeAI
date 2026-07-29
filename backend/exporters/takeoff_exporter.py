@@ -771,6 +771,7 @@ class LintelInput(BaseModel):
     width: float
     height: float
     description: str
+    ply: Optional[int] = 1
 
 class TakeoffExportRequest(BaseModel):
     walls: List[WallInput]
@@ -1360,7 +1361,8 @@ class TakeoffExporter:
 
                 length_qty = defaultdict(int)
                 for l in items:
-                    length_qty[l.final_length] += 1
+                    ply_val = getattr(l, "ply", 1) or 1
+                    length_qty[l.final_length] += ply_val
                 sorted_lengths = sorted(length_qty.items())
 
                 group_first_row = row

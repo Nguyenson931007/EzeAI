@@ -948,7 +948,8 @@ export default function App() {
                         width: item.width,
                         height: item.height,
                         type: item.type,
-                        description: item.description
+                        description: item.description,
+                        ply: item.ply || 1
                       };
                       lintelController.updateLintel(updated);
                     }
