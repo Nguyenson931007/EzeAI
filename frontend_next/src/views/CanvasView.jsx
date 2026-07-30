@@ -136,28 +136,30 @@ const LintelsLayer = React.memo(({
         const isSelected = selectedId === l.id && selectedType === "lintel";
         const isHovered = l.id === hoverId;
 
-        // Find the parent wall
-        const wall = walls.find(w => w.id === l.wallId);
-        if (!wall || !wall.centerline || wall.centerline.length !== 2) return null;
+        // Resolve lintel start/end coordinates
+        let startPt, endPt, wallThickness;
 
-        const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
-        const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+        if (!l.wallId && l.points && l.points.length === 2) {
+          // Standalone or cross-wall lintel — uses absolute coordinates
+          startPt = { x: l.points[0][0], y: l.points[0][1] };
+          endPt   = { x: l.points[1][0], y: l.points[1][1] };
+          wallThickness = 20; // default thickness for standalone
+        } else {
+          // Wall-attached lintel — resolve from wall centerline + parametric offsets
+          const wall = walls.find(w => w.id === l.wallId);
+          if (!wall || !wall.centerline || wall.centerline.length !== 2) return null;
 
-        // Calculate absolute XY coordinates from parametric offsets
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
+          const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+          const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
 
-        const startPt = {
-          x: p1.x + l.startOffset * dx,
-          y: p1.y + l.startOffset * dy
-        };
-        const endPt = {
-          x: p1.x + l.endOffset * dx,
-          y: p1.y + l.endOffset * dy
-        };
+          startPt = { x: p1.x + l.startOffset * dx, y: p1.y + l.startOffset * dy };
+          endPt   = { x: p1.x + l.endOffset * dx,   y: p1.y + l.endOffset * dy };
+          wallThickness = wall.thickness_px || 20;
+        }
 
         const len = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-        const wallThickness = wall.thickness_px || 20;
         // Render lintel slightly thinner than the wall: 70% of wall thickness
         const lintelThickness = wallThickness * 0.7;
 
@@ -169,7 +171,9 @@ const LintelsLayer = React.memo(({
 
         const color = isSelected ? "#FF5722" : (isHovered ? "#3b82f6" : "#f59e0b");
 
-        // Determine text offset direction based on wall class & orientation
+        // Determine text offset direction based on lintel direction
+        const dx = endPt.x - startPt.x;
+        const dy = endPt.y - startPt.y;
         const segmentLen = Math.hypot(dx, dy) || 1;
         const ux = dx / segmentLen;
         const uy = dy / segmentLen;
@@ -185,8 +189,9 @@ const LintelsLayer = React.memo(({
           ny = -ny;
         }
 
-        // For exterior walls, determine inside vs outside of the floor area
-        const isExterior = getWallClass(wall) === "exterior_wall";
+        // For wall-attached exterior walls, determine inside vs outside of the floor area
+        const parentWall = l.wallId ? walls.find(w => w.id === l.wallId) : null;
+        const isExterior = parentWall ? getWallClass(parentWall) === "exterior_wall" : false;
         if (isExterior && rooms.length > 0) {
           const testDist = 15;
           const pPos = { x: cx + nx * testDist, y: cy + ny * testDist };

@@ -47,6 +47,55 @@ export function projectPointOntoSegment(P, A, B) {
   return { point: proj, t, dist: Math.hypot(P.x - proj.x, P.y - proj.y) };
 }
 
+/**
+ * Finds the nearest wall to a canvas point, returning the wall, projection, and distance.
+ * Returns null if no wall is within hit-test radius.
+ */
+function findNearestWall(canvasPoint, walls, scale) {
+  let bestWall = null;
+  let bestDist = Infinity;
+  let bestProj = null;
+
+  for (const w of walls) {
+    if (!w.centerline || w.centerline.length !== 2) continue;
+    const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+    const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+    const proj = projectPointOntoSegment(canvasPoint, wp1, wp2);
+    const wallThickness = w.thickness_px || 20;
+    const hitTestRadius = Math.max(wallThickness / 2, 15 / scale);
+
+    if (proj.dist < hitTestRadius && proj.dist < bestDist) {
+      bestDist = proj.dist;
+      bestWall = w;
+      bestProj = proj;
+    }
+  }
+
+  if (bestWall) {
+    return { wall: bestWall, proj: bestProj, dist: bestDist };
+  }
+  return null;
+}
+
+/**
+ * Snaps a direction angle to the nearest 0°/45°/90°/135°/180° etc. increment.
+ * Returns a new endpoint constrained to that angle.
+ */
+function applyShiftConstraint(startPt, endPt) {
+  const dx = endPt.x - startPt.x;
+  const dy = endPt.y - startPt.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return endPt;
+
+  const rawAngle = Math.atan2(dy, dx);
+  const snappedAngle = Math.round(rawAngle / (Math.PI / 4)) * (Math.PI / 4);
+  return {
+    x: startPt.x + dist * Math.cos(snappedAngle),
+    y: startPt.y + dist * Math.sin(snappedAngle)
+  };
+}
+
 export function useLintelController({
   lintelsByPage,
   setLintelsByPage,
@@ -61,7 +110,8 @@ export function useLintelController({
   doorsByPage
 }) {
   const [isDrawingLintel, setIsDrawingLintel] = useState(false);
-  const [currentLintel, setCurrentLintel] = useState(null); // { wallId, t_start } during drawing
+  // During drawing: { startWallId, t_start, startPoint: {x,y} }
+  const [currentLintel, setCurrentLintel] = useState(null);
   const [lintelPreview, setLintelPreview] = useState(null); // Preview data for CanvasView
   const [showCatalogPanel, setShowCatalogPanel] = useState(false);
   const { showAlert } = useDialog();
@@ -98,147 +148,239 @@ export function useLintelController({
     }
   }, [setInteractionMode]);
 
+  /**
+   * Mouse down handler — determines start point.
+   * If clicking on a wall, snaps start point to wall centerline.
+   * If clicking empty space, uses raw canvas point.
+   */
   const handleMouseDown = useCallback((canvasPoint, scale) => {
     if (!isDrawingLintel) return false;
 
     const walls = getCurrentWalls();
-    let bestWall = null;
-    let bestDist = Infinity;
-    let bestProj = null;
+    const hit = findNearestWall(canvasPoint, walls, scale);
 
-    for (const w of walls) {
-      if (!w.centerline || w.centerline.length !== 2) continue;
+    if (hit) {
+      // Snap start point onto wall centerline
+      const w = hit.wall;
       const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
       const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-
-      const proj = projectPointOntoSegment(canvasPoint, wp1, wp2);
-      const wallThickness = w.thickness_px || 20;
-      const hitTestRadius = Math.max(wallThickness / 2, 15 / scale);
-
-      if (proj.dist < hitTestRadius && proj.dist < bestDist) {
-        bestDist = proj.dist;
-        bestWall = w;
-        bestProj = proj;
-      }
-    }
-
-    if (bestWall) {
+      const snappedPt = {
+        x: wp1.x + hit.proj.t * (wp2.x - wp1.x),
+        y: wp1.y + hit.proj.t * (wp2.y - wp1.y)
+      };
       setCurrentLintel({
-        wallId: bestWall.id,
-        t_start: bestProj.t
+        startWallId: w.id,
+        t_start: hit.proj.t,
+        startPoint: snappedPt
       });
-      return true; // consumed
+    } else {
+      // Standalone start — free canvas point
+      setCurrentLintel({
+        startWallId: null,
+        t_start: null,
+        startPoint: { x: canvasPoint.x, y: canvasPoint.y }
+      });
     }
-    return false;
+    return true;
   }, [isDrawingLintel, getCurrentWalls]);
 
-  const handleMouseMove = useCallback((canvasPoint, scale) => {
+  /**
+   * Mouse move handler — updates preview.
+   * Supports: idle snap dot, wall-attached drawing, and free-line drawing.
+   */
+  const handleMouseMove = useCallback((canvasPoint, scale, shiftKey) => {
     if (!isDrawingLintel) return;
 
     const walls = getCurrentWalls();
 
-    // 1. If not clicked yet, hit-test for snapping dot preview
+    // === Phase 1: Idle (not clicked yet) — show snap dot on nearest wall ===
     if (!currentLintel) {
-      let bestWall = null;
-      let bestDist = Infinity;
-      let bestProj = null;
+      const hit = findNearestWall(canvasPoint, walls, scale);
 
-      for (const w of walls) {
-        if (!w.centerline || w.centerline.length !== 2) continue;
-        const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
-        const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-
-        const proj = projectPointOntoSegment(canvasPoint, wp1, wp2);
-        const wallThickness = w.thickness_px || 20;
-        const hitTestRadius = Math.max(wallThickness / 2, 15 / scale);
-
-        if (proj.dist < hitTestRadius && proj.dist < bestDist) {
-          bestDist = proj.dist;
-          bestWall = w;
-          bestProj = proj;
-        }
-      }
-
-      if (bestWall && bestProj) {
+      if (hit) {
         setLintelPreview({
-          wallId: bestWall.id,
-          snapDot: bestProj.point,
+          wallId: hit.wall.id,
+          snapDot: hit.proj.point,
           isValid: true,
           phase: 'idle'
         });
       } else {
-        setLintelPreview(null);
+        // Show crosshair dot at cursor position for standalone mode
+        setLintelPreview({
+          wallId: null,
+          snapDot: canvasPoint,
+          isValid: true,
+          phase: 'idle',
+          isStandalone: true
+        });
       }
       return;
     }
 
-    // 2. Active dragging phase
-    const wall = walls.find(w => w.id === currentLintel.wallId);
-    if (!wall || !wall.centerline || wall.centerline.length !== 2) return;
+    // === Phase 2: Drawing (mouse is held down) ===
+    const startPt = currentLintel.startPoint;
+    let endPt = { x: canvasPoint.x, y: canvasPoint.y };
 
-    const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
-    const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+    // Check if cursor is still on the start wall (wall-attached mode)
+    if (currentLintel.startWallId) {
+      const startWall = walls.find(w => w.id === currentLintel.startWallId);
+      if (startWall && startWall.centerline && startWall.centerline.length === 2) {
+        const wp1 = { x: startWall.centerline[0][0], y: startWall.centerline[0][1] };
+        const wp2 = { x: startWall.centerline[1][0], y: startWall.centerline[1][1] };
+        const proj = projectPointOntoLine(canvasPoint, wp1, wp2);
 
-    const proj = projectPointOntoLine(canvasPoint, wp1, wp2);
-    const t_raw = proj.t;
-    const isValid = t_raw >= 0 && t_raw <= 1;
+        // Check perpendicular distance from cursor to wall
+        const perpDist = Math.hypot(canvasPoint.x - proj.point.x, canvasPoint.y - proj.point.y);
+        const wallThickness = startWall.thickness_px || 20;
+        const stayOnWallRadius = Math.max(wallThickness, 30 / scale);
 
-    const startPt = {
-      x: wp1.x + currentLintel.t_start * (wp2.x - wp1.x),
-      y: wp1.y + currentLintel.t_start * (wp2.y - wp1.y)
-    };
+        if (proj.t >= 0 && proj.t <= 1 && perpDist < stayOnWallRadius) {
+          // Still on same wall — wall-attached preview (original behavior)
+          const currentScale = scaleValue || (realScale ? realScale / 1000 : 0.02);
+          const pxLen = Math.hypot(proj.point.x - startPt.x, proj.point.y - startPt.y);
+          const liveLength = pxLen * currentScale;
+
+          setLintelPreview({
+            wallId: startWall.id,
+            startPt,
+            endPt: proj.point,
+            t_raw: proj.t,
+            liveLength,
+            isValid: true,
+            phase: 'drawing'
+          });
+          return;
+        }
+      }
+    }
+
+    // Free-line mode (cross-wall or standalone)
+    // Apply Shift constraint for angle snapping
+    if (shiftKey) {
+      endPt = applyShiftConstraint(startPt, endPt);
+    }
+
+    // Try to snap end point to a wall (for cross-wall case)
+    const endHit = findNearestWall(endPt, walls, scale);
+    if (endHit) {
+      const ew = endHit.wall;
+      const ewp1 = { x: ew.centerline[0][0], y: ew.centerline[0][1] };
+      const ewp2 = { x: ew.centerline[1][0], y: ew.centerline[1][1] };
+      endPt = {
+        x: ewp1.x + endHit.proj.t * (ewp2.x - ewp1.x),
+        y: ewp1.y + endHit.proj.t * (ewp2.y - ewp1.y)
+      };
+    }
 
     const currentScale = scaleValue || (realScale ? realScale / 1000 : 0.02);
-    const pxLen = Math.hypot(proj.point.x - startPt.x, proj.point.y - startPt.y);
+    const pxLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
     const liveLength = pxLen * currentScale;
 
     setLintelPreview({
-      wallId: wall.id,
+      wallId: null, // free-line mode
       startPt,
-      endPt: proj.point,
-      t_raw,
+      endPt,
       liveLength,
-      isValid,
+      isValid: true,
       phase: 'drawing'
     });
   }, [isDrawingLintel, currentLintel, getCurrentWalls, realScale, scaleValue]);
 
-  const handleMouseUp = useCallback((canvasPoint, scale) => {
+  /**
+   * Mouse up handler — finalizes the lintel.
+   * Determines whether it's wall-attached, cross-wall, or standalone.
+   */
+  const handleMouseUp = useCallback((canvasPoint, scale, shiftKey) => {
     if (!isDrawingLintel || !currentLintel) return false;
 
     const walls = getCurrentWalls();
-    const wall = walls.find(w => w.id === currentLintel.wallId);
-    if (!wall || !wall.centerline || wall.centerline.length !== 2) {
-      setCurrentLintel(null);
-      setLintelPreview(null);
-      return false;
+    const startPt = currentLintel.startPoint;
+    let endPt = { x: canvasPoint.x, y: canvasPoint.y };
+
+    // Apply Shift constraint
+    if (shiftKey) {
+      endPt = applyShiftConstraint(startPt, endPt);
     }
-
-    const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
-    const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
-
-    const proj = projectPointOntoLine(canvasPoint, wp1, wp2);
-    const t_raw = proj.t;
-    const isValid = t_raw >= 0 && t_raw <= 1;
-
-    if (!isValid) {
-      // invalid state, block confirm
-      return true;
-    }
-
-    const startOffset = Math.min(currentLintel.t_start, t_raw);
-    const endOffset = Math.max(currentLintel.t_start, t_raw);
-
-    const startPt = {
-      x: wp1.x + startOffset * (wp2.x - wp1.x),
-      y: wp1.y + startOffset * (wp2.y - wp1.y)
-    };
-    const endPt = {
-      x: wp1.x + endOffset * (wp2.x - wp1.x),
-      y: wp1.y + endOffset * (wp2.y - wp1.y)
-    };
 
     const currentScale = scaleValue || (realScale ? realScale / 1000 : 0.02);
+
+    // === Case 1: Wall-attached (start and end on same wall) ===
+    if (currentLintel.startWallId) {
+      const startWall = walls.find(w => w.id === currentLintel.startWallId);
+      if (startWall && startWall.centerline && startWall.centerline.length === 2) {
+        const wp1 = { x: startWall.centerline[0][0], y: startWall.centerline[0][1] };
+        const wp2 = { x: startWall.centerline[1][0], y: startWall.centerline[1][1] };
+        const proj = projectPointOntoLine(canvasPoint, wp1, wp2);
+        const perpDist = Math.hypot(canvasPoint.x - proj.point.x, canvasPoint.y - proj.point.y);
+        const wallThickness = startWall.thickness_px || 20;
+        const stayOnWallRadius = Math.max(wallThickness, 30 / scale);
+
+        if (proj.t >= 0 && proj.t <= 1 && perpDist < stayOnWallRadius) {
+          // End point is still on the same wall → wall-attached lintel
+          const startOffset = Math.min(currentLintel.t_start, proj.t);
+          const endOffset = Math.max(currentLintel.t_start, proj.t);
+
+          const sp = {
+            x: wp1.x + startOffset * (wp2.x - wp1.x),
+            y: wp1.y + startOffset * (wp2.y - wp1.y)
+          };
+          const ep = {
+            x: wp1.x + endOffset * (wp2.x - wp1.x),
+            y: wp1.y + endOffset * (wp2.y - wp1.y)
+          };
+          const pxLen = Math.hypot(ep.x - sp.x, ep.y - sp.y);
+          const measuredLength = pxLen * currentScale;
+
+          if (measuredLength <= 0.001 || pxLen < 1.0) {
+            setCurrentLintel(null);
+            setLintelPreview(null);
+            return true;
+          }
+
+          const newLintel = {
+            id: `lintel_${Date.now()}`,
+            wallId: startWall.id,
+            startOffset,
+            endOffset,
+            measuredLength,
+            finalLength: measuredLength,
+            catalogId: '800053733',
+            type: 'LVL',
+            size: 90,
+            width: 35,
+            height: 90,
+            description: 'Lintels'
+          };
+
+          const updatedLintels = [...getCurrentLintels(), newLintel];
+          setLintelsByPage(prev => ({
+            ...prev,
+            [currentPage]: updatedLintels
+          }));
+          pushHistory(null, getCurrentWalls(), getCurrentDoors(), updatedLintels);
+          setSelectedId(newLintel.id);
+          setSelectedType('lintel');
+          setCurrentLintel(null);
+          setLintelPreview(null);
+          setShowCatalogPanel(true);
+          return true;
+        }
+      }
+    }
+
+    // === Case 2 & 3: Cross-wall or Standalone ===
+    // Try to snap end point to a wall
+    const endHit = findNearestWall(endPt, walls, scale);
+    if (endHit) {
+      const ew = endHit.wall;
+      const ewp1 = { x: ew.centerline[0][0], y: ew.centerline[0][1] };
+      const ewp2 = { x: ew.centerline[1][0], y: ew.centerline[1][1] };
+      endPt = {
+        x: ewp1.x + endHit.proj.t * (ewp2.x - ewp1.x),
+        y: ewp1.y + endHit.proj.t * (ewp2.y - ewp1.y)
+      };
+    }
+
     const pxLen = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
     const measuredLength = pxLen * currentScale;
 
@@ -250,14 +392,15 @@ export function useLintelController({
 
     const newLintel = {
       id: `lintel_${Date.now()}`,
-      wallId: wall.id,
-      startOffset,
-      endOffset,
+      wallId: null,
+      startOffset: null,
+      endOffset: null,
+      points: [[startPt.x, startPt.y], [endPt.x, endPt.y]],
       measuredLength,
       finalLength: measuredLength,
-      catalogId: '800053733', // default
+      catalogId: '800053733',
       type: 'LVL',
-      size: 90, // catalog.height
+      size: 90,
       width: 35,
       height: 90,
       description: 'Lintels'
@@ -268,14 +411,9 @@ export function useLintelController({
       ...prev,
       [currentPage]: updatedLintels
     }));
-
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updatedLintels);
-
-    // Select newly created lintel
     setSelectedId(newLintel.id);
     setSelectedType('lintel');
-
-    // Reset temporary drawing state for next lintel, but keep isDrawingLintel true and show left catalog panel
     setCurrentLintel(null);
     setLintelPreview(null);
     setShowCatalogPanel(true);

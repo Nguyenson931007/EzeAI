@@ -2692,7 +2692,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       doorController.onDoorMouseMove(snappedP, isShiftDown, isSnapMode);
     }
     if (isDrawingLintel) {
-      lintelController.handleMouseMove(snappedP, scale);
+      lintelController.handleMouseMove(snappedP, scale, isShiftDown);
     }
     setCurrentMouse(snappedP);
 
@@ -2942,7 +2942,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   function onMouseUp(e) {
     if (isDrawingLintel) {
       const p = getMouse(e);
-      lintelController.handleMouseUp(p, scale);
+      lintelController.handleMouseUp(p, scale, isShiftDown);
       return;
     }
     if (activeRoofDragTarget) {
