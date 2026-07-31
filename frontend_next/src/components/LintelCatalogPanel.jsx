@@ -102,30 +102,35 @@ export default function LintelCatalogPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {filteredCatalog.map(item => {
               const isSelected = selectedLintel && selectedLintel.catalogId === item.id;
+              const isLocked = !!selectedLintel?.isRounded;
 
               return (
                 <div
                   key={item.id}
-                  onClick={() => onSelectCatalogItem({
-                    ...item,
-                    ply: customPlys[item.id] ?? item.ply ?? 1
-                  })}
+                  onClick={() => {
+                    if (isLocked) return;
+                    onSelectCatalogItem({
+                      ...item,
+                      ply: customPlys[item.id] ?? item.ply ?? 1
+                    });
+                  }}
                   style={{
                     background: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.02)',
                     border: isSelected ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.05)',
                     borderRadius: '6px',
                     padding: '10px 12px',
-                    cursor: 'pointer',
+                    cursor: isLocked ? 'not-allowed' : 'pointer',
+                    opacity: isLocked ? 0.5 : 1,
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    if (!isSelected) {
+                    if (!isSelected && !isLocked) {
                       e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
                       e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!isSelected) {
+                    if (!isSelected && !isLocked) {
                       e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
                       e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
                     }
@@ -152,8 +157,10 @@ export default function LintelCatalogPanel({
                         min="1"
                         placeholder={item.ply ?? 1}
                         value={isSelected ? (selectedLintel.ply || "") : (customPlys[item.id] || "")}
+                        disabled={isLocked}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
+                          if (isLocked) return;
                           const val = e.target.value === "" ? "" : parseInt(e.target.value);
                           if (val === "" || (!isNaN(val) && val > 0)) {
                             if (val !== "") {
@@ -183,7 +190,8 @@ export default function LintelCatalogPanel({
                           fontSize: '12px',
                           padding: '4px 6px',
                           textAlign: 'center',
-                          outline: 'none'
+                          outline: 'none',
+                          cursor: isLocked ? 'not-allowed' : 'text'
                         }}
                       />
                     </div>

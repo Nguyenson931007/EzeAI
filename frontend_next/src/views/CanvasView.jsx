@@ -218,14 +218,18 @@ const LintelsLayer = React.memo(({
           else if (textAngle < -180) textAngle += 180;
         }
 
+        let prefix = "L";
+        if (l.category === "beam") prefix = "B";
+        else if (l.category === "bh") prefix = "BH";
+
         let typeStr = "";
         const plyValue = l.ply || 1;
         if (l.height && l.width) {
-          typeStr = `${l.height}x${l.width} - ${plyValue}ply`;
+          typeStr = `${prefix} - ${l.height}x${l.width} - ${plyValue}ply`;
         } else if (l.size) {
-          typeStr = `${l.size} - ${plyValue}ply`;
+          typeStr = `${prefix} - ${l.size} - ${plyValue}ply`;
         }
-        const dimStr = `${(l.measuredLength || 0).toFixed(2)}m`;
+        const dimStr = `${(l.isRounded ? l.finalLength : l.measuredLength || 0).toFixed(2)}m`;
 
         // Final text offset distance (add extra padding for two lines)
         const offsetDist = lintelThickness / 2 + (typeStr ? 16 : 8);

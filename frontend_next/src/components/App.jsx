@@ -955,6 +955,9 @@ export default function App() {
                   if (selectedId && selectedType === 'lintel') {
                     const selectedLintel = pageLintels.find(l => l.id === selectedId);
                     if (selectedLintel) {
+                      if (selectedLintel.isRounded) return;
+                      const cat = selectedLintel.category || 'lintel';
+                      const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
                       const updated = {
                         ...selectedLintel,
                         catalogId: item.id,
@@ -962,7 +965,7 @@ export default function App() {
                         width: item.width,
                         height: item.height,
                         type: item.type,
-                        description: item.description,
+                        description: desc,
                         ply: item.ply || 1
                       };
                       lintelController.updateLintel(updated);

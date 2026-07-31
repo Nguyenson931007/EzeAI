@@ -616,21 +616,27 @@ export default function RightPropertyPaneView({
       });
 
       const pageLintels = lintelsByPage[currentPage] || [];
-      const mappedLintels = pageLintels.map(l => ({
-        id: String(l.id),
-        wall_id: String(l.wallId),
-        start_offset: l.startOffset,
-        end_offset: l.endOffset,
-        measured_length: l.measuredLength,
-        final_length: l.finalLength,
-        catalog_id: l.catalogId,
-        type: l.type || "LVL",
-        size: l.size || 90,
-        width: l.width || 35,
-        height: l.height || 90,
-        description: l.description || "Lintels",
-        ply: l.ply || 1
-      }));
+      const mappedLintels = pageLintels.map(l => {
+        const cat = l.category || 'lintel';
+        const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
+        return {
+          id: String(l.id),
+          wall_id: String(l.wallId),
+          start_offset: l.startOffset,
+          end_offset: l.endOffset,
+          measured_length: l.measuredLength,
+          final_length: l.finalLength,
+          catalog_id: l.catalogId,
+          type: l.type || "LVL",
+          size: l.size || 90,
+          width: l.width || 35,
+          height: l.height || 90,
+          description: desc,
+          ply: l.ply || 1,
+          category: cat,
+          lengthOffset: l.lengthOffset || 0
+        };
+      });
 
       const payload = {
         walls: mappedWalls,
@@ -1525,10 +1531,24 @@ export default function RightPropertyPaneView({
                 </div>
 
                 <div className="panel-field">
-                  <span className="panel-label">Description</span>
-                  <div style={{ fontSize: 13, color: "#f1f5f9" }}>
-                    {selectedLintel.description || "Lintels"} ({selectedLintel.type || "LVL"})
-                  </div>
+                  <span className="panel-label">Structural Category</span>
+                  <select
+                    className="panel-input"
+                    value={selectedLintel.category || "lintel"}
+                    disabled={selectedLintel.isRounded}
+                    onChange={(e) => {
+                      if (lintelController) {
+                        lintelController.updateLintel({
+                          ...selectedLintel,
+                          category: e.target.value
+                        });
+                      }
+                    }}
+                  >
+                    <option value="lintel">Lintel (L)</option>
+                    <option value="beam">Beam (B)</option>
+                    <option value="bh">BH (BH)</option>
+                  </select>
                 </div>
 
                 <div className="panel-field">
@@ -1545,7 +1565,9 @@ export default function RightPropertyPaneView({
                     min="1"
                     placeholder="1"
                     className="panel-input"
+                    onWheel={(e) => e.currentTarget.blur()}
                     value={selectedLintel.ply || ""}
+                    disabled={selectedLintel.isRounded}
                     onChange={(e) => {
                       const val = e.target.value === "" ? "" : parseInt(e.target.value);
                       if (val === "" || (!isNaN(val) && val > 0)) {
@@ -1555,6 +1577,33 @@ export default function RightPropertyPaneView({
                             ply: val === "" ? null : val
                           });
                         }
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="panel-field">
+                  <span className="panel-label">Length Offset (m)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="panel-input"
+                    onWheel={(e) => e.currentTarget.blur()}
+                    value={selectedLintel.lengthOffset !== undefined ? selectedLintel.lengthOffset : 0}
+                    disabled={selectedLintel.isRounded}
+                    onChange={(e) => {
+                      const offset = parseFloat(e.target.value) || 0;
+                      if (lintelController) {
+                        const baseLen = selectedLintel.baseLength !== undefined
+                          ? selectedLintel.baseLength
+                          : (selectedLintel.measuredLength - (selectedLintel.lengthOffset || 0));
+                        const newMeasured = baseLen + offset;
+                        lintelController.updateLintel({
+                          ...selectedLintel,
+                          lengthOffset: offset,
+                          measuredLength: newMeasured,
+                          finalLength: selectedLintel.isRounded ? selectedLintel.finalLength : newMeasured
+                        });
                       }
                     }}
                   />
@@ -1575,22 +1624,31 @@ export default function RightPropertyPaneView({
                   {/* Per-lintel "Round Length" action */}
                   <button
                     className="rp-action-btn"
-                    style={{ padding: '6px 8px', fontSize: '11px', background: '#f59e0b', marginTop: '6px', marginBottom: 0, width: '100%' }}
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: '11px',
+                      background: selectedLintel.isRounded ? '#334155' : '#f59e0b',
+                      marginTop: '6px',
+                      marginBottom: 0,
+                      width: '100%',
+                      cursor: selectedLintel.isRounded ? 'not-allowed' : 'pointer'
+                    }}
+                    disabled={selectedLintel.isRounded}
                     onClick={() => {
                       if (lintelController) {
                         lintelController.roundSingleLintel(selectedLintel.id);
                       }
                     }}
-                    title="Round this lintel's length to the nearest 0.3m increment"
+                    title={selectedLintel.isRounded ? "This lintel length has already been rounded and locked" : "Round this lintel's length to the nearest 0.3m increment"}
                   >
-                    🔄 Round Length (0.3m increments)
+                    {selectedLintel.isRounded ? "✓ Length Rounded & Locked" : "🔄 Round Length (0.3m increments)"}
                   </button>
                 </div>
 
                 <div className="panel-field">
                   <span className="panel-label">Parent Wall ID</span>
                   <div style={{ fontSize: 11, color: "#94a3b8" }}>
-                    {selectedLintel.wallId}
+                    {selectedLintel.wallId || "None (Standalone)"}
                   </div>
                 </div>
 

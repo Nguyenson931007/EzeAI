@@ -342,6 +342,10 @@ export function useLintelController({
             wallId: startWall.id,
             startOffset,
             endOffset,
+            baseLength: measuredLength,
+            lengthOffset: 0,
+            category: 'lintel',
+            isRounded: false,
             measuredLength,
             finalLength: measuredLength,
             catalogId: '800053733',
@@ -349,7 +353,8 @@ export function useLintelController({
             size: 90,
             width: 35,
             height: 90,
-            description: 'Lintels'
+            description: 'Lintel',
+            ply: 1
           };
 
           const updatedLintels = [...getCurrentLintels(), newLintel];
@@ -396,6 +401,10 @@ export function useLintelController({
       startOffset: null,
       endOffset: null,
       points: [[startPt.x, startPt.y], [endPt.x, endPt.y]],
+      baseLength: measuredLength,
+      lengthOffset: 0,
+      category: 'lintel',
+      isRounded: false,
       measuredLength,
       finalLength: measuredLength,
       catalogId: '800053733',
@@ -403,7 +412,8 @@ export function useLintelController({
       size: 90,
       width: 35,
       height: 90,
-      description: 'Lintels'
+      description: 'Lintel',
+      ply: 1
     };
 
     const updatedLintels = [...getCurrentLintels(), newLintel];
@@ -429,6 +439,7 @@ export function useLintelController({
       if (l.id === lintelId) {
         return {
           ...l,
+          isRounded: true,
           finalLength: roundLintelLength(l.measuredLength)
         };
       }
@@ -449,6 +460,7 @@ export function useLintelController({
     const lintels = getCurrentLintels();
     const updated = lintels.map(l => ({
       ...l,
+      isRounded: true,
       finalLength: roundLintelLength(l.measuredLength)
     }));
 
@@ -461,7 +473,22 @@ export function useLintelController({
 
   const updateLintel = useCallback((updatedLintel) => {
     const lintels = getCurrentLintels();
-    const updated = lintels.map(l => l.id === updatedLintel.id ? updatedLintel : l);
+    const updated = lintels.map(l => {
+      if (l.id === updatedLintel.id) {
+        // Prevent updating if it has already been rounded (locked)
+        if (l.isRounded) return l;
+
+        // Auto-sync description with active category
+        const cat = updatedLintel.category || 'lintel';
+        const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
+
+        return {
+          ...updatedLintel,
+          description: desc
+        };
+      }
+      return l;
+    });
 
     setLintelsByPage(prev => ({
       ...prev,
