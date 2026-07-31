@@ -991,13 +991,13 @@ const WallLayer = React.memo(({
             )}
 
             {/* Closed End Cap Line at Dead-End Tip 1 (Image 3 Requirement) */}
-            {p1Free && (
+            {p1Free && (renderSideA || renderSideB) && (
               <line
                 x1={p1[0] + nx * offsetA}
                 y1={p1[1] + ny * offsetA}
                 x2={p1[0] + nx * offsetB}
                 y2={p1[1] + ny * offsetB}
-                stroke={skirtingColor}
+                stroke={renderSideA ? skirtingColorA : skirtingColorB}
                 strokeWidth={1.8}
                 strokeDasharray="4 2"
                 opacity={0.85}
@@ -1005,13 +1005,13 @@ const WallLayer = React.memo(({
             )}
 
             {/* Closed End Cap Line at Dead-End Tip 2 (Image 3 Requirement) */}
-            {p2Free && (
+            {p2Free && (renderSideA || renderSideB) && (
               <line
                 x1={p2[0] + nx * offsetA}
                 y1={p2[1] + ny * offsetA}
                 x2={p2[0] + nx * offsetB}
                 y2={p2[1] + ny * offsetB}
-                stroke={skirtingColor}
+                stroke={renderSideA ? skirtingColorA : skirtingColorB}
                 strokeWidth={1.8}
                 strokeDasharray="4 2"
                 opacity={0.85}
