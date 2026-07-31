@@ -22,28 +22,28 @@ export const FINISH_TYPES = {
   },
   tile: {
     id: "tile",
-    label: "Tile Cladding (Gạch ốp)",
+    label: "Tile Cladding",
     defaultThickness: 10,
     defaultColor: "#e2e8f0",
     defaultMaterial: "Ceramic / Porcelain Tile",
   },
   wood: {
     id: "wood",
-    label: "Wood Cladding (Gỗ ốp)",
+    label: "Wood Cladding",
     defaultThickness: 18,
     defaultColor: "#d97706",
     defaultMaterial: "Timber Wall Panel",
   },
   stone: {
     id: "stone",
-    label: "Stone Veneer (Đá ốp)",
+    label: "Stone Veneer",
     defaultThickness: 25,
     defaultColor: "#64748b",
     defaultMaterial: "Natural / Engineered Stone",
   },
   wallpaper: {
     id: "wallpaper",
-    label: "Wallpaper (Giấy dán tường)",
+    label: "Wallpaper",
     defaultThickness: 1,
     defaultColor: "#fef08a",
     defaultMaterial: "Vinyl Wallpaper",
@@ -79,10 +79,10 @@ export const FINISH_TYPES = {
 };
 
 export const SKIRTING_MATERIALS = [
-  { id: "wood", label: "Timber Skirting (Gỗ)", defaultColor: "#854d0e", defaultThickness: 15, defaultHeight: 100 },
-  { id: "pvc", label: "PVC Skirting (Nhựa PVC)", defaultColor: "#1e293b", defaultThickness: 10, defaultHeight: 80 },
-  { id: "tile", label: "Tile Skirting (Gạch chân tường)", defaultColor: "#cbd5e1", defaultThickness: 10, defaultHeight: 100 },
-  { id: "aluminum", label: "Aluminum Skirting (Nhôm)", defaultColor: "#94a3b8", defaultThickness: 5, defaultHeight: 60 },
+  { id: "wood", label: "Timber Skirting", defaultColor: "#854d0e", defaultThickness: 15, defaultHeight: 100 },
+  { id: "pvc", label: "PVC Skirting", defaultColor: "#1e293b", defaultThickness: 10, defaultHeight: 80 },
+  { id: "tile", label: "Tile Skirting", defaultColor: "#cbd5e1", defaultThickness: 10, defaultHeight: 100 },
+  { id: "aluminum", label: "Aluminum Skirting", defaultColor: "#94a3b8", defaultThickness: 5, defaultHeight: 60 },
   { id: "mdf", label: "MDF Painted Skirting", defaultColor: "#f1f5f9", defaultThickness: 18, defaultHeight: 100 },
 ];
 

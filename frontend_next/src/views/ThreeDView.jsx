@@ -936,20 +936,33 @@ export default function ThreeDView({
         }
 
         // Render Skirting Mesh (Side A & Side B - Door Opening Deducted & Corner Joint Seamless)
-        if (skirting.enabled !== false && (skirting.height || 0) > 0) {
+        const skirtingHeightMm = Number(skirting.height || wall.skirtingHeight || 100);
+        const skirtingThickMm = Number(skirting.thickness || wall.skirtingThickness || 15);
+
+        if (skirting.enabled !== false && skirtingHeightMm > 0) {
           const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
 
-          // Read Side A Skirting parameters
-          const enableSkirtA = skirting.sideA?.enabled ?? skirting.enabledA ?? skirting.enabled ?? true;
+          // Read Side A Skirting parameters with baseboard sanitization (max 400mm height, max 50mm thickness)
+          const enableSkirtA = skirting.sideA?.enabled !== false && skirting.enabledA !== false && skirting.enabled !== false;
           const colorSkirtA = skirting.sideA?.color || skirting.color || wall.skirtingColor || "#854d0e";
-          const hSkirtA = Math.min(activeWallHeight, (Number(skirting.sideA?.height || skirting.height || 100)) / scaleFactor);
-          const thickSkirtA = (Number(skirting.sideA?.thickness || skirting.thickness || 12)) / scaleFactor;
+          const rawHA = Number(skirting.sideA?.height || skirting.height || wall.skirtingHeight || 100);
+          const skirtH_A = (rawHA > 400 || rawHA <= 0) ? 100 : rawHA;
+          const hSkirtA = Math.min(activeWallHeight, skirtH_A / scaleFactor);
 
-          // Read Side B Skirting parameters
-          const enableSkirtB = skirting.sideB?.enabled ?? skirting.enabledB ?? skirting.enabled ?? true;
+          const rawTA = Number(skirting.sideA?.thickness || skirting.thickness || wall.skirtingThickness || 15);
+          const skirtT_A = (rawTA > 50 || rawTA <= 0) ? 15 : rawTA;
+          const thickSkirtA = skirtT_A / scaleFactor;
+
+          // Read Side B Skirting parameters with baseboard sanitization
+          const enableSkirtB = skirting.sideB?.enabled !== false && skirting.enabledB !== false && skirting.enabled !== false;
           const colorSkirtB = skirting.sideB?.color || skirting.color || wall.skirtingColor || "#854d0e";
-          const hSkirtB = Math.min(activeWallHeight, (Number(skirting.sideB?.height || skirting.height || 100)) / scaleFactor);
-          const thickSkirtB = (Number(skirting.sideB?.thickness || skirting.thickness || 12)) / scaleFactor;
+          const rawHB = Number(skirting.sideB?.height || skirting.height || wall.skirtingHeight || 100);
+          const skirtH_B = (rawHB > 400 || rawHB <= 0) ? 100 : rawHB;
+          const hSkirtB = Math.min(activeWallHeight, skirtH_B / scaleFactor);
+
+          const rawTB = Number(skirting.sideB?.thickness || skirting.thickness || wall.skirtingThickness || 15);
+          const skirtT_B = (rawTB > 50 || rawTB <= 0) ? 15 : rawTB;
+          const thickSkirtB = skirtT_B / scaleFactor;
 
           const parseColor = (hexStr, fallback = "#854d0e") => {
             try {
@@ -971,11 +984,8 @@ export default function ThreeDView({
             metalness: 0.1,
           });
 
-          // Check if wall is exterior wall
-          const isExterior = wall.is_ext === true || wall.isExt === true ||
-            (wall.wall_type || '').toLowerCase().includes('ext') ||
-            (wall.class_name || '').toLowerCase().includes('ext') ||
-            (wall.type || '').toLowerCase().includes('ext');
+          // Check if wall is exterior wall using getWallClass
+          const isExterior = getWallClass(wall) === "exterior_wall";
 
           const wallUx = (x2 - x1) / (length || 1);
           const wallUy = (y2 - y1) / (length || 1);
@@ -1081,7 +1091,7 @@ export default function ThreeDView({
 
               // Projection t along wall vector
               const t = ((dcx - x1) * wallUx + (dcy - y1) * wallUy);
-              const doorWidth = (d.width_mm ? d.width_mm : 820) / scaleFactor;
+              const doorWidth = ((d.width_mm ? d.width_mm : 820) / scaleFactor) + Math.max(thickSkirtA, thickSkirtB) * 1.5;
 
               const startT = Math.max(0, t - (doorWidth / 2));
               const endT = Math.min(length, t + (doorWidth / 2));
@@ -1121,10 +1131,11 @@ export default function ThreeDView({
           }
 
           // 4. Render 3D Skirting for each valid wall segment
+          const cornerExt = (thickness / 2) + Math.max(thickSkirtA, thickSkirtB) * 1.2;
           for (const seg of skirtingSegments) {
-            // Corner joint expansion: if at 0 and connected to corner, extend backwards by thickness/2
-            const extStart = (seg.start === 0 && p1Connected) ? -(thickness / 2) : seg.start;
-            const extEnd = (seg.end === length && p2Connected) ? length + (thickness / 2) : seg.end;
+            // Corner joint expansion: extend past wall corner so 90-degree outer corner is seamless
+            const extStart = (seg.start === 0 && p1Connected) ? -cornerExt : seg.start;
+            const extEnd = (seg.end === length && p2Connected) ? length + cornerExt : seg.end;
             const segLen = extEnd - extStart;
             if (segLen < 0.1) continue;
 

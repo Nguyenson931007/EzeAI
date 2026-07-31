@@ -1503,7 +1503,7 @@ function FixOutScheduleView({ enrichedDoors = [], walls = [], doors = [], realSc
           return (
             <div style={{ marginTop: 14, marginBottom: 18, border: "1px solid #ca8a04", borderRadius: "6px", overflow: "hidden", background: "#fff" }}>
               <div style={{ background: "#fde047", padding: "8px 14px", fontWeight: 800, fontSize: "13px", color: "#713f12", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>🪵 Skirting Takeoff & Material Summary (Bảng Tổng Hợp Chân Tường)</span>
+                <span>🪵 SKIRTING TAKEOFF & MATERIAL SUMMARY</span>
                 <span style={{ fontSize: "11px", fontWeight: 700, color: "#854d0e" }}>Auto-Calculated (2-Face + Open Ends)</span>
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>

@@ -951,18 +951,18 @@ export default function RightPropertyPaneView({
             {/* DUAL-FACE WALL FINISHES & SKIRTING PROPERTIES (CAD/BIM FEATURE 4) */}
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>🧱 Surface Finish & Skirting System</span>
+                <span>🧱 SURFACE FINISH & SKIRTING SYSTEM</span>
               </div>
 
-              {/* Side A (Mặt A) */}
+              {/* Side A (Left / Bottom Face) */}
               <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>
                   {(() => {
-                    if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return "Side A (Mặt 1)";
+                    if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return "Side A (Face 1)";
                     const p1 = selectedWall.centerline[0];
                     const p2 = selectedWall.centerline[1];
                     const isHoriz = Math.abs(p2[0] - p1[0]) > Math.abs(p2[1] - p1[1]);
-                    return isHoriz ? "Side A (Mặt trước - Phía dưới wall)" : "Side A (Mặt trái - Bên trái wall)";
+                    return isHoriz ? "Side A (Front Face - Bottom of Wall)" : "Side A (Left Face - Left of Wall)";
                   })()}
                 </div>
                 <div className="panel-field">
@@ -983,15 +983,15 @@ export default function RightPropertyPaneView({
                 </div>
               </div>
 
-              {/* Side B (Mặt B) */}
+              {/* Side B (Right / Top Face) */}
               <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>
                   {(() => {
-                    if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return "Side B (Mặt 2)";
+                    if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return "Side B (Face 2)";
                     const p1 = selectedWall.centerline[0];
                     const p2 = selectedWall.centerline[1];
                     const isHoriz = Math.abs(p2[0] - p1[0]) > Math.abs(p2[1] - p1[1]);
-                    return isHoriz ? "Side B (Mặt sau - Phía trên wall)" : "Side B (Mặt phải - Bên phải wall)";
+                    return isHoriz ? "Side B (Back Face - Top of Wall)" : "Side B (Right Face - Right of Wall)";
                   })()}
                 </div>
                 <div className="panel-field">
@@ -1015,7 +1015,7 @@ export default function RightPropertyPaneView({
               {/* SKIRTING SYSTEM (FEATURE 2 - DUAL FACE CONTROLS) */}
               <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Chân tường (Skirting System)</span>
+                  <span>SKIRTING SYSTEM</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
                     <input
                       type="checkbox"
@@ -1091,7 +1091,7 @@ export default function RightPropertyPaneView({
                           onChange={(e) => {
                             const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
                             updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", e.target.value);
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", e.target.value);
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.enabled", true);
                           }}
                         />
                       </div>
@@ -1123,6 +1123,7 @@ export default function RightPropertyPaneView({
                           onChange={(e) => {
                             const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
                             updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", e.target.value);
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.enabled", true);
                           }}
                         />
                       </div>
@@ -1134,14 +1135,14 @@ export default function RightPropertyPaneView({
               {/* CALCULATED METRICS CARD */}
               {selectedWallIds.length === 1 && selectedWallMetrics && (
                 <div style={{ background: "rgba(30, 41, 59, 0.7)", padding: "10px 12px", borderRadius: "6px", marginTop: 10, border: "1px solid #38bdf8" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>📏 Calculated Metrics (BOQ)</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>📏 CALCULATED METRICS (BOQ)</div>
                   <div style={{ fontSize: 11, color: "#cbd5e1", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span>Skirting (2 mặt + Open Ends):</span>
+                    <span>Skirting (2-Face + Open Ends):</span>
                     <b style={{ color: "#facc15" }}>{selectedWallMetrics.skirtingLengthLm.toFixed(2)} m</b>
                   </div>
                   {selectedWallMetrics.freeEndsCount > 0 && (
                     <div style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic", marginBottom: 4 }}>
-                      (Gồm {selectedWallMetrics.freeEndsCount} đầu hở +{selectedWallMetrics.endCapsLengthMm}mm)
+                      (Includes {selectedWallMetrics.freeEndsCount} open ends +{selectedWallMetrics.endCapsLengthMm}mm)
                     </div>
                   )}
                   {selectedWallMetrics.sideA.finishType !== "none" && (
