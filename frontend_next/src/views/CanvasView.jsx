@@ -906,8 +906,46 @@ const WallLayer = React.memo(({
         const offsetA = (thickPx / 2) + 2;
         const offsetB = -(thickPx / 2) - 2;
 
-        const skirtingColor = w.skirting?.color || "#854d0e";
+        const skirtingColorA = w.skirting?.sideA?.color || w.skirting?.color || "#854d0e";
+        const skirtingColorB = w.skirting?.sideB?.color || w.skirting?.color || "#854d0e";
         const isExterior = w.is_ext || w.wall_type === 'ext' || (w.class_name || '').includes('exterior');
+
+        let renderSideA = w.skirting?.sideA?.enabled ?? w.skirting?.enabledA ?? true;
+        let renderSideB = w.skirting?.sideB?.enabled ?? w.skirting?.enabledB ?? true;
+
+        if (isExterior) {
+          const midX = (p1[0] + p2[0]) / 2;
+          const midY = (p1[1] + p2[1]) / 2;
+          const ptA = [midX + nx * offsetA, midY + ny * offsetA];
+          const ptB = [midX + nx * offsetB, midY + ny * offsetB];
+
+          let sideAInRoom = false;
+          let sideBInRoom = false;
+
+          for (const r of (rooms || [])) {
+            const poly = r.polygon || r.points || [];
+            if (poly.length >= 3) {
+              // Ray casting point in polygon
+              let inA = false, inB = false;
+              for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
+                const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
+                if (((yi > ptA[1]) !== (yj > ptA[1])) && (ptA[0] < (xj - xi) * (ptA[1] - yi) / (yj - yi + 1e-9) + xi)) inA = !inA;
+                if (((yi > ptB[1]) !== (yj > ptB[1])) && (ptB[0] < (xj - xi) * (ptB[1] - yi) / (yj - yi + 1e-9) + xi)) inB = !inB;
+              }
+              if (inA) sideAInRoom = true;
+              if (inB) sideBInRoom = true;
+            }
+          }
+
+          if (sideBInRoom && !sideAInRoom) {
+            renderSideA = false;
+            renderSideB = (w.skirting?.sideB?.enabled ?? w.skirting?.enabledB ?? true);
+          } else {
+            renderSideA = (w.skirting?.sideA?.enabled ?? w.skirting?.enabledA ?? true);
+            renderSideB = false;
+          }
+        }
 
         // Check if endpoints are connected to other walls
         const isConnected = (pt) => {
@@ -924,26 +962,28 @@ const WallLayer = React.memo(({
 
         return (
           <g key={`skirting-2d-${w.id}-${idx}`} style={{ pointerEvents: "none" }}>
-            {/* Side A Skirting Line (Interior face for exterior wall, or standard Side A) */}
-            <line
-              x1={p1[0] + nx * offsetA}
-              y1={p1[1] + ny * offsetA}
-              x2={p2[0] + nx * offsetA}
-              y2={p2[1] + ny * offsetA}
-              stroke={skirtingColor}
-              strokeWidth={1.8}
-              strokeDasharray="4 2"
-              opacity={0.85}
-            />
+            {/* Side A Skirting Line */}
+            {renderSideA && (
+              <line
+                x1={p1[0] + nx * offsetA}
+                y1={p1[1] + ny * offsetA}
+                x2={p2[0] + nx * offsetA}
+                y2={p2[1] + ny * offsetA}
+                stroke={skirtingColorA}
+                strokeWidth={1.8}
+                strokeDasharray="4 2"
+                opacity={0.85}
+              />
+            )}
 
-            {/* Side B Skirting Line (Skipped on Exterior Wall outdoor face) */}
-            {!isExterior && (
+            {/* Side B Skirting Line */}
+            {renderSideB && (
               <line
                 x1={p1[0] + nx * offsetB}
                 y1={p1[1] + ny * offsetB}
                 x2={p2[0] + nx * offsetB}
                 y2={p2[1] + ny * offsetB}
-                stroke={skirtingColor}
+                stroke={skirtingColorB}
                 strokeWidth={1.8}
                 strokeDasharray="4 2"
                 opacity={0.85}

@@ -938,12 +938,26 @@ export default function ThreeDView({
         // Render Skirting Mesh (Side A & Side B - Door Opening Deducted & Corner Joint Seamless)
         if (skirting.enabled !== false && (skirting.height || 0) > 0) {
           const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
-          const hSkirt = Math.min(activeWallHeight, (Number(skirting.height) || 100) / scaleFactor);
-          const thickSkirt = (Number(skirting.thickness) || 12) / scaleFactor;
-          const skirtColorVal = skirting.color || wall.skirtingColor || "#854d0e";
 
-          const matSkirt = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(skirtColorVal),
+          // Read Side A Skirting parameters
+          const enableSkirtA = skirting.sideA?.enabled ?? skirting.enabledA ?? skirting.enabled ?? true;
+          const colorSkirtA = skirting.sideA?.color || skirting.color || wall.skirtingColor || "#854d0e";
+          const hSkirtA = Math.min(activeWallHeight, (Number(skirting.sideA?.height || skirting.height || 100)) / scaleFactor);
+          const thickSkirtA = (Number(skirting.sideA?.thickness || skirting.thickness || 12)) / scaleFactor;
+
+          // Read Side B Skirting parameters
+          const enableSkirtB = skirting.sideB?.enabled ?? skirting.enabledB ?? skirting.enabled ?? true;
+          const colorSkirtB = skirting.sideB?.color || skirting.color || wall.skirtingColor || "#854d0e";
+          const hSkirtB = Math.min(activeWallHeight, (Number(skirting.sideB?.height || skirting.height || 100)) / scaleFactor);
+          const thickSkirtB = (Number(skirting.sideB?.thickness || skirting.thickness || 12)) / scaleFactor;
+
+          const matSkirtA = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(colorSkirtA),
+            roughness: 0.4,
+            metalness: 0.1,
+          });
+          const matSkirtB = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(colorSkirtB),
             roughness: 0.4,
             metalness: 0.1,
           });
@@ -956,6 +970,53 @@ export default function ThreeDView({
 
           const wallUx = (x2 - x1) / (length || 1);
           const wallUy = (y2 - y1) / (length || 1);
+
+          let renderSideA3D = enableSkirtA;
+          let renderSideB3D = enableSkirtB;
+
+          if (isExterior) {
+            // Check room polygon for Side A vs Side B interior face
+            const thickPx = wall.thickness_px || 20;
+            const offset = (thickPx / 2) + 15;
+            const p1c = wall.centerline[0];
+            const p2c = wall.centerline[1];
+            const dxC = p2c[0] - p1c[0];
+            const dyC = p2c[1] - p1c[1];
+            const lenC = Math.hypot(dxC, dyC) || 1;
+            const nxC = -dyC / lenC;
+            const nyC = dxC / lenC;
+
+            const midXC = (p1c[0] + p2c[0]) / 2;
+            const midYC = (p1c[1] + p2c[1]) / 2;
+            const ptA = [midXC + nxC * offset, midYC + nyC * offset];
+            const ptB = [midXC - nxC * offset, midYC - nyC * offset];
+
+            let sideAInRoom = false;
+            let sideBInRoom = false;
+
+            for (const r of (pageRooms || [])) {
+              const poly = r.polygon || r.points || [];
+              if (poly.length >= 3) {
+                let inA = false, inB = false;
+                for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                  const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
+                  const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
+                  if (((yi > ptA[1]) !== (yj > ptA[1])) && (ptA[0] < (xj - xi) * (ptA[1] - yi) / (yj - yi + 1e-9) + xi)) inA = !inA;
+                  if (((yi > ptB[1]) !== (yj > ptB[1])) && (ptB[0] < (xj - xi) * (ptB[1] - yi) / (yj - yi + 1e-9) + xi)) inB = !inB;
+                }
+                if (inA) sideAInRoom = true;
+                if (inB) sideBInRoom = true;
+              }
+            }
+
+            if (sideBInRoom && !sideAInRoom) {
+              renderSideA3D = false;
+              renderSideB3D = enableSkirtB;
+            } else {
+              renderSideA3D = enableSkirtA;
+              renderSideB3D = false;
+            }
+          }
 
           // Check if endpoints P1 and P2 connect to other walls at corner joints
           const isEndpointConnected = (px, py) => {
@@ -1057,41 +1118,47 @@ export default function ThreeDView({
             const segMidZ = midZ + wallUy * centerOffsetFromMid;
 
             // Skirting Side A (Interior side for ext wall or standard Side A)
-            const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirt, thickSkirt);
-            const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirt);
-            const offsetSkirtA = (thickness / 2) + (thickSkirt / 2) + 0.02;
-            meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtA);
-            meshSkirtA.rotation.y = -angle;
-            scene.add(meshSkirtA);
-            wallMeshesRef.current.push(meshSkirtA);
+            if (renderSideA3D) {
+              const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirtA, thickSkirtA);
+              const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirtA);
+              const offsetSkirtA = (thickness / 2) + (thickSkirtA / 2) + 0.02;
+              meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirtA / 2, segMidZ + nz * offsetSkirtA);
+              meshSkirtA.rotation.y = -angle;
+              scene.add(meshSkirtA);
+              wallMeshesRef.current.push(meshSkirtA);
+            }
 
-            // Skirting Side B (Only for Interior Walls)
-            if (!isExterior) {
-              const geoSkirtB = new THREE.BoxGeometry(segLen, hSkirt, thickSkirt);
-              const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirt);
-              const offsetSkirtB = -(thickness / 2) - (thickSkirt / 2) - 0.02;
-              meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtB);
+            // Skirting Side B
+            if (renderSideB3D) {
+              const geoSkirtB = new THREE.BoxGeometry(segLen, hSkirtB, thickSkirtB);
+              const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirtB);
+              const offsetSkirtB = -(thickness / 2) - (thickSkirtB / 2) - 0.02;
+              meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirtB / 2, segMidZ + nz * offsetSkirtB);
               meshSkirtB.rotation.y = -angle;
               scene.add(meshSkirtB);
               wallMeshesRef.current.push(meshSkirtB);
             }
           }
 
-          // 5. Render 3D End Cap Skirting for Standalone / Free Wall Tips (Issue 4)
+          // 5. Render 3D End Cap Skirting for Standalone / Free Wall Tips
+          const matSkirtCap = renderSideA3D ? matSkirtA : matSkirtB;
+          const thickSkirtCap = renderSideA3D ? thickSkirtA : thickSkirtB;
+          const hSkirtCap = renderSideA3D ? hSkirtA : hSkirtB;
+
           // Cap at P1 (start tip)
           if (!p1Connected) {
-            const capWidth = isExterior ? (thickness + thickSkirt) : (thickness + 2 * thickSkirt);
-            const geoCapP1 = new THREE.BoxGeometry(thickSkirt, hSkirt, capWidth);
-            const meshCapP1 = new THREE.Mesh(geoCapP1, matSkirt);
+            const capWidth = isExterior ? (thickness + thickSkirtCap) : (thickness + thickSkirtA + thickSkirtB);
+            const geoCapP1 = new THREE.BoxGeometry(thickSkirtCap, hSkirtCap, capWidth);
+            const meshCapP1 = new THREE.Mesh(geoCapP1, matSkirtCap);
 
             const p1MidX = midX - wallUx * (length / 2);
             const p1MidZ = midZ - wallUy * (length / 2);
-            const capShiftSideB = isExterior ? (thickSkirt / 2) : 0;
+            const capShiftSideB = isExterior ? (renderSideB3D ? -(thickSkirtCap / 2) : (thickSkirtCap / 2)) : 0;
 
             meshCapP1.position.set(
-              p1MidX - wallUx * (thickSkirt / 2),
-              yOffset + hSkirt / 2,
-              p1MidZ - wallUy * (thickSkirt / 2) + nx * capShiftSideB
+              p1MidX - wallUx * (thickSkirtCap / 2),
+              yOffset + hSkirtCap / 2,
+              p1MidZ - wallUy * (thickSkirtCap / 2) + nx * capShiftSideB
             );
             meshCapP1.rotation.y = -angle;
             scene.add(meshCapP1);
@@ -1100,18 +1167,18 @@ export default function ThreeDView({
 
           // Cap at P2 (end tip)
           if (!p2Connected) {
-            const capWidth = isExterior ? (thickness + thickSkirt) : (thickness + 2 * thickSkirt);
-            const geoCapP2 = new THREE.BoxGeometry(thickSkirt, hSkirt, capWidth);
-            const meshCapP2 = new THREE.Mesh(geoCapP2, matSkirt);
+            const capWidth = isExterior ? (thickness + thickSkirtCap) : (thickness + thickSkirtA + thickSkirtB);
+            const geoCapP2 = new THREE.BoxGeometry(thickSkirtCap, hSkirtCap, capWidth);
+            const meshCapP2 = new THREE.Mesh(geoCapP2, matSkirtCap);
 
             const p2MidX = midX + wallUx * (length / 2);
             const p2MidZ = midZ + wallUy * (length / 2);
-            const capShiftSideB = isExterior ? (thickSkirt / 2) : 0;
+            const capShiftSideB = isExterior ? (renderSideB3D ? -(thickSkirtCap / 2) : (thickSkirtCap / 2)) : 0;
 
             meshCapP2.position.set(
-              p2MidX + wallUx * (thickSkirt / 2),
-              yOffset + hSkirt / 2,
-              p2MidZ + wallUy * (thickSkirt / 2) + nx * capShiftSideB
+              p2MidX + wallUx * (thickSkirtCap / 2),
+              yOffset + hSkirtCap / 2,
+              p2MidZ + wallUy * (thickSkirtCap / 2) + nx * capShiftSideB
             );
             meshCapP2.rotation.y = -angle;
             scene.add(meshCapP2);

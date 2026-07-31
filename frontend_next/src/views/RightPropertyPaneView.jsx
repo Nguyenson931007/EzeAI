@@ -1094,10 +1094,10 @@ export default function RightPropertyPaneView({
                 )}
               </div>
 
-              {/* SKIRTING SYSTEM (FEATURE 2) */}
+              {/* SKIRTING SYSTEM (FEATURE 2 - DUAL FACE CONTROLS) */}
               <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Chân tường (Skirting)</span>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Chân tường (Skirting System)</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
                     <input
                       type="checkbox"
@@ -1107,12 +1107,13 @@ export default function RightPropertyPaneView({
                         updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabled", e.target.checked);
                       }}
                     />
-                    <span>Enable</span>
+                    <span>Enable All</span>
                   </label>
                 </div>
 
                 {(selectedWall?.skirting?.enabled ?? true) && (
                   <>
+                    {/* Common / Default Settings */}
                     <div className="panel-field" style={{ marginBottom: 6 }}>
                       <span className="panel-label">Height (mm)</span>
                       <input
@@ -1122,7 +1123,10 @@ export default function RightPropertyPaneView({
                         value={selectedWall?.skirting?.height ?? 100}
                         onChange={(e) => {
                           const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", Number(e.target.value));
+                          const val = Number(e.target.value);
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", val);
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.height", val);
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.height", val);
                         }}
                       />
                     </div>
@@ -1135,21 +1139,75 @@ export default function RightPropertyPaneView({
                         value={selectedWall?.skirting?.thickness ?? 15}
                         onChange={(e) => {
                           const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", Number(e.target.value));
+                          const val = Number(e.target.value);
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", val);
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.thickness", val);
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.thickness", val);
                         }}
                       />
                     </div>
-                    <div className="panel-field">
-                      <span className="panel-label">Color</span>
-                      <input
-                        type="color"
-                        style={{ width: "100%", height: "28px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
-                        value={selectedWall?.skirting?.color || "#854d0e"}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", e.target.value);
-                        }}
-                      />
+
+                    {/* Side A Skirting Toggle & Color */}
+                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc" }}>Skirting Side A</span>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedWall?.skirting?.sideA?.enabled ?? selectedWall?.skirting?.enabledA ?? true}
+                            onChange={(e) => {
+                              const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.enabled", e.target.checked);
+                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabledA", e.target.checked);
+                            }}
+                          />
+                          <span>On</span>
+                        </label>
+                      </div>
+                      <div className="panel-field">
+                        <span className="panel-label">Side A Color</span>
+                        <input
+                          type="color"
+                          style={{ width: "100%", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
+                          value={selectedWall?.skirting?.sideA?.color || selectedWall?.skirting?.color || "#854d0e"}
+                          onChange={(e) => {
+                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", e.target.value);
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", e.target.value);
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Side B Skirting Toggle & Color */}
+                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc" }}>Skirting Side B</span>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedWall?.skirting?.sideB?.enabled ?? selectedWall?.skirting?.enabledB ?? true}
+                            onChange={(e) => {
+                              const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.enabled", e.target.checked);
+                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabledB", e.target.checked);
+                            }}
+                          />
+                          <span>On</span>
+                        </label>
+                      </div>
+                      <div className="panel-field">
+                        <span className="panel-label">Side B Color</span>
+                        <input
+                          type="color"
+                          style={{ width: "100%", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
+                          value={selectedWall?.skirting?.sideB?.color || selectedWall?.skirting?.color || "#854d0e"}
+                          onChange={(e) => {
+                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", e.target.value);
+                          }}
+                        />
+                      </div>
                     </div>
                   </>
                 )}
