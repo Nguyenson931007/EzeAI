@@ -955,7 +955,6 @@ export default function App() {
                   if (selectedId && selectedType === 'lintel') {
                     const selectedLintel = pageLintels.find(l => l.id === selectedId);
                     if (selectedLintel) {
-                      if (selectedLintel.isRounded) return;
                       const cat = selectedLintel.category || 'lintel';
                       const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
                       const updated = {
