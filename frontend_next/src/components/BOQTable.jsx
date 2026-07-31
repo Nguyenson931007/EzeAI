@@ -3364,39 +3364,42 @@ export default function BOQTable({
       const computeRevealRow = (item, defaultH, defaultW, rowId, isDoorTable = false) => {
         const customH = customDimensionsMap[rowId]?.h;
         const customW = customDimensionsMap[rowId]?.width;
+        const customQty = customDimensionsMap[rowId]?.qty;
+
         const rawH = customH !== undefined ? customH : (Number(item.height_mm || item.height) || defaultH);
         const rawW = customW !== undefined ? customW : (Number(item.width_mm || item.width) || defaultW);
+        const qty = customQty !== undefined ? customQty : (Number(item.qty) || 1);
 
-        // Ensure h and width are in millimeters (e.g. 2100 and 1200)
         const h = rawH < 20 ? Math.round(rawH * 1000) : Math.round(rawH);
         const width = rawW < 20 ? Math.round(rawW * 1000) : Math.round(rawW);
         
-        // Block work default: "No" if timber, "Yes" if slab/ext wall
         const defaultBw = (item.wall_type === 'timber' || item.is_timber) ? "No" : ((item.is_ext || item.wetness === 'ext') ? "Yes" : "No");
         const bw = blockWorkMap[rowId] || item.blockWork || defaultBw;
 
-        const area = Number(((h * width) / 1000000).toFixed(2));
-        const chuVi = isDoorTable
-          ? Number(((h * 2 + width) / 1000).toFixed(2))
-          : Number((((h + width) * 2) / 1000).toFixed(2));
+        const singleChuVi = (h + width) * 2 / 1000;
+        const area = Number(((h * width) / 1000000 * qty).toFixed(2));
+        const chuVi = Number((singleChuVi * qty).toFixed(2));
 
-        const hM = Number((h / 1000).toFixed(2));
-        const wM = Number((width / 1000).toFixed(2));
+        const hM = Number((h / 1000 * qty).toFixed(2));
+        const wM = Number((width / 1000 * qty).toFixed(2));
         const a = hM;
         const b = wM;
         const c = hM;
         const dVal = wM;
-        const halfStock = Number((chuVi / 2.7).toFixed(1));
 
-        let revealCount = 0;
-        if (chuVi === 0) revealCount = 0;
-        else if (chuVi <= 2.7) revealCount = 0.5;
-        else if (chuVi <= 5.4) revealCount = 1;
-        else if (chuVi <= 7.5) revealCount = 1.5;
-        else if (chuVi <= 10.8) revealCount = 2;
-        else revealCount = 2.5;
+        const halfStock = Number((2.7 * qty).toFixed(1));
 
-        return { id: rowId, h, width, blockWork: bw, area, chuVi, a, b, c, d: dVal, halfStock, revealCount };
+        let baseReveal = 0;
+        if (singleChuVi === 0) baseReveal = 0;
+        else if (singleChuVi <= 2.7) baseReveal = 0.5;
+        else if (singleChuVi <= 5.4) baseReveal = 1;
+        else if (singleChuVi <= 7.5) baseReveal = 1.5;
+        else if (singleChuVi <= 10.8) baseReveal = 2;
+        else baseReveal = 2.5;
+
+        const revealCount = Number((baseReveal * qty).toFixed(1));
+
+        return { id: rowId, h, width, qty, blockWork: bw, area, chuVi, a, b, c, d: dVal, halfStock, revealCount };
       };
 
       const formatWinRows = windowList.map((w, idx) => computeRevealRow(w, 2400, 2100, w.id || `win_${idx}`, false));
@@ -3436,6 +3439,7 @@ export default function BOQTable({
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>height</th>
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>width</th>
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>Block Work</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>So luong</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Dien tich</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Chu Vi</th>
                     <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a</th>
@@ -3449,7 +3453,7 @@ export default function BOQTable({
                 <tbody>
                   {formatWinRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                      <td colSpan={12} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
                         No windows available
                       </td>
                     </tr>
@@ -3482,6 +3486,15 @@ export default function BOQTable({
                             <option value="Yes">Yes</option>
                           </select>
                         </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <input
+                            type="number"
+                            min="1"
+                            style={{ width: "50px", padding: "3px 4px", fontSize: "12px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700 }}
+                            value={r.qty}
+                            onChange={(e) => setCustomDimensionsMap(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), qty: Math.max(1, Number(e.target.value)) } }))}
+                          />
+                        </td>
                         <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.area}</td>
                         <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.chuVi}</td>
                         <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.a}</td>
@@ -3496,12 +3509,11 @@ export default function BOQTable({
 
                   {/* Window Bottom Total Row (Matching User Screenshot) */}
                   <tr style={{ background: "#fff", borderTop: "2px solid #0f172a", fontWeight: 800 }}>
-                    <td colSpan={3} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #0f172a" }}>Total S</td>
+                    <td colSpan={4} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #0f172a" }}>Total S</td>
                     <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{winTotalArea.toFixed(2)}</td>
                     <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{winTotalChuVi.toFixed(1)}</td>
-                    <td colSpan={4} style={{ padding: "6px 8px", textAlign: "right", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>Total Reveal</td>
+                    <td colSpan={5} style={{ padding: "6px 8px", textAlign: "right", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>Total Reveal</td>
                     <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800, color: "#0284c7" }}>{winTotalReveal}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", border: "1px solid #0f172a" }}>0</td>
                   </tr>
                 </tbody>
               </table>
@@ -3518,6 +3530,7 @@ export default function BOQTable({
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>height</th>
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>width</th>
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>Block Work</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>So luong</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Dien tich</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Chu Vi</th>
                     <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a</th>
@@ -3531,7 +3544,7 @@ export default function BOQTable({
                 <tbody>
                   {formatDoorRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                      <td colSpan={12} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
                         No exterior sliding / cavity doors available
                       </td>
                     </tr>
@@ -3564,6 +3577,15 @@ export default function BOQTable({
                             <option value="Yes">Yes</option>
                           </select>
                         </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <input
+                            type="number"
+                            min="1"
+                            style={{ width: "50px", padding: "3px 4px", fontSize: "12px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700 }}
+                            value={r.qty}
+                            onChange={(e) => setCustomDimensionsMap(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), qty: Math.max(1, Number(e.target.value)) } }))}
+                          />
+                        </td>
                         <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.area}</td>
                         <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.chuVi}</td>
                         <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.a}</td>
@@ -3578,12 +3600,11 @@ export default function BOQTable({
 
                   {/* Door Bottom Total Row (Matching User Screenshot) */}
                   <tr style={{ background: "#fff", borderTop: "2px solid #0f172a", fontWeight: 800 }}>
-                    <td colSpan={3} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #0f172a" }}>Total S</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{doorTotalArea.toFixed(3)}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{doorTotalChuVi.toFixed(2)}</td>
-                    <td colSpan={4} style={{ padding: "6px 8px", textAlign: "right", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>Total Reveal</td>
+                    <td colSpan={4} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #0f172a" }}>Total S</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{doorTotalArea.toFixed(2)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{doorTotalChuVi.toFixed(1)}</td>
+                    <td colSpan={5} style={{ padding: "6px 8px", textAlign: "right", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>Total Reveal</td>
                     <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800, color: "#16a34a" }}>{doorTotalReveal}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", border: "1px solid #0f172a" }}>0</td>
                   </tr>
                 </tbody>
               </table>
