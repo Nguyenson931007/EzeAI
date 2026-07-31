@@ -50,6 +50,299 @@ function buildDoorCode(d) {
 
 const EMPTY_ARRAY = [];
 
+function LockUpScheduleExcelView({ enrichedDoors, lockUpRowsMap, setLockUpRowsMap }) {
+  const getLockUpRows = () => {
+    if (lockUpRowsMap !== null) return lockUpRowsMap;
+    
+    const isExtDoor = (d) => {
+      if (d.type === 'window' || d.class === 'window') return false;
+      if (d.is_ext || d.is_exterior || d.location === 'external' || d.wetness === 'ext') return true;
+      if ((d.doorTypeId || '').startsWith('ext_') || (d.class || '').includes('ext')) return true;
+      const name = (d.door_name || d.doorName || d.type || '').toLowerCase();
+      if (name.includes('ext') || name.includes('external')) return true;
+      return false;
+    };
+
+    const initialRows = enrichedDoors
+      .filter(isExtDoor)
+      .map((d, idx) => ({
+        id: d.id || `lu_${idx}`,
+        extInt: "Ext Door",
+        prehungDoors: d.label || d.door_name || d.doorName || `D-${idx + 1}`,
+        height: String(d.height_mm || (d.height ? Math.round(d.height * 1000) : 2040)),
+        width: String(d.width_mm || (d.width ? Math.round(d.width * 1000) : 820)),
+        qty: 1,
+        extJambSize: "Door Frame Pre-Made With Sill",
+        frameSize: "37mm Frame",
+        steelFrame: "",
+        doorType: "Single",
+        doorNameSpec: "TBA",
+        doorStop: "White Cushion - 3961362",
+        doorFurniture: "",
+        sidelight: "Toplight"
+      }));
+
+    if (initialRows.length === 0) {
+      initialRows.push(
+        { id: "lu_default_1", extInt: "Ext Door", prehungDoors: "D-1", height: "2040", width: "820", qty: 1, extJambSize: "Door Frame Pre-Made With Sill", frameSize: "37mm Frame", steelFrame: "", doorType: "Single", doorNameSpec: "TBA", doorStop: "White Cushion - 3961362", doorFurniture: "", sidelight: "Toplight" },
+        { id: "lu_default_2", extInt: "Ext Door", prehungDoors: "D-2", height: "2040", width: "820", qty: 1, extJambSize: "Door Frame Pre-Made With Sill", frameSize: "37mm Frame", steelFrame: "", doorType: "Single", doorNameSpec: "TBA", doorStop: "White Cushion - 3961362", doorFurniture: "", sidelight: "Toplight" }
+      );
+    }
+    return initialRows;
+  };
+
+  const rows = getLockUpRows();
+
+  const updateRow = (id, field, value) => {
+    setLockUpRowsMap(prev => {
+      const current = prev !== null ? prev : getLockUpRows();
+      return current.map(r => r.id === id ? { ...r, [field]: value } : r);
+    });
+  };
+
+  const addRow = () => {
+    setLockUpRowsMap(prev => {
+      const current = prev !== null ? prev : getLockUpRows();
+      const newRow = {
+        id: `lu_custom_${Date.now()}`,
+        extInt: "Ext Door",
+        prehungDoors: `D-${current.length + 1}`,
+        height: "2040",
+        width: "820",
+        qty: 1,
+        extJambSize: "Door Frame Pre-Made With Sill",
+        frameSize: "37mm Frame",
+        steelFrame: "",
+        doorType: "Single",
+        doorNameSpec: "TBA",
+        doorStop: "White Cushion - 3961362",
+        doorFurniture: "",
+        sidelight: "Toplight"
+      };
+      return [...current, newRow];
+    });
+  };
+
+  const exportLockUpExcel = () => {
+    const exportData = rows.map(r => ({
+      "Ext/Int": r.extInt,
+      "Prehung Doors": r.prehungDoors,
+      "Height": r.height,
+      "Width": r.width,
+      "Qty": r.qty,
+      "Ext Jamb Size": r.extJambSize,
+      "Frame Size": r.frameSize,
+      "Steel Frame (mm)": r.steelFrame,
+      "Door Type (External, Internal)": r.doorType,
+      "Door Name (External, Internal)": r.doorNameSpec,
+      "Door Stop": r.doorStop,
+      "Door Furniture (Other materials - Spec)": r.doorFurniture,
+      "Sidelight": r.sidelight
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "LockUp_Schedule");
+    XLSX.writeFile(wb, "LockUp_External_Doors_Schedule.xlsx");
+  };
+
+  return (
+    <div style={{ marginBottom: 30, marginTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h4 style={{ color: "#1e293b", fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <span>Lock Up External Doors & Door Frames Schedule</span>
+        </h4>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={addRow}
+            style={{ padding: "6px 14px", background: "#0284c7", color: "#fff", border: "none", borderRadius: "6px", fontWeight: 600, fontSize: "12px", cursor: "pointer" }}
+          >
+            + Add Door Row
+          </button>
+          <button
+            onClick={exportLockUpExcel}
+            style={{ padding: "6px 14px", background: "#16a34a", color: "#fff", border: "none", borderRadius: "6px", fontWeight: 600, fontSize: "12px", cursor: "pointer" }}
+          >
+            📊 Export Excel (.xlsx)
+          </button>
+        </div>
+      </div>
+
+      <div style={{ border: "1px solid #cbd5e1", borderRadius: "8px", overflowX: "auto", background: "#fff" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", whiteSpace: "nowrap" }}>
+          <thead>
+            <tr style={{ background: "#f8fafc", borderBottom: "2px solid #cbd5e1" }}>
+              <th style={{ padding: "8px 6px", textAlign: "center", background: "#93c5fd", color: "#1e3a8a" }}>Ext/Int</th>
+              <th style={{ padding: "8px 6px", textAlign: "left" }}>Prehung Doors</th>
+              <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Height</th>
+              <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Width</th>
+              <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Qty</th>
+              <th style={{ padding: "8px 6px", textAlign: "left", background: "#fef08a" }}>Ext Jamb Size</th>
+              <th style={{ padding: "8px 6px", textAlign: "left", background: "#fef08a" }}>Frame Size</th>
+              <th style={{ padding: "8px 6px", textAlign: "center", background: "#ef4444", color: "#fff" }}>Steel Frame (mm)</th>
+              <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Door Type (External, Internal)</th>
+              <th style={{ padding: "8px 6px", textAlign: "left", background: "#fef08a" }}>Door Name (External, Internal)</th>
+              <th style={{ padding: "8px 6px", textAlign: "left", background: "#fef08a" }}>Door Stop</th>
+              <th style={{ padding: "8px 6px", textAlign: "left", background: "#fef08a" }}>Door Furniture (Other materials - Spec)</th>
+              <th style={{ padding: "8px 6px", textAlign: "left", background: "#fef08a" }}>Sidelight</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                <td style={{ padding: "4px 6px", textAlign: "center", background: "#bfdbfe" }}>
+                  <select
+                    style={{ padding: "2px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #93c5fd", background: "#eff6ff", fontWeight: 700, color: "#1e40af" }}
+                    value={r.extInt}
+                    onChange={(e) => updateRow(r.id, "extInt", e.target.value)}
+                  >
+                    <option value="Ext Door">Ext Door</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", background: "#eff6ff" }}>
+                  <input
+                    type="text"
+                    style={{ width: "130px", padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #bfdbfe", background: "#fff", fontWeight: 700 }}
+                    value={r.prehungDoors}
+                    onChange={(e) => updateRow(r.id, "prehungDoors", e.target.value)}
+                  />
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "center", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff", fontWeight: 700, textAlign: "center" }}
+                    value={r.height}
+                    onChange={(e) => updateRow(r.id, "height", e.target.value)}
+                  >
+                    <option value="2040">2040</option>
+                    <option value="2340">2340</option>
+                    <option value="Spec">Spec</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "center", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff", fontWeight: 700, textAlign: "center" }}
+                    value={r.width}
+                    onChange={(e) => updateRow(r.id, "width", e.target.value)}
+                  >
+                    <option value="720">720</option>
+                    <option value="770">770</option>
+                    <option value="820">820</option>
+                    <option value="870">870</option>
+                    <option value="920">920</option>
+                    <option value="970">970</option>
+                    <option value="1020">1020</option>
+                    <option value="1200">1200</option>
+                    <option value="Spec">Spec</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "center", background: "#fef9c3" }}>
+                  <input
+                    type="number"
+                    style={{ width: "40px", padding: "3px 4px", fontSize: "11px", textAlign: "center", borderRadius: "4px", border: "1px solid #fde047", background: "#fff", fontWeight: 700 }}
+                    value={r.qty}
+                    onChange={(e) => updateRow(r.id, "qty", Number(e.target.value))}
+                  />
+                </td>
+                <td style={{ padding: "4px 6px", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff" }}
+                    value={r.extJambSize}
+                    onChange={(e) => updateRow(r.id, "extJambSize", e.target.value)}
+                  >
+                    <option value="Door Frame Pre-Made With Sill">Door Frame Pre-Made With Sill</option>
+                    <option value="Door Frame Pre-Made With Sill - Pivot Frame">Door Frame Pre-Made With Sill - Pivot Frame</option>
+                    <option value="Steel Frame">Steel Frame</option>
+                    <option value="110x19 MDF Jamb Sets RH">110x19 MDF Jamb Sets RH</option>
+                    <option value="110x19 MDF Jamb Sets LH">110x19 MDF Jamb Sets LH</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff" }}
+                    value={r.frameSize}
+                    onChange={(e) => updateRow(r.id, "frameSize", e.target.value)}
+                  >
+                    <option value="37mm Frame">37mm Frame</option>
+                    <option value="42mm Frame">42mm Frame</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "center", background: "#fee2e2" }}>
+                  <input
+                    type="text"
+                    style={{ width: "70px", padding: "3px 4px", fontSize: "11px", textAlign: "center", borderRadius: "4px", border: "1px solid #fca5a5", background: "#fff", fontWeight: 700 }}
+                    value={r.steelFrame}
+                    onChange={(e) => updateRow(r.id, "steelFrame", e.target.value)}
+                  />
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "center", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff", fontWeight: 700 }}
+                    value={r.doorType}
+                    onChange={(e) => updateRow(r.id, "doorType", e.target.value)}
+                  >
+                    <option value="Single">Single</option>
+                    <option value="Double">Double</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff" }}
+                    value={r.doorNameSpec}
+                    onChange={(e) => updateRow(r.id, "doorNameSpec", e.target.value)}
+                  >
+                    <option value="TBA">TBA</option>
+                    <option value="SCX1 D/C">SCX1 D/C</option>
+                    <option value="SCX1 P/PLY">SCX1 P/PLY</option>
+                    <option value="SCX1 PRIMECOAT">SCX1 PRIMECOAT</option>
+                    <option value="SCX1 SPM">SCX1 SPM</option>
+                    <option value="JST1 CLR DBL GLAZE">JST1 CLR DBL GLAZE</option>
+                    <option value="JST1 FROST DBL GLZ">JST1 FROST DBL GLZ</option>
+                    <option value="JST1 SPM AFRICANA">JST1 SPM AFRICANA</option>
+                    <option value="JST1 SPM CATHEDRAL">JST1 SPM CATHEDRAL</option>
+                    <option value="JST1 SPM CATHEDRL">JST1 SPM CATHEDRL</option>
+                    <option value="JST1 SPM CLEAR">JST1 SPM CLEAR</option>
+                    <option value="JST1 SPM CLEAR DG">JST1 SPM CLEAR DG</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff" }}
+                    value={r.doorStop}
+                    onChange={(e) => updateRow(r.id, "doorStop", e.target.value)}
+                  >
+                    <option value="White Cushion - 3961362">White Cushion - 3961362</option>
+                    <option value="DS2 with Riser - 3961347">DS2 with Riser - 3961347</option>
+                  </select>
+                </td>
+                <td style={{ padding: "4px 6px", background: "#fef9c3" }}>
+                  <input
+                    type="text"
+                    style={{ width: "150px", padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff" }}
+                    value={r.doorFurniture}
+                    onChange={(e) => updateRow(r.id, "doorFurniture", e.target.value)}
+                  />
+                </td>
+                <td style={{ padding: "4px 6px", background: "#fef9c3" }}>
+                  <select
+                    style={{ padding: "3px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fff" }}
+                    value={r.sidelight}
+                    onChange={(e) => updateRow(r.id, "sidelight", e.target.value)}
+                  >
+                    <option value="Toplight">Toplight</option>
+                    <option value="Sidelight">Sidelight</option>
+                    <option value="Sidelights">Sidelights</option>
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function BOQTable({
   pages = EMPTY_ARRAY,
   doors = EMPTY_ARRAY,
@@ -59,6 +352,9 @@ export default function BOQTable({
   initialPageIndex = 0,
 }) {
   const [selectedPageIndex, setSelectedPageIndex] = useState(initialPageIndex);
+  const [blockWorkMap, setBlockWorkMap] = useState({});
+  const [customDimensionsMap, setCustomDimensionsMap] = useState({});
+  const [lockUpRowsMap, setLockUpRowsMap] = useState(null);
 
   useEffect(() => {
     setSelectedPageIndex(initialPageIndex);
@@ -218,6 +514,36 @@ export default function BOQTable({
       const floorFallback = page?.floor_name ? page.floor_name.toLowerCase().replace(/\s+/g, '_') : `floor_${d.page_index ?? 0}`;
       const label = validLeft || validRight || floorFallback;
 
+      const isExt = Boolean(
+        d.is_ext || d.is_exterior || d.wetness === 'ext' || d.wall_type === 'ext' ||
+        rooms.left.room_name === 'outdoor' || rooms.right.room_name === 'outdoor' ||
+        rooms.left.room_name === 'Unknown' || rooms.right.room_name === 'Unknown' ||
+        (d.doorTypeId || '').startsWith('ext_') || (d.class || '').includes('ext') ||
+        (d.door_name || d.doorName || '').toLowerCase().includes('ext') ||
+        (d.door_name || d.doorName || '').toLowerCase().includes('external') ||
+        (d.door_name || d.doorName || '').toLowerCase().includes('entry')
+      );
+
+      const isSlidingOrCavity = d.doorTypeId === 'cavity_slider' || d.type === 'slider' ||
+                               (d.door_name || d.doorName || d.type || '').toLowerCase().includes('slide') ||
+                               (d.door_name || d.doorName || d.type || '').toLowerCase().includes('cavity');
+
+      let resolvedDoorTypeId = d.doorTypeId;
+      if (!resolvedDoorTypeId) {
+        if (isSlidingOrCavity) {
+          resolvedDoorTypeId = isExt ? 'ext_sliding' : 'int_sliding_single';
+        } else {
+          resolvedDoorTypeId = isExt ? 'ext_hinged_single' : 'int_hinged_single';
+        }
+      }
+
+      let doorName = d.door_name || d.doorName || "";
+      if (isSlidingOrCavity && isExt) {
+        if (!doorName || doorName.toLowerCase().includes('internal')) {
+          doorName = "Exterior Sliding Door";
+        }
+      }
+
       const primaryRoom =
         validLeft
           ? rooms.left
@@ -226,6 +552,11 @@ export default function BOQTable({
       return {
         ...d,
         center,
+        door_name: doorName,
+        is_ext: isExt,
+        is_exterior: isExt,
+        location: isExt ? 'external' : 'internal',
+        doorTypeId: resolvedDoorTypeId,
         swing: "unknown",
         hinge: "LH",
         leftRoom: rooms.left,
@@ -238,6 +569,7 @@ export default function BOQTable({
         floor_name: page.floor_name,
         width: Number(width.toFixed(2)),
         height: Number(height.toFixed(2)),
+        framePerimeter: Number((2 * (width + height)).toFixed(2)),
       };
     });
   }, [pages, doors, scalesByPage, selectedPageIndex]);
@@ -307,7 +639,7 @@ export default function BOQTable({
     });
 
     return Object.values(grouped);
-  }, [pages, scaleValue, doorCountByRoom, selectedPageIndex]);
+  }, [pages, scalesByPage, doorCountByRoom, selectedPageIndex]);
   const [viewMode, setViewMode] = useState("flooring_decking");
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
@@ -1531,26 +1863,60 @@ export default function BOQTable({
         title: "Openings (Doors, Windows & Lintels)",
         icon: "🚪",
         items: [
-          { code: "OP-501", name: "Internal Timber Door Frames & Openings", qty: lockupData.length || 12, unit: "sets", status: "Detected", notes: "Pre-hung jamb & architrave openings" },
-          { code: "OP-502", name: "Aluminum Powdercoated Window Frames", qty: Math.max(6, Math.ceil(totalAll / 18)), unit: "units", status: "Estimated", notes: "Double glazed thermal windows" },
-          { code: "OP-503", name: "Galvanized Steel Window & Door Lintels", qty: Math.ceil((lockupData.length || 12) * 1.1), unit: "lm", status: "Calculated", notes: "Over-opening wall load lintels" }
+          { code: "OP-501", name: "Internal Timber Door Frames & Openings", qty: enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || lockupData.length || 12, unit: "sets", status: "Detected", notes: "Pre-hung jamb & architrave openings" },
+          { code: "OP-502", name: "Aluminum Powdercoated Window Frames", qty: enrichedDoors.filter(d => d.type === 'window' || d.class === 'window').length || Math.max(6, Math.ceil(totalAll / 18)), unit: "units", status: "Detected", notes: "Double glazed thermal windows" },
+          { code: "OP-503", name: "Galvanized Steel Window & Door Lintels", qty: Math.ceil((enrichedDoors.length || 12) * 1.1), unit: "lm", status: "Calculated", notes: "Over-opening wall load lintels" }
+        ]
+      },
+      Lock_up: {
+        title: "Lock Up Schedule (Prehung Doors, Door Frames External, Hinges & Lockset Furniture)",
+        icon: "🔒",
+        items: [
+          ...(enrichedDoors.length > 0 ? enrichedDoors.map((d, idx) => ({
+            code: d.door_name || `LU-${idx + 101}`,
+            name: `${d.type === 'window' ? 'Window Frame' : (d.is_ext ? 'External Door' : 'Internal Door')} (${d.width || 820}x${d.height || 2040}mm)`,
+            qty: 1,
+            unit: "each",
+            status: "Detected",
+            notes: `Size: ${d.height || 2040}x${d.width || 820}mm, Location: ${d.is_ext ? 'External Wall' : (d.label || 'Room')}, Frame: 37mm`
+          })) : [
+            { code: "LU-101", name: "Prehung Door (2040x820)", qty: 1, unit: "each", status: "Estimated", notes: "Internal Prehung Door" },
+            { code: "LU-102", name: "Prehung Door (2040x720)", qty: 1, unit: "each", status: "Estimated", notes: "Internal Prehung Door" }
+          ]),
+          { code: "DF-101", name: "Door Frame Pre-Made With Sill (External)", qty: 1, unit: "set", status: "Calculated", notes: "37mm Frame - Code 1061615" },
+          { code: "DF-102", name: "110x19 MDF Jamb Sets RH", qty: enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 1, unit: "set", status: "Calculated", notes: "Pre-cut timber jamb set" },
+          { code: "HG-201", name: "89mm Hirline Hinge Light Duty (Pair)", qty: Math.max(1, Math.ceil((enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 1) * 0.5)), unit: "pair", status: "Calculated", notes: "Code 0132425" },
+          { code: "HG-202", name: "100mm Hirline Heavy Duty Hinges (Screws included)", qty: Math.max(3, Math.ceil((enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 1) * 3)), unit: "each", status: "Calculated", notes: "Code 0132424" },
+          { code: "LF-301", name: "Lockwood Satin Chrome Symmetry Entry Lever Set - 40204", qty: 1, unit: "set", status: "Calculated", notes: "Lock Up Door Furniture - Front/Rear Entry" },
+          { code: "LF-302", name: "Lockwood Satin Chrome Symmetry Privacy Lever - 402047", qty: Math.max(1, enrichedDoors.filter(d => d.primaryRoom?.wetness === 'wet').length || 1), unit: "set", status: "Calculated", notes: "Lock Up Door Furniture - Privacy" }
         ]
       },
       fixout: {
-        title: "Fixout Timber, Architraves & Skirtings",
+        title: "Fix Out Schedule (Cavity Sliding Units, Internal Doors, Architraves, Skirtings & Hinges)",
         icon: "🛠️",
         items: [
-          { code: "FX-601", name: "67x18mm MDF Single Bevel Architrave", qty: Math.ceil(totalAll * 1.4), unit: "lm", status: "Calculated", notes: "Door & window internal trim" },
+          ...(enrichedDoors.length > 0 ? enrichedDoors.map((d, idx) => ({
+            code: d.door_name || `FX-${idx + 101}`,
+            name: `${d.doorTypeId === 'cavity_slider' || d.type === 'slider' || (d.door_name || '').toLowerCase().includes('slide') ? (d.is_ext ? 'External Sliding Door' : 'Cavity Sliding Unit') : (d.is_ext ? 'External Door' : 'Internal Door')} (${d.label || 'Bed'})`,
+            qty: 1,
+            unit: "each",
+            status: "Detected",
+            notes: `Height: ${d.height || 2040}mm, Width: ${d.width || 720}mm, Wall: ${d.is_ext ? 'External Wall' : '70mm Internal'}, Unit Type: Triline`
+          })) : [
+            { code: "FX-101", name: "Cavity Sliding Unit Door (Bed 2040x720)", qty: 1, unit: "unit", status: "Estimated", notes: "Internal Cavity Slider 70mm Wall Width" }
+          ]),
+          { code: "FX-601", name: "67x18mm MDF Single Bevel Architrave", qty: Math.ceil(enrichedDoors.reduce((acc, d) => acc + (d.framePerimeter || 6.6), 0)) || Math.ceil(totalAll * 1.4), unit: "lm", status: "Calculated", notes: "Door & window internal trim (Perimeter)" },
           { code: "FX-602", name: "92x18mm MDF Single Bevel Skirting Board", qty: Math.ceil(totalDry * 1.8), unit: "lm", status: "Calculated", notes: "Perimeter floor skirting" },
-          { code: "FX-603", name: "Internal Door Jamb Sets (110x19mm MDF)", qty: lockupData.length || 12, unit: "sets", status: "Calculated", notes: "Standard 2040mm jamb height" },
-          { code: "FX-604", name: "Fixing Adhesive & Brad Nails (Finish Nails)", qty: 4, unit: "packs", status: "Estimated", notes: "Second-fix carpenter hardware" }
+          { code: "FX-603", name: "Internal Door Jamb Sets (110x19mm MDF)", qty: enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || lockupData.length || 12, unit: "sets", status: "Calculated", notes: "Standard 2040mm jamb height" },
+          { code: "HG-203", name: "89mm Hirline Hinge Light Duty (screws included)", qty: Math.max(1, Math.ceil((enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 1) * 3)), unit: "pair", status: "Calculated", notes: "Code 0132425" },
+          { code: "HG-204", name: "89mm Hirline Hinge Light Duty Lift Off (screws included)", qty: Math.max(1, enrichedDoors.filter(d => d.primaryRoom?.wetness === 'wet').length || 1), unit: "each", status: "Calculated", notes: "Lift-off hinges for WC & Bath doors" }
         ]
       },
       reveal: {
         title: "Window & Door Timber Reveals",
         icon: "🖼️",
         items: [
-          { code: "RV-701", name: "135x19mm Primed Pine Window Timber Reveals", qty: Math.ceil(totalAll * 0.45), unit: "lm", status: "Calculated", notes: "Internal window lining reveals" },
+          { code: "RV-701", name: "135x19mm Primed Pine Window Timber Reveals", qty: Math.ceil(enrichedDoors.filter(d => d.type === 'window' || d.class === 'window').reduce((acc, w) => acc + (w.framePerimeter || 4.8), 0)) || Math.ceil(totalAll * 0.45), unit: "lm", status: "Calculated", notes: "Internal window lining reveals (Perimeter)" },
           { code: "RV-702", name: "Aluminum Window Sub-Sill Flashing Liners", qty: Math.ceil(totalAll * 0.25), unit: "lm", status: "Calculated", notes: "Sub-sill water barrier" }
         ]
       },
@@ -1558,10 +1924,10 @@ export default function BOQTable({
         title: "Final Fit & Door Hardware Sets",
         icon: "✨",
         items: [
-          { code: "FF-801", name: "Lockwood Passage Lever Sets (Chrome Finish)", qty: Math.ceil((lockupData.length || 12) * 0.6), unit: "sets", status: "Calculated", notes: "Internal hallway & bedroom doors" },
-          { code: "FF-802", name: "Lockwood Privacy Lever Sets (Chrome Finish)", qty: Math.ceil((lockupData.length || 12) * 0.3), unit: "sets", status: "Calculated", notes: "Bathroom & WC doors" },
+          { code: "FF-801", name: "Lockwood Passage Lever Sets (Chrome Finish)", qty: Math.ceil((enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 12) * 0.6), unit: "sets", status: "Calculated", notes: "Internal hallway & bedroom doors" },
+          { code: "FF-802", name: "Lockwood Privacy Lever Sets (Chrome Finish)", qty: Math.ceil((enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 12) * 0.4), unit: "sets", status: "Calculated", notes: "Bathroom & WC doors" },
           { code: "FF-803", name: "Lockwood External Entrance Lockset & Deadbolt", qty: 2, unit: "sets", status: "Calculated", notes: "Front & rear external doors" },
-          { code: "FF-804", name: "Cushioned Skirting Door Stops (White / Satin)", qty: lockupData.length || 12, unit: "pcs", status: "Calculated", notes: "Wall impact protection" }
+          { code: "FF-804", name: "Cushioned Skirting Door Stops (White / Satin)", qty: enrichedDoors.filter(d => d.type !== 'window' && d.class !== 'window').length || 12, unit: "pcs", status: "Calculated", notes: "Wall impact protection" }
         ]
       },
       shelving: {
@@ -1593,6 +1959,215 @@ export default function BOQTable({
         ]
       }
     };
+
+    if (viewMode === "reveal") {
+      const windowList = enrichedDoors.filter(d => d.type === 'window' || d.class === 'window');
+      
+      // External Sliding & External Cavity doors ONLY for Door Reveal Schedule
+      const doorList = enrichedDoors.filter(d => {
+        if (d.type === 'window' || d.class === 'window') return false;
+        const name = (d.door_name || d.doorName || d.type || '').toLowerCase();
+        const isSlidingOrCavity = d.doorTypeId === 'cavity_slider' || d.type === 'slider' || d.class === 'sliding_door' || d.class === 'ext_sliding' || name.includes('slide') || name.includes('cavity');
+        const isExt = Boolean(d.is_ext || d.is_exterior || d.wetness === 'ext' || d.wall_type === 'ext' || d.location === 'external' || (d.doorTypeId || '').startsWith('ext_') || (d.class || '').includes('ext'));
+        return isSlidingOrCavity && isExt;
+      });
+
+      const computeRevealRow = (item, defaultH, defaultW, rowId, isDoorTable = false) => {
+        const customH = customDimensionsMap[rowId]?.h;
+        const customW = customDimensionsMap[rowId]?.width;
+        const rawH = customH !== undefined ? customH : (Number(item.height_mm || item.height) || defaultH);
+        const rawW = customW !== undefined ? customW : (Number(item.width_mm || item.width) || defaultW);
+
+        // Ensure h and width are in millimeters (e.g. 2100 and 1200)
+        const h = rawH < 20 ? Math.round(rawH * 1000) : Math.round(rawH);
+        const width = rawW < 20 ? Math.round(rawW * 1000) : Math.round(rawW);
+        
+        // Block work default: "No" if timber, "Yes" if slab/ext wall
+        const defaultBw = (item.wall_type === 'timber' || item.is_timber) ? "No" : ((item.is_ext || item.wetness === 'ext') ? "Yes" : "No");
+        const bw = blockWorkMap[rowId] || item.blockWork || defaultBw;
+
+        const area = Number(((h * width) / 1000000).toFixed(2));
+        const chuVi = isDoorTable
+          ? Number(((h * 2 + width) / 1000).toFixed(2))
+          : Number((((h + width) * 2) / 1000).toFixed(2));
+
+        const hM = h / 1000;
+        const wM = width / 1000;
+        const a = Number((5.4 - hM).toFixed(2));
+        const b = Number((a - hM).toFixed(2));
+        const c = Number((b - wM).toFixed(2));
+        const dVal = c;
+        const halfStock = 2.7;
+
+        let revealCount = 0;
+        if (chuVi === 0) revealCount = 0;
+        else if (chuVi <= 2.7) revealCount = 0.5;
+        else if (chuVi <= 5.4) revealCount = 1;
+        else if (chuVi <= 7.5) revealCount = 1.5;
+        else if (chuVi <= 10.8) revealCount = 2;
+        else revealCount = 2.5;
+
+        return { id: rowId, h, width, blockWork: bw, area, chuVi, a, b, c, d: dVal, halfStock, revealCount };
+      };
+
+      const formatWinRows = windowList.map((w, idx) => computeRevealRow(w, 2400, 2100, w.id || `win_${idx}`, false));
+      const formatDoorRows = doorList.map((d, idx) => computeRevealRow(d, 2040, 820, d.id || `door_${idx}`, true));
+
+      return (
+        <div style={{ marginBottom: 30 }}>
+          <h4 style={{ marginBottom: 16, color: "#1e293b", fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 20 }}>🖼️</span>
+            <span>Window & Exterior Sliding / Cavity Door Timber Reveals Schedule (Ezequote Format)</span>
+          </h4>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+            {/* WINDOW REVEAL SCHEDULE TABLE */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
+              <div style={{ background: "#0284c7", color: "#fff", padding: "10px 14px", fontWeight: 700, fontSize: "14px" }}>
+                🖼️ Window Timber Reveals Schedule
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <thead>
+                  <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>height</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>width</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Block Work</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Dien tich</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Chu Vi</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>b</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>c</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>d</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>5.4/2</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Reveal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {formatWinRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                        No windows available
+                      </td>
+                    </tr>
+                  ) : (
+                    formatWinRows.map((r) => (
+                      <tr key={r.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <input
+                            type="number"
+                            style={{ width: "70px", padding: "3px 4px", fontSize: "12px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700 }}
+                            value={r.h}
+                            onChange={(e) => setCustomDimensionsMap(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), h: Number(e.target.value) } }))}
+                          />
+                        </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <input
+                            type="number"
+                            style={{ width: "70px", padding: "3px 4px", fontSize: "12px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700 }}
+                            value={r.width}
+                            onChange={(e) => setCustomDimensionsMap(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), width: Number(e.target.value) } }))}
+                          />
+                        </td>
+                        <td style={{ padding: "6px", textAlign: "center" }}>
+                          <select
+                            style={{ padding: "2px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff" }}
+                            value={r.blockWork}
+                            onChange={(e) => setBlockWorkMap(prev => ({ ...prev, [r.id]: e.target.value }))}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.area}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.chuVi}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.a}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.b}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.c}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.d}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.halfStock}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700, color: "#0284c7" }}>{r.revealCount}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* EXTERIOR SLIDING & CAVITY DOOR REVEAL SCHEDULE TABLE */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
+              <div style={{ background: "#16a34a", color: "#fff", padding: "10px 14px", fontWeight: 700, fontSize: "14px" }}>
+                🚪 Exterior Sliding / Cavity Door Timber Reveals Schedule
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <thead>
+                  <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>height</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>width</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Block Work</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Dien tich</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Chu Vi</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>b</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>c</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>d</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>5.4/2</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Reveal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {formatDoorRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                        No exterior sliding / cavity doors available
+                      </td>
+                    </tr>
+                  ) : (
+                    formatDoorRows.map((r) => (
+                      <tr key={r.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <input
+                            type="number"
+                            style={{ width: "70px", padding: "3px 4px", fontSize: "12px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700 }}
+                            value={r.h}
+                            onChange={(e) => setCustomDimensionsMap(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), h: Number(e.target.value) } }))}
+                          />
+                        </td>
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          <input
+                            type="number"
+                            style={{ width: "70px", padding: "3px 4px", fontSize: "12px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700 }}
+                            value={r.width}
+                            onChange={(e) => setCustomDimensionsMap(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), width: Number(e.target.value) } }))}
+                          />
+                        </td>
+                        <td style={{ padding: "6px", textAlign: "center" }}>
+                          <select
+                            style={{ padding: "2px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#fff" }}
+                            value={r.blockWork}
+                            onChange={(e) => setBlockWorkMap(prev => ({ ...prev, [r.id]: e.target.value }))}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.area}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700 }}>{r.chuVi}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.a}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.b}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.c}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.d}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3" }}>{r.halfStock}</td>
+                        <td style={{ padding: "6px", textAlign: "center", background: "#fef9c3", fontWeight: 700, color: "#16a34a" }}>{r.revealCount}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     const config = tradeConfigs[viewMode];
     if (!config) return null;
@@ -2027,7 +2602,7 @@ export default function BOQTable({
       )}
 
       {viewMode === "Lock_up" && (
-        <LockUpTable data={lockupData} />
+        <LockUpScheduleExcelView enrichedDoors={enrichedDoors} lockUpRowsMap={lockUpRowsMap} setLockUpRowsMap={setLockUpRowsMap} />
       )}
 
       {!["flooring_decking", "Lock_up", "job_startup", "frame_hardware", "eaves_soffits"].includes(viewMode) && (

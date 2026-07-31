@@ -121,7 +121,36 @@ function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
 /**
  * Merge overlapping doors: when two doors overlap significantly,
  * keep the longer one and discard the shorter one.
- *
+ */
+function extractDoorsFromResponse(data) {
+  if (!data) return [];
+  const list = Array.isArray(data) ? data : [data];
+  let allDoors = [];
+  for (const item of list) {
+    if (!item) continue;
+    if (Array.isArray(item.doors) && item.doors.length > 0) {
+      allDoors.push(...item.doors);
+    }
+    if (Array.isArray(item.pages)) {
+      for (const page of item.pages) {
+        if (page && Array.isArray(page.doors) && page.doors.length > 0) {
+          allDoors.push(...page.doors);
+        }
+      }
+    }
+    if (Array.isArray(item.results)) {
+      for (const res of item.results) {
+        if (res && Array.isArray(res.doors) && res.doors.length > 0) {
+          allDoors.push(...res.doors);
+        }
+      }
+    }
+  }
+  return allDoors;
+}
+
+/**
+ * Merges newly detected doors with existing doors on canvas.
  * Overlap is detected via:
  *   - IoU > 0.3
  *   - Overlap coefficient > 0.5 (intersection / min area)
@@ -862,12 +891,8 @@ export const useAIController = (
       const result = Array.isArray(data) ? data[0] : data;
       const isCacheHit = !!(result && result.cache_hit);
 
-      let doorsArray = [];
-      if (roiRect && result && result.pages && result.pages[0] && result.pages[0].doors) {
-        doorsArray = result.pages[0].doors;
-      } else if (!roiRect && result && result.doors) {
-        doorsArray = result.doors;
-      }
+      let doorsArray = extractDoorsFromResponse(data);
+      console.log(`[Door AI] Extracted ${doorsArray.length} doors from API response.`);
 
       if (doorsArray && doorsArray.length > 0) {
         const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
@@ -875,12 +900,6 @@ export const useAIController = (
 
         const runCount = (doorDetectRunCountRef.current[currentPage] || 0) + 1;
         doorDetectRunCountRef.current[currentPage] = runCount;
-
-        if (runCount > 3) {
-          console.log(`[Door AI] Detect run #${runCount} for page ${currentPage} exceeds limit of 3 runs. Running logs only, no new doors added.`);
-          finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
-          return;
-        }
 
         const detectedDoors = doorsArray.map(d => {
           const migrated = migrateLegacyDoor(d, currentWalls, currentPage, realScale);
@@ -1038,10 +1057,8 @@ export const useAIController = (
         if (abortController.signal.aborted) return;
 
         const doorResult = Array.isArray(doorData) ? doorData[0] : doorData;
-        let doorsArray = [];
-        if (doorResult && doorResult.doors) {
-          doorsArray = doorResult.doors;
-        }
+        let doorsArray = extractDoorsFromResponse(doorData);
+        console.log(`[Smart AI] Extracted ${doorsArray.length} doors from API response.`);
 
         if (doorsArray.length > 0) {
           const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];

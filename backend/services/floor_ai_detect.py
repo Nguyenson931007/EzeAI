@@ -1488,7 +1488,76 @@ def _outside_contact_ratio(poly_pts: list, img_w: int, img_h: int,
 # OVERLAP RESOLUTION  (ported from floor-ai-desktop)
 # ──────────────────────────────────────────────────────────
 
-_TYPE_PRIORITY = {"wet": 4, "deck": 3, "dry": 2, "unknown": 1, "void": 0}
+_TYPE_PRIORITY = {
+    "bathroom": 10, "ensuite": 10, "powder_room": 10, "bath": 10, "wc": 10, "wet": 10,
+    "kitchen": 8, "laundry": 8, "robe": 6, "wir": 6,
+    "bedroom": 5, "bed": 5, "living": 3, "hallway": 1, "dry": 2, "unknown": 0
+}
+
+def _resolve_overlaps(rooms: list) -> list:
+    """
+    Sort rooms by type priority (wet bathrooms first), then clip each lower-priority
+    room (hallways/living) by the union of all higher-priority rooms that came before it.
+    Result: no lower-priority hallway room penetrates into wet bathroom space.
+    """
+    prepared = []
+    for r in rooms:
+        pts = r.get("polygon", [])
+        if len(pts) < 3:
+            continue
+        try:
+            poly = ShapelyPolygon([(p["x"], p["y"]) for p in pts])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+        except Exception:
+            continue
+        if poly is None or poly.is_empty or poly.area < 100:
+            continue
+        r["_poly"] = poly
+        prepared.append(r)
+
+    def _get_prio(r):
+        name_token = (r.get("room_type") or r.get("type") or r.get("room_name") or "unknown").lower().split()[0]
+        return _TYPE_PRIORITY.get(name_token, 0)
+
+    # Sort: highest priority first, then by area desc
+    prepared.sort(
+        key=lambda r: (_get_prio(r), -r["_poly"].area),
+        reverse=True
+    )
+
+    final = []
+    for room in prepared:
+        poly = room["_poly"]
+        for kept in final:
+            try:
+                poly = poly.difference(kept["_poly"])
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+            except Exception:
+                poly = None
+                break
+            if poly is None or poly.is_empty:
+                break
+
+        if poly is None or poly.is_empty or poly.area < 100:
+            continue
+
+        room["_poly"] = poly
+        if poly.geom_type == "Polygon":
+            room["polygon"] = [{"x": float(x), "y": float(y)} for x, y in poly.exterior.coords[:-1]]
+            final.append(room)
+        elif poly.geom_type == "MultiPolygon":
+            for part in poly.geoms:
+                if part.area >= 100:
+                    r_copy = room.copy()
+                    r_copy["polygon"] = [{"x": float(x), "y": float(y)} for x, y in part.exterior.coords[:-1]]
+                    final.append(r_copy)
+
+    for r in final:
+        r.pop("_poly", None)
+
+    return final
 _MIN_AREA_PX   = 100   # polygons smaller than this are dropped
 
 
@@ -1565,15 +1634,11 @@ def _smooth_polygon(polygon_pts: list, img_w: int, img_h: int) -> list:
         if hasattr(poly, 'interiors') and poly.interiors:
             poly = ShapelyPolygon(poly.exterior)
             
-        # [NEW] Polygon gap recovery (Morphological close equivalent)
-        # buffer(10) then buffer(-10) closes small gaps and connects broken parts
-        poly = poly.buffer(10).buffer(-10)
+        # [NEW] Polygon gap recovery
+        poly = poly.buffer(2).buffer(-2)
         
-        # 2. Simplify — tolerance proportional to image size (increased for cleaner edges)
-        #    For a 2000px image: tol = 2000 * 0.008 = 16px
-        #    For a 4000px image: tol = 4000 * 0.008 = 32px
-        tol = max(img_w, img_h) * 0.008
-        tol = max(tol, 5.0)  # minimum 5px
+        # 2. Simplify with fine tolerance (1.0px) to preserve exact 90° wall step notches
+        tol = 1.0
         poly = poly.simplify(tol, preserve_topology=True)
         
         if not poly.is_valid:
@@ -2004,6 +2069,74 @@ def _suppress_high_overlaps(rooms: list) -> list:
         else:
             r.pop("_poly", None)
             
+    return final
+
+
+_TYPE_PRIORITY = {
+    "bathroom": 10, "ensuite": 10, "powder_room": 10, "bath": 10, "wc": 10,
+    "kitchen": 8, "laundry": 8, "robe": 6, "wir": 6,
+    "bedroom": 5, "bed": 5, "living": 3, "hallway": 1, "unknown": 0
+}
+
+def _resolve_overlaps(rooms: list) -> list:
+    """
+    Sort rooms by type priority (wet first), then clip each lower-priority
+    room by the union of all higher-priority rooms that came before it.
+    Result: no two rooms share area.
+    """
+    prepared = []
+    for r in rooms:
+        pts = r.get("polygon", [])
+        if len(pts) < 3:
+            continue
+        try:
+            poly = ShapelyPolygon([(p["x"], p["y"]) for p in pts])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+        except Exception:
+            continue
+        if poly is None or poly.is_empty or poly.area < 100:
+            continue
+        r["_poly"] = poly
+        prepared.append(r)
+
+    # Sort: highest priority first, then by area desc
+    prepared.sort(
+        key=lambda r: (_TYPE_PRIORITY.get((r.get("room_type") or r.get("room_name") or "unknown").lower().split()[0], 0), -r["_poly"].area),
+        reverse=True
+    )
+
+    final = []
+    for room in prepared:
+        poly = room["_poly"]
+        for kept in final:
+            try:
+                poly = poly.difference(kept["_poly"])
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+            except Exception:
+                poly = None
+                break
+            if poly is None or poly.is_empty:
+                break
+
+        if poly is None or poly.is_empty or poly.area < 100:
+            continue
+
+        room["_poly"] = poly
+        if poly.geom_type == "Polygon":
+            room["polygon"] = [{"x": float(x), "y": float(y)} for x, y in poly.exterior.coords[:-1]]
+            final.append(room)
+        elif poly.geom_type == "MultiPolygon":
+            for part in poly.geoms:
+                if part.area >= 100:
+                    r_copy = room.copy()
+                    r_copy["polygon"] = [{"x": float(x), "y": float(y)} for x, y in part.exterior.coords[:-1]]
+                    final.append(r_copy)
+
+    for r in final:
+        r.pop("_poly", None)
+
     return final
 
 

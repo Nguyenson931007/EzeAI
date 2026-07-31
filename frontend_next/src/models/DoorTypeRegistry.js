@@ -717,7 +717,10 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
 
   // Resolve door type
   const doorClass = door.class || 'single_door';
-  const isExternal = doorClass.includes('ext') || door.door_name?.includes('External');
+  const isParentWallExt = parentWall && (
+    parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior
+  );
+  const isExternal = door.is_ext || door.is_exterior || door.location === 'external' || isParentWallExt || doorClass.includes('ext') || (door.door_name || door.doorName || '').toLowerCase().includes('external');
   const category = isExternal ? 'external' : 'internal';
   const doorTypeId = door.doorTypeId || resolveDoorTypeId(doorClass, category);
   const doorDef = DOOR_TYPE_REGISTRY[doorTypeId] || DOOR_TYPE_REGISTRY.int_hinged_single;

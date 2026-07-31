@@ -38,8 +38,9 @@ export default function DoorEditDialog({
   const getInitialPenetType = () => {
     if (!door) return 'int_hinged_single';
     if (door.doorTypeId) return door.doorTypeId;
-    const cls = door.class || '';
-    const isExt = door.class?.includes('ext') || door.doorName?.toLowerCase().includes('external') || door.door_name?.toLowerCase().includes('external');
+    const parentWall = door.parentWallId ? walls.find(w => w.id === door.parentWallId) : null;
+    const isExtWall = parentWall && (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior);
+    const isExt = door.is_ext || door.is_exterior || door.location === 'external' || isExtWall || door.class?.includes('ext') || door.doorName?.toLowerCase().includes('external') || door.door_name?.toLowerCase().includes('external');
     const category = isExt ? 'external' : 'internal';
     const prefix = isExt ? 'ext_' : 'int_';
     for (const [key, def] of Object.entries(DOOR_TYPE_REGISTRY)) {

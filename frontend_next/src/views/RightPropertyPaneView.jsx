@@ -1,12 +1,13 @@
 import React from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util, getWallClass } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass, calcDoorWindowMetrics } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { BASE_URL } from "@/models/api.service";
 import {
   DOOR_TYPE_REGISTRY,
   getDoorTypeOptions,
+  resolveDoorTypeId,
   HARDWARE_TYPES,
   MATERIAL_OPTIONS,
   FIRE_RATING_OPTIONS
@@ -468,6 +469,36 @@ export default function RightPropertyPaneView({
 
   const totalDoorCount = actualDoors.length;
   const totalWindowCount = actualWindows.length;
+
+  const doorMetrics = React.useMemo(() => {
+    let totalLengthM = 0;
+    let totalPerimeterM = 0;
+    actualDoors.forEach(d => {
+      const m = calcDoorWindowMetrics(d, scaleValue);
+      totalLengthM += m.lengthM;
+      totalPerimeterM += m.framePerimeterM;
+    });
+    return {
+      count: actualDoors.length,
+      totalLengthM: Number(totalLengthM.toFixed(3)),
+      totalPerimeterM: Number(totalPerimeterM.toFixed(3)),
+    };
+  }, [actualDoors, scaleValue]);
+
+  const windowMetrics = React.useMemo(() => {
+    let totalLengthM = 0;
+    let totalPerimeterM = 0;
+    actualWindows.forEach(w => {
+      const m = calcDoorWindowMetrics(w, scaleValue);
+      totalLengthM += m.lengthM;
+      totalPerimeterM += m.framePerimeterM;
+    });
+    return {
+      count: actualWindows.length,
+      totalLengthM: Number(totalLengthM.toFixed(3)),
+      totalPerimeterM: Number(totalPerimeterM.toFixed(3)),
+    };
+  }, [actualWindows, scaleValue]);
 
   // 4. Calculations for Roof Area Summary
   const pageRoofs = roofsByPage[currentPage] || [];
@@ -1109,6 +1140,17 @@ export default function RightPropertyPaneView({
               );
             }
 
+            const parentWall = selectedDoor.parentWallId ? walls.find(w => w.id === selectedDoor.parentWallId) : null;
+            const isParentWallExt = parentWall && (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior);
+            const isExt = Boolean(
+              selectedDoor.is_ext || selectedDoor.is_exterior || selectedDoor.location === 'external' || isParentWallExt ||
+              (selectedDoor.class || '').includes('ext') || (selectedDoor.door_name || selectedDoor.doorName || '').toLowerCase().includes('external')
+            );
+            const category = isExt ? 'external' : 'internal';
+
+            const rawTypeId = selectedDoor.doorTypeId || selectedDoor.penetration_type || selectedDoor.penetrationType || selectedDoor.class || 'int_hinged_single';
+            const activeDoorTypeId = (DOOR_TYPE_REGISTRY[rawTypeId] ? rawTypeId : resolveDoorTypeId(rawTypeId, category));
+
             return (
               <>
                 <div className="panel-field">
@@ -1131,13 +1173,17 @@ export default function RightPropertyPaneView({
                   <span className="panel-label">Door Type</span>
                   <select
                     className="panel-select"
-                    value={selectedDoor.doorTypeId || selectedDoor.penetration_type || selectedDoor.penetrationType || "int_hinged_single"}
+                    value={activeDoorTypeId}
                     onChange={(e) => {
                       const typeId = e.target.value;
                       const def = DOOR_TYPE_REGISTRY[typeId];
+                      const isExtType = def?.category === 'external' || typeId.startsWith('ext_');
                       updateDoor && updateDoor({
                         ...selectedDoor,
                         doorTypeId: typeId,
+                        is_ext: isExtType,
+                        is_exterior: isExtType,
+                        location: isExtType ? 'external' : 'internal',
                         penetration_type: def?.renderClass || 'single_door',
                         class: def?.renderClass || 'single_door',
                         type: def?.doorType || 'single'
@@ -1913,9 +1959,19 @@ export default function RightPropertyPaneView({
               <SummaryCard accent="green">
                 <StatRow
                   label="Total Doors"
-                  value={totalDoorCount}
+                  value={doorMetrics.count}
                   color="#10b981"
                   bold
+                />
+                <StatRow
+                  label="Total Door Length"
+                  value={`${doorMetrics.totalLengthM} m`}
+                  color="#e1e4ea"
+                />
+                <StatRow
+                  label="Total Door Perimeter"
+                  value={`${doorMetrics.totalPerimeterM} m`}
+                  color="#e1e4ea"
                 />
               </SummaryCard>
             </div>
@@ -1958,9 +2014,19 @@ export default function RightPropertyPaneView({
               <SummaryCard accent="blue">
                 <StatRow
                   label="Total Windows"
-                  value={totalWindowCount}
+                  value={windowMetrics.count}
                   color="#2196f3"
                   bold
+                />
+                <StatRow
+                  label="Total Window Length"
+                  value={`${windowMetrics.totalLengthM} m`}
+                  color="#e1e4ea"
+                />
+                <StatRow
+                  label="Total Window Perimeter"
+                  value={`${windowMetrics.totalPerimeterM} m`}
+                  color="#e1e4ea"
                 />
               </SummaryCard>
             </div>

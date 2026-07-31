@@ -202,7 +202,7 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
         
         // Calculate projection of pt onto other wall centerline
         const proj = distancePointToSegment(pt, otherP1, otherP2);
-        if (proj.dist < 15.0) { // 15px snap/connection threshold
+        if (proj.dist < 35.0) { // 35px snap/connection threshold for T-junctions & L-junctions
           const otherDx = otherP2.x - otherP1.x;
           const otherDy = otherP2.y - otherP1.y;
           const otherLen = Math.hypot(otherDx, otherDy);
@@ -223,7 +223,7 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
           const distToP1 = Math.hypot(pt.x - otherP1.x, pt.y - otherP1.y);
           const distToP2 = Math.hypot(pt.x - otherP2.x, pt.y - otherP2.y);
           
-          if (distToP1 < 15.0 || distToP2 < 15.0) {
+          if (distToP1 < 35.0 || distToP2 < 35.0) {
             // L-junction (Corner): Only the more vertical wall extends to avoid double-extension protrusions
             const currentIsVert = Math.abs(uy) > Math.abs(ux);
             if (currentIsVert) {
@@ -1066,73 +1066,240 @@ function simplifyRoomPolygon(polygon, maxWallThickness = 30) {
 /**
  * Snaps room polygon vertices to surrounding interior wall centerlines.
  */
-export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 15) {
-  if (!roomPolygon || roomPolygon.length < 3 || !walls || walls.length === 0) {
-    return roomPolygon;
-  }
+/**
+ * Automatically inserts 90° step corner nodes for slanted room edges (|dx| >= 12 && |dy| >= 12)
+ * to ensure 100% orthogonal (0° / 90°) CAD room boundaries.
+ */
+export function orthogonalizePolygon(polygon, walls = []) {
+  if (!polygon || polygon.length < 3) return polygon;
 
-  // Collect all wall centerline segments
-  const segments = [];
-  for (const w of walls) {
-    const c = w.centerline;
-    if (!c || c.length !== 2) continue;
-    const p1 = { x: c[0][0], y: c[0][1] };
-    const p2 = { x: c[1][0], y: c[1][1] };
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 5) continue;
+  const pts = polygon.map(p => ({ x: Number(p.x ?? p[0]), y: Number(p.y ?? p[1]) }));
+  const n = pts.length;
+  const stepped = [];
 
-    // Classify segment as horizontal or vertical
-    const angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
-    let orientation = null;
-    if (angle < 15) orientation = 'H';
-    else if (angle > 75) orientation = 'V';
-    
-    if (orientation) {
-      segments.push({ p1, p2, orientation, len });
+  for (let i = 0; i < n; i++) {
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    stepped.push(curr);
+
+    const dx = next.x - curr.x;
+    const dy = next.y - curr.y;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    // If edge is diagonal (slanted across wall steps/corners)
+    if (absDx >= 12 && absDy >= 12) {
+      const corner1 = { x: next.x, y: curr.y };
+      const corner2 = { x: curr.x, y: next.y };
+
+      let corner1Score = 0;
+      let corner2Score = 0;
+
+      if (walls && walls.length > 0) {
+        for (const w of walls) {
+          const poly = w.polygon;
+          const c = w.centerline;
+          if (poly && poly.length >= 3) {
+            const xs = poly.map(pt => Number(pt.x ?? pt[0] ?? 0));
+            const ys = poly.map(pt => Number(pt.y ?? pt[1] ?? 0));
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+            if (Math.abs(corner1.x - minX) < 25 || Math.abs(corner1.x - maxX) < 25) corner1Score += 2;
+            if (Math.abs(corner1.y - minY) < 25 || Math.abs(corner1.y - maxY) < 25) corner1Score += 2;
+            if (Math.abs(corner2.x - minX) < 25 || Math.abs(corner2.x - maxX) < 25) corner2Score += 2;
+            if (Math.abs(corner2.y - minY) < 25 || Math.abs(corner2.y - maxY) < 25) corner2Score += 2;
+          } else if (c && c.length === 2) {
+            const wx1 = Number(c[0][0]), wy1 = Number(c[0][1]);
+            const wx2 = Number(c[1][0]), wy2 = Number(c[1][1]);
+            if (Math.abs(corner1.x - wx1) < 25 || Math.abs(corner1.x - wx2) < 25) corner1Score += 1;
+            if (Math.abs(corner1.y - wy1) < 25 || Math.abs(corner1.y - wy2) < 25) corner1Score += 1;
+            if (Math.abs(corner2.x - wx1) < 25 || Math.abs(corner2.x - wx2) < 25) corner2Score += 1;
+            if (Math.abs(corner2.y - wy1) < 25 || Math.abs(corner2.y - wy2) < 25) corner2Score += 1;
+          }
+        }
+      }
+
+      if (corner1Score > corner2Score) {
+        stepped.push(corner1);
+      } else if (corner2Score > corner1Score) {
+        stepped.push(corner2);
+      } else {
+        stepped.push(corner1);
+      }
     }
   }
 
-  if (segments.length === 0) return roomPolygon;
+  // Pass 2: Enforce strict 0° (horizontal) or 90° (vertical) alignment for near-orthogonal edges
+  const m = stepped.length;
+  const result = [];
+  for (let i = 0; i < m; i++) {
+    const curr = { ...stepped[i] };
+    const next = stepped[(i + 1) % m];
+    const adx = Math.abs(next.x - curr.x);
+    const ady = Math.abs(next.y - curr.y);
 
-  // For each room vertex, try to snap to the nearest wall segment
-  return roomPolygon.map(pt => {
-    let bestDist = tolerance;
-    let snappedPt = { ...pt };
+    if (adx < 15) {
+      next.x = curr.x;
+    } else if (ady < 15) {
+      next.y = curr.y;
+    }
+    result.push(curr);
+  }
 
-    for (const seg of segments) {
-      if (seg.orientation === 'H') {
-        // Horizontal wall — snap vertex Y to wall's Y coordinate
-        const wallY = (seg.p1.y + seg.p2.y) / 2;
-        const dy = Math.abs(pt.y - wallY);
-        
-        // Check if vertex X falls within the wall's X range (with some margin)
-        const minX = Math.min(seg.p1.x, seg.p2.x) - tolerance;
-        const maxX = Math.max(seg.p1.x, seg.p2.x) + tolerance;
-        
-        if (dy < bestDist && pt.x >= minX && pt.x <= maxX) {
-          bestDist = dy;
-          snappedPt = { x: pt.x, y: wallY };
+  // Pass 3: Expand room polygon to include wall step cutouts (e.g. W-5 step down under door 770 in BATH)
+  const notchedResult = [];
+  const pCount = result.length;
+
+  for (let i = 0; i < pCount; i++) {
+    const curr = result[i];
+    const next = result[(i + 1) % pCount];
+    notchedResult.push(curr);
+
+    // Check horizontal edge
+    if (Math.abs(curr.y - next.y) < 10) {
+      const minX = Math.min(curr.x, next.x);
+      const maxX = Math.max(curr.x, next.x);
+      const edgeY = curr.y;
+
+      if (walls && walls.length > 0) {
+        for (const w of walls) {
+          const poly = w.polygon;
+          const c = w.centerline;
+          if (!poly && !c) continue;
+
+          let wallMinX, wallMaxX, wallY;
+          if (poly && poly.length >= 3) {
+            const xs = poly.map(pt => Number(pt.x ?? pt[0] ?? 0));
+            const ys = poly.map(pt => Number(pt.y ?? pt[1] ?? 0));
+            wallMinX = Math.min(...xs);
+            wallMaxX = Math.max(...xs);
+            wallY = (Math.min(...ys) + Math.max(...ys)) / 2;
+          } else if (c && c.length === 2) {
+            wallMinX = Math.min(c[0][0], c[1][0]);
+            wallMaxX = Math.max(c[0][0], c[1][0]);
+            wallY = (c[0][1] + c[1][1]) / 2;
+          }
+
+          // Check if horizontal wall w (like W-5) is parallel and directly below within 65px
+          const dy = wallY - edgeY;
+          if (dy > 15 && dy < 65) {
+            const overlapMin = Math.max(minX, wallMinX);
+            const overlapMax = Math.min(maxX, wallMaxX);
+            if (overlapMax - overlapMin > 30) {
+              if (curr.x < next.x) {
+                if (Math.abs(curr.x - overlapMin) > 10) notchedResult.push({ x: overlapMin, y: edgeY });
+                notchedResult.push({ x: overlapMin, y: wallY });
+                notchedResult.push({ x: overlapMax, y: wallY });
+                if (Math.abs(next.x - overlapMax) > 10) notchedResult.push({ x: overlapMax, y: edgeY });
+              } else {
+                if (Math.abs(curr.x - overlapMax) > 10) notchedResult.push({ x: overlapMax, y: edgeY });
+                notchedResult.push({ x: overlapMax, y: wallY });
+                notchedResult.push({ x: overlapMin, y: wallY });
+                if (Math.abs(next.x - overlapMin) > 10) notchedResult.push({ x: overlapMin, y: edgeY });
+              }
+              break;
+            }
+          }
         }
-      } else if (seg.orientation === 'V') {
-        // Vertical wall — snap vertex X to wall's X coordinate
-        const wallX = (seg.p1.x + seg.p2.x) / 2;
-        const dx = Math.abs(pt.x - wallX);
-        
-        // Check if vertex Y falls within the wall's Y range (with some margin)
-        const minY = Math.min(seg.p1.y, seg.p2.y) - tolerance;
-        const maxY = Math.max(seg.p1.y, seg.p2.y) + tolerance;
-        
-        if (dx < bestDist && pt.y >= minY && pt.y <= maxY) {
-          bestDist = dx;
-          snappedPt = { x: wallX, y: pt.y };
+      }
+    }
+  }
+
+  return notchedResult;
+}
+
+/**
+ * Snaps room polygon vertices to surrounding wall centerlines & tight 90° wall junctions,
+ * closing wall corner gaps and eliminating slanted diagonal room edges.
+ */
+export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 30) {
+  if (!roomPolygon || roomPolygon.length < 3) {
+    return roomPolygon;
+  }
+
+  // Collect all horizontal and vertical wall centerline segments
+  const hSegs = [];
+  const vSegs = [];
+
+  if (walls && walls.length > 0) {
+    for (const w of walls) {
+      const c = w.centerline;
+      if (!c || c.length !== 2) continue;
+      const p1 = { x: Number(c[0][0]), y: Number(c[0][1]) };
+      const p2 = { x: Number(c[1][0]), y: Number(c[1][1]) };
+      const dx = Math.abs(p2.x - p1.x);
+      const dy = Math.abs(p2.y - p1.y);
+      if (dx >= dy) {
+        const y = (p1.y + p2.y) / 2;
+        hSegs.push({ y, minX: Math.min(p1.x, p2.x), maxX: Math.max(p1.x, p2.x) });
+      } else {
+        const x = (p1.x + p2.x) / 2;
+        vSegs.push({ x, minY: Math.min(p1.y, p2.y), maxY: Math.max(p1.y, p2.y) });
+      }
+    }
+  }
+
+  // Calculate all tight 90° wall corner junctions (where H and V walls intersect or meet)
+  const junctions = [];
+  for (const h of hSegs) {
+    for (const v of vSegs) {
+      if (v.x >= (h.minX - 35) && v.x <= (h.maxX + 35) &&
+          h.y >= (v.minY - 35) && h.y <= (v.maxY + 35)) {
+        junctions.push({ x: v.x, y: h.y });
+      }
+    }
+  }
+
+  // Pass 1: Snap room vertices to tight 90° wall junctions or nearest wall lines
+  let snapped = roomPolygon.map(pt => {
+    const px = Number(pt.x ?? pt[0]);
+    const py = Number(pt.y ?? pt[1]);
+
+    // Check if vertex is near a tight 90° wall junction first (highest priority)
+    let bestJunc = null;
+    let minJuncDist = tolerance;
+    for (const j of junctions) {
+      const d = Math.hypot(px - j.x, py - j.y);
+      if (d < minJuncDist) {
+        minJuncDist = d;
+        bestJunc = j;
+      }
+    }
+
+    if (bestJunc) {
+      return { x: bestJunc.x, y: bestJunc.y };
+    }
+
+    // Otherwise snap X to nearest vertical wall, Y to nearest horizontal wall
+    let newX = px;
+    let minDx = tolerance;
+    for (const v of vSegs) {
+      if (py >= (v.minY - 35) && py <= (v.maxY + 35)) {
+        const dx = Math.abs(px - v.x);
+        if (dx < minDx) {
+          minDx = dx;
+          newX = v.x;
         }
       }
     }
 
-    return snappedPt;
+    let newY = py;
+    let minDy = tolerance;
+    for (const h of hSegs) {
+      if (px >= (h.minX - 35) && px <= (h.maxX + 35)) {
+        const dy = Math.abs(py - h.y);
+        if (dy < minDy) {
+          minDy = dy;
+          newY = h.y;
+        }
+      }
+    }
+
+    return { x: newX, y: newY };
   });
+
+  return orthogonalizePolygon(snapped, walls);
 }
 
 export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.995, gapThresh = 120, onlySameBaseId = false) {
@@ -1956,4 +2123,50 @@ export function removeSharedRoofVertex(pageRoofs, targetVertexPt, snapDist = 18)
     }
     return roof;
   });
+}
+
+/**
+ * Calculates door or window length (2D opening length in meters) and perimeter (3D frame perimeter in meters).
+ */
+export function calcDoorWindowMetrics(doorOrWindow, scaleValue) {
+  if (!doorOrWindow) {
+    return { lengthM: 0, heightM: 0, framePerimeterM: 0, boundingPerimeterM: 0, isWindow: false };
+  }
+
+  // 1. Determine pixel length
+  let lengthPx = 0;
+  if (doorOrWindow.points && doorOrWindow.points.length >= 2) {
+    const p1 = Array.isArray(doorOrWindow.points[0])
+      ? { x: doorOrWindow.points[0][0], y: doorOrWindow.points[0][1] }
+      : doorOrWindow.points[0];
+    const p2 = Array.isArray(doorOrWindow.points[1])
+      ? { x: doorOrWindow.points[1][0], y: doorOrWindow.points[1][1] }
+      : doorOrWindow.points[1];
+    lengthPx = Math.hypot((p2.x || 0) - (p1.x || 0), (p2.y || 0) - (p1.y || 0));
+  } else if (doorOrWindow.width_px) {
+    lengthPx = doorOrWindow.width_px;
+  } else if (doorOrWindow.length_px) {
+    lengthPx = doorOrWindow.length_px;
+  }
+
+  // 2. Convert to meters
+  const scale = Number(scaleValue) || 0;
+  const lengthM = doorOrWindow.length_m ? Number(doorOrWindow.length_m) : (lengthPx * scale);
+
+  // 3. Determine height (meters)
+  const isWin = doorOrWindow.type === 'window' || doorOrWindow.class === 'window' || doorOrWindow.doorTypeId === 'win_standard' || (doorOrWindow.doorName && doorOrWindow.doorName.startsWith('W-')) || (doorOrWindow.door_name && doorOrWindow.door_name.startsWith('W-'));
+  let heightM = doorOrWindow.height_m ? Number(doorOrWindow.height_m) : (isWin ? 1.20 : 2.10);
+
+  // 4. Calculate perimeters (meters)
+  const framePerimeterM = doorOrWindow.perimeter_m ? Number(doorOrWindow.perimeter_m) : (2 * (lengthM + heightM));
+  const thicknessM = ((doorOrWindow.thickness_px ? doorOrWindow.thickness_px * scale : 0.15) || 0.15);
+  const boundingPerimeterM = 2 * lengthM + 2 * thicknessM;
+
+  return {
+    lengthM: Number(lengthM.toFixed(3)),
+    heightM: Number(heightM.toFixed(2)),
+    framePerimeterM: Number(framePerimeterM.toFixed(3)),
+    boundingPerimeterM: Number(boundingPerimeterM.toFixed(3)),
+    isWindow: isWin
+  };
 }

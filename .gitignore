@@ -51,6 +51,7 @@ backend.zip
 # Temp files
 cookies.txt
 image-removebg-preview.png
+*.xlsm
 
 # Debug outputs
 debug_outputs/
