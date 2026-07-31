@@ -22,6 +22,7 @@ class DoorInput(BaseModel):
     width_mm: float
     height_mm: float
     qty: int = 1
+    block_work: Optional[str] = "No"
 
 class LintelInput(BaseModel):
     id: str
@@ -82,7 +83,7 @@ class TakeoffExporter:
         left_indent = Alignment(horizontal="left", vertical="center", indent=1)
         right_indent = Alignment(horizontal="right", vertical="center", indent=1)
 
-        widths = {"A": 9.57, "B": 22, "C": 14, "D": 13, "E": 13, "F": 9, "G": 15, "H": 38}
+        widths = {"A": 24, "B": 14, "C": 14, "D": 13, "E": 14, "F": 13, "G": 11, "H": 11, "I": 11, "J": 11, "K": 11, "L": 11}
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
@@ -434,7 +435,7 @@ class TakeoffExporter:
         grouped_doors = defaultdict(int)
         for d in request.doors:
             t = d.door_type
-            grouped_doors[(t, d.width_mm, d.height_mm)] += d.qty
+            grouped_doors[(t, d.width_mm, d.height_mm, d.block_work or "No")] += d.qty
 
         single_grouped = []
         double_grouped = []
@@ -442,9 +443,9 @@ class TakeoffExporter:
         garage_grouped = []
         window_grouped = []
 
-        for (t, w_mm, h_mm), qty in grouped_doors.items():
+        for (t, w_mm, h_mm, bw), qty in grouped_doors.items():
             t_lower = t.lower()
-            item = {"width": w_mm, "height": h_mm, "qty": qty}
+            item = {"width": w_mm, "height": h_mm, "qty": qty, "block_work": bw}
             if "window" in t_lower:
                 window_grouped.append(item)
             elif "garage" in t_lower or "roller" in t_lower:
@@ -668,6 +669,258 @@ class TakeoffExporter:
         lintel_total_row = row
         row += 2
 
+        # ---------- TIMBER REVEAL SCHEDULE (Below Lintel & Above Summary) ----------
+        add_section_header(row, "TIMBER REVEAL SCHEDULE", fill=PatternFill("solid", fgColor="008080")); row += 1
+
+        def add_reveal_col_headers(r):
+            ws[f"A{r}"] = "Description / Size"
+            ws[f"B{r}"] = "Height (mm)"
+            ws[f"C{r}"] = "Width (mm)"
+            ws[f"D{r}"] = "Block Work"
+            ws[f"E{r}"] = "Dien tich (m2)"
+            ws[f"F{r}"] = "Chu Vi (m)"
+            ws[f"G{r}"] = "a (m)"
+            ws[f"H{r}"] = "b (m)"
+            ws[f"I{r}"] = "c (m)"
+            ws[f"J{r}"] = "d (m)"
+            ws[f"K{r}"] = "5.4/2"
+            ws[f"L{r}"] = "Reveal"
+            style_range(f"A{r}:L{r}", font=bold, fill=colhead_fill, align=center)
+            rh(r, 18)
+
+        def add_reveal_data_row(r, desc, h_mm, w_mm, qty=1, block_work="No"):
+            ws[f"A{r}"] = desc
+            ws[f"A{r}"].alignment = left_indent
+            ws[f"A{r}"].font = normal
+            ws[f"A{r}"].border = border_all
+
+            ws[f"B{r}"] = round(h_mm)
+            ws[f"B{r}"].alignment = center
+            ws[f"B{r}"].font = input_font
+            ws[f"B{r}"].border = border_all
+
+            ws[f"C{r}"] = round(w_mm)
+            ws[f"C{r}"].alignment = center
+            ws[f"C{r}"].font = input_font
+            ws[f"C{r}"].border = border_all
+
+            ws[f"D{r}"] = block_work
+            ws[f"D{r}"].alignment = center
+            ws[f"D{r}"].font = input_font
+            ws[f"D{r}"].border = border_all
+
+            # Dien tich = (Height/1000) * (Width/1000) * Qty
+            ws[f"E{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",(B{r}/1000)*(C{r}/1000)*L{r})'
+            ws[f"E{r}"].number_format = "0.00"
+            ws[f"E{r}"].alignment = center
+            ws[f"E{r}"].font = normal
+            ws[f"E{r}"].border = border_all
+
+            # Chu vi = 2 * (Height/1000 + Width/1000) * Qty
+            ws[f"F{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",2*(B{r}/1000+C{r}/1000)*L{r})'
+            ws[f"F{r}"].number_format = "0.00"
+            ws[f"F{r}"].alignment = center
+            ws[f"F{r}"].font = normal
+            ws[f"F{r}"].border = border_all
+
+            # a = Height/1000 * Qty
+            ws[f"G{r}"] = f'=(B{r}/1000)*L{r}'
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].alignment = center
+            ws[f"G{r}"].font = normal
+            ws[f"G{r}"].border = border_all
+
+            # b = Width/1000 * Qty
+            ws[f"H{r}"] = f'=(C{r}/1000)*L{r}'
+            ws[f"H{r}"].number_format = "0.00"
+            ws[f"H{r}"].alignment = center
+            ws[f"H{r}"].font = normal
+            ws[f"H{r}"].border = border_all
+
+            # c = Height/1000 * Qty
+            ws[f"I{r}"] = f'=(B{r}/1000)*L{r}'
+            ws[f"I{r}"].number_format = "0.00"
+            ws[f"I{r}"].alignment = center
+            ws[f"I{r}"].font = normal
+            ws[f"I{r}"].border = border_all
+
+            # d = Width/1000 * Qty
+            ws[f"J{r}"] = f'=(C{r}/1000)*L{r}'
+            ws[f"J{r}"].number_format = "0.00"
+            ws[f"J{r}"].alignment = center
+            ws[f"J{r}"].font = normal
+            ws[f"J{r}"].border = border_all
+
+            # 5.4/2 = Chu Vi / 2.7
+            ws[f"K{r}"] = f'=F{r}/2.7'
+            ws[f"K{r}"].number_format = "0.0"
+            ws[f"K{r}"].alignment = center
+            ws[f"K{r}"].font = normal
+            ws[f"K{r}"].border = border_all
+
+            # Reveal Count = Qty
+            ws[f"L{r}"] = qty
+            ws[f"L{r}"].alignment = center
+            ws[f"L{r}"].font = bold
+            ws[f"L{r}"].border = border_all
+
+            rh(r, 17)
+
+        def add_reveal_subtotal(r, label, first, last):
+            ws.merge_cells(f"A{r}:D{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+            
+            no_data = first > last
+            ws[f"E{r}"] = 0 if no_data else f"=SUM(E{first}:E{last})"
+            ws[f"E{r}"].number_format = "0.00"
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+
+            ws[f"F{r}"] = 0 if no_data else f"=SUM(F{first}:F{last})"
+            ws[f"F{r}"].number_format = "0.00"
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+
+            ws[f"G{r}"] = 0 if no_data else f"=SUM(G{first}:G{last})"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = bold
+            ws[f"G{r}"].alignment = center
+
+            ws[f"H{r}"] = 0 if no_data else f"=SUM(H{first}:H{last})"
+            ws[f"H{r}"].number_format = "0.00"
+            ws[f"H{r}"].font = bold
+            ws[f"H{r}"].alignment = center
+
+            ws[f"I{r}"] = 0 if no_data else f"=SUM(I{first}:I{last})"
+            ws[f"I{r}"].number_format = "0.00"
+            ws[f"I{r}"].font = bold
+            ws[f"I{r}"].alignment = center
+
+            ws[f"J{r}"] = 0 if no_data else f"=SUM(J{first}:J{last})"
+            ws[f"J{r}"].number_format = "0.00"
+            ws[f"J{r}"].font = bold
+            ws[f"J{r}"].alignment = center
+
+            ws[f"K{r}"] = 0 if no_data else f"=SUM(K{first}:K{last})"
+            ws[f"K{r}"].number_format = "0.0"
+            ws[f"K{r}"].font = bold
+            ws[f"K{r}"].alignment = center
+
+            ws[f"L{r}"] = 0 if no_data else f"=SUM(L{first}:L{last})"
+            ws[f"L{r}"].font = bold
+            ws[f"L{r}"].alignment = center
+
+            style_range(f"A{r}:L{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        reveal_subtotal_rows = []
+        reveal_area_subtotal_rows = []
+        blockwork_reveal_count = 0
+
+        # Category 1: Single Door Timber Reveals
+        add_sub_header(row, "Single Door Timber Reveals Schedule"); row += 1
+        add_reveal_col_headers(row); row += 1
+        first_reveal_single = row
+        if single_grouped:
+            for item in single_grouped:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += item["qty"]
+                add_reveal_data_row(row, f"Single Door {item['width']}x{item['height']}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_reveal_subtotal(row, "Total Single Door Reveals", first_reveal_single, row - 1)
+        else:
+            add_reveal_subtotal(row, "Total Single Door Reveals", row, row - 1)
+        reveal_subtotal_rows.append(row)
+        reveal_area_subtotal_rows.append(row)
+        row += 2
+
+        # Category 2: Double Door Timber Reveals
+        add_sub_header(row, "Double Door Timber Reveals Schedule"); row += 1
+        add_reveal_col_headers(row); row += 1
+        first_reveal_double = row
+        if double_grouped:
+            for item in double_grouped:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += item["qty"]
+                add_reveal_data_row(row, f"Double Door {item['width']}x{item['height']}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_reveal_subtotal(row, "Total Double Door Reveals", first_reveal_double, row - 1)
+        else:
+            add_reveal_subtotal(row, "Total Double Door Reveals", row, row - 1)
+        reveal_subtotal_rows.append(row)
+        reveal_area_subtotal_rows.append(row)
+        row += 2
+
+        # Category 3: Sliding Door Timber Reveals
+        add_sub_header(row, "Sliding Door Timber Reveals Schedule"); row += 1
+        add_reveal_col_headers(row); row += 1
+        first_reveal_sliding = row
+        if sliding_grouped:
+            for item in sliding_grouped:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += item["qty"]
+                add_reveal_data_row(row, f"Sliding Door {item['width']}x{item['height']}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_reveal_subtotal(row, "Total Sliding Door Reveals", first_reveal_sliding, row - 1)
+        else:
+            add_reveal_subtotal(row, "Total Sliding Door Reveals", row, row - 1)
+        reveal_subtotal_rows.append(row)
+        reveal_area_subtotal_rows.append(row)
+        row += 2
+
+        # Category 4: Window Timber Reveals
+        add_sub_header(row, "Window Timber Reveals Schedule"); row += 1
+        add_reveal_col_headers(row); row += 1
+        first_reveal_window = row
+        if window_grouped:
+            for item in window_grouped:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += item["qty"]
+                add_reveal_data_row(row, f"Window {item['width']}x{item['height']}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_reveal_subtotal(row, "Total Window Reveals", first_reveal_window, row - 1)
+        else:
+            add_reveal_subtotal(row, "Total Window Reveals", row, row - 1)
+        reveal_subtotal_rows.append(row)
+        reveal_area_subtotal_rows.append(row)
+        row += 2
+
+        # --- Overall Timber Reveal Summary Box ---
+        ws.merge_cells(f"A{row}:D{row}")
+        ws[f"A{row}"] = "Reveal For Block Work"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"L{row}"] = blockwork_reveal_count
+        ws[f"L{row}"].font = bold
+        ws[f"L{row}"].alignment = center
+        style_range(f"A{row}:L{row}", fill=PatternFill("solid", fgColor="00BCFF"), border=True)
+        rh(row, 18); row += 1
+
+        ws.merge_cells(f"A{row}:D{row}")
+        ws[f"A{row}"] = "Total Reveal All"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        total_reveal_terms = "+".join([f"L{r}" for r in reveal_subtotal_rows])
+        ws[f"L{row}"] = f"={total_reveal_terms}"
+        ws[f"L{row}"].font = bold
+        ws[f"L{row}"].alignment = center
+        style_range(f"A{row}:L{row}", fill=PatternFill("solid", fgColor="00FF00"), border=True)
+        rh(row, 18); row += 1
+
+        ws.merge_cells(f"A{row}:D{row}")
+        ws[f"A{row}"] = "Total S Window and door"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        total_area_terms = "+".join([f"E{r}" for r in reveal_area_subtotal_rows])
+        ws[f"E{row}"] = f"={total_area_terms}"
+        ws[f"E{row}"].number_format = "0.00"
+        ws[f"E{row}"].font = bold
+        ws[f"E{row}"].alignment = center
+        style_range(f"A{row}:L{row}", fill=PatternFill("solid", fgColor="93C5FD"), border=True)
+        rh(row, 18); row += 2
+
         # ---------- SUMMARY ----------
         add_section_header(row, "SUMMARY", fill=dark_fill); row += 1
 
@@ -723,7 +976,7 @@ class TakeoffExporter:
         ws.merge_cells(f"A{row+1}:G{row+1}")
 
         ws.sheet_view.showGridLines = False
-        ws.print_area = f"A1:H{row+1}"
+        ws.print_area = f"A1:L{row+1}"
 
         # Save to buffer and return bytes
         file_stream = io.BytesIO()

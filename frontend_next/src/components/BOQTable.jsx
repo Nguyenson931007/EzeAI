@@ -3380,13 +3380,13 @@ export default function BOQTable({
           ? Number(((h * 2 + width) / 1000).toFixed(2))
           : Number((((h + width) * 2) / 1000).toFixed(2));
 
-        const hM = h / 1000;
-        const wM = width / 1000;
-        const a = Number((5.4 - hM).toFixed(2));
-        const b = Number((a - hM).toFixed(2));
-        const c = Number((b - wM).toFixed(2));
-        const dVal = c;
-        const halfStock = 2.7;
+        const hM = Number((h / 1000).toFixed(2));
+        const wM = Number((width / 1000).toFixed(2));
+        const a = hM;
+        const b = wM;
+        const c = hM;
+        const dVal = wM;
+        const halfStock = Number((chuVi / 2.7).toFixed(1));
 
         let revealCount = 0;
         if (chuVi === 0) revealCount = 0;

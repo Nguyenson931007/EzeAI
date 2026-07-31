@@ -651,7 +651,8 @@ export default function RightPropertyPaneView({
           door_type: doorType,
           width_mm: d.width_mm || 760,
           height_mm: d.height_mm || 1980,
-          qty: 1
+          qty: 1,
+          block_work: d.block_work || d.blockWork || "No"
         };
       });
 
