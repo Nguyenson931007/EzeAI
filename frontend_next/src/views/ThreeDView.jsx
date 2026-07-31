@@ -926,12 +926,16 @@ export default function ThreeDView({
         // Render Skirting Mesh (Side A & Side B - Door Opening Deducted & Corner Joint Seamless)
         if (skirting.enabled !== false && (skirting.height || 0) > 0) {
           const hSkirt = Math.min(activeWallHeight, skirting.height || 100);
-          const thickSkirt = skirting.thickness || 15;
+          const thickSkirt = Number(skirting.thickness) || 10;
           const matSkirt = new THREE.MeshStandardMaterial({
             color: new THREE.Color(skirting.color || "#854d0e"),
             roughness: 0.4,
             metalness: 0.1,
           });
+
+          const isExterior = getWallType(wall) === "ext";
+          const wallUx = (x2 - x1) / (length || 1);
+          const wallUy = (y2 - y1) / (length || 1);
 
           // 1. Find all doors hosted on this wall
           const hostDoors = (pageDoors || []).filter(d => {
@@ -952,61 +956,61 @@ export default function ThreeDView({
             return false;
           });
 
-          // 2. Compute door opening spans along wall [0, length]
-          const doorSpans = [];
+          // 2. Build 1D intervals [0, length] for door openings
+          const doorIntervals = [];
           for (const d of hostDoors) {
             const dPts = d.points || [];
-            let dLen = 80; // default door length in 3D units
-            let dCenterDist = length / 2;
-
             if (dPts.length >= 2) {
               const dp1 = Array.isArray(dPts[0]) ? { x: dPts[0][0], y: dPts[0][1] } : dPts[0];
               const dp2 = Array.isArray(dPts[1]) ? { x: dPts[1][0], y: dPts[1][1] } : dPts[1];
               const dcx = (dp1.x + dp2.x) / 2;
               const dcy = (dp1.y + dp2.y) / 2;
-              dLen = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
 
-              // Projection along wall vector
-              const ux = (x2 - x1) / (length || 1);
-              const uy = (y2 - y1) / (length || 1);
-              dCenterDist = (dcx - x1) * ux + (dcy - y1) * uy;
+              // Projection t along wall vector
+              const t = ((dcx - x1) * wallUx + (dcy - y1) * wallUy);
+              const doorWidth = d.width_mm ? d.width_mm / ((realScale && realScale !== 1.0) ? realScale : 18.0) : Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
+
+              const startT = Math.max(0, t - (doorWidth / 2));
+              const endT = Math.min(length, t + (doorWidth / 2));
+              if (endT > startT) {
+                doorIntervals.push({ start: startT, end: endT });
+              }
             }
-
-            const halfD = (dLen / 2) + 5; // 5 units tolerance
-            doorSpans.push({
-              start: Math.max(0, dCenterDist - halfD),
-              end: Math.min(length, dCenterDist + halfD)
-            });
           }
 
-          // Sort door spans
-          doorSpans.sort((a, b) => a.start - b.start);
-
-          // 3. Compute non-door wall segments
-          const segments = [];
-          let currentPos = 0;
-          for (const span of doorSpans) {
-            if (span.start > currentPos + 5) {
-              segments.push({ start: currentPos, end: span.start });
+          // Merge overlapping door intervals
+          doorIntervals.sort((a, b) => a.start - b.start);
+          const mergedIntervals = [];
+          for (const iv of doorIntervals) {
+            if (mergedIntervals.length === 0) {
+              mergedIntervals.push(iv);
+            } else {
+              const last = mergedIntervals[mergedIntervals.length - 1];
+              if (iv.start <= last.end) {
+                last.end = Math.max(last.end, iv.end);
+              } else {
+                mergedIntervals.push(iv);
+              }
             }
-            currentPos = Math.max(currentPos, span.end);
-          }
-          if (currentPos < length - 5) {
-            segments.push({ start: currentPos, end: length });
           }
 
-          // If no doors, render full wall segment
-          if (segments.length === 0 && doorSpans.length === 0) {
-            segments.push({ start: 0, end: length });
+          // 3. Compute complement intervals (skirting segments along wall length)
+          const skirtingSegments = [];
+          let currentT = 0;
+          for (const iv of mergedIntervals) {
+            if (iv.start > currentT + 1) {
+              skirtingSegments.push({ start: currentT, end: iv.start });
+            }
+            currentT = Math.max(currentT, iv.end);
+          }
+          if (currentT < length - 1) {
+            skirtingSegments.push({ start: currentT, end: length });
           }
 
-          // 4. Render 3D Skirting for each valid wall segment (excluding door openings)
-          const wallUx = (x2 - x1) / (length || 1);
-          const wallUy = (y2 - y1) / (length || 1);
-
-          for (const seg of segments) {
+          // 4. Render 3D Skirting for each valid wall segment
+          for (const seg of skirtingSegments) {
             const segLen = seg.end - seg.start;
-            if (segLen < 5) continue;
+            if (segLen < 2) continue;
 
             const segCenterPos = (seg.start + seg.end) / 2;
             const centerOffsetFromMid = segCenterPos - (length / 2);
@@ -1014,10 +1018,10 @@ export default function ThreeDView({
             const segMidX = midX + wallUx * centerOffsetFromMid;
             const segMidZ = midZ + wallUy * centerOffsetFromMid;
 
-            // Expand segLen slightly at ends for smooth corner joints
-            const expandedSegLen = segLen + (thickSkirt * 2);
+            // Sleek corner expansion according to 2D thickness
+            const expandedSegLen = segLen + 2;
 
-            // Skirting Side A
+            // Skirting Side A (Interior side for ext wall or standard Side A)
             const geoSkirtA = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
             const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirt);
             const offsetSkirtA = (thickness / 2) + (thickSkirt / 2) + 0.2;
@@ -1026,19 +1030,20 @@ export default function ThreeDView({
             scene.add(meshSkirtA);
             wallMeshesRef.current.push(meshSkirtA);
 
-            // Skirting Side B
-            const geoSkirtB = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
-            const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirt);
-            const offsetSkirtB = -(thickness / 2) - (thickSkirt / 2) - 0.2;
-            meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtB);
-            meshSkirtB.rotation.y = -angle;
-            scene.add(meshSkirtB);
-            wallMeshesRef.current.push(meshSkirtB);
+            // Skirting Side B (Only for Interior Walls)
+            if (!isExterior) {
+              const geoSkirtB = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
+              const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirt);
+              const offsetSkirtB = -(thickness / 2) - (thickSkirt / 2) - 0.2;
+              meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtB);
+              meshSkirtB.rotation.y = -angle;
+              scene.add(meshSkirtB);
+              wallMeshesRef.current.push(meshSkirtB);
+            }
           }
         }
       });
 
-      // --- 3. RENDER DOORS ---
       if (showDoors) {
         pageDoors.forEach(door => {
           const { cx, cy, length, angle, thickness } = getDoorProps(door, pageWalls);

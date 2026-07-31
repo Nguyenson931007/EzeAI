@@ -907,9 +907,24 @@ const WallLayer = React.memo(({
         const offsetB = -(thickPx / 2) - 2;
 
         const skirtingColor = w.skirting?.color || "#854d0e";
+        const isExterior = w.is_ext || w.wall_type === 'ext' || (w.class_name || '').includes('exterior');
+
+        // Check if endpoints are connected to other walls
+        const isConnected = (pt) => {
+          return (walls || []).some(ow => {
+            if (ow.id === w.id || !ow.centerline || ow.centerline.length !== 2) return false;
+            const op1 = ow.centerline[0];
+            const op2 = ow.centerline[1];
+            return Math.hypot(pt[0] - op1[0], pt[1] - op1[1]) <= 25 || Math.hypot(pt[0] - op2[0], pt[1] - op2[1]) <= 25;
+          });
+        };
+
+        const p1Free = !isConnected(p1);
+        const p2Free = !isConnected(p2);
 
         return (
           <g key={`skirting-2d-${w.id}-${idx}`} style={{ pointerEvents: "none" }}>
+            {/* Side A Skirting Line (Interior face for exterior wall, or standard Side A) */}
             <line
               x1={p1[0] + nx * offsetA}
               y1={p1[1] + ny * offsetA}
@@ -920,16 +935,48 @@ const WallLayer = React.memo(({
               strokeDasharray="4 2"
               opacity={0.85}
             />
-            <line
-              x1={p1[0] + nx * offsetB}
-              y1={p1[1] + ny * offsetB}
-              x2={p2[0] + nx * offsetB}
-              y2={p2[1] + ny * offsetB}
-              stroke={skirtingColor}
-              strokeWidth={1.8}
-              strokeDasharray="4 2"
-              opacity={0.85}
-            />
+
+            {/* Side B Skirting Line (Skipped on Exterior Wall outdoor face) */}
+            {!isExterior && (
+              <line
+                x1={p1[0] + nx * offsetB}
+                y1={p1[1] + ny * offsetB}
+                x2={p2[0] + nx * offsetB}
+                y2={p2[1] + ny * offsetB}
+                stroke={skirtingColor}
+                strokeWidth={1.8}
+                strokeDasharray="4 2"
+                opacity={0.85}
+              />
+            )}
+
+            {/* Closed End Cap Line at Dead-End Tip 1 (Image 3 Requirement) */}
+            {p1Free && (
+              <line
+                x1={p1[0] + nx * offsetA}
+                y1={p1[1] + ny * offsetA}
+                x2={p1[0] + nx * offsetB}
+                y2={p1[1] + ny * offsetB}
+                stroke={skirtingColor}
+                strokeWidth={1.8}
+                strokeDasharray="4 2"
+                opacity={0.85}
+              />
+            )}
+
+            {/* Closed End Cap Line at Dead-End Tip 2 (Image 3 Requirement) */}
+            {p2Free && (
+              <line
+                x1={p2[0] + nx * offsetA}
+                y1={p2[1] + ny * offsetA}
+                x2={p2[0] + nx * offsetB}
+                y2={p2[1] + ny * offsetB}
+                stroke={skirtingColor}
+                strokeWidth={1.8}
+                strokeDasharray="4 2"
+                opacity={0.85}
+              />
+            )}
           </g>
         );
       })}
@@ -1077,11 +1124,19 @@ const WallHandlesLayer = React.memo(({
 
   function formatWallDisplayName(w, index) {
     if (w.name) return w.name;
-    if (!w.id) return `W-${index + 1}`;
-    const strId = String(w.id);
-    if (strId.startsWith("man_wall_") || strId.startsWith("wall-topo-") || strId.startsWith("wall-") || strId.length > 10) {
-      return `W-${index + 1}`;
+    if (w.userLabel) return w.userLabel;
+    if (!w.id) {
+      const gen = `W-${index + 1}`;
+      w.name = gen;
+      return gen;
     }
+    const strId = String(w.id);
+    if (strId.startsWith("man_wall_") || strId.startsWith("wall-topo-") || strId.startsWith("wall-") || strId.startsWith("wall_") || strId.length > 10) {
+      const gen = `W-${index + 1}`;
+      w.name = gen;
+      return gen;
+    }
+    w.name = strId;
     return strId;
   }
 
