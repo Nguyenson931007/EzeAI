@@ -823,6 +823,42 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         } else if (field === "height" || field === "height_mm") {
           newWall.height = Number(value);
           newWall.height_mm = Number(value);
+        } else if (field.includes(".")) {
+          // Nested property path support (e.g. "surface.sideA.finishType", "skirting.enabled")
+          const parts = field.split(".");
+          let curr = newWall;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!curr[parts[i]]) curr[parts[i]] = {};
+            else curr[parts[i]] = { ...curr[parts[i]] };
+            curr = curr[parts[i]];
+          }
+          curr[parts[parts.length - 1]] = value;
+
+          // Sync legacy compatibility properties
+          if (field === "surface.sideA.finishType") newWall.finishTypeSideA = value;
+          if (field === "surface.sideA.finishHeight") newWall.finishHeightSideAMm = Number(value);
+          if (field === "surface.sideB.finishType") newWall.finishTypeSideB = value;
+          if (field === "surface.sideB.finishHeight") newWall.finishHeightSideBMm = Number(value);
+        } else {
+          // Direct property assignment
+          newWall[field] = value;
+          if (field === "finishTypeSideA") {
+            if (!newWall.surface) newWall.surface = {};
+            if (!newWall.surface.sideA) newWall.surface.sideA = {};
+            newWall.surface.sideA.finishType = value;
+          } else if (field === "finishHeightSideAMm") {
+            if (!newWall.surface) newWall.surface = {};
+            if (!newWall.surface.sideA) newWall.surface.sideA = {};
+            newWall.surface.sideA.finishHeight = Number(value);
+          } else if (field === "finishTypeSideB") {
+            if (!newWall.surface) newWall.surface = {};
+            if (!newWall.surface.sideB) newWall.surface.sideB = {};
+            newWall.surface.sideB.finishType = value;
+          } else if (field === "finishHeightSideBMm") {
+            if (!newWall.surface) newWall.surface = {};
+            if (!newWall.surface.sideB) newWall.surface.sideB = {};
+            newWall.surface.sideB.finishHeight = Number(value);
+          }
         }
         return newWall;
       }

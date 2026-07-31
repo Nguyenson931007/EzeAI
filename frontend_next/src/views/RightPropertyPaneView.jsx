@@ -14,6 +14,9 @@ import {
 } from '@/models/DoorTypeRegistry';
 import { WALL_HEIGHT_OPTIONS } from '@/components/WallThicknessDialog';
 
+import { computeWallAreas } from "@/engines/WallAreaCalculator";
+import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirting } from "@/models/FinishRegistry";
+
 /* ================================================================
    SVG DASHBOARD ICONS
    ================================================================ */
@@ -372,6 +375,7 @@ export default function RightPropertyPaneView({
   const [isFloorSummaryExpanded, setIsFloorSummaryExpanded] = React.useState(true);
   const [isDoorSummaryExpanded, setIsDoorSummaryExpanded] = React.useState(true);
   const [isWindowSummaryExpanded, setIsWindowSummaryExpanded] = React.useState(true);
+  const [isSkirtingSummaryExpanded, setIsSkirtingSummaryExpanded] = React.useState(true);
 
   // 1. Calculations for Walls
   const wallData = React.useMemo(() => {
@@ -517,6 +521,42 @@ export default function RightPropertyPaneView({
     const lengthPx = Math.hypot(dx, dy);
     return scaleValue ? lengthPx * scaleValue : null;
   }, [selectedWall, scaleValue]);
+
+  const selectedWallMetrics = React.useMemo(() => {
+    if (!selectedWall) return null;
+    return computeWallAreas(selectedWall, doors || [], realScale || 1, walls || []);
+  }, [selectedWall, doors, realScale, walls]);
+
+  // Skirting summary calculation for Project Summary Pane (Image 2)
+  const skirtingSummaryMetrics = React.useMemo(() => {
+    let totalSkirtingLm = 0;
+    let totalFreeEnds = 0;
+    const materialMap = {};
+
+    const pageWalls = (walls || []);
+    const pageDoors = (doors || []);
+
+    for (const w of pageWalls) {
+      if (w.skirting?.enabled === false) continue;
+      const res = computeWallAreas(w, pageDoors.filter(d => d.parentWallId === w.id), realScale || 1, pageWalls);
+      if (res && res.skirtingLengthLm) {
+        totalSkirtingLm += res.skirtingLengthLm;
+        totalFreeEnds += (res.freeEndsCount || 0);
+
+        const mat = w.skirting?.material || "92x18 DAR FJ";
+        materialMap[mat] = (materialMap[mat] || 0) + res.skirtingLengthLm;
+      }
+    }
+
+    const totalLengthsNeeded = Math.ceil(totalSkirtingLm / 5.4);
+
+    return {
+      totalSkirtingLm,
+      totalFreeEnds,
+      totalLengthsNeeded,
+      materialMap
+    };
+  }, [walls, doors, realScale]);
 
   // Excel export for walls
   const exportWallExcel = () => {
@@ -898,6 +938,234 @@ export default function RightPropertyPaneView({
                 </div>
               </div>
             )}
+
+            {/* DUAL-FACE WALL FINISHES & SKIRTING PROPERTIES (CAD/BIM FEATURE 4) */}
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>🧱 Surface Finish & Skirting System</span>
+              </div>
+
+              {/* Side A (Mặt A) */}
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc", marginBottom: 6 }}>Side A (Mặt 1)</div>
+                <div className="panel-field" style={{ marginBottom: 6 }}>
+                  <span className="panel-label">Finish Type</span>
+                  <select
+                    className="panel-select"
+                    value={selectedWall?.surface?.sideA?.finishType || selectedWall?.finishTypeSideA || "none"}
+                    onChange={(e) => {
+                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                      updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideA", e.target.value);
+                      updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.finishType", e.target.value);
+                    }}
+                  >
+                    {getFinishTypeOptions().map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {(selectedWall?.surface?.sideA?.finishType || selectedWall?.finishTypeSideA || "none") !== "none" && (
+                  <>
+                    <div className="panel-field" style={{ marginBottom: 6 }}>
+                      <span className="panel-label">Finish Height (mm)</span>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                        value={selectedWall?.surface?.sideA?.finishHeight ?? selectedWall?.finishHeightSideAMm ?? (selectedWall?.height || 2400)}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          const val = Number(e.target.value);
+                          updateWallsProperty && updateWallsProperty(targetIds, "finishHeightSideAMm", val);
+                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.finishHeight", val);
+                        }}
+                      />
+                    </div>
+                    <div className="panel-field" style={{ marginBottom: 6 }}>
+                      <span className="panel-label">Thickness (mm)</span>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                        value={selectedWall?.surface?.sideA?.thickness ?? 10}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.thickness", Number(e.target.value));
+                        }}
+                      />
+                    </div>
+                    <div className="panel-field">
+                      <span className="panel-label">Color</span>
+                      <input
+                        type="color"
+                        style={{ width: "100%", height: "28px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
+                        value={selectedWall?.surface?.sideA?.color || "#e2e8f0"}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.color", e.target.value);
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Side B (Mặt B) */}
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc", marginBottom: 6 }}>Side B (Mặt 2)</div>
+                <div className="panel-field" style={{ marginBottom: 6 }}>
+                  <span className="panel-label">Finish Type</span>
+                  <select
+                    className="panel-select"
+                    value={selectedWall?.surface?.sideB?.finishType || selectedWall?.finishTypeSideB || "none"}
+                    onChange={(e) => {
+                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                      updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideB", e.target.value);
+                      updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.finishType", e.target.value);
+                    }}
+                  >
+                    {getFinishTypeOptions().map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {(selectedWall?.surface?.sideB?.finishType || selectedWall?.finishTypeSideB || "none") !== "none" && (
+                  <>
+                    <div className="panel-field" style={{ marginBottom: 6 }}>
+                      <span className="panel-label">Finish Height (mm)</span>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                        value={selectedWall?.surface?.sideB?.finishHeight ?? selectedWall?.finishHeightSideBMm ?? (selectedWall?.height || 2400)}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          const val = Number(e.target.value);
+                          updateWallsProperty && updateWallsProperty(targetIds, "finishHeightSideBMm", val);
+                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.finishHeight", val);
+                        }}
+                      />
+                    </div>
+                    <div className="panel-field" style={{ marginBottom: 6 }}>
+                      <span className="panel-label">Thickness (mm)</span>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                        value={selectedWall?.surface?.sideB?.thickness ?? 10}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.thickness", Number(e.target.value));
+                        }}
+                      />
+                    </div>
+                    <div className="panel-field">
+                      <span className="panel-label">Color</span>
+                      <input
+                        type="color"
+                        style={{ width: "100%", height: "28px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
+                        value={selectedWall?.surface?.sideB?.color || "#e2e8f0"}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.color", e.target.value);
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* SKIRTING SYSTEM (FEATURE 2) */}
+              <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Chân tường (Skirting)</span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedWall?.skirting?.enabled ?? true}
+                      onChange={(e) => {
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabled", e.target.checked);
+                      }}
+                    />
+                    <span>Enable</span>
+                  </label>
+                </div>
+
+                {(selectedWall?.skirting?.enabled ?? true) && (
+                  <>
+                    <div className="panel-field" style={{ marginBottom: 6 }}>
+                      <span className="panel-label">Height (mm)</span>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                        value={selectedWall?.skirting?.height ?? 100}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", Number(e.target.value));
+                        }}
+                      />
+                    </div>
+                    <div className="panel-field" style={{ marginBottom: 6 }}>
+                      <span className="panel-label">Thickness (mm)</span>
+                      <input
+                        type="number"
+                        className="panel-input"
+                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                        value={selectedWall?.skirting?.thickness ?? 15}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", Number(e.target.value));
+                        }}
+                      />
+                    </div>
+                    <div className="panel-field">
+                      <span className="panel-label">Color</span>
+                      <input
+                        type="color"
+                        style={{ width: "100%", height: "28px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
+                        value={selectedWall?.skirting?.color || "#854d0e"}
+                        onChange={(e) => {
+                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", e.target.value);
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* CALCULATED METRICS CARD */}
+              {selectedWallIds.length === 1 && selectedWallMetrics && (
+                <div style={{ background: "rgba(30, 41, 59, 0.7)", padding: "10px 12px", borderRadius: "6px", marginTop: 10, border: "1px solid #38bdf8" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>📏 Calculated Metrics (BOQ)</div>
+                  <div style={{ fontSize: 11, color: "#cbd5e1", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span>Skirting (2 mặt + Open Ends):</span>
+                    <b style={{ color: "#facc15" }}>{selectedWallMetrics.skirtingLengthLm.toFixed(2)} m</b>
+                  </div>
+                  {selectedWallMetrics.freeEndsCount > 0 && (
+                    <div style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic", marginBottom: 4 }}>
+                      (Gồm {selectedWallMetrics.freeEndsCount} đầu hở +{selectedWallMetrics.endCapsLengthMm}mm)
+                    </div>
+                  )}
+                  {selectedWallMetrics.sideA.finishType !== "none" && (
+                    <div style={{ fontSize: 11, color: "#cbd5e1", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span>Side A ({selectedWallMetrics.sideA.finishType}):</span>
+                      <b style={{ color: "#38bdf8" }}>{selectedWallMetrics.sideA.netAreaM2.toFixed(2)} m²</b>
+                    </div>
+                  )}
+                  {selectedWallMetrics.sideB.finishType !== "none" && (
+                    <div style={{ fontSize: 11, color: "#cbd5e1", display: "flex", justifyContent: "space-between" }}>
+                      <span>Side B ({selectedWallMetrics.sideB.finishType}):</span>
+                      <b style={{ color: "#38bdf8" }}>{selectedWallMetrics.sideB.netAreaM2.toFixed(2)} m²</b>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {selectedWallIds.length === 1 && selectedWall && (
               <div style={{ marginTop: 12 }}>
@@ -2055,6 +2323,54 @@ export default function RightPropertyPaneView({
         ) : (
           <div className="panel-hint" style={{ padding: "8px 0" }}>No doors detected yet. Draw doors or run AI to generate doors.</div>
         )}
+      </CollapsibleSection>
+
+      {/* ── SKIRTING SUMMARY COLLAPSIBLE GROUP ── */}
+      <CollapsibleSection
+        title="Skirting Summary"
+        isExpanded={isSkirtingSummaryExpanded}
+        onToggle={() => setIsSkirtingSummaryExpanded(!isSkirtingSummaryExpanded)}
+        totalCount={skirtingSummaryMetrics.totalLengthsNeeded}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div>
+            <SectionHeader>Totals</SectionHeader>
+            <SummaryCard accent="green">
+              <StatRow
+                label="Total Skirting Length"
+                value={`${skirtingSummaryMetrics.totalSkirtingLm.toFixed(3)} m`}
+                color="#10b981"
+                bold
+              />
+              <div className="rp-summary-divider" />
+              <StatRow
+                label="Total Free End Caps"
+                value={`${skirtingSummaryMetrics.totalFreeEnds} ends`}
+              />
+              <StatRow
+                label="5.4m Lengths Needed"
+                value={`${skirtingSummaryMetrics.totalLengthsNeeded} Lengths`}
+                color="#f59e0b"
+                bold
+              />
+            </SummaryCard>
+          </div>
+
+          {Object.keys(skirtingSummaryMetrics.materialMap).length > 0 && (
+            <div>
+              <SectionHeader>Profile Breakdowns</SectionHeader>
+              {Object.entries(skirtingSummaryMetrics.materialMap).map(([mat, lm]) => (
+                <div key={mat} style={{ marginBottom: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#e1e4ea", marginBottom: "2px" }}>
+                    <span>{mat}</span>
+                    <b>{lm.toFixed(2)} m</b>
+                  </div>
+                  <MiniBar ratio={lm / Math.max(skirtingSummaryMetrics.totalSkirtingLm, 1)} color="#38bdf8" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </CollapsibleSection>
 
       {/* ── WINDOW SUMMARY COLLAPSIBLE GROUP ── */}

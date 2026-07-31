@@ -861,6 +861,181 @@ export default function ThreeDView({
 
         scene.add(mesh);
         wallMeshesRef.current.push(mesh);
+
+        // ── 3D SURFACE FINISHES & SKIRTING MESHES (CAD/BIM FEATURE 6) ──
+        const sideA = wall.surface?.sideA || {
+          finishType: wall.finishTypeSideA || "none",
+          finishHeight: wall.finishHeightSideAMm || activeWallHeight,
+          color: "#e2e8f0",
+          thickness: 10,
+        };
+        const sideB = wall.surface?.sideB || {
+          finishType: wall.finishTypeSideB || "none",
+          finishHeight: wall.finishHeightSideBMm || activeWallHeight,
+          color: "#e2e8f0",
+          thickness: 10,
+        };
+        const skirting = wall.skirting || {
+          enabled: true,
+          height: 100,
+          thickness: 15,
+          color: "#854d0e",
+        };
+
+        const midX = (x1 + x2) / 2 - imgSize.w / 2;
+        const midZ = (y1 + y2) / 2 - imgSize.h / 2;
+        const nx = Math.sin(-angle);
+        const nz = Math.cos(-angle);
+
+        // Render Side A Finish Mesh (Clamped Height)
+        if (sideA.finishType && sideA.finishType !== "none" && (sideA.finishHeight || 0) > 0) {
+          const clampedHA = Math.min(activeWallHeight, sideA.finishHeight);
+          const thickA = sideA.thickness || 10;
+          const matA = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(sideA.color || "#e2e8f0"),
+            roughness: 0.5,
+            metalness: 0.1,
+          });
+          const geoA = new THREE.BoxGeometry(length, clampedHA, thickA);
+          const meshA = new THREE.Mesh(geoA, matA);
+          const offsetA = (thickness / 2) + (thickA / 2) + 0.5;
+          meshA.position.set(midX + nx * offsetA, yOffset + clampedHA / 2, midZ + nz * offsetA);
+          meshA.rotation.y = -angle;
+          scene.add(meshA);
+          wallMeshesRef.current.push(meshA);
+        }
+
+        // Render Side B Finish Mesh (Clamped Height)
+        if (sideB.finishType && sideB.finishType !== "none" && (sideB.finishHeight || 0) > 0) {
+          const clampedHB = Math.min(activeWallHeight, sideB.finishHeight);
+          const thickB = sideB.thickness || 10;
+          const matB = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(sideB.color || "#e2e8f0"),
+            roughness: 0.5,
+            metalness: 0.1,
+          });
+          const geoB = new THREE.BoxGeometry(length, clampedHB, thickB);
+          const meshB = new THREE.Mesh(geoB, matB);
+          const offsetB = -(thickness / 2) - (thickB / 2) - 0.5;
+          meshB.position.set(midX + nx * offsetB, yOffset + clampedHB / 2, midZ + nz * offsetB);
+          meshB.rotation.y = -angle;
+          scene.add(meshB);
+          wallMeshesRef.current.push(meshB);
+        }
+
+        // Render Skirting Mesh (Side A & Side B - Door Opening Deducted & Corner Joint Seamless)
+        if (skirting.enabled !== false && (skirting.height || 0) > 0) {
+          const hSkirt = Math.min(activeWallHeight, skirting.height || 100);
+          const thickSkirt = skirting.thickness || 15;
+          const matSkirt = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(skirting.color || "#854d0e"),
+            roughness: 0.4,
+            metalness: 0.1,
+          });
+
+          // 1. Find all doors hosted on this wall
+          const hostDoors = (pageDoors || []).filter(d => {
+            if (!d) return false;
+            const parentBase = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+            const wallBase = getBaseWallId ? getBaseWallId(wall.id) : wall.id;
+            if (d.parentWallId && (d.parentWallId === wall.id || parentBase === wallBase)) return true;
+
+            // Distance fallback match
+            const dPts = d.points || [];
+            if (dPts.length >= 2) {
+              const dp1 = Array.isArray(dPts[0]) ? { x: dPts[0][0], y: dPts[0][1] } : dPts[0];
+              const dcx = (dp1.x + (Array.isArray(dPts[1]) ? dPts[1][0] : dPts[1].x)) / 2;
+              const dcy = (dp1.y + (Array.isArray(dPts[1]) ? dPts[1][1] : dPts[1].y)) / 2;
+              const dist = distToSegment({ x: dcx, y: dcy }, { x: x1, y: y1 }, { x: x2, y: y2 });
+              return dist <= (thickness / 2) + 20;
+            }
+            return false;
+          });
+
+          // 2. Compute door opening spans along wall [0, length]
+          const doorSpans = [];
+          for (const d of hostDoors) {
+            const dPts = d.points || [];
+            let dLen = 80; // default door length in 3D units
+            let dCenterDist = length / 2;
+
+            if (dPts.length >= 2) {
+              const dp1 = Array.isArray(dPts[0]) ? { x: dPts[0][0], y: dPts[0][1] } : dPts[0];
+              const dp2 = Array.isArray(dPts[1]) ? { x: dPts[1][0], y: dPts[1][1] } : dPts[1];
+              const dcx = (dp1.x + dp2.x) / 2;
+              const dcy = (dp1.y + dp2.y) / 2;
+              dLen = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
+
+              // Projection along wall vector
+              const ux = (x2 - x1) / (length || 1);
+              const uy = (y2 - y1) / (length || 1);
+              dCenterDist = (dcx - x1) * ux + (dcy - y1) * uy;
+            }
+
+            const halfD = (dLen / 2) + 5; // 5 units tolerance
+            doorSpans.push({
+              start: Math.max(0, dCenterDist - halfD),
+              end: Math.min(length, dCenterDist + halfD)
+            });
+          }
+
+          // Sort door spans
+          doorSpans.sort((a, b) => a.start - b.start);
+
+          // 3. Compute non-door wall segments
+          const segments = [];
+          let currentPos = 0;
+          for (const span of doorSpans) {
+            if (span.start > currentPos + 5) {
+              segments.push({ start: currentPos, end: span.start });
+            }
+            currentPos = Math.max(currentPos, span.end);
+          }
+          if (currentPos < length - 5) {
+            segments.push({ start: currentPos, end: length });
+          }
+
+          // If no doors, render full wall segment
+          if (segments.length === 0 && doorSpans.length === 0) {
+            segments.push({ start: 0, end: length });
+          }
+
+          // 4. Render 3D Skirting for each valid wall segment (excluding door openings)
+          const wallUx = (x2 - x1) / (length || 1);
+          const wallUy = (y2 - y1) / (length || 1);
+
+          for (const seg of segments) {
+            const segLen = seg.end - seg.start;
+            if (segLen < 5) continue;
+
+            const segCenterPos = (seg.start + seg.end) / 2;
+            const centerOffsetFromMid = segCenterPos - (length / 2);
+
+            const segMidX = midX + wallUx * centerOffsetFromMid;
+            const segMidZ = midZ + wallUy * centerOffsetFromMid;
+
+            // Expand segLen slightly at ends for smooth corner joints
+            const expandedSegLen = segLen + (thickSkirt * 2);
+
+            // Skirting Side A
+            const geoSkirtA = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
+            const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirt);
+            const offsetSkirtA = (thickness / 2) + (thickSkirt / 2) + 0.2;
+            meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtA);
+            meshSkirtA.rotation.y = -angle;
+            scene.add(meshSkirtA);
+            wallMeshesRef.current.push(meshSkirtA);
+
+            // Skirting Side B
+            const geoSkirtB = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
+            const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirt);
+            const offsetSkirtB = -(thickness / 2) - (thickSkirt / 2) - 0.2;
+            meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtB);
+            meshSkirtB.rotation.y = -angle;
+            scene.add(meshSkirtB);
+            wallMeshesRef.current.push(meshSkirtB);
+          }
+        }
       });
 
       // --- 3. RENDER DOORS ---
