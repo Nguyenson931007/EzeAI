@@ -933,17 +933,40 @@ export default function ThreeDView({
 
         // Render Skirting Mesh (Side A & Side B - Door Opening Deducted & Corner Joint Seamless)
         if (skirting.enabled !== false && (skirting.height || 0) > 0) {
-          const hSkirt = Math.min(activeWallHeight, skirting.height || 100);
-          const thickSkirt = Number(skirting.thickness) || 10;
+          const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
+          const hSkirt = Math.min(activeWallHeight, (Number(skirting.height) || 100) / scaleFactor);
+          const thickSkirt = (Number(skirting.thickness) || 12) / scaleFactor;
+          const skirtColorVal = skirting.color || wall.skirtingColor || "#854d0e";
+
           const matSkirt = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(skirting.color || "#854d0e"),
+            color: new THREE.Color(skirtColorVal),
             roughness: 0.4,
             metalness: 0.1,
           });
 
-          const isExterior = getWallType(wall) === "ext";
+          // Check if wall is exterior wall
+          const isExterior = wall.is_ext === true || wall.isExt === true ||
+            (wall.wall_type || '').toLowerCase().includes('ext') ||
+            (wall.class_name || '').toLowerCase().includes('ext') ||
+            (wall.type || '').toLowerCase().includes('ext');
+
           const wallUx = (x2 - x1) / (length || 1);
           const wallUy = (y2 - y1) / (length || 1);
+
+          // Check if endpoints P1 and P2 connect to other walls at corner joints
+          const isEndpointConnected = (px, py) => {
+            return (pageWalls || []).some(ow => {
+              if (ow.id === wall.id || !ow.centerline || ow.centerline.length !== 2) return false;
+              const op1 = ow.centerline[0];
+              const op2 = ow.centerline[1];
+              const d1 = Math.hypot(px - op1[0], py - op1[1]);
+              const d2 = Math.hypot(px - op2[0], py - op2[1]);
+              return d1 <= 25 || d2 <= 25;
+            });
+          };
+
+          const p1Connected = isEndpointConnected(wall.centerline[0][0], wall.centerline[0][1]);
+          const p2Connected = isEndpointConnected(wall.centerline[1][0], wall.centerline[1][1]);
 
           // 1. Find all doors hosted on this wall
           const hostDoors = (pageDoors || []).filter(d => {
@@ -976,7 +999,7 @@ export default function ThreeDView({
 
               // Projection t along wall vector
               const t = ((dcx - x1) * wallUx + (dcy - y1) * wallUy);
-              const doorWidth = d.width_mm ? d.width_mm / ((realScale && realScale !== 1.0) ? realScale : 18.0) : Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
+              const doorWidth = (d.width_mm ? d.width_mm : 820) / scaleFactor;
 
               const startT = Math.max(0, t - (doorWidth / 2));
               const endT = Math.min(length, t + (doorWidth / 2));
@@ -1006,33 +1029,33 @@ export default function ThreeDView({
           const skirtingSegments = [];
           let currentT = 0;
           for (const iv of mergedIntervals) {
-            if (iv.start > currentT + 1) {
+            if (iv.start > currentT + 0.1) {
               skirtingSegments.push({ start: currentT, end: iv.start });
             }
             currentT = Math.max(currentT, iv.end);
           }
-          if (currentT < length - 1) {
+          if (currentT < length - 0.1) {
             skirtingSegments.push({ start: currentT, end: length });
           }
 
           // 4. Render 3D Skirting for each valid wall segment
           for (const seg of skirtingSegments) {
-            const segLen = seg.end - seg.start;
-            if (segLen < 2) continue;
+            // Corner joint expansion: if at 0 and connected to corner, extend backwards by thickness/2
+            const extStart = (seg.start === 0 && p1Connected) ? -(thickness / 2) : seg.start;
+            const extEnd = (seg.end === length && p2Connected) ? length + (thickness / 2) : seg.end;
+            const segLen = extEnd - extStart;
+            if (segLen < 0.1) continue;
 
-            const segCenterPos = (seg.start + seg.end) / 2;
+            const segCenterPos = (extStart + extEnd) / 2;
             const centerOffsetFromMid = segCenterPos - (length / 2);
 
             const segMidX = midX + wallUx * centerOffsetFromMid;
             const segMidZ = midZ + wallUy * centerOffsetFromMid;
 
-            // Sleek corner expansion according to 2D thickness
-            const expandedSegLen = segLen + 2;
-
             // Skirting Side A (Interior side for ext wall or standard Side A)
-            const geoSkirtA = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
+            const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirt, thickSkirt);
             const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirt);
-            const offsetSkirtA = (thickness / 2) + (thickSkirt / 2) + 0.2;
+            const offsetSkirtA = (thickness / 2) + (thickSkirt / 2) + 0.02;
             meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtA);
             meshSkirtA.rotation.y = -angle;
             scene.add(meshSkirtA);
@@ -1040,14 +1063,55 @@ export default function ThreeDView({
 
             // Skirting Side B (Only for Interior Walls)
             if (!isExterior) {
-              const geoSkirtB = new THREE.BoxGeometry(expandedSegLen, hSkirt, thickSkirt);
+              const geoSkirtB = new THREE.BoxGeometry(segLen, hSkirt, thickSkirt);
               const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirt);
-              const offsetSkirtB = -(thickness / 2) - (thickSkirt / 2) - 0.2;
+              const offsetSkirtB = -(thickness / 2) - (thickSkirt / 2) - 0.02;
               meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirt / 2, segMidZ + nz * offsetSkirtB);
               meshSkirtB.rotation.y = -angle;
               scene.add(meshSkirtB);
               wallMeshesRef.current.push(meshSkirtB);
             }
+          }
+
+          // 5. Render 3D End Cap Skirting for Standalone / Free Wall Tips (Issue 4)
+          // Cap at P1 (start tip)
+          if (!p1Connected) {
+            const capWidth = isExterior ? (thickness + thickSkirt) : (thickness + 2 * thickSkirt);
+            const geoCapP1 = new THREE.BoxGeometry(thickSkirt, hSkirt, capWidth);
+            const meshCapP1 = new THREE.Mesh(geoCapP1, matSkirt);
+
+            const p1MidX = midX - wallUx * (length / 2);
+            const p1MidZ = midZ - wallUy * (length / 2);
+            const capShiftSideB = isExterior ? (thickSkirt / 2) : 0;
+
+            meshCapP1.position.set(
+              p1MidX - wallUx * (thickSkirt / 2),
+              yOffset + hSkirt / 2,
+              p1MidZ - wallUy * (thickSkirt / 2) + nx * capShiftSideB
+            );
+            meshCapP1.rotation.y = -angle;
+            scene.add(meshCapP1);
+            wallMeshesRef.current.push(meshCapP1);
+          }
+
+          // Cap at P2 (end tip)
+          if (!p2Connected) {
+            const capWidth = isExterior ? (thickness + thickSkirt) : (thickness + 2 * thickSkirt);
+            const geoCapP2 = new THREE.BoxGeometry(thickSkirt, hSkirt, capWidth);
+            const meshCapP2 = new THREE.Mesh(geoCapP2, matSkirt);
+
+            const p2MidX = midX + wallUx * (length / 2);
+            const p2MidZ = midZ + wallUy * (length / 2);
+            const capShiftSideB = isExterior ? (thickSkirt / 2) : 0;
+
+            meshCapP2.position.set(
+              p2MidX + wallUx * (thickSkirt / 2),
+              yOffset + hSkirt / 2,
+              p2MidZ + wallUy * (thickSkirt / 2) + nx * capShiftSideB
+            );
+            meshCapP2.rotation.y = -angle;
+            scene.add(meshCapP2);
+            wallMeshesRef.current.push(meshCapP2);
           }
         }
       });
