@@ -660,6 +660,7 @@ UnderlayWallLayer.displayName = "UnderlayWallLayer";
 // ==========================================
 const WallLayer = React.memo(({
   walls,
+  rooms = [],
   layerVisibility,
   selectedId,
   selectedType,
@@ -3966,6 +3967,7 @@ export default function CanvasView({
             {layerVisibility?.wall && (
               <WallLayer
                 walls={displayWalls}
+                rooms={rooms}
                 layerVisibility={layerVisibility}
                 selectedId={selectedId}
                 selectedType={selectedType}
