@@ -897,16 +897,18 @@ export default function ThreeDView({
 
         // Render Side A Finish Mesh (Clamped Height)
         if (sideA.finishType && sideA.finishType !== "none" && (sideA.finishHeight || 0) > 0) {
-          const clampedHA = Math.min(activeWallHeight, sideA.finishHeight);
-          const thickA = sideA.thickness || 10;
+          const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
+          const rawHA = (Number(sideA.finishHeight) || 2400) / scaleFactor;
+          const clampedHA = Math.min(activeWallHeight, rawHA);
+          const thickA3D = (Number(sideA.thickness) || 10) / scaleFactor;
           const matA = new THREE.MeshStandardMaterial({
             color: new THREE.Color(sideA.color || "#e2e8f0"),
             roughness: 0.5,
             metalness: 0.1,
           });
-          const geoA = new THREE.BoxGeometry(length, clampedHA, thickA);
+          const geoA = new THREE.BoxGeometry(length, clampedHA, thickA3D);
           const meshA = new THREE.Mesh(geoA, matA);
-          const offsetA = (thickness / 2) + (thickA / 2) + 0.5;
+          const offsetA = (thickness / 2) + (thickA3D / 2) + 0.02;
           meshA.position.set(midX + nx * offsetA, yOffset + clampedHA / 2, midZ + nz * offsetA);
           meshA.rotation.y = -angle;
           scene.add(meshA);
@@ -915,16 +917,18 @@ export default function ThreeDView({
 
         // Render Side B Finish Mesh (Clamped Height)
         if (sideB.finishType && sideB.finishType !== "none" && (sideB.finishHeight || 0) > 0) {
-          const clampedHB = Math.min(activeWallHeight, sideB.finishHeight);
-          const thickB = sideB.thickness || 10;
+          const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
+          const rawHB = (Number(sideB.finishHeight) || 2400) / scaleFactor;
+          const clampedHB = Math.min(activeWallHeight, rawHB);
+          const thickB3D = (Number(sideB.thickness) || 10) / scaleFactor;
           const matB = new THREE.MeshStandardMaterial({
             color: new THREE.Color(sideB.color || "#e2e8f0"),
             roughness: 0.5,
             metalness: 0.1,
           });
-          const geoB = new THREE.BoxGeometry(length, clampedHB, thickB);
+          const geoB = new THREE.BoxGeometry(length, clampedHB, thickB3D);
           const meshB = new THREE.Mesh(geoB, matB);
-          const offsetB = -(thickness / 2) - (thickB / 2) - 0.5;
+          const offsetB = -(thickness / 2) - (thickB3D / 2) - 0.02;
           meshB.position.set(midX + nx * offsetB, yOffset + clampedHB / 2, midZ + nz * offsetB);
           meshB.rotation.y = -angle;
           scene.add(meshB);
