@@ -888,6 +888,52 @@ const WallLayer = React.memo(({
         );
       })}
 
+      {/* 1.5. Render thin subtle 2D skirting accent lines along wall edges */}
+      {(walls || []).map((w, idx) => {
+        if (w.skirting?.enabled === false) return null;
+        if (!w.centerline || w.centerline.length !== 2) return null;
+        const p1 = w.centerline[0];
+        const p2 = w.centerline[1];
+        const dx = p2[0] - p1[0];
+        const dy = p2[1] - p1[1];
+        const len = Math.hypot(dx, dy);
+        if (len < 5) return null;
+
+        const thickPx = w.thickness_px || 10;
+        const nx = -dy / len;
+        const ny = dx / len;
+
+        const offsetA = (thickPx / 2) + 2;
+        const offsetB = -(thickPx / 2) - 2;
+
+        const skirtingColor = w.skirting?.color || "#854d0e";
+
+        return (
+          <g key={`skirting-2d-${w.id}-${idx}`} style={{ pointerEvents: "none" }}>
+            <line
+              x1={p1[0] + nx * offsetA}
+              y1={p1[1] + ny * offsetA}
+              x2={p2[0] + nx * offsetA}
+              y2={p2[1] + ny * offsetA}
+              stroke={skirtingColor}
+              strokeWidth={1.8}
+              strokeDasharray="4 2"
+              opacity={0.85}
+            />
+            <line
+              x1={p1[0] + nx * offsetB}
+              y1={p1[1] + ny * offsetB}
+              x2={p2[0] + nx * offsetB}
+              y2={p2[1] + ny * offsetB}
+              stroke={skirtingColor}
+              strokeWidth={1.8}
+              strokeDasharray="4 2"
+              opacity={0.85}
+            />
+          </g>
+        );
+      })}
+
       {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
       {(walls || []).map((w, idx) => {
         const isSelected = selectedWallIds.some(id => id === w.id || getBaseWallId(id) === getBaseWallId(w.id));

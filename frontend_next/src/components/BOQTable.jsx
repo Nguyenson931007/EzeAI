@@ -637,7 +637,7 @@ function LockUpScheduleExcelView({ enrichedDoors, lockUpRowsMap, setLockUpRowsMa
   );
 }
 
-function FixOutScheduleView({ enrichedDoors }) {
+function FixOutScheduleView({ enrichedDoors = [], walls = [], doors = [], realScale = 1 }) {
   const [doorTypeAllInternals, setDoorTypeAllInternals] = useState("TBA");
 
   // State for Cavity Sliders (Table 1)
@@ -820,7 +820,45 @@ function FixOutScheduleView({ enrichedDoors }) {
 
   const [robeCount, setRobeCount] = useState(3);
 
-  // Derived auto totals for Architrave summary (All orange is auto)
+  // Derived auto totals for Architrave summary & area/perimeter calculations
+  const cavityTotalArea = cavityRows.reduce((sum, r) => {
+    const hM = (parseFloat(r.height) || 2040) / 1000;
+    const wM = (parseFloat(r.doorSize) || 720) / 1000;
+    const q = Number(r.qty) || 1;
+    return sum + (hM * wM * q);
+  }, 0);
+
+  const cavityTotalPerimeter = cavityRows.reduce((sum, r) => {
+    const hM = (parseFloat(r.height) || 2040) / 1000;
+    const wM = (parseFloat(r.doorSize) || 720) / 1000;
+    const q = Number(r.qty) || 1;
+    return sum + (2 * (hM + wM) * q);
+  }, 0);
+
+  const cavityTotalReveal = cavityRows.reduce((sum, r) => sum + (Number(r.qty) || 1), 0);
+
+  const prehungTotalArea = prehungRows.reduce((sum, r) => {
+    const hM = (parseFloat(r.height) || 2040) / 1000;
+    const wM = (parseFloat(r.width) || 820) / 1000;
+    const q = Number(r.qty) || 1;
+    return sum + (hM * wM * q);
+  }, 0);
+
+  const prehungTotalPerimeter = prehungRows.reduce((sum, r) => {
+    const hM = (parseFloat(r.height) || 2040) / 1000;
+    const wM = (parseFloat(r.width) || 820) / 1000;
+    const q = Number(r.qty) || 1;
+    return sum + (2 * (hM + wM) * q);
+  }, 0);
+
+  const prehungTotalReveal = prehungRows.reduce((sum, r) => sum + (Number(r.qty) || 1), 0);
+
+  const windowsTotalArea = enrichedDoors
+    .filter(d => d.type === 'window' || d.class === 'window')
+    .reduce((sum, w) => sum + ((w.height || 1.2) * (w.width || 1.2) * (Number(w.qty) || 1)), 0);
+
+  const totalSWindowAndDoor = (cavityTotalArea + prehungTotalArea + windowsTotalArea).toFixed(1);
+
   const extDoorsCount = enrichedDoors.filter(d => d.is_ext || d.is_exterior || d.location === 'external' || d.wetness === 'ext').length || 4;
   const robesCsdCount = cavityRows.length || 3;
   const windowsCount = enrichedDoors.filter(d => d.type === 'window' || d.class === 'window').length || 6;
@@ -1066,6 +1104,23 @@ function FixOutScheduleView({ enrichedDoors }) {
                 </td>
               </tr>
             ))}
+            {/* Total Row matching User Screenshot 1 */}
+            <tr style={{ background: "#fef08a", borderTop: "2px solid #ca8a04", fontWeight: 800, color: "#713f12" }}>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", fontWeight: 800, textAlign: "left" }}>Total S</td>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "center", background: "#fde047" }}>
+                {cavityTotalArea.toFixed(2)}
+              </td>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "center", background: "#fde047" }}>
+                {cavityTotalPerimeter.toFixed(1)}
+              </td>
+              <td colSpan={6} style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "right", background: "#fde047", fontWeight: 800 }}>
+                Total Reveal
+              </td>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "center", background: "#fde047", fontWeight: 800, color: "#dc2626" }}>
+                {cavityTotalReveal}
+              </td>
+              <td colSpan={3} style={{ padding: "6px 8px", border: "1px solid #ca8a04" }}></td>
+            </tr>
           </tbody>
         </table>
 
@@ -1246,6 +1301,23 @@ function FixOutScheduleView({ enrichedDoors }) {
                 </td>
               </tr>
             ))}
+            {/* Total Row matching User Screenshot 1 */}
+            <tr style={{ background: "#fef08a", borderTop: "2px solid #ca8a04", fontWeight: 800, color: "#713f12" }}>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", fontWeight: 800, textAlign: "left" }}>Total S</td>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "center", background: "#fde047" }}>
+                {prehungTotalArea.toFixed(3)}
+              </td>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "center", background: "#fde047" }}>
+                {prehungTotalPerimeter.toFixed(2)}
+              </td>
+              <td colSpan={4} style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "right", background: "#fde047", fontWeight: 800 }}>
+                Total Reveal
+              </td>
+              <td style={{ padding: "6px 8px", border: "1px solid #ca8a04", textAlign: "center", background: "#fde047", fontWeight: 800, color: "#dc2626" }}>
+                {prehungTotalReveal}
+              </td>
+              <td colSpan={3} style={{ padding: "6px 8px", border: "1px solid #ca8a04" }}></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -1416,8 +1488,56 @@ function FixOutScheduleView({ enrichedDoors }) {
           </div>
         </div>
 
+        {/* SKIRTING TAKE-OFF SUMMARY TABLE (Auto-Populated from Project Walls) */}
+        {(() => {
+          let calcLm = 0;
+          for (const w of (walls || [])) {
+            if (w.skirting?.enabled === false) continue;
+            const res = computeWallAreas(w, (doors || []).filter(d => d.parentWallId === w.id), realScale || 1, (walls || []));
+            if (res && res.skirtingLengthLm) {
+              calcLm += res.skirtingLengthLm;
+            }
+          }
+          const displayLm = skirtingLm !== "" && skirtingLm !== null && skirtingLm !== undefined ? Number(skirtingLm) : calcLm;
+
+          return (
+            <div style={{ marginTop: 14, marginBottom: 18, border: "1px solid #ca8a04", borderRadius: "6px", overflow: "hidden", background: "#fff" }}>
+              <div style={{ background: "#fde047", padding: "8px 14px", fontWeight: 800, fontSize: "13px", color: "#713f12", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>🪵 Skirting Takeoff & Material Summary (Bảng Tổng Hợp Chân Tường)</span>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: "#854d0e" }}>Auto-Calculated (2-Face + Open Ends)</span>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <thead>
+                  <tr style={{ background: "#fef08a", borderBottom: "1px solid #ca8a04", color: "#713f12", fontWeight: 700 }}>
+                    <th style={{ padding: "6px 10px", textAlign: "left", border: "1px solid #ca8a04" }}>Item Code</th>
+                    <th style={{ padding: "6px 10px", textAlign: "left", border: "1px solid #ca8a04" }}>Skirting Profile / Material</th>
+                    <th style={{ padding: "6px 10px", textAlign: "center", border: "1px solid #ca8a04" }}>Height</th>
+                    <th style={{ padding: "6px 10px", textAlign: "center", border: "1px solid #ca8a04" }}>Thickness</th>
+                    <th style={{ padding: "6px 10px", textAlign: "center", border: "1px solid #ca8a04", background: "#fde047" }}>Total Meter Length (Lm)</th>
+                    <th style={{ padding: "6px 10px", textAlign: "center", border: "1px solid #ca8a04", background: "#fde047" }}>5.4m Lengths Needed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "6px 10px", border: "1px solid #ca8a04", fontFamily: "monospace", fontWeight: 700, color: "#2563eb" }}>8470038</td>
+                    <td style={{ padding: "6px 10px", border: "1px solid #ca8a04", fontWeight: 700 }}>{skirtingType}</td>
+                    <td style={{ padding: "6px 10px", border: "1px solid #ca8a04", textAlign: "center" }}>100 mm</td>
+                    <td style={{ padding: "6px 10px", border: "1px solid #ca8a04", textAlign: "center" }}>15 mm</td>
+                    <td style={{ padding: "6px 10px", border: "1px solid #ca8a04", textAlign: "center", fontWeight: 800, color: "#0284c7" }}>
+                      {displayLm.toFixed(1)} m
+                    </td>
+                    <td style={{ padding: "6px 10px", border: "1px solid #ca8a04", textAlign: "center", fontWeight: 800, color: "#16a34a" }}>
+                      {Math.ceil(displayLm / 5.4)} Lengths
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+
         {/* Robe Count */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
           <span style={{ fontWeight: 700, fontSize: "12px", color: "#713f12" }}>Robe Count:</span>
           <input
             type="number"
@@ -1425,6 +1545,43 @@ function FixOutScheduleView({ enrichedDoors }) {
             value={robeCount}
             onChange={(e) => setRobeCount(Number(e.target.value))}
           />
+        </div>
+
+        {/* SUMMARY CARD: Reveal For Block Work, Total Reveal All, Total S Windown and door (Matching User Screenshot) */}
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-start" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: "12px", minWidth: "420px", border: "2px solid #0f172a", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <tbody>
+              {/* Row 1: Reveal For Block Work (Cyan Blue) */}
+              <tr style={{ background: "#00bcff", color: "#dc2626", fontWeight: 800, borderBottom: "2px solid #0f172a" }}>
+                <td style={{ padding: "6px 14px", borderRight: "2px solid #0f172a", fontSize: "12px" }}>
+                  Reveal For Block Work
+                </td>
+                <td style={{ padding: "6px 14px", textAlign: "right", fontSize: "14px", fontWeight: 900, width: "100px" }}>
+                  {revealBlockworkQty}
+                </td>
+              </tr>
+
+              {/* Row 2: Total Reveal All (Bright Lime Green) */}
+              <tr style={{ background: "#00ff00", color: "#dc2626", fontWeight: 800, borderBottom: "2px solid #0f172a" }}>
+                <td style={{ padding: "6px 14px", borderRight: "2px solid #0f172a", fontSize: "12px" }}>
+                  Total Reveal All
+                </td>
+                <td style={{ padding: "6px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900 }}>
+                  {windowsRevealsQty + revealBlockworkQty}
+                </td>
+              </tr>
+
+              {/* Row 3: Total S Windown and door (Light Blue / Periwinkle) */}
+              <tr style={{ background: "#93c5fd", color: "#dc2626", fontWeight: 800 }}>
+                <td style={{ padding: "6px 14px", borderRight: "2px solid #0f172a", fontSize: "12px" }}>
+                  Total S Windown and door
+                </td>
+                <td style={{ padding: "6px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900 }}>
+                  {totalSWindowAndDoor}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -3245,6 +3402,21 @@ export default function BOQTable({
       const formatWinRows = windowList.map((w, idx) => computeRevealRow(w, 2400, 2100, w.id || `win_${idx}`, false));
       const formatDoorRows = doorList.map((d, idx) => computeRevealRow(d, 2040, 820, d.id || `door_${idx}`, true));
 
+      // Calculate totals for Window Reveals table
+      const winTotalArea = formatWinRows.reduce((sum, r) => sum + (parseFloat(r.area) || 0), 0);
+      const winTotalChuVi = formatWinRows.reduce((sum, r) => sum + (parseFloat(r.chuVi) || 0), 0);
+      const winTotalReveal = formatWinRows.reduce((sum, r) => sum + (parseFloat(r.revealCount) || 0), 0);
+
+      // Calculate totals for Exterior Door Reveals table
+      const doorTotalArea = formatDoorRows.reduce((sum, r) => sum + (parseFloat(r.area) || 0), 0);
+      const doorTotalChuVi = formatDoorRows.reduce((sum, r) => sum + (parseFloat(r.chuVi) || 0), 0);
+      const doorTotalReveal = formatDoorRows.reduce((sum, r) => sum + (parseFloat(r.revealCount) || 0), 0);
+
+      // Summary Card calculations (Matching User Screenshot)
+      const blockworkRevealCount = [...formatWinRows, ...formatDoorRows].filter(r => r.blockWork === "Yes").reduce((sum, r) => sum + (parseFloat(r.revealCount) || 0), 0);
+      const totalRevealAll = winTotalReveal + doorTotalReveal;
+      const totalSWindowAndDoor = (winTotalArea + doorTotalArea).toFixed(1);
+
       return (
         <div style={{ marginBottom: 30 }}>
           <h4 style={{ marginBottom: 16, color: "#1e293b", fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
@@ -3321,6 +3493,16 @@ export default function BOQTable({
                       </tr>
                     ))
                   )}
+
+                  {/* Window Bottom Total Row (Matching User Screenshot) */}
+                  <tr style={{ background: "#fff", borderTop: "2px solid #0f172a", fontWeight: 800 }}>
+                    <td colSpan={3} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #0f172a" }}>Total S</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{winTotalArea.toFixed(2)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{winTotalChuVi.toFixed(1)}</td>
+                    <td colSpan={4} style={{ padding: "6px 8px", textAlign: "right", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>Total Reveal</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800, color: "#0284c7" }}>{winTotalReveal}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", border: "1px solid #0f172a" }}>0</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -3393,6 +3575,53 @@ export default function BOQTable({
                       </tr>
                     ))
                   )}
+
+                  {/* Door Bottom Total Row (Matching User Screenshot) */}
+                  <tr style={{ background: "#fff", borderTop: "2px solid #0f172a", fontWeight: 800 }}>
+                    <td colSpan={3} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #0f172a" }}>Total S</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{doorTotalArea.toFixed(3)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>{doorTotalChuVi.toFixed(2)}</td>
+                    <td colSpan={4} style={{ padding: "6px 8px", textAlign: "right", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800 }}>Total Reveal</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", background: "#fef08a", border: "1px solid #0f172a", fontWeight: 800, color: "#16a34a" }}>{doorTotalReveal}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", border: "1px solid #0f172a" }}>0</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* SUMMARY CARD: Reveal For Block Work, Total Reveal All, Total S Windown and door (Matching User Screenshot) */}
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "center" }}>
+              <table style={{ borderCollapse: "collapse", fontSize: "12px", width: "100%", maxWidth: "480px", border: "2px solid #0f172a", boxShadow: "0 4px 10px rgba(0,0,0,0.1)" }}>
+                <tbody>
+                  {/* Row 1: Reveal For Block Work (Cyan Blue) */}
+                  <tr style={{ background: "#00bcff", color: "#dc2626", fontWeight: 800, borderBottom: "2px solid #0f172a" }}>
+                    <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
+                      Reveal For Block Work
+                    </td>
+                    <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900, width: "100px" }}>
+                      {blockworkRevealCount}
+                    </td>
+                  </tr>
+
+                  {/* Row 2: Total Reveal All (Bright Lime Green) */}
+                  <tr style={{ background: "#00ff00", color: "#dc2626", fontWeight: 800, borderBottom: "2px solid #0f172a" }}>
+                    <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
+                      Total Reveal All
+                    </td>
+                    <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "16px", fontWeight: 900 }}>
+                      {totalRevealAll}
+                    </td>
+                  </tr>
+
+                  {/* Row 3: Total S Windown and door (Light Blue / Periwinkle) */}
+                  <tr style={{ background: "#93c5fd", color: "#dc2626", fontWeight: 800 }}>
+                    <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
+                      Total S Windown and door
+                    </td>
+                    <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "16px", fontWeight: 900 }}>
+                      {totalSWindowAndDoor}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -3838,7 +4067,12 @@ export default function BOQTable({
       )}
 
       {viewMode === "fixout" && (
-        <FixOutScheduleView enrichedDoors={enrichedDoors} />
+        <FixOutScheduleView
+          enrichedDoors={enrichedDoors}
+          walls={pages.flatMap((p, i) => (p.walls || []).map(w => ({ ...w, page_index: i })))}
+          doors={doors}
+          realScale={scalesByPage[selectedPageIndex] || scalesByPage[0] || 1}
+        />
       )}
 
       {!["flooring_decking", "Lock_up", "fixout", "job_startup", "frame_hardware", "eaves_soffits"].includes(viewMode) && (

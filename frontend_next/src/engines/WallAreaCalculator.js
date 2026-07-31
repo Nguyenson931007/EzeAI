@@ -17,7 +17,7 @@
  *   - remainingWallArea: single-face net area
  */
 
-import { WALL_TYPE_DEFAULTS } from '@/models/DoorTypeRegistry';
+import { WALL_TYPE_DEFAULTS } from '../models/DoorTypeRegistry.js';
 
 // ──────────────────────────────────────────────────────────────
 //  HELPERS
@@ -69,14 +69,49 @@ function getDoorDimensionsOnWall(door, wall, realScale) {
 // ──────────────────────────────────────────────────────────────
 
 /**
- * Computes all wall area metrics considering door openings.
+ * Check if a wall point is connected to any other wall in the list.
+ */
+function isEndpointConnected(point, wallId, allWalls = [], tolerance = 50) {
+  if (!point || !allWalls || allWalls.length <= 1) return false;
+  for (const otherWall of allWalls) {
+    if (otherWall.id === wallId) continue;
+    if (!otherWall.centerline || otherWall.centerline.length !== 2) continue;
+
+    const p1 = otherWall.centerline[0];
+    const p2 = otherWall.centerline[1];
+
+    const dist1 = Math.hypot(point[0] - p1[0], point[1] - p1[1]);
+    const dist2 = Math.hypot(point[0] - p2[0], point[1] - p2[1]);
+    if (dist1 <= tolerance || dist2 <= tolerance) return true;
+
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const L2 = dx * dx + dy * dy;
+    if (L2 > 0.01) {
+      let t = ((point[0] - p1[0]) * dx + (point[1] - p1[1]) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const projX = p1[0] + t * dx;
+      const projY = p1[1] + t * dy;
+      if (Math.hypot(point[0] - projX, point[1] - projY) <= tolerance) return true;
+    }
+  }
+  return false;
+}
+
+// ──────────────────────────────────────────────────────────────
+//  MAIN CALCULATOR
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Computes all wall area metrics considering door openings and dual-face finishes.
  *
  * @param {Object} wall - Wall object with centerline, class_name, thickness, height
- * @param {Array} doors - Array of door objects on this wall (filtered by parentWallId)
+ * @param {Array} doors - Array of door objects on this wall
  * @param {number} realScale - mm-per-pixel scale factor
+ * @param {Array} allWalls - Array of all walls for connectivity check
  * @returns {Object} Computed area metrics (all in mm² or mm)
  */
-export function computeWallAreas(wall, doors = [], realScale = 1) {
+export function computeWallAreas(wall, doors = [], realScale = 1, allWalls = []) {
   const wallLengthMm = getWallLengthMm(wall, realScale);
   const wallHeightMm = getWallHeightMm(wall);
   const wallThicknessMm = getWallThicknessMm(wall, realScale);
@@ -96,8 +131,6 @@ export function computeWallAreas(wall, doors = [], realScale = 1) {
     totalDoorOpeningArea += doorArea;
     totalDoorWidthMm += widthMm;
 
-    // Door reveal surface: the thickness of the wall exposed inside the door opening
-    // Both sides (left + right jamb) + head (top)
     const revealArea = (2 * heightMm * wallThicknessMm) + (widthMm * wallThicknessMm);
 
     doorDetails.push({
@@ -113,57 +146,98 @@ export function computeWallAreas(wall, doors = [], realScale = 1) {
   // ── Remaining (net) wall area — single face ──
   const remainingWallArea = Math.max(0, originalWallArea - totalDoorOpeningArea);
 
-  // ── Gross area (both faces) ──
+  // ── Gross & Net area (both faces) ──
   const grossArea = originalWallArea * 2;
-
-  // ── Net area (both faces minus door openings on each face) ──
   const netArea = remainingWallArea * 2;
-
-  // ── Paint area: same as net area (both faces get painted) ──
   const paintArea = netArea;
-
-  // ── Plaster area: same as net area ──
   const plasterArea = netArea;
-
-  // ── Cladding area: exterior face only, minus openings ──
   const claddingArea = isExterior ? remainingWallArea : 0;
-
-  // ── Net length: wall length minus door widths ──
   const netLength = Math.max(0, wallLengthMm - totalDoorWidthMm);
 
-  // ── Surface area: net area + door reveal surfaces ──
+  // ── 1. Skirting Length (Chiều dài chân tường 2 mặt + nẹp đầu 90/70mm nếu không tiếp giáp) ──
+  let freeEndsCount = 0;
+  if (wall.centerline && wall.centerline.length === 2 && allWalls && allWalls.length > 0) {
+    const p1Connected = isEndpointConnected(wall.centerline[0], wall.id, allWalls);
+    const p2Connected = isEndpointConnected(wall.centerline[1], wall.id, allWalls);
+    if (!p1Connected) freeEndsCount += 1;
+    if (!p2Connected) freeEndsCount += 1;
+  }
+  const endCapsLengthMm = freeEndsCount * wallThicknessMm; // 90mm or 70mm per free end
+  const skirtingLengthMm = (2 * netLength) + endCapsLengthMm; // 2 faces + end return caps
+  const skirtingLengthLm = skirtingLengthMm / 1000;
+
+  // ── 2. Dual-Face Finish Properties (Ốp gỗ / Ốp gạch / Sơn & Độ cao tùy chỉnh) ──
+  const finishTypeSideA = wall.finishTypeSideA || wall.sideA?.finishType || 'none';
+  const finishHeightSideAMm = Number(wall.finishHeightSideAMm || wall.sideA?.finishHeightMm || wallHeightMm);
+
+  const finishTypeSideB = wall.finishTypeSideB || wall.sideB?.finishType || 'none';
+  const finishHeightSideBMm = Number(wall.finishHeightSideBMm || wall.sideB?.finishHeightMm || wallHeightMm);
+
+  // Calculate Side A net cladding area
+  let doorDeductionSideA = 0;
+  for (const d of doorDetails) {
+    const overlapH = Math.min(d.heightMm, finishHeightSideAMm);
+    doorDeductionSideA += d.widthMm * overlapH;
+  }
+  const grossAreaSideA = wallLengthMm * finishHeightSideAMm;
+  const netFinishAreaSideA = Math.max(0, grossAreaSideA - doorDeductionSideA);
+
+  // Calculate Side B net cladding area
+  let doorDeductionSideB = 0;
+  for (const d of doorDetails) {
+    const overlapH = Math.min(d.heightMm, finishHeightSideBMm);
+    doorDeductionSideB += d.widthMm * overlapH;
+  }
+  const grossAreaSideB = wallLengthMm * finishHeightSideBMm;
+  const netFinishAreaSideB = Math.max(0, grossAreaSideB - doorDeductionSideB);
+
+  // Surface area: net area + door reveal surfaces
   const totalRevealArea = doorDetails.reduce((sum, d) => sum + d.revealAreaMm2, 0);
   const surfaceArea = netArea + totalRevealArea;
 
   return {
-    // Raw inputs
     wallLengthMm,
     wallHeightMm,
     wallThicknessMm,
     isExterior,
 
-    // Wall areas (mm²)
-    originalWallArea,        // Single-face gross (before doors)
-    doorOpeningArea: totalDoorOpeningArea,  // Total door opening area
-    remainingWallArea,       // Single-face net (after doors)
-    grossArea,               // Both-face gross
-    netArea,                 // Both-face net
-    paintArea,               // Paintable surface (both faces, minus openings)
-    plasterArea,             // Plasterable surface (both faces, minus openings)
-    claddingArea,            // Exterior cladding (single face, minus openings)
-    surfaceArea,             // Net area + door reveal surfaces
+    originalWallArea,
+    doorOpeningArea: totalDoorOpeningArea,
+    remainingWallArea,
+    grossArea,
+    netArea,
+    paintArea,
+    plasterArea,
+    claddingArea,
+    surfaceArea,
 
-    // Linear (mm)
-    netLength,               // Wall length minus door widths
+    netLength,
+    freeEndsCount,
+    endCapsLengthMm,
+    skirtingLengthMm,
+    skirtingLengthLm,
 
-    // Per-door breakdown
+    // Dual-face finishes
+    sideA: {
+      finishType: finishTypeSideA,
+      finishHeightMm: finishHeightSideAMm,
+      netAreaMm2: netFinishAreaSideA,
+      netAreaM2: netFinishAreaSideA / 1e6,
+    },
+    sideB: {
+      finishType: finishTypeSideB,
+      finishHeightMm: finishHeightSideBMm,
+      netAreaMm2: netFinishAreaSideB,
+      netAreaM2: netFinishAreaSideB / 1e6,
+    },
+
     doorCount: doors.length,
     doorDetails,
   };
 }
 
 /**
- * Computes wall areas for ALL walls on a page, considering all doors.
+ * Computes wall areas for ALL walls on a page, considering all doors and connectivity.
  *
  * @param {Array} walls - All walls on the page
  * @param {Array} doors - All doors on the page
@@ -177,7 +251,6 @@ export function computeAllWallAreas(walls, doors, realScale) {
   const getBaseId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
 
   for (const wall of walls) {
-    // Find doors on this wall (by base ID match or geometric proximity)
     const wallDoors = (doors || []).filter(d => {
       if (d.parentWallId && getBaseId(d.parentWallId) === getBaseId(wall.id)) return true;
 
@@ -207,7 +280,7 @@ export function computeAllWallAreas(walls, doors, realScale) {
       return perpDist < 30;
     });
 
-    result.set(wall.id, computeWallAreas(wall, wallDoors, realScale));
+    result.set(wall.id, computeWallAreas(wall, wallDoors, realScale, walls));
   }
 
   return result;
@@ -230,6 +303,9 @@ export function computeWallSummary(walls, doors, realScale) {
   let totalDoorOpeningArea = 0;
   let totalWallLength = 0;
   let totalNetLength = 0;
+  let totalSkirtingLengthLm = 0;
+  let totalWoodCladdingAreaM2 = 0;
+  let totalTileCladdingAreaM2 = 0;
 
   for (const [, areas] of allAreas) {
     totalGrossArea += areas.grossArea;
@@ -238,15 +314,25 @@ export function computeWallSummary(walls, doors, realScale) {
     totalDoorOpeningArea += areas.doorOpeningArea;
     totalWallLength += areas.wallLengthMm;
     totalNetLength += areas.netLength;
+    totalSkirtingLengthLm += areas.skirtingLengthLm;
+
+    if (areas.sideA.finishType === 'wood') totalWoodCladdingAreaM2 += areas.sideA.netAreaM2;
+    if (areas.sideA.finishType === 'tile') totalTileCladdingAreaM2 += areas.sideA.netAreaM2;
+
+    if (areas.sideB.finishType === 'wood') totalWoodCladdingAreaM2 += areas.sideB.netAreaM2;
+    if (areas.sideB.finishType === 'tile') totalTileCladdingAreaM2 += areas.sideB.netAreaM2;
   }
 
   return {
-    totalGrossArea,        // mm²
-    totalNetArea,          // mm²
-    totalPaintArea,        // mm²
-    totalDoorOpeningArea,  // mm²
-    totalWallLength,       // mm
-    totalNetLength,        // mm
+    totalGrossArea,
+    totalNetArea,
+    totalPaintArea,
+    totalDoorOpeningArea,
+    totalWallLength,
+    totalNetLength,
+    totalSkirtingLengthLm,
+    totalWoodCladdingAreaM2,
+    totalTileCladdingAreaM2,
     wallCount: walls.length,
     doorCount: doors.length,
     perWallAreas: allAreas,
