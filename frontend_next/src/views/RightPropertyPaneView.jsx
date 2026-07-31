@@ -957,7 +957,7 @@ export default function RightPropertyPaneView({
                     return isHoriz ? "Side A (Mặt trước - Phía dưới wall)" : "Side A (Mặt trái - Bên trái wall)";
                   })()}
                 </div>
-                <div className="panel-field" style={{ marginBottom: 6 }}>
+                <div className="panel-field">
                   <span className="panel-label">Finish Type</span>
                   <select
                     className="panel-select"
@@ -973,51 +973,6 @@ export default function RightPropertyPaneView({
                     ))}
                   </select>
                 </div>
-
-                {(selectedWall?.surface?.sideA?.finishType || selectedWall?.finishTypeSideA || "none") !== "none" && (
-                  <>
-                    <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">Finish Height (mm)</span>
-                      <input
-                        type="number"
-                        className="panel-input"
-                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                        value={selectedWall?.surface?.sideA?.finishHeight ?? selectedWall?.finishHeightSideAMm ?? (selectedWall?.height || 2400)}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          const val = Number(e.target.value);
-                          updateWallsProperty && updateWallsProperty(targetIds, "finishHeightSideAMm", val);
-                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.finishHeight", val);
-                        }}
-                      />
-                    </div>
-                    <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">Thickness (mm)</span>
-                      <input
-                        type="number"
-                        className="panel-input"
-                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                        value={selectedWall?.surface?.sideA?.thickness ?? 10}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.thickness", Number(e.target.value));
-                        }}
-                      />
-                    </div>
-                    <div className="panel-field">
-                      <span className="panel-label">Color</span>
-                      <input
-                        type="color"
-                        style={{ width: "100%", height: "28px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
-                        value={selectedWall?.surface?.sideA?.color || "#e2e8f0"}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.color", e.target.value);
-                        }}
-                      />
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* Side B (Mặt B) */}
@@ -1031,7 +986,7 @@ export default function RightPropertyPaneView({
                     return isHoriz ? "Side B (Mặt sau - Phía trên wall)" : "Side B (Mặt phải - Bên phải wall)";
                   })()}
                 </div>
-                <div className="panel-field" style={{ marginBottom: 6 }}>
+                <div className="panel-field">
                   <span className="panel-label">Finish Type</span>
                   <select
                     className="panel-select"
@@ -1047,51 +1002,6 @@ export default function RightPropertyPaneView({
                     ))}
                   </select>
                 </div>
-
-                {(selectedWall?.surface?.sideB?.finishType || selectedWall?.finishTypeSideB || "none") !== "none" && (
-                  <>
-                    <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">Finish Height (mm)</span>
-                      <input
-                        type="number"
-                        className="panel-input"
-                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                        value={selectedWall?.surface?.sideB?.finishHeight ?? selectedWall?.finishHeightSideBMm ?? (selectedWall?.height || 2400)}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          const val = Number(e.target.value);
-                          updateWallsProperty && updateWallsProperty(targetIds, "finishHeightSideBMm", val);
-                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.finishHeight", val);
-                        }}
-                      />
-                    </div>
-                    <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">Thickness (mm)</span>
-                      <input
-                        type="number"
-                        className="panel-input"
-                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                        value={selectedWall?.surface?.sideB?.thickness ?? 10}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.thickness", Number(e.target.value));
-                        }}
-                      />
-                    </div>
-                    <div className="panel-field">
-                      <span className="panel-label">Color</span>
-                      <input
-                        type="color"
-                        style={{ width: "100%", height: "28px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
-                        value={selectedWall?.surface?.sideB?.color || "#e2e8f0"}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.color", e.target.value);
-                        }}
-                      />
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* SKIRTING SYSTEM (FEATURE 2 - DUAL FACE CONTROLS) */}

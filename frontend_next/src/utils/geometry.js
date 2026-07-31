@@ -190,16 +190,16 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
 
     const getJunctionExtension = (pt) => {
       if (!allWalls) return 0.0;
-      
+
       let maxExtension = 0.0;
-      
+
       for (const otherW of allWalls) {
         if (otherW.id === currentWallId) continue;
         const otherC = otherW.centerline;
         if (!otherC || otherC.length !== 2) continue;
         const otherP1 = { x: otherC[0][0], y: otherC[0][1] };
         const otherP2 = { x: otherC[1][0], y: otherC[1][1] };
-        
+
         // Calculate projection of pt onto other wall centerline
         const proj = distancePointToSegment(pt, otherP1, otherP2);
         if (proj.dist < 35.0) { // 35px snap/connection threshold for T-junctions & L-junctions
@@ -207,22 +207,22 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
           const otherDy = otherP2.y - otherP1.y;
           const otherLen = Math.hypot(otherDx, otherDy);
           if (otherLen < 0.1) continue;
-          
+
           const vx = otherDx / otherLen;
           const vy = otherDy / otherLen;
-          
+
           // Calculate angle between current wall and other wall
           const sinTheta = Math.abs(ux * vy - uy * vx);
           const factor = sinTheta > 0.2 ? 1.0 / sinTheta : 1.0;
           const cappedFactor = Math.min(factor, 2.0); // cap to avoid huge extensions
-          
+
           const otherThick = otherW.thickness_px || 20;
           const targetExt = (otherThick / 2) * cappedFactor;
-          
+
           // Determine if it is a corner (L-junction) or segment-touch (T-junction)
           const distToP1 = Math.hypot(pt.x - otherP1.x, pt.y - otherP1.y);
           const distToP2 = Math.hypot(pt.x - otherP2.x, pt.y - otherP2.y);
-          
+
           if (distToP1 < 35.0 || distToP2 < 35.0) {
             // L-junction (Corner): Only the more vertical wall extends to avoid double-extension protrusions
             const currentIsVert = Math.abs(uy) > Math.abs(ux);
@@ -271,9 +271,9 @@ export function doorLength(door) {
       const y0 = Array.isArray(p0) ? p0[1] : (p0.y !== undefined ? p0.y : 0);
       const x1 = Array.isArray(p1) ? p1[0] : (p1.x !== undefined ? p1.x : 0);
       const y1 = Array.isArray(p1) ? p1[1] : (p1.y !== undefined ? p1.y : 0);
-      
+
       if (typeof x0 === "number" && typeof y0 === "number" && typeof x1 === "number" && typeof y1 === "number" &&
-          !isNaN(x0) && !isNaN(y0) && !isNaN(x1) && !isNaN(y1)) {
+        !isNaN(x0) && !isNaN(y0) && !isNaN(x1) && !isNaN(y1)) {
         const dx = x1 - x0;
         const dy = y1 - y0;
         const len = Math.sqrt(dx * dx + dy * dy);
@@ -281,7 +281,7 @@ export function doorLength(door) {
       }
     }
   }
-  
+
   const bbox = doorBbox(door);
   const w = bbox[2] - bbox[0];
   const h = bbox[3] - bbox[1];
@@ -293,10 +293,10 @@ export function doorBbox(door) {
   if (!door) return [0, 0, 0, 0];
   const poly = door.polygon || door.points || [];
   if (poly.length === 0) return [0, 0, 0, 0];
-  
+
   const xs = [];
   const ys = [];
-  
+
   for (const p of poly) {
     if (!p) continue;
     let x = NaN;
@@ -308,17 +308,17 @@ export function doorBbox(door) {
       x = p.x !== undefined ? p.x : 0;
       y = p.y !== undefined ? p.y : 0;
     }
-    
+
     if (typeof x === "number" && typeof y === "number" && !isNaN(x) && !isNaN(y)) {
       xs.push(x);
       ys.push(y);
     }
   }
-  
+
   if (xs.length === 0 || ys.length === 0) {
     return [0, 0, 0, 0];
   }
-  
+
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
@@ -637,13 +637,13 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
 
 export function recalculateAllWallsPolygons(walls) {
   if (!walls || walls.length === 0) return walls;
-  
+
   return walls.map(w => {
     const c = w.centerline;
     if (!c || c.length !== 2) return w;
     const pts = [{ x: c[0][0], y: c[0][1] }, { x: c[1][0], y: c[1][1] }];
     const thicknessPx = w.thickness_px || 20;
-    
+
     const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, walls);
     if (newPoly) {
       return {
@@ -1245,7 +1245,7 @@ export function snapRoomPolygonToWalls(roomPolygon, walls, tolerance = 30) {
   for (const h of hSegs) {
     for (const v of vSegs) {
       if (v.x >= (h.minX - 35) && v.x <= (h.maxX + 35) &&
-          h.y >= (v.minY - 35) && h.y <= (v.maxY + 35)) {
+        h.y >= (v.minY - 35) && h.y <= (v.maxY + 35)) {
         junctions.push({ x: v.x, y: h.y });
       }
     }
@@ -1475,11 +1475,11 @@ export function getDoorCenterline(door, walls = []) {
 
   // Find the two longest non-overlapping straight segments
   straightSegments.sort((a, b) => b.len - a.len);
-  
+
   const selected = [];
   for (const seg of straightSegments) {
     if (selected.length >= 2) break;
-    
+
     // Check if it overlaps with already selected segment
     let overlaps = false;
     for (const sel of selected) {
@@ -1638,7 +1638,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
     const u = { x: dx / L, y: dy / L };
 
     const W = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    
+
     // Project original door midpoint C onto the wall to get target t parameter
     let t = ((C.x - a.x) * dx + (C.y - a.y) * dy) / (L * L);
     const halfW_ratio = (W / 2) / L;
@@ -1654,11 +1654,11 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
     if (otherDoors && otherDoors.length > 0) {
       const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
       const doorBaseId = door.parentWallId ? getBaseWallId(door.parentWallId) : '';
-      
+
       if (doorBaseId) {
-        const siblings = otherDoors.filter(sib => 
-          sib.id !== door.id && 
-          sib.parentWallId && 
+        const siblings = otherDoors.filter(sib =>
+          sib.id !== door.id &&
+          sib.parentWallId &&
           getBaseWallId(sib.parentWallId) === doorBaseId
         );
 
@@ -1675,12 +1675,12 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
             sp1 = sCenterline.p1;
             sp2 = sCenterline.p2;
           }
-          
+
           const s_t1 = ((sp1.x - a.x) * dx + (sp1.y - a.y) * dy) / (L * L);
           const s_t2 = ((sp2.x - a.x) * dx + (sp2.y - a.y) * dy) / (L * L);
           const s_min = Math.min(s_t1, s_t2);
           const s_max = Math.max(s_t1, s_t2);
-          
+
           return {
             left: s_min - halfW_ratio,
             right: s_max + halfW_ratio
@@ -1721,7 +1721,7 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
     // Project original p1 and p2 onto the wall centerline to see their relative order to start vertex 'a'
     const t_p1 = (p1.x - a.x) * u.x + (p1.y - a.y) * u.y;
     const t_p2 = (p2.x - a.x) * u.x + (p2.y - a.y) * u.y;
-    
+
     const new_p1 = t_p1 < t_p2
       ? { x: clampedProj.x - (W / 2) * u.x, y: clampedProj.y - (W / 2) * u.y }
       : { x: clampedProj.x + (W / 2) * u.x, y: clampedProj.y + (W / 2) * u.y };
@@ -1776,12 +1776,12 @@ export function mapFloorName(name, index) {
   if (norm === 'fourth_floor' || norm === 'floor_3') return 'Tầng 4';
   if (norm === 'fifth_floor' || norm === 'floor_4') return 'Tầng 5';
   if (norm === 'roof') return 'Mái';
-  
+
   const match = norm.match(/^floor_(\d+)$/);
   if (match) {
     return `Tầng ${parseInt(match[1]) + 1}`;
   }
-  
+
   return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 

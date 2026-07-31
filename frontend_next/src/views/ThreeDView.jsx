@@ -11,7 +11,7 @@ function insetPolygon3D(pts, offset = 12.0) {
   pts.forEach(p => { cx += p.x; cy += p.y; });
   cx /= pts.length;
   cy /= pts.length;
-  
+
   return pts.map(p => {
     const dx = cx - p.x;
     const dy = cy - p.y;
@@ -137,10 +137,10 @@ export default function ThreeDView({
     if (norm === 'fourth_floor' || norm === 'floor_3') return 3;
     if (norm === 'fifth_floor' || norm === 'floor_4') return 4;
     if (norm === 'roof') return 999;
-    
+
     const match = norm.match(/^floor_(\d+)$/);
     if (match) return parseInt(match[1]);
-    
+
     return index;
   };
 
@@ -160,8 +160,8 @@ export default function ThreeDView({
       if (pageWalls.length > 0) {
         let maxH = 0;
         pageWalls.forEach(w => {
-          const h = (typeof w.height_mm === 'number' && w.height_mm >= 500) 
-            ? w.height_mm 
+          const h = (typeof w.height_mm === 'number' && w.height_mm >= 500)
+            ? w.height_mm
             : ((typeof w.height === 'number' && w.height >= 500) ? w.height : wallHeightMm);
           if (h > maxH) maxH = h;
         });
@@ -187,11 +187,11 @@ export default function ThreeDView({
   // Calculate center of the floor plan for OrbitControls target
   const center = React.useMemo(() => {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    
+
     pages.forEach((_, i) => {
       const walls = wallsByPage[i] || [];
       const rooms = roomsByPage[i] || [];
-      
+
       walls.forEach(w => {
         if (w.centerline && w.centerline.length === 2) {
           w.centerline.forEach(p => {
@@ -452,7 +452,7 @@ export default function ThreeDView({
       });
 
       if (renderer.domElement && container) {
-        try { container.removeChild(renderer.domElement); } catch (_) {}
+        try { container.removeChild(renderer.domElement); } catch (_) { }
       }
       renderer.dispose();
 
@@ -562,7 +562,7 @@ export default function ThreeDView({
       const pageWalls = wallsByPage[originalIndex] || [];
       const pageDoors = doorsByPage[originalIndex] || [];
       const pageRooms = roomsByPage[originalIndex] || [];
-      
+
       const yOffset = levelBaseYOffsets[originalIndex] !== undefined ? levelBaseYOffsets[originalIndex] : k * (wallHeight + floorDepth);
       const levelWallHeight = pageHeightsMm[originalIndex] !== undefined ? pageHeightsMm[originalIndex] : wallHeight;
 
@@ -770,7 +770,7 @@ export default function ThreeDView({
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
         texture.flipY = false;
-        
+
         const planeGeo = new THREE.PlaneGeometry(imgSize.w, imgSize.h);
         const planeMat = new THREE.MeshBasicMaterial({
           map: texture,
@@ -778,11 +778,11 @@ export default function ThreeDView({
           transparent: true,
           opacity: 0.65
         });
-        
+
         const planeMesh = new THREE.Mesh(planeGeo, planeMat);
         planeMesh.rotation.x = Math.PI / 2;
         planeMesh.position.set(0, -1.5, 0);
-        
+
         scene.add(planeMesh);
         floorMeshesRef.current.push(planeMesh);
       }
@@ -805,8 +805,8 @@ export default function ThreeDView({
         const thickness = wall.thickness_px || 20;
 
         const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
-        const wallHeightMmVal = (typeof wall.height_mm === 'number' && wall.height_mm >= 500) 
-          ? wall.height_mm 
+        const wallHeightMmVal = (typeof wall.height_mm === 'number' && wall.height_mm >= 500)
+          ? wall.height_mm
           : ((typeof wall.height === 'number' && wall.height >= 500) ? wall.height : wallHeightMm);
         let activeWallHeight = wallHeightMmVal / scaleFactor;
 
@@ -1046,7 +1046,15 @@ export default function ThreeDView({
               const dp1 = Array.isArray(dPts[0]) ? { x: dPts[0][0], y: dPts[0][1] } : dPts[0];
               const dcx = (dp1.x + (Array.isArray(dPts[1]) ? dPts[1][0] : dPts[1].x)) / 2;
               const dcy = (dp1.y + (Array.isArray(dPts[1]) ? dPts[1][1] : dPts[1].y)) / 2;
-              const dist = distToSegment({ x: dcx, y: dcy }, { x: x1, y: y1 }, { x: x2, y: y2 });
+              const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+              let dist = 99999;
+              if (l2 === 0) {
+                dist = Math.hypot(dcx - x1, dcy - y1);
+              } else {
+                let t = ((dcx - x1) * (x2 - x1) + (dcy - y1) * (y2 - y1)) / l2;
+                t = Math.max(0, Math.min(1, t));
+                dist = Math.hypot(dcx - (x1 + t * (x2 - x1)), dcy - (y1 + t * (y2 - y1)));
+              }
               return dist <= (thickness / 2) + 20;
             }
             return false;
@@ -1191,7 +1199,7 @@ export default function ThreeDView({
         pageDoors.forEach(door => {
           const { cx, cy, length, angle, thickness } = getDoorProps(door, pageWalls);
           const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
-          
+
           let wallThickness = thickness;
           let hostWallAngle = angle;
           let hostWallCx = cx;
@@ -1230,7 +1238,7 @@ export default function ThreeDView({
                     if (!w.centerline || w.centerline.length < 2) return;
                     const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
                     const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
-                    
+
                     const wdx = wp2.x - wp1.x;
                     const wdy = wp2.y - wp1.y;
                     const L2 = wdx * wdx + wdy * wdy;
@@ -1277,7 +1285,7 @@ export default function ThreeDView({
             const sillHeight = hostWallHeightPx * 0.375;
             const headerHeight = hostWallHeightPx * 0.875;
             const windowHeight = headerHeight - sillHeight;
-            
+
             const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
             const fillerMat = new THREE.MeshStandardMaterial({
               color: wallColor,
@@ -1314,28 +1322,28 @@ export default function ThreeDView({
 
             const leftPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
             const leftPost = new THREE.Mesh(leftPostGeo, windowFrameMat);
-            leftPost.position.set(-length/2 + frameThickness/2, sillHeight + windowHeight/2, 0);
+            leftPost.position.set(-length / 2 + frameThickness / 2, sillHeight + windowHeight / 2, 0);
             leftPost.castShadow = enableShadows;
             leftPost.receiveShadow = enableShadows;
             doorGroup.add(leftPost);
 
             const rightPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
             const rightPost = new THREE.Mesh(rightPostGeo, windowFrameMat);
-            rightPost.position.set(length/2 - frameThickness/2, sillHeight + windowHeight/2, 0);
+            rightPost.position.set(length / 2 - frameThickness / 2, sillHeight + windowHeight / 2, 0);
             rightPost.castShadow = enableShadows;
             rightPost.receiveShadow = enableShadows;
             doorGroup.add(rightPost);
 
             const topFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
             const topFrame = new THREE.Mesh(topFrameGeo, windowFrameMat);
-            topFrame.position.set(0, headerHeight - frameThickness/2, 0);
+            topFrame.position.set(0, headerHeight - frameThickness / 2, 0);
             topFrame.castShadow = enableShadows;
             topFrame.receiveShadow = enableShadows;
             doorGroup.add(topFrame);
 
             const bottomFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
             const bottomFrame = new THREE.Mesh(bottomFrameGeo, windowFrameMat);
-            bottomFrame.position.set(0, sillHeight + frameThickness/2, 0);
+            bottomFrame.position.set(0, sillHeight + frameThickness / 2, 0);
             bottomFrame.castShadow = enableShadows;
             bottomFrame.receiveShadow = enableShadows;
             doorGroup.add(bottomFrame);
@@ -1351,7 +1359,7 @@ export default function ThreeDView({
               thickness: 1.0
             });
             const glassMesh = new THREE.Mesh(glassGeo, glassMat);
-            glassMesh.position.set(0, sillHeight + windowHeight/2, 0);
+            glassMesh.position.set(0, sillHeight + windowHeight / 2, 0);
             doorGroup.add(glassMesh);
           } else {
             const calculatedDoorHeightPx = door.height_mm ? (door.height_mm / scaleFactor) : (hostWallHeightPx * 0.85);
@@ -1384,21 +1392,21 @@ export default function ThreeDView({
 
             const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
             const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
-            leftPost.position.set(-length/2, frameHeight/2, 0);
+            leftPost.position.set(-length / 2, frameHeight / 2, 0);
             leftPost.castShadow = enableShadows;
             leftPost.receiveShadow = enableShadows;
             doorGroup.add(leftPost);
 
             const rightPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
             const rightPost = new THREE.Mesh(rightPostGeo, frameMat);
-            rightPost.position.set(length/2, frameHeight/2, 0);
+            rightPost.position.set(length / 2, frameHeight / 2, 0);
             rightPost.castShadow = enableShadows;
             rightPost.receiveShadow = enableShadows;
             doorGroup.add(rightPost);
 
             const headerGeo = new THREE.BoxGeometry(length, postThickness, frameDepth);
             const header = new THREE.Mesh(headerGeo, frameMat);
-            header.position.set(0, frameHeight - postThickness/2, 0);
+            header.position.set(0, frameHeight - postThickness / 2, 0);
             header.castShadow = enableShadows;
             header.receiveShadow = enableShadows;
             doorGroup.add(header);
@@ -1424,7 +1432,7 @@ export default function ThreeDView({
               for (let sIdx = 0; sIdx < numSections; sIdx++) {
                 const mainPanelGeo = new THREE.BoxGeometry(pWidth, secH - 1, 4);
                 const panel = new THREE.Mesh(mainPanelGeo, slabMat);
-                panel.position.set(0, sIdx * secH + secH/2, 0);
+                panel.position.set(0, sIdx * secH + secH / 2, 0);
                 panel.castShadow = enableShadows;
                 panel.receiveShadow = enableShadows;
                 doorGroup.add(panel);
@@ -1434,28 +1442,28 @@ export default function ThreeDView({
               const fixedGroup = new THREE.Group();
               const b1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
               const b2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-              b1.position.set(-pWidth/2, slabHeight/2, 0);
-              b2.position.set(pWidth/2, slabHeight/2, 0);
+              b1.position.set(-pWidth / 2, slabHeight / 2, 0);
+              b2.position.set(pWidth / 2, slabHeight / 2, 0);
               fixedGroup.add(b1, b2);
-              fixedGroup.position.set(-pWidth/2, 0, -2);
+              fixedGroup.position.set(-pWidth / 2, 0, -2);
               doorGroup.add(fixedGroup);
 
               const activeGroup = new THREE.Group();
               const ab1 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
               const ab2 = new THREE.Mesh(new THREE.BoxGeometry(2, slabHeight, slabThick), slabMat);
-              ab1.position.set(-pWidth/2, slabHeight/2, 0);
-              ab2.position.set(pWidth/2, slabHeight/2, 0);
+              ab1.position.set(-pWidth / 2, slabHeight / 2, 0);
+              ab2.position.set(pWidth / 2, slabHeight / 2, 0);
               activeGroup.add(ab1, ab2);
-              activeGroup.position.set(pWidth/4, 0, 2);
+              activeGroup.position.set(pWidth / 4, 0, 2);
               doorGroup.add(activeGroup);
             } else if (isDouble) {
               const pWidth = (length - postThickness) / 2;
 
               // Left panel group (pivot on left side)
               const leftGroup = new THREE.Group();
-              leftGroup.position.set(-length/2 + postThickness/2, 0, 0);
+              leftGroup.position.set(-length / 2 + postThickness / 2, 0, 0);
               const leftSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              leftSlab.position.set(pWidth/2, slabHeight/2, 0);
+              leftSlab.position.set(pWidth / 2, slabHeight / 2, 0);
               leftSlab.castShadow = enableShadows;
               leftSlab.receiveShadow = enableShadows;
               leftGroup.add(leftSlab);
@@ -1463,9 +1471,9 @@ export default function ThreeDView({
 
               // Right panel group (pivot on right side)
               const rightGroup = new THREE.Group();
-              rightGroup.position.set(length/2 - postThickness/2, 0, 0);
+              rightGroup.position.set(length / 2 - postThickness / 2, 0, 0);
               const rightSlab = new THREE.Mesh(new THREE.BoxGeometry(pWidth, slabHeight, slabThick), slabMat);
-              rightSlab.position.set(-pWidth/2, slabHeight/2, 0);
+              rightSlab.position.set(-pWidth / 2, slabHeight / 2, 0);
               rightSlab.castShadow = enableShadows;
               rightSlab.receiveShadow = enableShadows;
               rightGroup.add(rightSlab);
@@ -1592,8 +1600,8 @@ export default function ThreeDView({
           <span style={{ fontWeight: "bold", fontSize: "12px", letterSpacing: "0.05em", color: "#60a5fa" }}>
             3D VIEWER CONTROLS
           </span>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             style={{
               color: "#9ca3af",
               fontSize: "11px",
@@ -1617,12 +1625,12 @@ export default function ThreeDView({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
             <span>Floor Slab Depth</span>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <input 
-                type="number" 
-                min="0" 
-                max="5000" 
+              <input
+                type="number"
+                min="0"
+                max="5000"
                 step="50"
-                value={floorDepthMm} 
+                value={floorDepthMm}
                 onChange={(e) => {
                   const str = e.target.value;
                   if (str === "") {
@@ -1813,9 +1821,9 @@ export default function ThreeDView({
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span>Show Room Floors</span>
-            <input 
-              type="checkbox" 
-              checked={showFloors} 
+            <input
+              type="checkbox"
+              checked={showFloors}
               onChange={() => setShowFloors(v => !v)}
               style={{
                 width: "16px",
@@ -1828,9 +1836,9 @@ export default function ThreeDView({
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span>Show Grid helper</span>
-            <input 
-              type="checkbox" 
-              checked={showGrid} 
+            <input
+              type="checkbox"
+              checked={showGrid}
               onChange={() => setShowGrid(v => !v)}
               style={{
                 width: "16px",
@@ -1843,9 +1851,9 @@ export default function ThreeDView({
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span>Show PDF Underlay</span>
-            <input 
-              type="checkbox" 
-              checked={showPDF} 
+            <input
+              type="checkbox"
+              checked={showPDF}
               onChange={() => setShowPDF(v => !v)}
               style={{
                 width: "16px",
@@ -1858,9 +1866,9 @@ export default function ThreeDView({
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span>Show Wood Doors</span>
-            <input 
-              type="checkbox" 
-              checked={showDoors} 
+            <input
+              type="checkbox"
+              checked={showDoors}
               onChange={() => setShowDoors(v => !v)}
               style={{
                 width: "16px",
@@ -1873,9 +1881,9 @@ export default function ThreeDView({
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span>Realistic Shadows</span>
-            <input 
-              type="checkbox" 
-              checked={enableShadows} 
+            <input
+              type="checkbox"
+              checked={enableShadows}
               onChange={() => setEnableShadows(v => !v)}
               style={{
                 width: "16px",
@@ -1888,9 +1896,9 @@ export default function ThreeDView({
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span style={{ color: !showRoofs ? "#f87171" : "#d1d5db" }}>Hide Roof (Ẩn Mái)</span>
-            <input 
-              type="checkbox" 
-              checked={!showRoofs} 
+            <input
+              type="checkbox"
+              checked={!showRoofs}
               onChange={() => setShowRoofs(v => !v)}
               style={{
                 width: "16px",
@@ -1904,9 +1912,9 @@ export default function ThreeDView({
 
           <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db" }}>
             <span style={{ color: visibleLevels[1] === false ? "#f87171" : "#d1d5db" }}>Hide Tầng 2 (Ẩn Lầu 1)</span>
-            <input 
-              type="checkbox" 
-              checked={visibleLevels[1] === false} 
+            <input
+              type="checkbox"
+              checked={visibleLevels[1] === false}
               onChange={(e) => {
                 const hideL2 = e.target.checked;
                 setVisibleLevels(prev => ({
@@ -1927,7 +1935,7 @@ export default function ThreeDView({
 
         {/* Action Buttons */}
         <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-          <button 
+          <button
             onClick={handleResetCamera}
             style={{
               flex: 1,
@@ -2251,7 +2259,7 @@ export default function ThreeDView({
       })()}
 
       {/* Floating Instruction Tips */}
-      <div 
+      <div
         style={{
           position: "absolute",
           bottom: "16px",
