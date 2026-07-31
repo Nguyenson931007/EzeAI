@@ -522,10 +522,18 @@ export default function RightPropertyPaneView({
     return scaleValue ? lengthPx * scaleValue : null;
   }, [selectedWall, scaleValue]);
 
+  const calcRealScale = React.useMemo(() => {
+    if (typeof realScale === 'number' && realScale > 0) return realScale;
+    if (typeof scaleValue === 'number' && scaleValue > 0) {
+      return scaleValue > 1 ? scaleValue : scaleValue * 1000;
+    }
+    return 18.0;
+  }, [realScale, scaleValue]);
+
   const selectedWallMetrics = React.useMemo(() => {
     if (!selectedWall) return null;
-    return computeWallAreas(selectedWall, doors || [], realScale || 1, walls || []);
-  }, [selectedWall, doors, realScale, walls]);
+    return computeWallAreas(selectedWall, doors || [], calcRealScale, walls || []);
+  }, [selectedWall, doors, calcRealScale, walls]);
 
   // Skirting summary calculation for Project Summary Pane (Image 2)
   const skirtingSummaryMetrics = React.useMemo(() => {
@@ -538,7 +546,7 @@ export default function RightPropertyPaneView({
 
     for (const w of pageWalls) {
       if (w.skirting?.enabled === false) continue;
-      const res = computeWallAreas(w, pageDoors.filter(d => d.parentWallId === w.id), realScale || 1, pageWalls);
+      const res = computeWallAreas(w, pageDoors.filter(d => d.parentWallId === w.id), calcRealScale, pageWalls);
       if (res && res.skirtingLengthLm) {
         totalSkirtingLm += res.skirtingLengthLm;
         totalFreeEnds += (res.freeEndsCount || 0);
@@ -556,7 +564,7 @@ export default function RightPropertyPaneView({
       totalLengthsNeeded,
       materialMap
     };
-  }, [walls, doors, realScale]);
+  }, [walls, doors, calcRealScale]);
 
   // Excel export for walls
   const exportWallExcel = () => {

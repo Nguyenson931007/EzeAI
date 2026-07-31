@@ -951,14 +951,23 @@ export default function ThreeDView({
           const hSkirtB = Math.min(activeWallHeight, (Number(skirting.sideB?.height || skirting.height || 100)) / scaleFactor);
           const thickSkirtB = (Number(skirting.sideB?.thickness || skirting.thickness || 12)) / scaleFactor;
 
+          const parseColor = (hexStr, fallback = "#854d0e") => {
+            try {
+              if (!hexStr || typeof hexStr !== "string") return new THREE.Color(fallback);
+              return new THREE.Color(hexStr);
+            } catch (e) {
+              return new THREE.Color(fallback);
+            }
+          };
+
           const matSkirtA = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(colorSkirtA),
-            roughness: 0.4,
+            color: parseColor(colorSkirtA, "#854d0e"),
+            roughness: 0.3,
             metalness: 0.1,
           });
           const matSkirtB = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(colorSkirtB),
-            roughness: 0.4,
+            color: parseColor(colorSkirtB, "#854d0e"),
+            roughness: 0.3,
             metalness: 0.1,
           });
 
