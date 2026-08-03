@@ -4138,8 +4138,8 @@ def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> di
                     "id": f"roof_ai_{int(time.time() * 1000)}_{idx}",
                     "polygon": cad_polygon,
                     "roof_type": "flat",
-                    "pitchAngle": 15,
-                    "overhang": 300,
+                    "pitchAngle": 0,
+                    "overhang": 0,
                     "review_state": "AI_GENERATED",
                     "conf": float(confs[idx]) if idx < len(confs) else 0.95
                 })

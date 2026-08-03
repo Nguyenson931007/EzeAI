@@ -41,7 +41,7 @@ const _cutWallsByDoors = cutWallsByDoors;
 function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
   return walls;
   const EDGE_MARGIN = 20;
-  
+
   // Calculate room bounding box if rooms exist
   let hasRooms = rooms && rooms.length > 0;
   let minRoomX = Infinity, maxRoomX = -Infinity;
@@ -60,13 +60,13 @@ function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
       }
     });
   }
-  
+
   const ROOM_PADDING = 150; // tighter padding around rooms (150px instead of 350px)
-  
+
   return walls.filter(w => {
     if (!w.centerline || w.centerline.length !== 2) return true;
     const [p1, p2] = w.centerline;
-    
+
     // 1. Edge Wall Filter (parallel to image boundaries)
     if (imgW && imgH) {
       if (p1[1] < EDGE_MARGIN && p2[1] < EDGE_MARGIN) return false; // top edge
@@ -74,19 +74,19 @@ function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
       if (p1[0] < EDGE_MARGIN && p2[0] < EDGE_MARGIN) return false; // left edge
       if (p1[0] > imgW - EDGE_MARGIN && p2[0] > imgW - EDGE_MARGIN) return false; // right edge
     }
-    
+
     // 2. Room Proximity Filter (only if rooms exist)
     if (hasRooms && minRoomX !== Infinity) {
       const wMinX = Math.min(p1[0], p2[0]);
       const wMaxX = Math.max(p1[0], p2[0]);
       const wMinY = Math.min(p1[1], p2[1]);
       const wMaxY = Math.max(p1[1], p2[1]);
-      
+
       // If the wall is completely outside the padded rooms bounding box, discard it
-      if (wMaxX < minRoomX - ROOM_PADDING || 
-          wMinX > maxRoomX + ROOM_PADDING || 
-          wMaxY < minRoomY - ROOM_PADDING || 
-          wMinY > maxRoomY + ROOM_PADDING) {
+      if (wMaxX < minRoomX - ROOM_PADDING ||
+        wMinX > maxRoomX + ROOM_PADDING ||
+        wMaxY < minRoomY - ROOM_PADDING ||
+        wMinY > maxRoomY + ROOM_PADDING) {
         return false;
       }
     }
@@ -110,7 +110,7 @@ function _filterFalsePositiveWalls(walls, rooms, imgW, imgH) {
         return false; // Discard isolated low-confidence wall
       }
     }
-    
+
     return true;
   });
 }
@@ -631,7 +631,7 @@ export const useAIController = (
       try {
         const saved = localStorage.getItem('ezefloor_wall_thickness_config');
         if (saved) activeThicknesses = JSON.parse(saved);
-      } catch (e) {}
+      } catch (e) { }
     }
     const { ext = 90, int = 70, part = 70, defaultHeight = 2700 } = activeThicknesses || {};
 
@@ -649,7 +649,7 @@ export const useAIController = (
         activeThicknesses,
         (event) => {
           if (job.token !== roiInferenceIdRef.current) return;
-          
+
           console.log("[Wall Seg Stream Event]:", event);
 
           if (event.message) {
@@ -935,20 +935,20 @@ export const useAIController = (
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true) : [];
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => {
-              const snapped = snapDoorToWalls(d, uncutWalls, 80, true);
-              if (snapped.points && snapped.points.length >= 2) {
-                const pt0 = snapped.points[0];
-                const pt1 = snapped.points[1];
-                const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
-                const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
-                const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
-                const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
-                const center = { x: (px0 + px1) / 2, y: (py0 + py1) / 2 };
-                const pw = findParentWall(center, uncutWalls);
-                if (pw) snapped.parentWallId = pw.id;
-              }
-              return snapped;
-            })
+            const snapped = snapDoorToWalls(d, uncutWalls, 80, true);
+            if (snapped.points && snapped.points.length >= 2) {
+              const pt0 = snapped.points[0];
+              const pt1 = snapped.points[1];
+              const px0 = Array.isArray(pt0) ? pt0[0] : pt0.x;
+              const py0 = Array.isArray(pt0) ? pt0[1] : pt0.y;
+              const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
+              const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
+              const center = { x: (px0 + px1) / 2, y: (py0 + py1) / 2 };
+              const pw = findParentWall(center, uncutWalls);
+              if (pw) snapped.parentWallId = pw.id;
+            }
+            return snapped;
+          })
           : detectedDoors;
 
         const mergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
@@ -1135,7 +1135,7 @@ export const useAIController = (
           try {
             const saved = localStorage.getItem('ezefloor_wall_thickness_config');
             if (saved) activeThicknesses = JSON.parse(saved);
-          } catch (e) {}
+          } catch (e) { }
         }
         const { ext = 90, int = 70, part = 70, defaultHeight = 2700 } = activeThicknesses || {};
 
@@ -1376,13 +1376,13 @@ export const useAIController = (
 
   const generateRoomsFromWalls = async (gapThreshold = 120) => {
     if (!setRoomsByPage) return;
-    
+
     setIsDetecting(true);
     setCacheStatus("processing");
     try {
       const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
       const currentDoors = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
-      
+
       let texts = [];
       try {
         setCacheStatus("Detecting room labels...");
@@ -1419,7 +1419,7 @@ export const useAIController = (
       console.log("[generateRoomsFromWalls] Request sent. currentWalls:", currentWalls.length, "currentDoors:", currentDoors.length, "texts:", texts.length);
       const res = await ApiService.generateRoomsFromWalls(currentWalls, currentDoors, texts, gapThreshold);
       console.log("[generateRoomsFromWalls] Response received:", res);
-      
+
       if (res && res.success && res.rooms) {
         console.log("[generateRoomsFromWalls] Setting rooms count:", res.rooms.length, res.rooms);
         if (res.rooms.length === 0) {
@@ -1430,12 +1430,12 @@ export const useAIController = (
         // Use perfect topology rooms first, and use existing YOLO rooms as fallbacks for unclosed regions
         const existingRooms = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
         const mergedRooms = [...res.rooms];
-        
+
         const IOU_THRESHOLD = 0.3;
         const fallbackRooms = existingRooms.filter(eRoom => {
           const ePoly = eRoom.polygon || eRoom.points;
           if (!ePoly || ePoly.length < 3) return false;
-          
+
           for (const tRoom of res.rooms) {
             const tPoly = tRoom.polygon || tRoom.points;
             if (tPoly && _bboxIoU(ePoly, tPoly) >= IOU_THRESHOLD) {
@@ -1509,8 +1509,8 @@ export const useAIController = (
             id: r.id || `roof_ai_${Date.now()}_${idx}`,
             polygon: shiftedPoly,
             roof_type: r.roof_type || "flat",
-            pitchAngle: r.pitchAngle || 15,
-            overhang: r.overhang || 300,
+            pitchAngle: r.pitchAngle || 0,
+            overhang: r.overhang || 0,
             review_state: "AI_GENERATED"
           };
         });
@@ -1540,7 +1540,7 @@ export const useAIController = (
       const currentWalls = wallsByPage[currentPage] || [];
       const currentDoors = doorsByPage[currentPage] || [];
       const currentTexts = textAnnotationsByPage[currentPage] || [];
-      
+
       const res = await ApiService.createRoomAtPoint(x, y, currentWalls, currentDoors, currentTexts, gapThreshold);
       if (res && res.success && res.room) {
         setRoomsByPage(prev => {

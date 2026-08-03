@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, distancePointToSegment } from "@/utils/geometry";
 
 function insetPolygon3D(pts, offset = 20.0) {
   if (!pts || pts.length < 3) return pts;
@@ -695,7 +695,7 @@ export default function ThreeDView({
           const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
           const roofThickness = 120 / scaleFactor;
 
-          const pitchDeg = typeof roof.pitchAngle === 'number' ? roof.pitchAngle : 15;
+          const pitchDeg = typeof roof.pitchAngle === 'number' ? roof.pitchAngle : 0;
           const pitchRad = pitchDeg * (Math.PI / 180);
 
           const material = new THREE.MeshStandardMaterial({
@@ -707,7 +707,7 @@ export default function ThreeDView({
             opacity: 0.88
           });
 
-          if (pitchDeg <= 0 || roof.roof_type === "flat") {
+          if (pitchDeg == 0) {
             // Flat roof extrude
             const shape = new THREE.Shape();
             shape.moveTo(pts2d[0].x, pts2d[0].y);
@@ -746,6 +746,7 @@ export default function ThreeDView({
                 totalDist += dist;
               }
             }
+
             const avgDist = totalDist / Math.max(1, n);
             const pitchHeight = avgDist * tanPitch;
 
@@ -1035,10 +1036,10 @@ export default function ThreeDView({
           const isOutdoorRoomName = (name) => {
             if (!name) return false;
             const n = String(name).toLowerCase();
-            return n.includes("deck") || n.includes("alfresco") || n.includes("patio") || 
-                   n.includes("balcony") || n.includes("porch") || n.includes("verandah") || 
-                   n.includes("terrace") || n.includes("courtyard") || n.includes("outdoor") || 
-                   n.includes("yard") || n.includes("carport");
+            return n.includes("deck") || n.includes("alfresco") || n.includes("patio") ||
+              n.includes("balcony") || n.includes("porch") || n.includes("verandah") ||
+              n.includes("terrace") || n.includes("courtyard") || n.includes("outdoor") ||
+              n.includes("yard") || n.includes("carport");
           };
 
           // Resolve Side A Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
