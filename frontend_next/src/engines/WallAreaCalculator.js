@@ -111,7 +111,7 @@ function isEndpointConnected(point, wallId, allWalls = [], tolerance = 50) {
  * @param {Array} allWalls - Array of all walls for connectivity check
  * @returns {Object} Computed area metrics (all in mm² or mm)
  */
-export function computeWallAreas(wall, doors = [], realScale = 1, allWalls = []) {
+export function computeWallAreas(wall, doors = [], realScale = 1, allWalls = [], windows = []) {
   const wallLengthMm = getWallLengthMm(wall, realScale);
   const wallHeightMm = getWallHeightMm(wall);
   const wallThicknessMm = getWallThicknessMm(wall, realScale);
@@ -120,12 +120,14 @@ export function computeWallAreas(wall, doors = [], realScale = 1, allWalls = [])
   // ── Single-face gross area ──
   const originalWallArea = wallLengthMm * wallHeightMm; // mm²
 
-  // ── Door openings ──
+  // ── Door & Window openings ──
   let totalDoorOpeningArea = 0;
   let totalDoorWidthMm = 0;
   const doorDetails = [];
 
-  for (const door of doors) {
+  const allOpenings = [...(doors || []), ...(windows || [])];
+
+  for (const door of allOpenings) {
     const { widthMm, heightMm } = getDoorDimensionsOnWall(door, wall, realScale);
     const doorArea = widthMm * heightMm;
     totalDoorOpeningArea += doorArea;

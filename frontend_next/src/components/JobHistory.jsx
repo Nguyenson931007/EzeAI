@@ -31,9 +31,14 @@ const JobHistory = ({ username, onLoadJob }) => {
       const data = await ApiService.getAllJobs(LIMIT, offset);
       if (Array.isArray(data)) {
         setJobs(data);
+      } else if (data && Array.isArray(data.jobs)) {
+        setJobs(data.jobs);
+      } else {
+        setJobs([]);
       }
     } catch (err) {
       console.error('Error fetching jobs:', err);
+      setJobs([]);
     } finally {
       setLoading(false);
     }
@@ -42,10 +47,21 @@ const JobHistory = ({ username, onLoadJob }) => {
   const fetchHistory = async () => {
     try {
       const res = await fetch(`${ApiService.BASE_URL || '/api'}/jobs/history`);
-      const data = await res.json();
-      setHistory(data);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setHistory(data);
+        } else if (data && Array.isArray(data.history)) {
+          setHistory(data.history);
+        } else {
+          setHistory([]);
+        }
+      } else {
+        setHistory([]);
+      }
     } catch (err) {
       console.error('Error fetching history:', err);
+      setHistory([]);
     }
   };
 
@@ -145,8 +161,9 @@ const JobHistory = ({ username, onLoadJob }) => {
   };
 
 
-  const filteredJobs = jobs.filter(job => 
-    (job.project_name || "").toLowerCase().includes(searchTerm.toLowerCase())
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const filteredJobs = safeJobs.filter(job => 
+    (job?.project_name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -291,18 +308,18 @@ const JobHistory = ({ username, onLoadJob }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.length === 0 ? (
+                  {(!Array.isArray(history) || history.length === 0) ? (
                     <tr><td colSpan="3" style={{ textAlign: 'center', padding: '20px' }}>No history yet</td></tr>
                   ) : history.map((item, idx) => (
                     <tr key={idx}>
-                      <td style={{ fontWeight: 'bold', color: '#818cf8' }}>{item.project_name}</td>
+                      <td style={{ fontWeight: 'bold', color: '#818cf8' }}>{item?.project_name || 'N/A'}</td>
                       <td>
-                        <span style={{ color: '#f87171' }}>{item.old_user || 'Unknown'}</span>
+                        <span style={{ color: '#f87171' }}>{item?.old_user || 'Unknown'}</span>
                         <span style={{ margin: '0 8px', opacity: 0.5 }}>→</span>
-                        <span style={{ color: '#4ade80' }}>{item.new_user}</span>
+                        <span style={{ color: '#4ade80' }}>{item?.new_user || 'Unknown'}</span>
                       </td>
                       <td style={{ fontSize: '12px', color: '#64748b' }}>
-                        {new Date(item.changed_at).toLocaleString()}
+                        {item?.changed_at ? new Date(item.changed_at).toLocaleString() : 'N/A'}
                       </td>
                     </tr>
                   ))}

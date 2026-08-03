@@ -42,9 +42,14 @@ const UserManagement = ({ onLoadJob }) => {
     try {
       setLoading(true);
       const data = await ApiService.getUsers();
-      setUsers(data);
+      if (Array.isArray(data)) {
+        setUsers(data);
+      } else {
+        setUsers([]);
+      }
     } catch (err) {
       console.error('Error fetching users:', err);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -126,14 +131,16 @@ const UserManagement = ({ onLoadJob }) => {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    (u.username || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (u.email || "").toLowerCase().includes(searchTerm.toLowerCase())
+  const safeUsers = Array.isArray(users) ? users : [];
+  const filteredUsers = safeUsers.filter(u => 
+    (u?.username || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (u?.email || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const pendingUsers = filteredUsers.filter(u => u.status === 'pending');
-  const lockedUsers = filteredUsers.filter(u => u.is_locked === 1);
-  const existingUsers = filteredUsers.filter(u => u.status !== 'pending' && u.is_locked !== 1);
+  const pendingUsers = filteredUsers.filter(u => u?.status === 'pending');
+  const lockedUsers = filteredUsers.filter(u => u?.is_locked === 1);
+  const existingUsers = filteredUsers.filter(u => u?.status !== 'pending' && u?.is_locked !== 1);
+  const safeUserJobs = Array.isArray(userJobs) ? userJobs : [];
 
   return (
     <div className="admin-container" onWheel={(e) => e.stopPropagation()}>
@@ -380,7 +387,7 @@ const UserManagement = ({ onLoadJob }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {userJobs.map(job => (
+                    {safeUserJobs.map(job => (
                       <tr key={job.id}>
                         <td>#{job.id}</td>
                         <td>

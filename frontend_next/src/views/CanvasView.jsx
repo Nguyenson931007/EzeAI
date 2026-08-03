@@ -904,8 +904,8 @@ const WallLayer = React.memo(({
         const nx = -dy / len;
         const ny = dx / len;
 
-        const offsetA = (thickPx / 2) + 2;
-        const offsetB = -(thickPx / 2) - 2;
+        const offsetA = (thickPx / 2) + 1;
+        const offsetB = -(thickPx / 2) - 1;
 
         const skirtingColorA = w.skirting?.sideA?.color || w.skirting?.color || "#854d0e";
         const skirtingColorB = w.skirting?.sideB?.color || w.skirting?.color || "#854d0e";
@@ -971,9 +971,9 @@ const WallLayer = React.memo(({
                 x2={p2[0] + nx * offsetA}
                 y2={p2[1] + ny * offsetA}
                 stroke={skirtingColorA}
-                strokeWidth={1.8}
+                strokeWidth={1.6}
                 strokeDasharray="4 2"
-                opacity={0.85}
+                opacity={0.9}
               />
             )}
 
@@ -985,13 +985,13 @@ const WallLayer = React.memo(({
                 x2={p2[0] + nx * offsetB}
                 y2={p2[1] + ny * offsetB}
                 stroke={skirtingColorB}
-                strokeWidth={1.8}
+                strokeWidth={1.6}
                 strokeDasharray="4 2"
-                opacity={0.85}
+                opacity={0.9}
               />
             )}
 
-            {/* Closed End Cap Line at Dead-End Tip 1 (Image 3 Requirement) */}
+            {/* Closed End Cap Line at Dead-End Tip 1 */}
             {p1Free && (renderSideA || renderSideB) && (
               <line
                 x1={p1[0] + nx * offsetA}
@@ -999,13 +999,13 @@ const WallLayer = React.memo(({
                 x2={p1[0] + nx * offsetB}
                 y2={p1[1] + ny * offsetB}
                 stroke={renderSideA ? skirtingColorA : skirtingColorB}
-                strokeWidth={1.8}
+                strokeWidth={1.6}
                 strokeDasharray="4 2"
-                opacity={0.85}
+                opacity={0.9}
               />
             )}
 
-            {/* Closed End Cap Line at Dead-End Tip 2 (Image 3 Requirement) */}
+            {/* Closed End Cap Line at Dead-End Tip 2 */}
             {p2Free && (renderSideA || renderSideB) && (
               <line
                 x1={p2[0] + nx * offsetA}
@@ -1013,9 +1013,9 @@ const WallLayer = React.memo(({
                 x2={p2[0] + nx * offsetB}
                 y2={p2[1] + ny * offsetB}
                 stroke={renderSideA ? skirtingColorA : skirtingColorB}
-                strokeWidth={1.8}
+                strokeWidth={1.6}
                 strokeDasharray="4 2"
-                opacity={0.85}
+                opacity={0.9}
               />
             )}
           </g>
@@ -1040,51 +1040,98 @@ const WallLayer = React.memo(({
         }
 
         return (
-          <polygon
-            key={`hitbox-${w.id}-${idx}`}
-            points={pointsStr}
-            fill={fillColor}
-            stroke={strokeColor}
-            strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
-            style={{
-              cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
-              pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
-            }}
-            onMouseEnter={() => setHoverId(w.id)}
-            onMouseLeave={() => setHoverId(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (onWallContextMenu) onWallContextMenu(e, w);
-            }}
-            onClick={(e) => {
-              if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
-              e.stopPropagation();
-            }}
-            onDoubleClick={(e) => {
-              if (interactionMode === "draw-wall") return;
-              if (interactionMode === "cut-wall") return;
-              e.stopPropagation();
-              if (handleWallDoubleClick) {
-                handleWallDoubleClick(w.id);
-              }
-            }}
-            onMouseDown={(e) => {
-              if (interactionMode === "draw-wall") return;
-              if (interactionMode === "cut-wall") return;
-              e.stopPropagation();
-              // Left click starts wall-move drag
-              if (e.button === 0 && startDrag) {
-                if (selectWall) {
-                  selectWall(w.id, e.ctrlKey || e.shiftKey);
-                } else {
-                  setSelectedId(w.id);
-                  setSelectedType("wall");
+          <g key={`wall-hitbox-group-${w.id}-${idx}`}>
+            {/* Expanded Invisible Hit Line along Wall Centerline for Effortless Selection on Small/Thin Walls */}
+            {w.centerline && w.centerline.length === 2 && (
+              <line
+                x1={w.centerline[0][0]}
+                y1={w.centerline[0][1]}
+                x2={w.centerline[1][0]}
+                y2={w.centerline[1][1]}
+                stroke="transparent"
+                strokeWidth={Math.max((w.thickness_px || 20) + 24, 36)}
+                strokeLinecap="round"
+                style={{
+                  cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
+                  pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
+                }}
+                onMouseEnter={() => setHoverId(w.id)}
+                onMouseLeave={() => setHoverId(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (onWallContextMenu) onWallContextMenu(e, w);
+                }}
+                onClick={(e) => {
+                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                  e.stopPropagation();
+                }}
+                onDoubleClick={(e) => {
+                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                  e.stopPropagation();
+                  if (handleWallDoubleClick) handleWallDoubleClick(w.id);
+                }}
+                onMouseDown={(e) => {
+                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                  e.stopPropagation();
+                  if (e.button === 0 && startDrag) {
+                    if (selectWall) selectWall(w.id, e.ctrlKey || e.shiftKey);
+                    else {
+                      setSelectedId(w.id);
+                      setSelectedType("wall");
+                    }
+                    startDrag(w.id, null, 'wall-move', e.shiftKey || e.ctrlKey);
+                  }
+                }}
+              />
+            )}
+
+            {/* Wall Polygon Hitbox */}
+            <polygon
+              key={`hitbox-${w.id}-${idx}`}
+              points={pointsStr}
+              fill={fillColor}
+              stroke={strokeColor}
+              strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
+              style={{
+                cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
+                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
+              }}
+              onMouseEnter={() => setHoverId(w.id)}
+              onMouseLeave={() => setHoverId(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (onWallContextMenu) onWallContextMenu(e, w);
+              }}
+              onClick={(e) => {
+                if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                e.stopPropagation();
+              }}
+              onDoubleClick={(e) => {
+                if (interactionMode === "draw-wall") return;
+                if (interactionMode === "cut-wall") return;
+                e.stopPropagation();
+                if (handleWallDoubleClick) {
+                  handleWallDoubleClick(w.id);
                 }
-                startDrag(w.id, null, 'wall-move', e.shiftKey || e.ctrlKey);
-              }
-            }}
-          />
+              }}
+              onMouseDown={(e) => {
+                if (interactionMode === "draw-wall") return;
+                if (interactionMode === "cut-wall") return;
+                e.stopPropagation();
+                if (e.button === 0 && startDrag) {
+                  if (selectWall) {
+                    selectWall(w.id, e.ctrlKey || e.shiftKey);
+                  } else {
+                    setSelectedId(w.id);
+                    setSelectedType("wall");
+                  }
+                  startDrag(w.id, null, 'wall-move', e.shiftKey || e.ctrlKey);
+                }
+              }}
+            />
+          </g>
         );
       })}
 
@@ -1200,15 +1247,23 @@ const WallHandlesLayer = React.memo(({
         const my = (p1[1] + p2[1]) / 2;
         const wallLabel = formatWallDisplayName(w, idx);
 
-        let angle = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]) * 180 / Math.PI;
+        const dx = p2[0] - p1[0];
+        const dy = p2[1] - p1[1];
+        const wallLen = Math.hypot(dx, dy);
+        
+        let angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle > 90 || angle < -90) angle += 180;
-        const badgeWidth = Math.max(32, wallLabel.length * 6.5 + 10);
+        const badgeWidth = Math.max(28, wallLabel.length * 6.0 + 8);
+
+        // Smart perpendicular offset for short walls (wallLen < 50px) so badge shifts off wall body
+        const isShortWall = wallLen < 50;
+        const offsetY = isShortWall ? -16 : 0;
 
         return (
           <g key={`wall-group-${w.id}-${idx}`}>
             {/* 2D Wall Name Badge */}
             <g
-              transform={`translate(${mx}, ${my}) rotate(${angle})`}
+              transform={`translate(${mx}, ${my}) rotate(${angle}) translate(0, ${offsetY})`}
               style={{ cursor: 'pointer', pointerEvents: 'auto' }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1228,7 +1283,7 @@ const WallHandlesLayer = React.memo(({
               <text
                 x={0}
                 y={3}
-                fontSize={9.5}
+                fontSize={9.0}
                 fontWeight="700"
                 fill="#ffffff"
                 textAnchor="middle"

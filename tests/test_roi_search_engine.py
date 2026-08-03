@@ -115,6 +115,14 @@ def mock_db(tmp_path, monkeypatch):
         return DBConnection(c, "sqlite")
         
     monkeypatch.setattr("app.database.get_db_connection", get_test_conn)
+    import services.search.ocr_search_engine
+    import services.search.roi_search_engine
+    import services.search.search_index_manager
+    import services.search.pattern_search_engine
+    monkeypatch.setattr(services.search.ocr_search_engine, "get_db_connection", get_test_conn)
+    monkeypatch.setattr(services.search.roi_search_engine, "get_db_connection", get_test_conn)
+    monkeypatch.setattr(services.search.search_index_manager, "get_db_connection", get_test_conn)
+    monkeypatch.setattr(services.search.pattern_search_engine, "get_db_connection", get_test_conn)
     return job_id
 
 def test_fuzzy_match():

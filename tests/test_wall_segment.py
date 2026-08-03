@@ -126,9 +126,12 @@ def test_split_walls_at_t_junctions():
     
     result = _split_walls_at_t_junctions(walls)
     
-    # Since the T-junction splitting feature is disabled, the walls should be returned unmodified
-    assert len(result) == 3
-    assert result == walls
+    # Wall 1 is split into 3 segments, plus 2 perpendicular walls = 5 total wall segments
+    assert len(result) == 5
+    centerlines = [w["centerline"] for w in result]
+    assert [[0.0, 100.0], [30.0, 100.0]] in centerlines
+    assert [[30.0, 100.0], [70.0, 100.0]] in centerlines
+    assert [[70.0, 100.0], [100.0, 100.0]] in centerlines
 
 
 def test_merge_collinear_walls_skewed_rejection():

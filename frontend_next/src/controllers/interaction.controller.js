@@ -834,30 +834,73 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           }
           curr[parts[parts.length - 1]] = value;
 
-          // Sync legacy compatibility properties
+          // Sync legacy & per-face skirting properties
           if (field === "surface.sideA.finishType") newWall.finishTypeSideA = value;
           if (field === "surface.sideA.finishHeight") newWall.finishHeightSideAMm = Number(value);
           if (field === "surface.sideB.finishType") newWall.finishTypeSideB = value;
           if (field === "surface.sideB.finishHeight") newWall.finishHeightSideBMm = Number(value);
+          if (field === "skirting.height") {
+            const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
+            if (!skirting.sideA) skirting.sideA = {};
+            if (!skirting.sideB) skirting.sideB = {};
+            skirting.sideA.height = Number(value);
+            skirting.sideB.height = Number(value);
+            newWall.skirting = skirting;
+            newWall.skirtingHeight = Number(value);
+          }
+          if (field === "skirting.thickness") {
+            const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
+            if (!skirting.sideA) skirting.sideA = {};
+            if (!skirting.sideB) skirting.sideB = {};
+            skirting.thickness = Number(value);
+            skirting.sideA.thickness = Number(value);
+            skirting.sideB.thickness = Number(value);
+            newWall.skirting = skirting;
+            newWall.skirtingThickness = Number(value);
+          }
+          if (field === "skirting.color" || field === "skirting.sideA.color" || field === "skirting.sideB.color") {
+            const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
+            if (!skirting.sideA) skirting.sideA = {};
+            if (!skirting.sideB) skirting.sideB = {};
+            skirting.color = value;
+            skirting.sideA.color = value;
+            skirting.sideB.color = value;
+            newWall.skirting = skirting;
+            newWall.skirtingColor = value;
+          }
+          if (field === "skirting.material" || field === "skirting.sideA.material" || field === "skirting.sideB.material") {
+            const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
+            if (!skirting.sideA) skirting.sideA = {};
+            if (!skirting.sideB) skirting.sideB = {};
+            skirting.material = value;
+            skirting.sideA.material = value;
+            skirting.sideB.material = value;
+            newWall.skirting = skirting;
+            newWall.skirtingMaterial = value;
+          }
         } else {
           // Direct property assignment
           newWall[field] = value;
           if (field === "finishTypeSideA") {
-            if (!newWall.surface) newWall.surface = {};
-            if (!newWall.surface.sideA) newWall.surface.sideA = {};
-            newWall.surface.sideA.finishType = value;
+            const surface = JSON.parse(JSON.stringify(newWall.surface || { sideA: {}, sideB: {} }));
+            if (!surface.sideA) surface.sideA = {};
+            surface.sideA.finishType = value;
+            newWall.surface = surface;
           } else if (field === "finishHeightSideAMm") {
-            if (!newWall.surface) newWall.surface = {};
-            if (!newWall.surface.sideA) newWall.surface.sideA = {};
-            newWall.surface.sideA.finishHeight = Number(value);
+            const surface = JSON.parse(JSON.stringify(newWall.surface || { sideA: {}, sideB: {} }));
+            if (!surface.sideA) surface.sideA = {};
+            surface.sideA.finishHeight = Number(value);
+            newWall.surface = surface;
           } else if (field === "finishTypeSideB") {
-            if (!newWall.surface) newWall.surface = {};
-            if (!newWall.surface.sideB) newWall.surface.sideB = {};
-            newWall.surface.sideB.finishType = value;
+            const surface = JSON.parse(JSON.stringify(newWall.surface || { sideA: {}, sideB: {} }));
+            if (!surface.sideB) surface.sideB = {};
+            surface.sideB.finishType = value;
+            newWall.surface = surface;
           } else if (field === "finishHeightSideBMm") {
-            if (!newWall.surface) newWall.surface = {};
-            if (!newWall.surface.sideB) newWall.surface.sideB = {};
-            newWall.surface.sideB.finishHeight = Number(value);
+            const surface = JSON.parse(JSON.stringify(newWall.surface || { sideA: {}, sideB: {} }));
+            if (!surface.sideB) surface.sideB = {};
+            surface.sideB.finishHeight = Number(value);
+            newWall.surface = surface;
           }
         }
         return newWall;
@@ -1422,9 +1465,23 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           centerline: [splitPt, p2]
         };
 
+        const pageDoors = doorsByPage[currentPage] || [];
+        const updatedDoors = pageDoors.map(d => {
+          if (d.parentWallId === targetWall.id || getBaseWallId(d.parentWallId) === getBaseWallId(targetWall.id)) {
+            const doorPt = d.position ? { x: d.position.x || d.position[0], y: d.position.y || d.position[1] } : null;
+            if (doorPt) {
+              const d1 = distancePointToSegment(doorPt, { x: p1[0], y: p1[1] }, { x: splitPt[0], y: splitPt[1] }).dist;
+              const d2 = distancePointToSegment(doorPt, { x: splitPt[0], y: splitPt[1] }, { x: p2[0], y: p2[1] }).dist;
+              return { ...d, parentWallId: d1 <= d2 ? w1_id : w2_id };
+            }
+          }
+          return d;
+        });
+
         const filteredWalls = pageWalls.filter(w => w.id !== targetWall.id);
         const recalculated = recalculateAllWallsPolygons([...filteredWalls, w1, w2]);
-        pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
+        setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
+        pushHistory(rooms, recalculated, updatedDoors);
         setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
         setSelectedWallIds([w1_id, w2_id]);
         setSelectedId(w1_id);

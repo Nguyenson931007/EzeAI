@@ -1158,10 +1158,15 @@ def _expand_rooms_to_exterior_walls(polys: list, walls: list) -> list:
         from shapely.geometry import Polygon, LineString
         from shapely.ops import unary_union
         
-        # Gather all wall thickness polygons
-        wall_polys = []
+        # Separate exterior wall thickness polygons from interior/partition wall polygons
+        ext_wall_polys = []
+        int_wall_polys = []
+        
         for w in walls:
+            c_name = str(w.get("class_name") or w.get("wall_type") or "").lower()
+            is_ext = "ext" in c_name or "exterior" in c_name
             pts = w.get("polygon") or w.get("points")
+            wp = None
             if pts and len(pts) >= 3:
                 parsed_pts = []
                 for p in pts:
@@ -1171,9 +1176,9 @@ def _expand_rooms_to_exterior_walls(polys: list, walls: list) -> list:
                         parsed_pts.append((float(p[0]), float(p[1])))
                 if len(parsed_pts) >= 3:
                     try:
-                        wp = Polygon(parsed_pts)
-                        if wp.is_valid and wp.area > 5.0:
-                            wall_polys.append(wp)
+                        candidate = Polygon(parsed_pts)
+                        if candidate.is_valid and candidate.area > 5.0:
+                            wp = candidate
                     except Exception:
                         pass
             elif w.get("centerline") and len(w.get("centerline")) == 2:
@@ -1186,23 +1191,37 @@ def _expand_rooms_to_exterior_walls(polys: list, walls: list) -> list:
                 thick = float(w.get("thickness") or 90.0)
                 try:
                     ls = LineString([p1, p2])
-                    wall_polys.append(ls.buffer(thick / 2.0, cap_style=2, join_style=2))
+                    wp = ls.buffer(thick / 2.0, cap_style=2, join_style=2)
                 except Exception:
                     pass
-                    
-        if not wall_polys:
-            return polys
             
-        wall_union = unary_union(wall_polys)
-        footprint = unary_union(polys + [wall_union])
+            if wp:
+                if is_ext:
+                    ext_wall_polys.append(wp)
+                else:
+                    int_wall_polys.append(wp)
+
+        ext_wall_union = unary_union(ext_wall_polys) if ext_wall_polys else None
+        int_wall_union = unary_union(int_wall_polys) if int_wall_polys else None
         
         expanded_polys = []
         for i, p in enumerate(polys):
             try:
-                p_buffered = p.buffer(100.0, cap_style=2, join_style=2)
-                p_clipped = p_buffered.intersection(footprint)
+                # 1. Expand room polygon outwards towards exterior wall facade
+                if ext_wall_union:
+                    p_ext = p.buffer(60.0, cap_style=2, join_style=2).intersection(unary_union([p, ext_wall_union]))
+                else:
+                    p_ext = p
+                
+                # 2. Subtract interior/partition wall bounds so room NEVER bleeds across interior walls
+                if int_wall_union:
+                    p_bounded = p_ext.difference(int_wall_union)
+                else:
+                    p_bounded = p_ext
+                
+                # 3. Ensure no overlap with other room footprints
                 other_rooms = unary_union([polys[j] for j in range(len(polys)) if j != i])
-                p_final = p_clipped.difference(other_rooms)
+                p_final = p_bounded.difference(other_rooms)
                 
                 if p_final.geom_type == 'MultiPolygon':
                     p_final = max(p_final.geoms, key=lambda g: g.area)
@@ -1293,6 +1312,7 @@ class GenerateRoomsRequest(BaseModel):
     doors: Optional[List[Dict[str, Any]]] = None
     texts: Optional[List[Dict[str, Any]]] = None
     gap_threshold: Optional[float] = 120.0
+    expand_to_exterior_walls: Optional[bool] = False
 
 
 @router.post("/api/generate-rooms-from-walls")
@@ -1489,7 +1509,8 @@ def api_generate_rooms_from_walls(
         polys = _split_polygons_by_multi_texts(polys, texts, walls)
 
         # 4b. Expand room polygons to include exterior wall thickness (Image 2 effect)
-        polys = _expand_rooms_to_exterior_walls(polys, walls)
+        if req.expand_to_exterior_walls:
+            polys = _expand_rooms_to_exterior_walls(polys, walls)
         
         # Name rooms using Auto AI's full filtering & matching logic
         rooms_detected = []
