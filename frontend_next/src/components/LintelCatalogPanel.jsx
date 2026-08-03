@@ -102,7 +102,7 @@ export default function LintelCatalogPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {filteredCatalog.map(item => {
               const isSelected = selectedLintel && selectedLintel.catalogId === item.id;
-              const isLocked = !!selectedLintel?.isRounded;
+              const isLocked = false;
 
               return (
                 <div

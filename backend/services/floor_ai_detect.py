@@ -136,16 +136,29 @@ ROOM_KEYWORDS = [
     "WC", "TOILET", "PWD", "PDR", "POWDER","POR",
     "DINING", "DNG",
     "HALL", "HALLWAY", "FOYER", "ENTRY",
-    "GARAGE", "CAR",
+    "GARAGE", "CAR", "GARA",
     "POOL", "SWIMMING",
     "DECK", "BALCONY", "TERRACE", "ALFRESCO", "PATIO", "VERANDA", "COURTYARD",
     "PORCH",
     "STUDY", "OFFICE", "STUDIO",
     "ROBE", "WIR", "BIR", "WIL", "W.I.R",
-    "PANTRY", "STORE", "STORAGE", "WIP", "PTRY", "STR",
+    "PANTRY", "STORE", "STORAGE", "WIP", "PTRY", "STR", "KHO",
     "MEDIA", "THEATER", "THEATRE",
     "LINEN", "MUD", "RETREAT", "RUMPUS", "GYM", "LIBRARY",
     "LIFT", "NOOK", "CELLAR", "SHED", "RECREATION", "STAIRS", "UP", "VOID", "LOFT",
+    # Vietnamese Room Keywords
+    "PHÒNG NGỦ", "P.NGỦ", "P.NGU", "PNGỦ", "PNGU", "PN",
+    "PHÒNG KHÁCH", "P.KHÁCH", "P.KHACH", "PKHÁCH", "PKHACH", "PK",
+    "PHÒNG BẾP", "P.BẾP", "P.BEP", "PBẾP", "PBEP", "BẾP", "BEP",
+    "PHÒNG TẮM", "PHÒNG VỆ SINH", "NHÀ VỆ SINH", "NHA VE SINH", "P.VS", "PVS", "P.TẮM", "PTẮM", "W.C",
+    "PHÒNG THỜ", "P.THỜ", "P.THO", "PTHỜ", "PTHO",
+    "PHÒNG GIẶT", "P.GIẶT", "P.GIAT", "GIẶT", "GIAT",
+    "PHÒNG SHC", "P.SHC", "SHC",
+    "BAN CÔNG", "BANCONG",
+    "SÂN THƯỢNG", "SAN THUONG", "SANTHUONG", "SÂN SAU", "SÂN TRƯỚC", "SÂN", "SAN",
+    "HÀNH LANG", "HANH LANG", "HANHLANG",
+    "CẦU THANG", "CAU THANG", "CAUTHANG",
+    "SẢNH", "LÔ GIA", "LOGIA", "GIẾNG TRỜI", "GIENG TROI"
 ]
 
 JUNK_TEXTS = [
@@ -194,8 +207,14 @@ _MATERIAL_RE = re.compile(
 )
 
 # WET rooms: only bathroom-related rooms (NOT laundry — laundry is DRY)
-_WET_RE = re.compile(r"\b(WC|TOILET|BATH|BATHROOM|SHOWER|LAUNDRY|LDRY|ENS|ENSUITE|PWD|PWDR|PDR|SQSET|POWDER)\b", re.I)
-_OUTDOOR_RE = re.compile(r"\b(DECK|BALCONY|TERRACE|ALFRESCO|PATIO|VERANDA|COURTYARD|GARDEN)\b", re.I)
+_WET_RE = re.compile(
+    r"\b(WC|W\.C|TOILET|BATH|BATHROOM|SHOWER|LAUNDRY|LDRY|ENS|ENSUITE|PWD|PWDR|PDR|SQSET|POWDER"
+    r"|PHÒNG\s*VỆ\s*SINH|NHÀ\s*VỆ\s*SINH|NHA\s*VE\s*SINH|P\.VS|PVS|PHÒNG\s*TẮM|P\.TẮM|PTẮM)\b", re.I
+)
+_OUTDOOR_RE = re.compile(
+    r"\b(DECK|BALCONY|TERRACE|ALFRESCO|PATIO|VERANDA|COURTYARD|GARDEN"
+    r"|BAN\s*CÔNG|BANCONG|SÂN\s*THƯỢNG|SAN\s*THUONG|SANTHUONG|SÂN|SAN|LÔ\s*GIA|LOGIA)\b", re.I
+)
 
 
 def _score_room_name(text: str) -> int:
@@ -212,18 +231,6 @@ def _score_room_name(text: str) -> int:
     if t in GENERIC_TEXTS:
         return 10 # Give low positive score instead of -1 so it can be assigned if nothing else matches
     
-    # Check room keywords — positive score (DO THIS BEFORE ANYTHING ELSE)
-    for i, k in enumerate(ROOM_KEYWORDS):
-        if k in t:
-            # High Priority keywords: BED, ENS, BATH, KIT, LIV, LDY
-            priority_boost = 0
-            if k in ["BED", "BEDROOM", "ENS", "ENSUITE", "BATH", "BATHROOM", "KITCHEN", "KIT", "LIVING", "LOUNGE", "DINING", "LAUNDRY", "LDRY", "LDY"]:
-                priority_boost = 10000 # Double the boost
-            
-            # Bonus points for numbers to prioritize "BED 2" over just "BED"
-            number_bonus = 5 if re.search(r'\d', t) else 0
-            return 100 - i + priority_boost + number_bonus
-            
     # Check junk regex patterns (door codes, dimensions, etc.)
     if _JUNK_CODE_RE.search(t):
         return -1
@@ -232,13 +239,27 @@ def _score_room_name(text: str) -> int:
     for jt in JUNK_TEXTS:
         if jt == t:
             return -1
-            
+
+    # Check pure dimension numbers (e.g. "4000", "2400", "820", "1200x1500")
+    if re.search(r"^\d{3,}$", t) or re.search(r"^\d+\s*[Xx×]\s*\d+$", t):
+        return -1
+
+    # Check room keywords — positive score
+    for i, k in enumerate(ROOM_KEYWORDS):
+        if k in t:
+            priority_boost = 10000
+            number_bonus = 5 if re.search(r'\d', t) else 0
+            return 100 - i + priority_boost + number_bonus
+
     # Reject text with too many words (if it didn't match a keyword)
     word_count = len(t.split())
-    if word_count > 3:
+    if word_count > 4:
         return -1
     
-    # Unknown text — return 0 (will NOT be assigned as room name)
+    # Accept any non-junk text containing letters (English or Vietnamese) as a valid room name
+    if re.search(r"[A-Za-zÀ-ỹ]", t):
+        return 50
+
     return 0
 
 
@@ -621,7 +642,15 @@ def _clean_text(s: str) -> str:
     # Fuzzy corrections for common OCR misreads
     return _apply_spelling_corrections(s)
 
-from rapidfuzz import fuzz
+try:
+    from rapidfuzz import fuzz
+except ImportError:
+    import difflib
+    class _FuzzFallback:
+        @staticmethod
+        def ratio(s1, s2):
+            return difflib.SequenceMatcher(None, str(s1), str(s2)).ratio() * 100
+    fuzz = _FuzzFallback()
 
 VALID_ROOM_WORDS = [
     "BED", "BEDROOM", "BATH", "ENS", "ENSUITE", "HALLWAY", 
@@ -630,7 +659,20 @@ VALID_ROOM_WORDS = [
     "PANTRY", "ENTRY", "ALFRESCO", "PORCH", "RUMPUS", "LOUNGE", 
     "THEATRE", "FAMILY", "MEALS", "STORE", "BALCONY", "PLAY", 
     "OFFICE", "GUEST", "LDRY", "SITTING", "RETREAT", "BAR", 
-    "GYM", "CELLAR", "WORKSHOP", "BATHROOM", "GARDEN", "LINEN"
+    "GYM", "CELLAR", "WORKSHOP", "BATHROOM", "GARDEN", "LINEN",
+    # Vietnamese Room Words
+    "PHÒNG NGỦ", "P.NGỦ", "P.NGU", "PNGỦ", "PNGU", "PN",
+    "PHÒNG KHÁCH", "P.KHÁCH", "P.KHACH", "PKHÁCH", "PKHACH", "PK",
+    "PHÒNG BẾP", "P.BẾP", "P.BEP", "PBẾP", "PBEP", "BẾP", "BEP",
+    "PHÒNG TẮM", "PHÒNG VỆ SINH", "NHÀ VỆ SINH", "NHA VE SINH", "P.VS", "PVS", "P.TẮM", "PTẮM", "W.C",
+    "PHÒNG THỜ", "P.THỜ", "P.THO", "PTHỜ", "PTHO",
+    "PHÒNG GIẶT", "P.GIẶT", "P.GIAT", "GIẶT", "GIAT",
+    "PHÒNG SHC", "P.SHC", "SHC",
+    "BAN CÔNG", "BANCONG",
+    "SÂN THƯỢNG", "SAN THUONG", "SANTHUONG", "SÂN SAU", "SÂN TRƯỚC", "SÂN", "SAN",
+    "HÀNH LANG", "HANH LANG", "HANHLANG",
+    "CẦU THANG", "CAU THANG", "CAUTHANG",
+    "SẢNH", "LÔ GIA", "LOGIA", "GIẾNG TRỜI", "GIENG TROI", "GARA", "KHO"
 ]
 
 COMMON_CORRECTIONS = {
@@ -844,14 +886,17 @@ def _compute_global_topology_boost(norm_text: str, global_polygon: list, existin
 
 def _extract_valid_room_token(text: str) -> str:
     import re
+    if not text:
+        return None
+        
+    raw_clean = text.strip()
     
     # 1. First, check if the collapsed version matches any valid room word directly
-    # This handles spaced out text like "L A U N D R Y", "LA U ND RY", "W I R", "B E D"
-    collapsed = re.sub(r"[^A-Za-z]", "", text).upper()
+    collapsed = re.sub(r"[^A-Za-zÀ-ỹ0-9]", "", raw_clean).upper()
     if collapsed in VALID_ROOM_WORDS:
         return collapsed
         
-    # Also check common abbreviations in collapsed format
+    # Check common Vietnamese & English abbreviations in collapsed format
     mappings_collapsed = {
         "BIR": "ROBE",
         "WIP": "PANTRY",
@@ -865,20 +910,24 @@ def _extract_valid_room_token(text: str) -> str:
         "KIT": "KITCHEN",
         "DIN": "DINING",
         "LIV": "LIVING",
-        "GAR": "GARAGE"
+        "GAR": "GARAGE",
+        "PNGU": "PHÒNG NGỦ",
+        "PKHACH": "PHÒNG KHÁCH",
+        "PBEP": "PHÒNG BẾP",
+        "PVS": "NHÀ VỆ SINH",
+        "PTHO": "PHÒNG THỜ",
+        "PGIAT": "PHÒNG GIẶT"
     }
     if collapsed in mappings_collapsed:
         return mappings_collapsed[collapsed]
 
     # If the collapsed text contains a valid room word as substring, return it (e.g. "MASTERBEDROOM" -> "BEDROOM")
-    # Order by length descending so we match longer words first (e.g. "BEDROOM" before "BED")
     for word in sorted(VALID_ROOM_WORDS, key=len, reverse=True):
-        if word in collapsed:
+        if len(word) >= 3 and word in collapsed:
             return word
             
     # 2. Fall back to standard tokenized checks
-    # Split by non-alphabetic characters
-    tokens = [tok.upper().strip() for tok in re.split(r"[^A-Za-z]", text) if tok]
+    tokens = [tok.upper().strip() for tok in re.split(r"[^\wÀ-ỹ]", raw_clean) if tok]
     
     # Try exact matches first
     for tok in tokens:
@@ -900,7 +949,14 @@ def _extract_valid_room_token(text: str) -> str:
         "KIT": "KITCHEN",
         "DIN": "DINING",
         "LIV": "LIVING",
-        "GAR": "GARAGE"
+        "GAR": "GARAGE",
+        "PN": "PHÒNG NGỦ",
+        "PK": "PHÒNG KHÁCH",
+        "P.NGỦ": "PHÒNG NGỦ",
+        "P.KHÁCH": "PHÒNG KHÁCH",
+        "P.BẾP": "PHÒNG BẾP",
+        "P.VS": "NHÀ VỆ SINH",
+        "WC": "WC"
     }
     for tok in tokens:
         if tok in mappings:
@@ -911,12 +967,11 @@ def _extract_valid_room_token(text: str) -> str:
         matched, score = _semantic_fuzzy_match(tok)
         if matched in VALID_ROOM_WORDS and score >= 85:
             return matched
-            
-    # Try fuzzy matches on collapsed text directly
-    matched, score = _semantic_fuzzy_match(collapsed)
-    if matched in VALID_ROOM_WORDS and score >= 80:
-        return matched
-            
+
+    # 3. Fallback: If text contains letters and is not junk/dimension, use raw text directly!
+    if re.search(r"[A-Za-zÀ-ỹ]", raw_clean) and not _JUNK_CODE_RE.search(raw_clean) and raw_clean.upper() not in JUNK_TEXTS:
+        return raw_clean.upper()
+
     return None
 
 def _score_semantic_text(text, conf, bbox, room_polygon, rooms_context, current_idx, cx1=0, cy1=0, actual_upscale=1.0, existing_rooms=None):
@@ -1434,7 +1489,9 @@ def _classify_room(room_name: str, outside_ratio: float = 0.0,
 
     indoor_dry_keywords = ["BED", "LIVING", "KITCHEN", "DINING", "LOUNGE", "STUDY",
                            "ENTRY", "HALL", "HALLWAY", "MEDIA", "GARAGE", "ROBE", "WIR", "BIR",
-                           "PANTRY", "STORE", "LINEN", "LAUNDRY", "LDRY", "L'DRY", "LDY"]
+                           "PANTRY", "STORE", "LINEN", "LAUNDRY", "LDRY", "L'DRY", "LDY",
+                           "PHÒNG NGỦ", "P.NGỦ", "PN", "PHÒNG KHÁCH", "P.KHÁCH", "PK",
+                           "PHÒNG BẾP", "P.BẾP", "BẾP", "PHÒNG THỜ", "PHÒNG GIẶT", "P.GIẶT", "SHC", "KHO", "GARA", "SẢNH"]
     if any(k in name.upper() for k in indoor_dry_keywords):
         return "dry", "dry", "indoor", 0  
 
@@ -2160,27 +2217,27 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
                 ty = bbox.get("y", 0) + bbox.get("h", 0) / 2
                 pt = Point(tx, ty)
                 
-                # Check if text falls inside the room polygon (or very close, within 10 pixels)
-                if poly.contains(pt) or poly.intersects(pt.buffer(10)):
+                # Check if text falls inside the room polygon (or very close, within 15 pixels)
+                if poly.contains(pt) or poly.intersects(pt.buffer(15)):
                     norm_text = _clean_text(t["text"])
                     room_token = _extract_valid_room_token(norm_text)
                     if not room_token:
                         room_token = _extract_valid_room_token(t["text"])
+                    if not room_token and re.search(r"[A-Za-zÀ-ỹ]", t["text"]):
+                        room_token = t["text"].strip().upper()
                         
                     if room_token and room_token != "UNKNOWN":
-                        # If a number exists in the norm_text or raw text, preserve it
                         matched_name = room_token
-                        digit_match = re.search(r"\d+", norm_text)
-                        if not digit_match:
-                            digit_match = re.search(r"\d+", t["text"])
-                        if digit_match:
+                        # Preserve numbers if digit is present and not already in token
+                        digit_match = re.search(r"\d+", norm_text) or re.search(r"\d+", t["text"])
+                        if digit_match and not re.search(r"\d+", room_token):
                             matched_name = f"{room_token} {digit_match.group(0)}"
                             
                         dist = poly.centroid.distance(pt)
                         max_dist = max(1, poly.length / 2)
                         center_score = max(0, 100 - (dist / max_dist) * 100)
                         
-                        score = center_score + t["conf"] * 50
+                        score = center_score + t.get("conf", 0.5) * 50
                         
                         if score > best_score:
                             best_score = score
