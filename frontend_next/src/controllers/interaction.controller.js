@@ -858,7 +858,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             newWall.skirting = skirting;
             newWall.skirtingThickness = Number(value);
           }
-          if (field === "skirting.color" || field === "skirting.sideA.color" || field === "skirting.sideB.color") {
+          if (field === "skirting.sideA.color") {
+            const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
+            if (!skirting.sideA) skirting.sideA = {};
+            skirting.sideA.color = value;
+            newWall.skirting = skirting;
+          } else if (field === "skirting.sideB.color") {
+            const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
+            if (!skirting.sideB) skirting.sideB = {};
+            skirting.sideB.color = value;
+            newWall.skirting = skirting;
+          } else if (field === "skirting.color") {
             const skirting = JSON.parse(JSON.stringify(newWall.skirting || { sideA: {}, sideB: {} }));
             if (!skirting.sideA) skirting.sideA = {};
             if (!skirting.sideB) skirting.sideB = {};

@@ -904,8 +904,8 @@ const WallLayer = React.memo(({
         const nx = -dy / len;
         const ny = dx / len;
 
-        const offsetA = (thickPx / 2) + 1;
-        const offsetB = -(thickPx / 2) - 1;
+        const offsetA = -(thickPx / 2) - 1;
+        const offsetB = (thickPx / 2) + 1;
 
         const skirtingColorA = w.skirting?.sideA?.color || w.skirting?.color || "#854d0e";
         const skirtingColorB = w.skirting?.sideB?.color || w.skirting?.color || "#854d0e";

@@ -330,7 +330,7 @@ function PitchInput({ value, onChange, style, className }) {
 export default function RightPropertyPaneView({
   selectedRoom, selectedWall, selectedDoor, selectedType, selectedPointIndex, updateRoom, updateDoor, deleteDoor, scaleValue, realScale, rooms,
   highlightType, setHighlightType,
-  selectedWallIds = [], updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm,
+  selectedWallIds = [], setSelectedWallIds, setSelectedType, setSelectedId, updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm,
   autoMergeCollinearWalls,
   walls = [],
   doors = [],
@@ -1042,8 +1042,76 @@ export default function RightPropertyPaneView({
                 </div>
               </div>
 
-              {/* SKIRTING SYSTEM (FEATURE 2 - DUAL FACE CONTROLS) */}
+              {/* SKIRTING SYSTEM (FEATURE 2 - DUAL FACE CONTROLS & BULK EDIT) */}
               <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                {/* BULK SELECTION & QUICK PRESETS BAR */}
+                <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <button
+                    className="rp-action-btn"
+                    style={{
+                      background: (selectedWallIds.length === (walls || []).length && (walls || []).length > 0) ? "#10b981" : "#0284c7",
+                      padding: "6px 8px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6
+                    }}
+                    onClick={() => {
+                      const allIds = (walls || []).map(w => w.id);
+                      if (typeof setSelectedWallIds === "function") setSelectedWallIds(allIds);
+                      if (typeof setSelectedType === "function") setSelectedType("wall");
+                      if (allIds.length > 0 && typeof setSelectedId === "function") setSelectedId(allIds[0]);
+                    }}
+                  >
+                    {(selectedWallIds.length === (walls || []).length && (walls || []).length > 0)
+                      ? `✓ ALL ${(walls || []).length} SKIRTINGS SELECTED`
+                      : `🎯 SELECT ALL ${(walls || []).length} SKIRTINGS (EDIT ALL)`}
+                  </button>
+
+                  {selectedWallIds.length > 1 && (
+                    <div style={{ background: "rgba(16, 185, 129, 0.15)", padding: "6px 8px", borderRadius: "4px", border: "1px solid rgba(16, 185, 129, 0.4)", fontSize: "10px", color: "#34d399" }}>
+                      ⚡ Bulk editing <b>{selectedWallIds.length}</b> skirtings simultaneously.
+                    </div>
+                  )}
+
+                  {/* Quick Bulk Presets */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                    <button
+                      className="rp-action-btn"
+                      style={{ padding: "4px 6px", fontSize: "10px", background: "#334155", marginBottom: 0 }}
+                      onClick={() => {
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall?.id];
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", 100);
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", 15);
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", "#854d0e");
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", "#854d0e");
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", "#854d0e");
+                      }}
+                      title="Set 100x15mm Timber Wood Skirting across selected walls"
+                    >
+                      🪵 Wood 100x15
+                    </button>
+                    <button
+                      className="rp-action-btn"
+                      style={{ padding: "4px 6px", fontSize: "10px", background: "#334155", marginBottom: 0 }}
+                      onClick={() => {
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall?.id];
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", 100);
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", 10);
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", "#cbd5e1");
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", "#cbd5e1");
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", "#cbd5e1");
+                      }}
+                      title="Set 100x10mm Ceramic Tile Skirting across selected walls"
+                    >
+                      🧱 Tile 100x10
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span>SKIRTING SYSTEM</span>
                   <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>

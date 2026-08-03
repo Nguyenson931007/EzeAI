@@ -1165,6 +1165,9 @@ export default function App() {
                 highlightType={highlightType}
                 setHighlightType={setHighlightType}
                 selectedWallIds={selectedWallIds}
+                setSelectedWallIds={setSelectedWallIds}
+                setSelectedType={setSelectedType}
+                setSelectedId={setSelectedId}
                 updateWallsProperty={updateWallsProperty}
                 deleteWalls={deleteWalls}
                 interactionMode={interactionMode}
