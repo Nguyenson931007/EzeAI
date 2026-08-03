@@ -95,9 +95,9 @@ export function distancePointToSegment(p, a, b) {
 
   const dot = A * C + B * D;
   const len_sq = C * C + D * D;
-  let param = dot / len_sq;
+  let param = len_sq < 1e-9 ? 0 : dot / len_sq;
 
-  if (param < 0) param = 0;
+  if (isNaN(param) || param < 0) param = 0;
   else if (param > 1) param = 1;
 
   return {
@@ -392,66 +392,98 @@ export function restoreBaseWalls(walls) {
   const restoredWalls = [];
 
   for (const [baseId, segmentList] of groups.entries()) {
-    if (segmentList.length === 1 && segmentList[0].id === baseId) {
+    // If there is only 1 segment for this wall, preserve it as-is so user edits/deletions are kept
+    if (segmentList.length === 1) {
       restoredWalls.push(segmentList[0]);
       continue;
     }
 
     const first = segmentList[0];
-    // Find custom/modified height from any segment in segmentList
     const customSeg = segmentList.find(s => s.height || s.height_mm);
     const restoredHeight = customSeg ? (customSeg.height || customSeg.height_mm) : first.height;
     const restoredHeightMm = customSeg ? (customSeg.height_mm || customSeg.height) : first.height_mm;
     const customTypeSeg = segmentList.find(s => s.wall_type || s.class_name);
 
-    const allPts = [];
-
-    for (const seg of segmentList) {
-      if (seg.centerline && seg.centerline.length === 2) {
-        allPts.push({ x: seg.centerline[0][0], y: seg.centerline[0][1] });
-        allPts.push({ x: seg.centerline[1][0], y: seg.centerline[1][1] });
-      }
-    }
-
-    if (allPts.length < 2) {
-      restoredWalls.push({
-        ...first,
-        id: baseId,
-        height: restoredHeight,
-        height_mm: restoredHeightMm
-      });
+    // Check gaps between segments to avoid bridging gaps where user deleted a wall section
+    const validSegments = segmentList.filter(s => s.centerline && s.centerline.length === 2);
+    if (validSegments.length === 0) {
+      restoredWalls.push(...segmentList);
       continue;
     }
 
-    let maxDist = -1;
-    let pMin = allPts[0];
-    let pMax = allPts[1];
+    // Sort segments along line vector of first segment
+    const c0 = validSegments[0].centerline;
+    const dx = c0[1][0] - c0[0][0];
+    const dy = c0[1][1] - c0[0][1];
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
 
-    for (let i = 0; i < allPts.length; i++) {
-      for (let j = i + 1; j < allPts.length; j++) {
-        const d = Math.hypot(allPts[j].x - allPts[i].x, allPts[j].y - allPts[i].y);
-        if (d > maxDist) {
-          maxDist = d;
-          pMin = allPts[i];
-          pMax = allPts[j];
-        }
+    const projSegs = validSegments.map(s => {
+      const t0 = (s.centerline[0][0] - c0[0][0]) * ux + (s.centerline[0][1] - c0[0][1]) * uy;
+      const t1 = (s.centerline[1][0] - c0[0][0]) * ux + (s.centerline[1][1] - c0[0][1]) * uy;
+      return { seg: s, minT: Math.min(t0, t1), maxT: Math.max(t0, t1) };
+    }).sort((a, b) => a.minT - b.minT);
+
+    // Group adjacent segments whose gap is <= 250px (door gap tolerance)
+    let currentGroup = [projSegs[0]];
+    const mergeGroups = [currentGroup];
+
+    for (let i = 1; i < projSegs.length; i++) {
+      const prevGroupMax = Math.max(...currentGroup.map(g => g.maxT));
+      if (projSegs[i].minT - prevGroupMax <= 250) {
+        currentGroup.push(projSegs[i]);
+      } else {
+        currentGroup = [projSegs[i]];
+        mergeGroups.push(currentGroup);
       }
     }
 
-    const targetSeg = customTypeSeg || first;
-    const restoredWall = {
-      ...first,
-      class_name: getWallClass(targetSeg),
-      wall_type: getWallType(targetSeg),
-      id: baseId,
-      height: restoredHeight,
-      height_mm: restoredHeightMm,
-      centerline: [
-        [pMin.x, pMin.y],
-        [pMax.x, pMax.y]
-      ]
-    };
-    restoredWalls.push(restoredWall);
+    // For each group, reconstruct base wall segment across its min and max points
+    for (let gIdx = 0; gIdx < mergeGroups.length; gIdx++) {
+      const group = mergeGroups[gIdx];
+      if (group.length === 1 && mergeGroups.length > 1) {
+        restoredWalls.push(group[0].seg);
+        continue;
+      }
+
+      const allGroupPts = [];
+      for (const item of group) {
+        allGroupPts.push({ x: item.seg.centerline[0][0], y: item.seg.centerline[0][1] });
+        allGroupPts.push({ x: item.seg.centerline[1][0], y: item.seg.centerline[1][1] });
+      }
+
+      let maxDist = -1;
+      let pMin = allGroupPts[0];
+      let pMax = allGroupPts[1];
+
+      for (let i = 0; i < allGroupPts.length; i++) {
+        for (let j = i + 1; j < allGroupPts.length; j++) {
+          const d = Math.hypot(allGroupPts[j].x - allGroupPts[i].x, allGroupPts[j].y - allGroupPts[i].y);
+          if (d > maxDist) {
+            maxDist = d;
+            pMin = allGroupPts[i];
+            pMax = allGroupPts[j];
+          }
+        }
+      }
+
+      const targetSeg = customTypeSeg || group[0].seg;
+      const subId = mergeGroups.length === 1 ? baseId : `${baseId}-grp-${gIdx}`;
+      const restoredWall = {
+        ...group[0].seg,
+        class_name: getWallClass(targetSeg),
+        wall_type: getWallType(targetSeg),
+        id: subId,
+        height: restoredHeight,
+        height_mm: restoredHeightMm,
+        centerline: [
+          [pMin.x, pMin.y],
+          [pMax.x, pMax.y]
+        ]
+      };
+      restoredWalls.push(restoredWall);
+    }
   }
 
   return recalculateAllWallsPolygons(restoredWalls);
@@ -542,7 +574,6 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
       }
 
       if (door.parentWallId) {
-        const getBaseWallId = (id) => id ? id.split('-A-')[0].split('-B-')[0] : '';
         const doorBaseId = getBaseWallId(door.parentWallId);
         const wallBaseId = getBaseWallId(w.id);
         if (doorBaseId !== wallBaseId) {
@@ -1768,18 +1799,18 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
 }
 
 export function mapFloorName(name, index) {
-  if (!name) return `Tầng ${index + 1}`;
+  if (!name) return `Floor ${index + 1}`;
   const norm = name.toLowerCase().trim().replace(/[\s_]+/g, '_');
-  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 'Tầng 1';
-  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 'Tầng 2';
-  if (norm === 'third_floor' || norm === 'floor_2') return 'Tầng 3';
-  if (norm === 'fourth_floor' || norm === 'floor_3') return 'Tầng 4';
-  if (norm === 'fifth_floor' || norm === 'floor_4') return 'Tầng 5';
-  if (norm === 'roof') return 'Mái';
+  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 'Floor 1';
+  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 'Floor 2';
+  if (norm === 'third_floor' || norm === 'floor_2') return 'Floor 3';
+  if (norm === 'fourth_floor' || norm === 'floor_3') return 'Floor 4';
+  if (norm === 'fifth_floor' || norm === 'floor_4') return 'Floor 5';
+  if (norm === 'roof') return 'Roof';
 
   const match = norm.match(/^floor_(\d+)$/);
   if (match) {
-    return `Tầng ${parseInt(match[1]) + 1}`;
+    return `Floor ${parseInt(match[1]) + 1}`;
   }
 
   return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());

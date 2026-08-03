@@ -636,6 +636,8 @@ export default function RightPropertyPaneView({
         };
       });
 
+      const pageWalls = walls || [];
+
       const mappedDoors = doors.map(d => {
         let t = d.penetration_type || d.penetrationType || "";
         let cls = d.class || "";
@@ -654,13 +656,41 @@ export default function RightPropertyPaneView({
           doorType = "Sliding Door";
         }
 
+        const parentWall = pageWalls.find(w => w.id === d.parentWallId);
+        const isParentExt = parentWall ? (parentWall.class_name === 'exterior_wall' || parentWall.wall_type === 'ext') : false;
+        const doorTypeIdStr = String(d.doorTypeId || d.door_type_id || '');
+        const doorClassStr = String(cls || t || type || '');
+        const doorNameStr = String(d.doorName || d.door_name || d.name || '').toUpperCase();
+
+        const isExt = !!(
+          d.is_ext ||
+          d.is_exterior ||
+          d.location === 'external' ||
+          d.location === 'ext' ||
+          d.wetness === 'ext' ||
+          isGarage ||
+          isParentExt ||
+          doorTypeIdStr.startsWith('ext_') ||
+          doorClassStr.includes('ext') ||
+          doorClassStr.includes('external') ||
+          doorNameStr.includes('SGD') ||
+          doorNameStr.includes('MSD') ||
+          doorNameStr.includes('EXT') ||
+          doorNameStr.includes('BALCONY') ||
+          doorNameStr.includes('ALFRESCO') ||
+          doorNameStr.includes('PATIO') ||
+          doorNameStr.includes('ENTRY')
+        );
+
         return {
           id: String(d.id),
           door_type: doorType,
           width_mm: d.width_mm || 760,
           height_mm: d.height_mm || 1980,
           qty: 1,
-          block_work: d.block_work || d.blockWork || "No"
+          block_work: d.block_work || d.blockWork || "No",
+          is_ext: isExt,
+          location: isExt ? "ext" : "internal"
         };
       });
 
@@ -1031,36 +1061,39 @@ export default function RightPropertyPaneView({
 
                 {(selectedWall?.skirting?.enabled ?? true) && (
                   <>
-                    {/* Common / Default Settings */}
+
+
                     <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">Height (mm)</span>
+                      <span className="panel-label">HEIGHT (MM)</span>
                       <input
                         type="number"
                         className="panel-input"
                         style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
                         value={selectedWall?.skirting?.height ?? 100}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          const val = Number(e.target.value);
+                          const rawVal = e.target.value;
+                          const val = rawVal === "" ? 0 : Number(rawVal);
                           updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", val);
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.height", val);
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.height", val);
                         }}
                       />
                     </div>
                     <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">Thickness (mm)</span>
+                      <span className="panel-label">THICKNESS (MM)</span>
                       <input
                         type="number"
                         className="panel-input"
                         style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
                         value={selectedWall?.skirting?.thickness ?? 15}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          const val = Number(e.target.value);
+                          const rawVal = e.target.value;
+                          const val = rawVal === "" ? 0 : Number(rawVal);
                           updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", val);
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.thickness", val);
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.thickness", val);
                         }}
                       />
                     </div>
@@ -1083,15 +1116,16 @@ export default function RightPropertyPaneView({
                         </label>
                       </div>
                       <div className="panel-field">
-                        <span className="panel-label">Side A Color</span>
+                        <span className="panel-label">SIDE A COLOR</span>
                         <input
                           type="color"
                           style={{ width: "100%", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
                           value={selectedWall?.skirting?.sideA?.color || selectedWall?.skirting?.color || "#854d0e"}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
                           onChange={(e) => {
                             const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
                             updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", e.target.value);
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.enabled", true);
                           }}
                         />
                       </div>
@@ -1115,15 +1149,16 @@ export default function RightPropertyPaneView({
                         </label>
                       </div>
                       <div className="panel-field">
-                        <span className="panel-label">Side B Color</span>
+                        <span className="panel-label">SIDE B COLOR</span>
                         <input
                           type="color"
                           style={{ width: "100%", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
                           value={selectedWall?.skirting?.sideB?.color || selectedWall?.skirting?.color || "#854d0e"}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
                           onChange={(e) => {
                             const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
                             updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", e.target.value);
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.enabled", true);
                           }}
                         />
                       </div>

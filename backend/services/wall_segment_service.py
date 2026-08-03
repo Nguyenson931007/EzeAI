@@ -79,6 +79,10 @@ def _run_yolo_inference(
     Runs YOLO segmentation inference with a given model and returns raw detected walls.
     Shared helper used by both predict() and predict_stream() for primary and ensemble models.
     """
+    # Deterministic AI Inference Seed Enforcement
+    torch.manual_seed(42)
+    np.random.seed(42)
+
     results = model.predict(
         source=img_inference,
         conf=float(confidence),
@@ -326,7 +330,8 @@ def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
 
 
 def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 250.0) -> List[dict]:
-    return list(walls)
+    current_walls = [dict(w) for w in walls]
+    merged_any = True
     
     while merged_any:
         merged_any = False
@@ -595,8 +600,6 @@ def _split_walls_at_t_junctions(walls: List[dict], min_dist_from_end: float = 15
     Splits wall segments that are intersected/crossed by other walls, or have
     perpendicular walls ending near their centerline.
     """
-    return walls
-
     import math
 
     split_walls = []

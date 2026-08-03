@@ -857,7 +857,12 @@ function FixOutScheduleView({ enrichedDoors = [], walls = [], doors = [], realSc
     .filter(d => d.type === 'window' || d.class === 'window')
     .reduce((sum, w) => sum + ((w.height || 1.2) * (w.width || 1.2) * (Number(w.qty) || 1)), 0);
 
-  const totalSWindowAndDoor = (cavityTotalArea + prehungTotalArea + windowsTotalArea).toFixed(1);
+  const extDoorsTotalArea = enrichedDoors
+    .filter(d => (d.is_ext || d.is_exterior || d.location === 'external' || d.wetness === 'ext' || d.type === 'garage') && d.type !== 'window' && d.class !== 'window')
+    .reduce((sum, d) => sum + ((d.height || 2.1) * (d.width || 0.9) * (Number(d.qty) || 1)), 0);
+
+  const intDoorsTotalArea = prehungTotalArea + cavityTotalArea;
+  const totalSWindowAndDoor = (intDoorsTotalArea + extDoorsTotalArea + windowsTotalArea).toFixed(2);
 
   const extDoorsCount = enrichedDoors.filter(d => d.is_ext || d.is_exterior || d.location === 'external' || d.wetness === 'ext').length || 4;
   const robesCsdCount = cavityRows.length || 3;
@@ -1571,10 +1576,10 @@ function FixOutScheduleView({ enrichedDoors = [], walls = [], doors = [], realSc
                 </td>
               </tr>
 
-              {/* Row 3: Total S Windown and door (Light Blue / Periwinkle) */}
+              {/* Row 3: Total Area Window and Door (m²) */}
               <tr style={{ background: "#93c5fd", color: "#dc2626", fontWeight: 800 }}>
                 <td style={{ padding: "6px 14px", borderRight: "2px solid #0f172a", fontSize: "12px" }}>
-                  Total S Windown and door
+                  Total Area Window and Door (m²)
                 </td>
                 <td style={{ padding: "6px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900 }}>
                   {totalSWindowAndDoor}
@@ -3436,16 +3441,16 @@ export default function BOQTable({
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                 <thead>
                   <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
-                    <th style={{ padding: "8px 6px", textAlign: "center" }}>height</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center" }}>width</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Height (mm)</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Width (mm)</th>
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>Block Work</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center" }}>So luong</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Dien tich</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Chu Vi</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>b</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>c</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>d</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Qty</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Area (m²)</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Perimeter (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>b (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>c (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>d (m)</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>5.4/2</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Reveal</th>
                   </tr>
@@ -3527,16 +3532,16 @@ export default function BOQTable({
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                 <thead>
                   <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
-                    <th style={{ padding: "8px 6px", textAlign: "center" }}>height</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center" }}>width</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Height (mm)</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Width (mm)</th>
                     <th style={{ padding: "8px 6px", textAlign: "center" }}>Block Work</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center" }}>So luong</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Dien tich</th>
-                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Chu Vi</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>b</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>c</th>
-                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>d</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center" }}>Qty</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Area (m²)</th>
+                    <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Perimeter (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>a (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>b (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>c (m)</th>
+                    <th style={{ padding: "8px 4px", textAlign: "center", background: "#fef08a" }}>d (m)</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>5.4/2</th>
                     <th style={{ padding: "8px 6px", textAlign: "center", background: "#fef08a" }}>Reveal</th>
                   </tr>
@@ -3634,10 +3639,40 @@ export default function BOQTable({
                     </td>
                   </tr>
 
-                  {/* Row 3: Total S Windown and door (Light Blue / Periwinkle) */}
+                  {/* Row 3: Total Area Internal Doors (m²) */}
+                  <tr style={{ background: "#bfdbfe", color: "#1e3a8a", fontWeight: 800, borderBottom: "1px solid #0f172a" }}>
+                    <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
+                      Total Area Internal Doors (m²)
+                    </td>
+                    <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900 }}>
+                      {intDoorsTotalArea.toFixed(2)}
+                    </td>
+                  </tr>
+
+                  {/* Row 4: Total Area External Doors (m²) */}
+                  <tr style={{ background: "#bfdbfe", color: "#1e3a8a", fontWeight: 800, borderBottom: "1px solid #0f172a" }}>
+                    <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
+                      Total Area External Doors (m²)
+                    </td>
+                    <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900 }}>
+                      {extDoorsTotalArea.toFixed(2)}
+                    </td>
+                  </tr>
+
+                  {/* Row 5: Total Area Windows (m²) */}
+                  <tr style={{ background: "#bfdbfe", color: "#1e3a8a", fontWeight: 800, borderBottom: "1px solid #0f172a" }}>
+                    <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
+                      Total Area Windows (m²)
+                    </td>
+                    <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "15px", fontWeight: 900 }}>
+                      {windowsTotalArea.toFixed(2)}
+                    </td>
+                  </tr>
+
+                  {/* Row 6: Total Area Window and Door (m²) */}
                   <tr style={{ background: "#93c5fd", color: "#dc2626", fontWeight: 800 }}>
                     <td style={{ padding: "7px 14px", borderRight: "2px solid #0f172a", fontSize: "13px" }}>
-                      Total S Windown and door
+                      Total Area Window and Door (m²)
                     </td>
                     <td style={{ padding: "7px 14px", textAlign: "right", fontSize: "16px", fontWeight: 900 }}>
                       {totalSWindowAndDoor}
@@ -3896,7 +3931,7 @@ export default function BOQTable({
 
       {missingScalePages.length > 0 && (
         <div style={{ background: "#fee2e2", border: "1px solid #ef4444", padding: "12px", borderRadius: "6px", marginBottom: "20px", color: "#b91c1c", fontWeight: "bold" }}>
-          ⚠ Cảnh báo: Có {missingScalePages.length} trang chưa được thiết lập Scale. Dữ liệu khối lượng trên các trang này sẽ bị bỏ qua!
+          ⚠ Warning: {missingScalePages.length} page(s) do not have Scale set. Quantity data on these pages will be skipped!
         </div>
       )}
 
@@ -3910,7 +3945,7 @@ export default function BOQTable({
         padding: "10px 14px",
         borderRadius: 8,
       }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#4b5563" }}>Chọn tầng:</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#4b5563" }}>Select Floor:</span>
         <select
           value={selectedPageIndex}
           onChange={(e) => {
@@ -3930,7 +3965,7 @@ export default function BOQTable({
             flex: 1
           }}
         >
-          <option value="all">Tất cả các tầng (Dự án)</option>
+          <option value="all">All Floors (Project)</option>
           {pages.map((p, idx) => (
             <option key={idx} value={idx}>
               {mapFloorName(p.floor_name, idx)}

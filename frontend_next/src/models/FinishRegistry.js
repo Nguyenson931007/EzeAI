@@ -141,12 +141,28 @@ export function normalizeWallSurfaceAndSkirting(wall) {
 
   // Skirting
   const rawSkirting = wall.skirting || {};
+  const rawSideA_skirting = rawSkirting.sideA || {};
+  const rawSideB_skirting = rawSkirting.sideB || {};
+  const sideA_skirting = {
+    enabled: rawSideA_skirting.enabled ?? rawSkirting.enabledA ?? rawSkirting.enabled ?? true,
+    height: Math.max(0, Number(rawSideA_skirting.height || rawSkirting.height) || 100),
+    thickness: Math.max(0, Number(rawSideA_skirting.thickness || rawSkirting.thickness) || 15),
+    color: rawSideA_skirting.color || rawSkirting.color || wall.skirtingColor || "#854d0e",
+  };
+  const sideB_skirting = {
+    enabled: rawSideB_skirting.enabled ?? rawSkirting.enabledB ?? rawSkirting.enabled ?? true,
+    height: Math.max(0, Number(rawSideB_skirting.height || rawSkirting.height) || 100),
+    thickness: Math.max(0, Number(rawSideB_skirting.thickness || rawSkirting.thickness) || 15),
+    color: rawSideB_skirting.color || rawSkirting.color || wall.skirtingColor || "#854d0e",
+  };
   const skirting = {
     enabled: rawSkirting.enabled ?? true,
     height: Math.max(0, Number(rawSkirting.height) || 100),
     thickness: Math.max(0, Number(rawSkirting.thickness) || 15),
     material: rawSkirting.material || "Timber Skirting",
     color: rawSkirting.color || "#854d0e",
+    sideA: sideA_skirting,
+    sideB: sideB_skirting,
   };
 
   return {

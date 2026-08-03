@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType } from "@/utils/geometry";
 
-function insetPolygon3D(pts, offset = 12.0) {
+function insetPolygon3D(pts, offset = 20.0) {
   if (!pts || pts.length < 3) return pts;
   let cx = 0, cy = 0;
   pts.forEach(p => { cx += p.x; cy += p.y; });
@@ -244,13 +244,20 @@ export default function ThreeDView({
   const disposeObject3D = (obj) => {
     if (!obj) return;
     obj.traverse((child) => {
-      if (child.geometry) child.geometry.dispose();
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
       if (child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach(m => m.dispose());
-        } else {
-          child.material.dispose();
-        }
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach(m => {
+          if (m.map) m.map.dispose();
+          if (m.lightMap) m.lightMap.dispose();
+          if (m.bumpMap) m.bumpMap.dispose();
+          if (m.normalMap) m.normalMap.dispose();
+          if (m.specularMap) m.specularMap.dispose();
+          if (m.envMap) m.envMap.dispose();
+          m.dispose();
+        });
       }
     });
   };
@@ -345,7 +352,7 @@ export default function ThreeDView({
     if (!containerRef.current) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
+    scene.background = new THREE.Color(0x0f172a); // Dark slate background as before
     sceneRef.current = scene;
 
     const width = containerRef.current.clientWidth || 800;
@@ -568,6 +575,7 @@ export default function ThreeDView({
 
       // --- 1. RENDER ROOMS (FLOORS) ---
       if (showFloors) {
+        // 1a. Render continuous subfloor slab under all room footprints to eliminate blueprint image gaps under door thresholds
         pageRooms.forEach(room => {
           const poly = room.polygon;
           if (!poly || poly.length < 3) return;
@@ -579,9 +587,42 @@ export default function ThreeDView({
 
           if (pts2d.length < 3) return;
 
-          // Inset room floor polygon slightly into room interior (12px)
-          // so 3D floor mesh stays inside room walls and does NOT protrude onto exterior building facade
-          const insetPts = insetPolygon3D(pts2d, 12.0);
+          const shapeSub = new THREE.Shape();
+          shapeSub.moveTo(pts2d[0].x, pts2d[0].y);
+          for (let i = 1; i < pts2d.length; i++) {
+            shapeSub.lineTo(pts2d[i].x, pts2d[i].y);
+          }
+          shapeSub.closePath();
+
+          const subGeo = new THREE.ExtrudeGeometry(shapeSub, { depth: 0.4, bevelEnabled: false });
+          const subMat = new THREE.MeshStandardMaterial({
+            color: 0xe2e8f0, // Architectural concrete subfloor foundation tone
+            roughness: 0.7,
+            metalness: 0.1,
+            side: THREE.DoubleSide
+          });
+          const subMesh = new THREE.Mesh(subGeo, subMat);
+          subMesh.rotation.x = Math.PI / 2;
+          subMesh.position.set(-imgSize.w / 2, yOffset + 0.1, -imgSize.h / 2);
+          subMesh.receiveShadow = enableShadows;
+          scene.add(subMesh);
+          floorMeshesRef.current.push(subMesh);
+        });
+
+        // 1b. Render refined room floor surface finishes (Oak, Tile, Carpet, Slate)
+        pageRooms.forEach(room => {
+          const poly = room.polygon;
+          if (!poly || poly.length < 3) return;
+
+          const pts2d = poly.map(p => ({
+            x: typeof p.x === 'number' ? p.x : (Array.isArray(p) && typeof p[0] === 'number' ? p[0] : 0),
+            y: typeof p.y === 'number' ? p.y : (Array.isArray(p) && typeof p[1] === 'number' ? p[1] : 0)
+          })).filter(p => !isNaN(p.x) && !isNaN(p.y));
+
+          if (pts2d.length < 3) return;
+
+          // Inset room floor polygon slightly into room interior (4px)
+          const insetPts = insetPolygon3D(pts2d, 4.0);
 
           const shape = new THREE.Shape();
           shape.moveTo(insetPts[0].x, insetPts[0].y);
@@ -590,29 +631,41 @@ export default function ThreeDView({
           }
           shape.closePath();
 
-          let color = 0x475569;
+          let color = 0xd4a373; // Premium warm natural oak timber floor default
+          let roughness = 0.35;
+          let metalness = 0.05;
+
           const rType = (room.type || "").toLowerCase();
           const rName = (room.room_name || "").toLowerCase();
 
           if (rType === "wet" || /(bath|wc|toilet|ensuite|powder|laundry|shower)/i.test(rName)) {
-            color = 0x1e3a8a;
-          } else if (rType === "dry" || /(bed|living|kitchen|dining|office|study|entry|hall)/i.test(rName)) {
-            color = 0x7c2d12;
-            if (/(bed|bedroom|study|office)/i.test(rName)) {
-              color = 0x334155;
-            }
-          } else if (rType === "timber_deck") {
-            color = 0x451a03;
-          } else if (rType === "tile_deck" || /(balcony|deck|alfresco)/i.test(rName)) {
-            color = 0x3f3f46;
+            color = 0xf8fafc; // Luxury polished porcelain marble tile
+            roughness = 0.15;
+            metalness = 0.1;
+          } else if (/(bed|bedroom|robe|wip|wic)/i.test(rName)) {
+            color = 0xcbd5e1; // Plush modern neutral carpet
+            roughness = 0.9;
+            metalness = 0.0;
+          } else if (/(garage|carport)/i.test(rName)) {
+            color = 0x64748b; // Architectural polished slate concrete
+            roughness = 0.5;
+            metalness = 0.2;
+          } else if (rType === "timber_deck" || /(balcony|deck|alfresco|patio|porch)/i.test(rName)) {
+            color = 0xa16207; // Rich teak timber deck / outdoor pavers
+            roughness = 0.6;
+            metalness = 0.1;
+          } else if (rType === "dry" || /(living|kitchen|dining|office|study|entry|hall)/i.test(rName)) {
+            color = 0xd4a373; // Warm natural oak timber floor
+            roughness = 0.35;
+            metalness = 0.05;
           }
 
           const extrudeSettings = { depth: 0.5, bevelEnabled: false };
           const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
           const material = new THREE.MeshStandardMaterial({
             color: color,
-            roughness: 0.85,
-            metalness: 0.1,
+            roughness: roughness,
+            metalness: metalness,
             side: THREE.DoubleSide
           });
 
@@ -789,7 +842,18 @@ export default function ThreeDView({
 
       // --- 2. RENDER WALLS WITH CUSTOM COLOR MODES & SELECTION HIGHLIGHT ---
       const cutWalls = cutWallsByDoors(pageWalls, pageDoors, realScale, true);
-      cutWalls.forEach(wall => {
+
+      // Sort walls so interior/partition walls render first (renderOrder 1)
+      // and exterior walls render last (renderOrder 2) to eliminate T-junction stripe artifacts on exterior facade
+      const sortedCutWalls = [...cutWalls].sort((a, b) => {
+        const isExtA = getWallClass(a) === "exterior_wall" || getWallType(a) === "ext";
+        const isExtB = getWallClass(b) === "exterior_wall" || getWallType(b) === "ext";
+        if (!isExtA && isExtB) return -1;
+        if (isExtA && !isExtB) return 1;
+        return 0;
+      });
+
+      sortedCutWalls.forEach(wall => {
         const centerline = wall.centerline;
         if (!centerline || centerline.length !== 2) return;
 
@@ -811,21 +875,22 @@ export default function ThreeDView({
         let activeWallHeight = wallHeightMmVal / scaleFactor;
 
         // Determine wall color based on mode
-        let colorHex = "#94a3b8";
+        let colorHex = "#f8fafc";
         const wClass = getWallClass(wall);
         const wType = getWallType(wall);
+        const isExteriorWall = wClass === "exterior_wall" || wType === "ext";
 
         if (wallColorMode === "type") {
-          if (wType === "ext") colorHex = extWallColor;
-          else if (wType === "part") colorHex = partWallColor;
-          else colorHex = intWallColor;
+          if (wType === "ext") colorHex = extWallColor || "#f1f5f9";
+          else if (wType === "part") colorHex = partWallColor || "#cbd5e1";
+          else colorHex = intWallColor || "#f8fafc";
         } else if (wallColorMode === "height") {
           if (wallHeightMmVal < 2500) colorHex = heightTier1Color;
           else if (wallHeightMmVal < 2850) colorHex = heightTier2Color;
           else if (wallHeightMmVal < 3300) colorHex = heightTier3Color;
           else colorHex = heightTier4Color;
         } else {
-          colorHex = wClass === "exterior_wall" ? "#64748b" : "#94a3b8";
+          colorHex = isExteriorWall ? "#f8fafc" : "#f1f5f9";
         }
 
         const baseId = getBaseWallId ? getBaseWallId(wall.id) : wall.id.split('-A-')[0].split('-B-')[0];
@@ -834,8 +899,11 @@ export default function ThreeDView({
 
         const material = new THREE.MeshStandardMaterial({
           color: new THREE.Color(colorHex),
-          roughness: 0.65,
-          metalness: 0.2,
+          roughness: 0.45,
+          metalness: 0.05,
+          polygonOffset: isExteriorWall,
+          polygonOffsetFactor: isExteriorWall ? -2 : 0,
+          polygonOffsetUnits: isExteriorWall ? -2 : 0,
           emissive: isSelected3D ? new THREE.Color(0xf97316) : new THREE.Color(0x000000),
           emissiveIntensity: isSelected3D ? 0.75 : 0
         });
@@ -863,6 +931,7 @@ export default function ThreeDView({
           mesh.rotation.y = -angle;
         }
 
+        mesh.renderOrder = isExteriorWall ? 2 : 1;
         mesh.castShadow = enableShadows;
         mesh.receiveShadow = enableShadows;
         mesh.userData = { isWallMesh: true, wallId: wall.id, pageIndex: originalIndex, wall: wall };
@@ -908,7 +977,7 @@ export default function ThreeDView({
           });
           const geoA = new THREE.BoxGeometry(length, clampedHA, thickA3D);
           const meshA = new THREE.Mesh(geoA, matA);
-          const offsetA = (thickness / 2) + (thickA3D / 2) + 0.02;
+          const offsetA = -(thickness / 2) - (thickA3D / 2) - 0.02;
           meshA.position.set(midX + nx * offsetA, yOffset + clampedHA / 2, midZ + nz * offsetA);
           meshA.rotation.y = -angle;
           scene.add(meshA);
@@ -928,7 +997,7 @@ export default function ThreeDView({
           });
           const geoB = new THREE.BoxGeometry(length, clampedHB, thickB3D);
           const meshB = new THREE.Mesh(geoB, matB);
-          const offsetB = -(thickness / 2) - (thickB3D / 2) - 0.02;
+          const offsetB = (thickness / 2) + (thickB3D / 2) + 0.02;
           meshB.position.set(midX + nx * offsetB, yOffset + clampedHB / 2, midZ + nz * offsetB);
           meshB.rotation.y = -angle;
           scene.add(meshB);
@@ -942,27 +1011,57 @@ export default function ThreeDView({
         if (skirting.enabled !== false && skirtingHeightMm > 0) {
           const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
 
-          // Read Side A Skirting parameters with baseboard sanitization (max 400mm height, max 50mm thickness)
+          // Read Side A Skirting parameters with baseboard sanitization (max 1000mm height, max 100mm thickness)
           const enableSkirtA = skirting.sideA?.enabled !== false && skirting.enabledA !== false && skirting.enabled !== false;
-          const colorSkirtA = skirting.sideA?.color || skirting.color || wall.skirtingColor || "#854d0e";
-          const rawHA = Number(skirting.sideA?.height || skirting.height || wall.skirtingHeight || 100);
-          const skirtH_A = (rawHA > 400 || rawHA <= 0) ? 100 : rawHA;
+          const rawHA = Number(skirting.sideA?.height || skirtingHeightMm);
+          const skirtH_A = (rawHA > 1000 || rawHA <= 0) ? 100 : rawHA;
           const hSkirtA = Math.min(activeWallHeight, skirtH_A / scaleFactor);
 
-          const rawTA = Number(skirting.sideA?.thickness || skirting.thickness || wall.skirtingThickness || 15);
-          const skirtT_A = (rawTA > 50 || rawTA <= 0) ? 15 : rawTA;
+          const rawTA = Number(skirting.thickness || skirting.sideA?.thickness || skirtingThickMm);
+          const skirtT_A = (rawTA > 100 || rawTA <= 0) ? 15 : rawTA;
           const thickSkirtA = skirtT_A / scaleFactor;
 
           // Read Side B Skirting parameters with baseboard sanitization
           const enableSkirtB = skirting.sideB?.enabled !== false && skirting.enabledB !== false && skirting.enabled !== false;
-          const colorSkirtB = skirting.sideB?.color || skirting.color || wall.skirtingColor || "#854d0e";
-          const rawHB = Number(skirting.sideB?.height || skirting.height || wall.skirtingHeight || 100);
-          const skirtH_B = (rawHB > 400 || rawHB <= 0) ? 100 : rawHB;
+          const rawHB = Number(skirting.sideB?.height || skirtingHeightMm);
+          const skirtH_B = (rawHB > 1000 || rawHB <= 0) ? 100 : rawHB;
           const hSkirtB = Math.min(activeWallHeight, skirtH_B / scaleFactor);
 
-          const rawTB = Number(skirting.sideB?.thickness || skirting.thickness || wall.skirtingThickness || 15);
-          const skirtT_B = (rawTB > 50 || rawTB <= 0) ? 15 : rawTB;
+          const rawTB = Number(skirting.thickness || skirting.sideB?.thickness || skirtingThickMm);
+          const skirtT_B = (rawTB > 100 || rawTB <= 0) ? 15 : rawTB;
           const thickSkirtB = skirtT_B / scaleFactor;
+
+          // Helper: Identify outdoor deck / patio / alfresco room names to suppress skirting on outdoor deck walls
+          const isOutdoorRoomName = (name) => {
+            if (!name) return false;
+            const n = String(name).toLowerCase();
+            return n.includes("deck") || n.includes("alfresco") || n.includes("patio") || 
+                   n.includes("balcony") || n.includes("porch") || n.includes("verandah") || 
+                   n.includes("terrace") || n.includes("courtyard") || n.includes("outdoor") || 
+                   n.includes("yard") || n.includes("carport");
+          };
+
+          // Resolve Side A Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
+          const finishTypeA = String(skirting.sideA?.material || skirting.sideA?.finishType || sideA.finishType || skirting.material || wall.skirtingMaterial || wall.finishTypeSideA || "").toLowerCase();
+          const isTileA = finishTypeA.includes("tile") || finishTypeA.includes("gạch") || finishTypeA.includes("stone") || finishTypeA.includes("ceramic");
+          const isWoodA = finishTypeA.includes("wood") || finishTypeA.includes("gỗ") || finishTypeA.includes("timber");
+
+          const defaultColorA = isTileA ? "#cbd5e1" : (isWoodA ? "#5c3a21" : "#854d0e");
+          let colorSkirtA = skirting.sideA?.color || skirting.color || wall.skirtingColor;
+          if (!colorSkirtA || colorSkirtA === "#854d0e") {
+            colorSkirtA = defaultColorA;
+          }
+
+          // Resolve Side B Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
+          const finishTypeB = String(skirting.sideB?.material || skirting.sideB?.finishType || sideB.finishType || skirting.material || wall.skirtingMaterial || wall.finishTypeSideB || "").toLowerCase();
+          const isTileB = finishTypeB.includes("tile") || finishTypeB.includes("gạch") || finishTypeB.includes("stone") || finishTypeB.includes("ceramic");
+          const isWoodB = finishTypeB.includes("wood") || finishTypeB.includes("gỗ") || finishTypeB.includes("timber");
+
+          const defaultColorB = isTileB ? "#cbd5e1" : (isWoodB ? "#5c3a21" : "#854d0e");
+          let colorSkirtB = skirting.sideB?.color || skirting.color || wall.skirtingColor;
+          if (!colorSkirtB || colorSkirtB === "#854d0e") {
+            colorSkirtB = defaultColorB;
+          }
 
           const parseColor = (hexStr, fallback = "#854d0e") => {
             try {
@@ -974,14 +1073,14 @@ export default function ThreeDView({
           };
 
           const matSkirtA = new THREE.MeshStandardMaterial({
-            color: parseColor(colorSkirtA, "#854d0e"),
-            roughness: 0.3,
-            metalness: 0.1,
+            color: parseColor(colorSkirtA, defaultColorA),
+            roughness: isTileA ? 0.15 : 0.4, // Glossy ceramic tile finish vs satin timber wood
+            metalness: isTileA ? 0.05 : 0.02,
           });
           const matSkirtB = new THREE.MeshStandardMaterial({
-            color: parseColor(colorSkirtB, "#854d0e"),
-            roughness: 0.3,
-            metalness: 0.1,
+            color: parseColor(colorSkirtB, defaultColorB),
+            roughness: isTileB ? 0.15 : 0.4, // Glossy ceramic tile finish vs satin timber wood
+            metalness: isTileB ? 0.05 : 0.02,
           });
 
           // Check if wall is exterior wall using getWallClass
@@ -993,48 +1092,48 @@ export default function ThreeDView({
           let renderSideA3D = enableSkirtA;
           let renderSideB3D = enableSkirtB;
 
-          if (isExterior) {
-            // Check room polygon for Side A vs Side B interior face
-            const thickPx = wall.thickness_px || 20;
-            const offset = (thickPx / 2) + 15;
-            const p1c = wall.centerline[0];
-            const p2c = wall.centerline[1];
-            const dxC = p2c[0] - p1c[0];
-            const dyC = p2c[1] - p1c[1];
-            const lenC = Math.hypot(dxC, dyC) || 1;
-            const nxC = -dyC / lenC;
-            const nyC = dxC / lenC;
+          // Check room polygon for Side A vs Side B to suppress skirting on exterior facades and outdoor Deck walls
+          const thickPx = wall.thickness_px || 20;
+          const offset = (thickPx / 2) + 15;
+          const p1c = wall.centerline[0];
+          const p2c = wall.centerline[1];
+          const dxC = p2c[0] - p1c[0];
+          const dyC = p2c[1] - p1c[1];
+          const lenC = Math.hypot(dxC, dyC) || 1;
+          const nxC = -dyC / lenC;
+          const nyC = dxC / lenC;
 
-            const midXC = (p1c[0] + p2c[0]) / 2;
-            const midYC = (p1c[1] + p2c[1]) / 2;
-            const ptA = [midXC + nxC * offset, midYC + nyC * offset];
-            const ptB = [midXC - nxC * offset, midYC - nyC * offset];
+          const midXC = (p1c[0] + p2c[0]) / 2;
+          const midYC = (p1c[1] + p2c[1]) / 2;
+          const ptA = [midXC - nxC * offset, midYC - nyC * offset];
+          const ptB = [midXC + nxC * offset, midYC + nyC * offset];
 
-            let sideAInRoom = false;
-            let sideBInRoom = false;
+          let roomA = null;
+          let roomB = null;
 
-            for (const r of (pageRooms || [])) {
-              const poly = r.polygon || r.points || [];
-              if (poly.length >= 3) {
-                let inA = false, inB = false;
-                for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                  const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
-                  const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
-                  if (((yi > ptA[1]) !== (yj > ptA[1])) && (ptA[0] < (xj - xi) * (ptA[1] - yi) / (yj - yi + 1e-9) + xi)) inA = !inA;
-                  if (((yi > ptB[1]) !== (yj > ptB[1])) && (ptB[0] < (xj - xi) * (ptB[1] - yi) / (yj - yi + 1e-9) + xi)) inB = !inB;
-                }
-                if (inA) sideAInRoom = true;
-                if (inB) sideBInRoom = true;
+          for (const r of (pageRooms || [])) {
+            const poly = r.polygon || r.points || [];
+            if (poly.length >= 3) {
+              let inA = false, inB = false;
+              for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
+                const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
+                if (((yi > ptA[1]) !== (yj > ptA[1])) && (ptA[0] < (xj - xi) * (ptA[1] - yi) / (yj - yi + 1e-9) + xi)) inA = !inA;
+                if (((yi > ptB[1]) !== (yj > ptB[1])) && (ptB[0] < (xj - xi) * (ptB[1] - yi) / (yj - yi + 1e-9) + xi)) inB = !inB;
               }
+              if (inA) roomA = r;
+              if (inB) roomB = r;
             }
+          }
 
-            if (sideBInRoom && !sideAInRoom) {
-              renderSideA3D = false;
-              renderSideB3D = enableSkirtB;
-            } else {
-              renderSideA3D = enableSkirtA;
-              renderSideB3D = false;
-            }
+          // Disable Side A skirting if facing outside or facing an outdoor deck room
+          if (!roomA || isOutdoorRoomName(roomA.room_name || roomA.name || roomA.label)) {
+            renderSideA3D = false;
+          }
+
+          // Disable Side B skirting if facing outside or facing an outdoor deck room
+          if (!roomB || isOutdoorRoomName(roomB.room_name || roomB.name || roomB.label)) {
+            renderSideB3D = false;
           }
 
           // Check if endpoints P1 and P2 connect to other walls at corner joints
@@ -1091,10 +1190,14 @@ export default function ThreeDView({
 
               // Projection t along wall vector
               const t = ((dcx - x1) * wallUx + (dcy - y1) * wallUy);
-              const doorWidth = ((d.width_mm ? d.width_mm : 820) / scaleFactor) + Math.max(thickSkirtA, thickSkirtB) * 1.5;
+              const doorPx = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
+              const doorWidth = doorPx > 0 ? doorPx : ((d.width_mm ? d.width_mm : 820) / scaleFactor);
 
-              const startT = Math.max(0, t - (doorWidth / 2));
-              const endT = Math.min(length, t + (doorWidth / 2));
+              // Deduct up to the outer face of the door jamb post (postThickness = 3px, outer face offset = 1.7px)
+              // Ensures skirting butts up 100% flush against the door jamb post with zero gap and zero protrusion.
+              const frameOuterMargin = 1.7;
+              const startT = Math.max(0, t - (doorWidth / 2) - frameOuterMargin);
+              const endT = Math.min(length, t + (doorWidth / 2) + frameOuterMargin);
               if (endT > startT) {
                 doorIntervals.push({ start: startT, end: endT });
               }
@@ -1149,7 +1252,7 @@ export default function ThreeDView({
             if (renderSideA3D) {
               const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirtA, thickSkirtA);
               const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirtA);
-              const offsetSkirtA = (thickness / 2) + (thickSkirtA / 2) + 0.02;
+              const offsetSkirtA = -(thickness / 2) - (thickSkirtA / 2) - 0.02;
               meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirtA / 2, segMidZ + nz * offsetSkirtA);
               meshSkirtA.rotation.y = -angle;
               scene.add(meshSkirtA);
@@ -1160,7 +1263,7 @@ export default function ThreeDView({
             if (renderSideB3D) {
               const geoSkirtB = new THREE.BoxGeometry(segLen, hSkirtB, thickSkirtB);
               const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirtB);
-              const offsetSkirtB = -(thickness / 2) - (thickSkirtB / 2) - 0.02;
+              const offsetSkirtB = (thickness / 2) + (thickSkirtB / 2) + 0.02;
               meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirtB / 2, segMidZ + nz * offsetSkirtB);
               meshSkirtB.rotation.y = -angle;
               scene.add(meshSkirtB);
@@ -1226,6 +1329,7 @@ export default function ThreeDView({
           let hostWallCy = cy;
           let hostWallClass = "interior_wall";
           let hostWallHeightPx = wallHeight;
+          let nearestWall = null;
 
           const points = door.points || [];
           let p1 = points[0] ? (Array.isArray(points[0]) ? { x: points[0][0], y: points[0][1] } : points[0]) : null;
@@ -1236,7 +1340,6 @@ export default function ThreeDView({
             const dy = p2.y - p1.y;
             const dLen = Math.sqrt(dx * dx + dy * dy);
             if (dLen > 0) {
-              let nearestWall = null;
               let minPerpDist = Infinity;
 
               if (pageWalls && pageWalls.length > 0) {
@@ -1297,6 +1400,37 @@ export default function ThreeDView({
             }
           }
 
+          // Determine exact host wall color to eliminate filler wall color mismatch
+          let hostWallColorHex = "#c49a6c";
+          if (nearestWall) {
+            const wClass = getWallClass(nearestWall);
+            const wType = getWallType(nearestWall);
+            const wHeightVal = (typeof nearestWall.height_mm === 'number' && nearestWall.height_mm >= 500)
+              ? nearestWall.height_mm
+              : ((typeof nearestWall.height === 'number' && nearestWall.height >= 500) ? nearestWall.height : wallHeightMm);
+
+            if (wallColorMode === "type") {
+              if (wType === "ext") hostWallColorHex = extWallColor || "#c49a6c";
+              else if (wType === "part") hostWallColorHex = partWallColor || "#cbd5e1";
+              else hostWallColorHex = intWallColor || "#f4f1ea";
+            } else if (wallColorMode === "height") {
+              if (wHeightVal < 2500) hostWallColorHex = heightTier1Color;
+              else if (wHeightVal < 2850) hostWallColorHex = heightTier2Color;
+              else if (wHeightVal < 3300) hostWallColorHex = heightTier3Color;
+              else hostWallColorHex = heightTier4Color;
+            } else {
+              hostWallColorHex = wClass === "exterior_wall" ? (extWallColor || "#c49a6c") : "#f4f1ea";
+            }
+          } else {
+            hostWallColorHex = extWallColor || "#c49a6c";
+          }
+
+          const fillerMat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(hostWallColorHex),
+            roughness: 0.45,
+            metalness: 0.05
+          });
+
           const doorGroup = new THREE.Group();
           const dClass = door.class || "";
           const isWindow = dClass.includes("window") || (door.door_name && door.door_name.toLowerCase().includes("window")) || door.doorTypeId === "win_standard";
@@ -1305,13 +1439,6 @@ export default function ThreeDView({
             const sillHeight = hostWallHeightPx * 0.375;
             const headerHeight = hostWallHeightPx * 0.875;
             const windowHeight = headerHeight - sillHeight;
-
-            const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-            const fillerMat = new THREE.MeshStandardMaterial({
-              color: wallColor,
-              roughness: 0.75,
-              metalness: 0.15
-            });
 
             if (sillHeight > 0.1) {
               const bottomWallGeo = new THREE.BoxGeometry(length, sillHeight, wallThickness);
@@ -1332,14 +1459,16 @@ export default function ThreeDView({
               doorGroup.add(topWallMesh);
             }
 
+            // High-End Anodized Architectural Window Frame System
             const frameThickness = 2.5;
-            const frameDepth = wallThickness + 2;
+            const frameDepth = wallThickness + 3;
             const windowFrameMat = new THREE.MeshStandardMaterial({
-              color: 0x334155,
-              roughness: 0.5,
-              metalness: 0.8
+              color: 0x0f172a, // Anodized architectural dark slate charcoal frame
+              roughness: 0.3,
+              metalness: 0.85
             });
 
+            // Outer Frame Posts & Headers
             const leftPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
             const leftPost = new THREE.Mesh(leftPostGeo, windowFrameMat);
             leftPost.position.set(-length / 2 + frameThickness / 2, sillHeight + windowHeight / 2, 0);
@@ -1368,15 +1497,34 @@ export default function ThreeDView({
             bottomFrame.receiveShadow = enableShadows;
             doorGroup.add(bottomFrame);
 
-            const glassGeo = new THREE.BoxGeometry(length - frameThickness * 2, windowHeight - frameThickness * 2, 1);
+            // Protruding Architectural Exterior Window Sill Cap
+            const sillCapGeo = new THREE.BoxGeometry(length + 4, 1.8, frameDepth + 4);
+            const sillCapMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4, metalness: 0.1 });
+            const sillCapMesh = new THREE.Mesh(sillCapGeo, sillCapMat);
+            sillCapMesh.position.set(0, sillHeight, 0);
+            sillCapMesh.castShadow = enableShadows;
+            doorGroup.add(sillCapMesh);
+
+            // Vertical Center Mullion Divider for Windows > 1200mm
+            if (length > 60) {
+              const mullionGeo = new THREE.BoxGeometry(1.8, windowHeight - frameThickness * 2, frameDepth - 1);
+              const mullionMesh = new THREE.Mesh(mullionGeo, windowFrameMat);
+              mullionMesh.position.set(0, sillHeight + windowHeight / 2, 0);
+              mullionMesh.castShadow = enableShadows;
+              doorGroup.add(mullionMesh);
+            }
+
+            // High-Clarity Reflective Low-E Architectural Glass Panes
+            const glassGeo = new THREE.BoxGeometry(length - frameThickness * 2, windowHeight - frameThickness * 2, 0.8);
             const glassMat = new THREE.MeshPhysicalMaterial({
-              color: 0xbae6fd,
+              color: 0x38bdf8, // Subtle cyan-blue low-E glass tint
               transparent: true,
-              opacity: 0.4,
-              roughness: 0.1,
-              metalness: 0.9,
-              transmission: 0.9,
-              thickness: 1.0
+              opacity: 0.32,
+              roughness: 0.05,
+              metalness: 0.95,
+              transmission: 0.95,
+              thickness: 1.2,
+              reflectivity: 0.95
             });
             const glassMesh = new THREE.Mesh(glassGeo, glassMat);
             glassMesh.position.set(0, sillHeight + windowHeight / 2, 0);
@@ -1387,12 +1535,6 @@ export default function ThreeDView({
 
             const topDoorWallHeight = hostWallHeightPx - frameHeight;
             if (topDoorWallHeight > 0.1) {
-              const wallColor = hostWallClass === "exterior_wall" ? 0x64748b : 0x94a3b8;
-              const fillerMat = new THREE.MeshStandardMaterial({
-                color: wallColor,
-                roughness: 0.75,
-                metalness: 0.15
-              });
               const topDoorWallGeo = new THREE.BoxGeometry(length, topDoorWallHeight, wallThickness);
               const topDoorWallMesh = new THREE.Mesh(topDoorWallGeo, fillerMat);
               topDoorWallMesh.position.set(0, frameHeight + topDoorWallHeight / 2, 0);
@@ -1402,13 +1544,27 @@ export default function ThreeDView({
             }
 
             const frameMat = new THREE.MeshStandardMaterial({
-              color: 0x2e1a0c,
-              roughness: 0.8,
-              metalness: 0.1
+              color: 0x1e293b, // Modern architectural dark charcoal frame
+              roughness: 0.5,
+              metalness: 0.2
             });
 
             const postThickness = 3;
             const frameDepth = wallThickness + 4;
+
+            // Render Door Threshold Transition Piece (covers floor gap under door opening)
+            const thresholdHeight = 0.6;
+            const thresholdDepth = frameDepth + 2;
+            const thresholdGeo = new THREE.BoxGeometry(length + 2, thresholdHeight, thresholdDepth);
+            const thresholdMat = new THREE.MeshStandardMaterial({
+              color: hostWallClass === "exterior_wall" ? 0x475569 : 0xd4a373,
+              roughness: 0.4,
+              metalness: 0.1
+            });
+            const thresholdMesh = new THREE.Mesh(thresholdGeo, thresholdMat);
+            thresholdMesh.position.set(0, thresholdHeight / 2, 0);
+            thresholdMesh.receiveShadow = enableShadows;
+            doorGroup.add(thresholdMesh);
 
             const leftPostGeo = new THREE.BoxGeometry(postThickness, frameHeight, frameDepth);
             const leftPost = new THREE.Mesh(leftPostGeo, frameMat);
@@ -1438,9 +1594,9 @@ export default function ThreeDView({
             const slabHeight = frameHeight - postThickness;
             const slabThick = 4;
             const slabMat = new THREE.MeshStandardMaterial({
-              color: 0x5c3a21,
-              roughness: 0.85,
-              metalness: 0.1,
+              color: 0x78350f, // Warm rich walnut architectural timber
+              roughness: 0.4,
+              metalness: 0.05,
               side: THREE.DoubleSide
             });
 
