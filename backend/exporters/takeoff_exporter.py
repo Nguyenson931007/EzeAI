@@ -736,7 +736,7 @@ class TakeoffExporter:
             ws[f"G{r}"].border = border_all
 
             # 5.4/2 = 2.7 * Qty
-            ws[f"H{r}"] = f'=2.7*E{r}'
+            ws[f"H{r}"] = f'=IF(OR(E{r}="",E{r}=0),"",2.7*E{r})'
             ws[f"H{r}"].number_format = "0.0"
             ws[f"H{r}"].alignment = center
             ws[f"H{r}"].font = normal

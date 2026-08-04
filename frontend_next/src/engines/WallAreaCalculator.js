@@ -169,11 +169,11 @@ export function computeWallAreas(wall, doors = [], realScale = 1, allWalls = [],
   const skirtingLengthLm = skirtingLengthMm / 1000;
 
   // ── 2. Dual-Face Finish Properties (Ốp gỗ / Ốp gạch / Sơn & Độ cao tùy chỉnh) ──
-  const finishTypeSideA = wall.finishTypeSideA || wall.sideA?.finishType || 'none';
-  const finishHeightSideAMm = Number(wall.finishHeightSideAMm || wall.sideA?.finishHeightMm || wallHeightMm);
+  const finishTypeSideA = wall.finishTypeSideA || wall.sideA?.finishType || wall.surface?.sideA?.finishType || 'none';
+  const finishHeightSideAMm = Number(wall.finishHeightSideAMm || wall.sideA?.finishHeightMm || wall.surface?.sideA?.finishHeight || wallHeightMm);
 
-  const finishTypeSideB = wall.finishTypeSideB || wall.sideB?.finishType || 'none';
-  const finishHeightSideBMm = Number(wall.finishHeightSideBMm || wall.sideB?.finishHeightMm || wallHeightMm);
+  const finishTypeSideB = wall.finishTypeSideB || wall.sideB?.finishType || wall.surface?.sideB?.finishType || 'none';
+  const finishHeightSideBMm = Number(wall.finishHeightSideBMm || wall.sideB?.finishHeightMm || wall.surface?.sideB?.finishHeight || wallHeightMm);
 
   // Calculate Side A net cladding area
   let doorDeductionSideA = 0;

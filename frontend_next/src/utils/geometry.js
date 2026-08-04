@@ -521,14 +521,21 @@ export function sortDoorsByT(doors, wall) {
   });
 }
 
-export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false) {
+export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false, ignoreWindows = false) {
   if (!walls || walls.length === 0) return [];
   const baseWalls = restoreBaseWalls(walls);
   if (!forceCut || !doors || doors.length === 0) return baseWalls;
 
+  const isWindowDoor = (d) => {
+    if (!d) return false;
+    const t = String(d.type || d.class || d.category || d.door_type || d.type_name || d.name || '').toLowerCase();
+    return t.includes('window') || t.includes('cửa sổ') || d.is_window === true;
+  };
+
   // Group doors by parent wall and sort by t
   const doorsByWall = new Map();
   for (const door of doors) {
+    if (ignoreWindows && isWindowDoor(door)) continue;
     const pId = getBaseWallId(door.parentWallId) || 'unassigned';
     if (!doorsByWall.has(pId)) doorsByWall.set(pId, []);
     doorsByWall.get(pId).push(door);
@@ -549,6 +556,7 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
   let currentWalls = [...baseWalls];
 
   for (const door of sortedDoors) {
+    if (ignoreWindows && isWindowDoor(door)) continue; // Windows do NOT cut walls at floor level for skirting when ignoreWindows is true!
     // Get frame line endpoints p1 and p2 of the door
     let dp1 = null;
     let dp2 = null;

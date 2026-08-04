@@ -980,11 +980,21 @@ const WallLayer = React.memo(({
 
         // Check if endpoints are connected to other walls
         const isConnected = (pt) => {
+          const baseId = getBaseWallId ? getBaseWallId(w.id) : w.id.split('-A-')[0].split('-B-')[0];
           return (walls || []).some(ow => {
-            if (ow.id === w.id || !ow.centerline || ow.centerline.length !== 2) return false;
+            const owBaseId = getBaseWallId ? getBaseWallId(ow.id) : ow.id.split('-A-')[0].split('-B-')[0];
+            if (ow.id === w.id || owBaseId === baseId || !ow.centerline || ow.centerline.length !== 2) return false;
             const op1 = ow.centerline[0];
             const op2 = ow.centerline[1];
-            return Math.hypot(pt[0] - op1[0], pt[1] - op1[1]) <= 25 || Math.hypot(pt[0] - op2[0], pt[1] - op2[1]) <= 25;
+            const l2 = (op2[0] - op1[0]) ** 2 + (op2[1] - op1[1]) ** 2;
+            if (l2 === 0) return Math.hypot(pt[0] - op1[0], pt[1] - op1[1]) <= 45;
+            let t = ((pt[0] - op1[0]) * (op2[0] - op1[0]) + (pt[1] - op1[1]) * (op2[1] - op1[1])) / l2;
+            t = Math.max(-0.25, Math.min(1.25, t));
+            const projX = op1[0] + t * (op2[0] - op1[0]);
+            const projY = op1[1] + t * (op2[1] - op1[1]);
+            const dist = Math.hypot(pt[0] - projX, pt[1] - projY);
+            const owThick = ow.thickness_px || 20;
+            return dist <= Math.max(45, owThick + 25);
           });
         };
 

@@ -447,21 +447,15 @@ export default function ThreeDView({
 
       controls.dispose();
 
-      scene.traverse((child) => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-        }
-      });
+      disposeObject3D(scene);
 
       if (renderer.domElement && container) {
         try { container.removeChild(renderer.domElement); } catch (_) { }
       }
-      renderer.dispose();
+      try {
+        renderer.forceContextLoss();
+        renderer.dispose();
+      } catch (_) { }
 
       rendererRef.current = null;
       sceneRef.current = null;
@@ -842,7 +836,10 @@ export default function ThreeDView({
       }
 
       // --- 2. RENDER WALLS WITH CUSTOM COLOR MODES & SELECTION HIGHLIGHT ---
-      const cutWalls = cutWallsByDoors(pageWalls, pageDoors, realScale, true);
+      // 3D Wall Meshes are cut by both doors and windows (so window openings exist)
+      const cutWalls = cutWallsByDoors(pageWalls, pageDoors, realScale, true, false);
+      // 3D Skirting Meshes are cut ONLY by doors (ignoring windows so skirting runs continuously across windows along the floor)
+      const cutWallsForSkirting = cutWallsByDoors(pageWalls, pageDoors, realScale, true, true);
 
       // Sort walls so interior/partition walls render first (renderOrder 1)
       // and exterior walls render last (renderOrder 2) to eliminate T-junction stripe artifacts on exterior facade
@@ -1004,14 +1001,46 @@ export default function ThreeDView({
           scene.add(meshB);
           wallMeshesRef.current.push(meshB);
         }
+      });
 
-        // Render Skirting Mesh (Side A & Side B - Door Opening Deducted & Corner Joint Seamless)
+      // ── 3D SKIRTING MESHES LOOP (Door Openings Deducted, Window Openings Ignored & Corner Joint Seamless) ──
+      cutWallsForSkirting.forEach(wall => {
+        const centerline = wall.centerline;
+        if (!centerline || centerline.length !== 2) return;
+
+        const p1 = centerline[0];
+        const p2 = centerline[1];
+        const x1 = p1[0], y1 = p1[1];
+        const x2 = p2[0], y2 = p2[1];
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+        const thickness = wall.thickness_px || 20;
+
+        const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
+        const wallHeightMmVal = (typeof wall.height_mm === 'number' && wall.height_mm >= 500)
+          ? wall.height_mm
+          : ((typeof wall.height === 'number' && wall.height >= 500) ? wall.height : wallHeightMm);
+        let activeWallHeight = wallHeightMmVal / scaleFactor;
+
+        const skirting = wall.skirting || {
+          enabled: true,
+          height: 100,
+          thickness: 15,
+          color: "#854d0e",
+        };
+
+        const midX = (x1 + x2) / 2 - imgSize.w / 2;
+        const midZ = (y1 + y2) / 2 - imgSize.h / 2;
+        const nx = Math.sin(-angle);
+        const nz = Math.cos(-angle);
+
         const skirtingHeightMm = Number(skirting.height || wall.skirtingHeight || 100);
         const skirtingThickMm = Number(skirting.thickness || wall.skirtingThickness || 15);
 
         if (skirting.enabled !== false && skirtingHeightMm > 0) {
-          const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
-
           // Read Side A Skirting parameters (height bounded by wall height / max 10000mm, thickness max 100mm)
           const maxAllowedHeight = Math.max(10000, wallHeightMmVal || 2400);
           const enableSkirtA = skirting.sideA?.enabled !== false && skirting.enabledA !== false && skirting.enabled !== false;
@@ -1043,7 +1072,7 @@ export default function ThreeDView({
           };
 
           // Resolve Side A Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
-          const finishTypeA = String(skirting.sideA?.material || skirting.sideA?.finishType || sideA.finishType || skirting.material || wall.skirtingMaterial || wall.finishTypeSideA || "").toLowerCase();
+          const finishTypeA = String(skirting.sideA?.material || skirting.sideA?.finishType || wall.finishTypeSideA || skirting.material || wall.skirtingMaterial || "").toLowerCase();
           const isTileA = finishTypeA.includes("tile") || finishTypeA.includes("gạch") || finishTypeA.includes("stone") || finishTypeA.includes("ceramic");
           const isWoodA = finishTypeA.includes("wood") || finishTypeA.includes("gỗ") || finishTypeA.includes("timber");
 
@@ -1054,7 +1083,7 @@ export default function ThreeDView({
           }
 
           // Resolve Side B Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
-          const finishTypeB = String(skirting.sideB?.material || skirting.sideB?.finishType || sideB.finishType || skirting.material || wall.skirtingMaterial || wall.finishTypeSideB || "").toLowerCase();
+          const finishTypeB = String(skirting.sideB?.material || skirting.sideB?.finishType || wall.finishTypeSideB || skirting.material || wall.skirtingMaterial || "").toLowerCase();
           const isTileB = finishTypeB.includes("tile") || finishTypeB.includes("gạch") || finishTypeB.includes("stone") || finishTypeB.includes("ceramic");
           const isWoodB = finishTypeB.includes("wood") || finishTypeB.includes("gỗ") || finishTypeB.includes("timber");
 
@@ -1154,35 +1183,34 @@ export default function ThreeDView({
 
           // Check if endpoints P1 and P2 connect to other walls at corner joints
           const isEndpointConnected = (px, py) => {
+            const baseId = getBaseWallId ? getBaseWallId(wall.id) : wall.id.split('-A-')[0].split('-B-')[0];
             return (pageWalls || []).some(ow => {
-              if (ow.id === wall.id || !ow.centerline || ow.centerline.length !== 2) return false;
+              const owBaseId = getBaseWallId ? getBaseWallId(ow.id) : ow.id.split('-A-')[0].split('-B-')[0];
+              if (ow.id === wall.id || owBaseId === baseId || !ow.centerline || ow.centerline.length !== 2) return false;
               const op1 = ow.centerline[0];
               const op2 = ow.centerline[1];
-              const d1 = Math.hypot(px - op1[0], py - op1[1]);
-              const d2 = Math.hypot(px - op2[0], py - op2[1]);
-              return d1 <= 25 || d2 <= 25;
+              const l2 = (op2[0] - op1[0]) ** 2 + (op2[1] - op1[1]) ** 2;
+              if (l2 === 0) return Math.hypot(px - op1[0], py - op1[1]) <= 45;
+              let t = ((px - op1[0]) * (op2[0] - op1[0]) + (py - op1[1]) * (op2[1] - op1[1])) / l2;
+              t = Math.max(-0.25, Math.min(1.25, t));
+              const projX = op1[0] + t * (op2[0] - op1[0]);
+              const projY = op1[1] + t * (op2[1] - op1[1]);
+              const dist = Math.hypot(px - projX, py - projY);
+              const owThick = ow.thickness_px || 20;
+              return dist <= Math.max(45, owThick + 25);
             });
           };
 
-          const isNearDoor = (px, py) => {
-            return (pageDoors || []).some(d => {
-              if (!d || !d.points || d.points.length < 2) return false;
-              const dp1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
-              const dp2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
-              const dist1 = Math.hypot(px - dp1.x, py - dp1.y);
-              const dist2 = Math.hypot(px - dp2.x, py - dp2.y);
-              return dist1 <= 8.0 || dist2 <= 8.0;
-            });
-          };
+          // Deterministic door endpoint detection from cutWallsByDoors naming convention:
+          // Segment A (-A-) has P2 at door jamb; Segment B (-B-) has P1 at door jamb.
+          const wallIdStr = String(wall.id || "");
+          const p1NearDoor = wallIdStr.includes("-B-");
+          const p2NearDoor = wallIdStr.includes("-A-");
 
           const p1Connected = isEndpointConnected(x1, y1);
           const p2Connected = isEndpointConnected(x2, y2);
-          const p1NearDoor = isNearDoor(x1, y1);
-          const p2NearDoor = isNearDoor(x2, y2);
 
-          // Since wall is ALREADY cut into segments around door openings by cutWallsByDoors,
-          // skirting runs along this cut segment. Extend corners at connected wall joints,
-          // but stop flush (no extension) at door jambs.
+          // Extend corners at connected wall joints, but stop flush (no extension) at door jambs.
           const cornerExt = (thickness / 2) + Math.max(thickSkirtA, thickSkirtB);
           const extStart = (p1Connected && !p1NearDoor) ? -cornerExt : 0;
           const extEnd = (p2Connected && !p2NearDoor) ? length + cornerExt : length;
@@ -1218,7 +1246,7 @@ export default function ThreeDView({
             }
           }
 
-          // 5. Render 3D End Cap Skirting for Standalone / Free Wall Tips (only if not at door jamb)
+          // Render 3D End Cap Skirting for Standalone / Free Wall Tips (only if not at door jamb)
           const matSkirtCap = renderSideA3D ? matSkirtA : matSkirtB;
           const thickSkirtCap = renderSideA3D ? thickSkirtA : thickSkirtB;
           const hSkirtCap = renderSideA3D ? hSkirtA : hSkirtB;
