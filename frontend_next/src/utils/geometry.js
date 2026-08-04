@@ -4,6 +4,12 @@ export function getWallClass(w) {
   const t = typeof w === "object" && w ? (w.wall_type || "").toLowerCase() : "";
 
   if (
+    c === "block_wall" || c === "block" || c.includes("block") ||
+    t === "block" || t === "block_wall" || t.includes("block")
+  ) {
+    return "block_wall";
+  }
+  if (
     c === "exterior_wall" || c === "ext_wall" || c === "ext" || c.includes("ext") || c.includes("external") ||
     t === "ext" || t === "exterior_wall" || t.includes("ext") || t.includes("external")
   ) {
@@ -20,6 +26,7 @@ export function getWallClass(w) {
 
 export function getWallType(w) {
   const cls = getWallClass(w);
+  if (cls === "block_wall") return "block";
   if (cls === "exterior_wall") return "ext";
   if (cls === "partition_wall") return "part";
   return "int";

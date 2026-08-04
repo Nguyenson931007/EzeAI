@@ -1294,7 +1294,9 @@ const WallHandlesLayer = React.memo(({
         
         let angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle > 90 || angle < -90) angle += 180;
-        const badgeWidth = Math.max(28, wallLabel.length * 6.0 + 8);
+        const isBlockWall = getWallClass ? getWallClass(w) === "block_wall" : (w.class_name === "block_wall" || w.wall_type === "block");
+        const displayLabel = isBlockWall ? `${wallLabel} [BLOCK]` : wallLabel;
+        const badgeWidth = Math.max(28, displayLabel.length * 6.0 + 8);
 
         // Smart perpendicular offset for short walls (wallLen < 50px) so badge shifts off wall body
         const isShortWall = wallLen < 50;
@@ -1317,9 +1319,9 @@ const WallHandlesLayer = React.memo(({
                 width={badgeWidth}
                 height={16}
                 rx={4}
-                fill={isSelected ? "rgba(245, 158, 11, 0.92)" : (isHovered ? "rgba(59, 130, 246, 0.9)" : "rgba(30, 41, 59, 0.82)")}
-                stroke={isSelected ? "#fef3c7" : (isHovered ? "#93c5fd" : "rgba(148, 163, 184, 0.4)")}
-                strokeWidth={1}
+                fill={isSelected ? "rgba(245, 158, 11, 0.92)" : (isHovered ? "rgba(59, 130, 246, 0.9)" : (isBlockWall ? "rgba(71, 85, 105, 0.95)" : "rgba(30, 41, 59, 0.82)"))}
+                stroke={isSelected ? "#fef3c7" : (isHovered ? "#93c5fd" : (isBlockWall ? "#cbd5e1" : "rgba(148, 163, 184, 0.4)"))}
+                strokeWidth={isBlockWall ? 1.5 : 1}
               />
               <text
                 x={0}
@@ -1331,7 +1333,7 @@ const WallHandlesLayer = React.memo(({
                 fontFamily="Outfit, Inter, sans-serif"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
-                {wallLabel}
+                {displayLabel}
               </text>
             </g>
 

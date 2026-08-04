@@ -393,6 +393,25 @@ class TakeoffExporter:
         rh(row, 18)
         int_total_row = row
         row += 2
+
+        # ---------- BLOCK WALL ----------
+        add_section_header(row, "BLOCK WALL"); row += 1
+        row = add_wall_col_headers(row) + 1
+
+        add_sub_header(row, "Block Work Wall"); row += 1
+        block_walls = [w for w in request.walls if w.class_name == "block_wall"]
+        first_block = row
+        if block_walls:
+            row, block_height_refs, block_first_row, block_last_row = write_walls_with_height_groups(block_walls, "Block Wall", row)
+            if block_height_refs:
+                add_wall_total_from_refs(row, "Total Block Wall", block_height_refs, wall_count=len(block_walls))
+            else:
+                add_wall_subtotal(row, "Total Block Wall", block_first_row, block_last_row, wall_count=len(block_walls))
+        else:
+            add_wall_subtotal(row, "Total Block Wall", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        block_total_row = row
+        row += 2
         # ---------- DOORS & WINDOWS ----------
         add_section_header(row, "DOORS & WINDOWS"); row += 1
 
@@ -851,14 +870,14 @@ class TakeoffExporter:
         # ---------- SUMMARY ----------
         add_section_header(row, "SUMMARY", fill=dark_fill); row += 1
 
-        total_wall_count = len(ext_walls) + len(lb_walls) + len(nlb_walls)
+        total_wall_count = len(ext_walls) + len(lb_walls) + len(nlb_walls) + len(block_walls)
 
         # Row: Total Wall summary with length, qty, and area
         ws.merge_cells(f"A{row}:C{row}")
         ws[f"A{row}"] = "Total Wall Area - Both Sides (m2)"
         ws[f"A{row}"].font = bold
         ws[f"A{row}"].alignment = right_indent
-        ws[f"D{row}"] = f"=D{ext_total_row}+D{int_total_row}"
+        ws[f"D{row}"] = f"=D{ext_total_row}+D{int_total_row}+D{block_total_row}"
         ws[f"D{row}"].number_format = "#,##0"
         ws[f"D{row}"].font = bold
         ws[f"D{row}"].alignment = center
@@ -866,15 +885,16 @@ class TakeoffExporter:
         ws[f"F{row}"] = total_wall_count
         ws[f"F{row}"].font = bold
         ws[f"F{row}"].alignment = center
-        ws[f"G{row}"] = f"=G{ext_total_row}+G{int_total_row}"
+        ws[f"G{row}"] = f"=G{ext_total_row}+G{int_total_row}+G{block_total_row}"
         ws[f"G{row}"].number_format = "0.00"
         ws[f"G{row}"].font = bold
         style_range(f"A{row}:G{row}", fill=grand_fill, border=True)
         rh(row, 19)
         row += 1
 
-        # Door and window summary rows
+        # Door, window, lintel and block wall summary rows
         simple_sums = [
+            ("Total Block Wall Area - Both Sides (m2)", f"=G{block_total_row}"),
             ("Total Internal Door Area (m2)", f"=F{int_door_area_row}"),
             ("Total External Door Area (m2)", f"=F{ext_door_area_row}"),
             ("Total Door Opening Area (m2)", f"=F{door_total_row}"),

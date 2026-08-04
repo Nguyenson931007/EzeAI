@@ -659,11 +659,12 @@ export default function RightPropertyPaneView({
 
         const parentWall = pageWalls.find(w => w.id === d.parentWallId);
         const isParentExt = parentWall ? (parentWall.class_name === 'exterior_wall' || parentWall.wall_type === 'ext') : false;
+        const isParentBlock = parentWall ? (parentWall.class_name === 'block_wall' || parentWall.wall_type === 'block') : false;
         const doorTypeIdStr = String(d.doorTypeId || d.door_type_id || '');
         const doorClassStr = String(cls || t || type || '');
         const doorNameStr = String(d.doorName || d.door_name || d.name || '').toUpperCase();
 
-        const isExt = !!(
+        const isExt = !isParentBlock && !!(
           d.is_ext ||
           d.is_exterior ||
           d.location === 'external' ||
@@ -689,7 +690,7 @@ export default function RightPropertyPaneView({
           width_mm: d.width_mm || 760,
           height_mm: d.height_mm || 1980,
           qty: 1,
-          block_work: d.block_work || d.blockWork || "No",
+          block_work: isParentBlock ? "Yes" : (d.block_work || d.blockWork || "No"),
           is_ext: isExt,
           location: isExt ? "ext" : "internal"
         };
@@ -889,25 +890,66 @@ export default function RightPropertyPaneView({
               </div>
             )}
 
+            {/* BATCH SELECTION BUTTONS ABOVE WALL TYPE */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              <button
+                className="rp-action-btn"
+                style={{ padding: "6px 8px", fontSize: "11px", fontWeight: 700, background: "#0284c7" }}
+                onClick={() => {
+                  const extIds = (walls || []).filter(w => getWallClass(w) === "exterior_wall").map(w => w.id);
+                  if (extIds.length > 0) {
+                    if (typeof setSelectedWallIds === "function") setSelectedWallIds(extIds);
+                    if (typeof setSelectedType === "function") setSelectedType("wall");
+                    if (typeof setSelectedId === "function") setSelectedId(extIds[0]);
+                  }
+                }}
+              >
+                🎯 Select All Ext ({ (walls || []).filter(w => getWallClass(w) === "exterior_wall").length })
+              </button>
+              <button
+                className="rp-action-btn"
+                style={{ padding: "6px 8px", fontSize: "11px", fontWeight: 700, background: "#0284c7" }}
+                onClick={() => {
+                  const intIds = (walls || []).filter(w => getWallClass(w) === "interior_wall" || getWallClass(w) === "partition_wall").map(w => w.id);
+                  if (intIds.length > 0) {
+                    if (typeof setSelectedWallIds === "function") setSelectedWallIds(intIds);
+                    if (typeof setSelectedType === "function") setSelectedType("wall");
+                    if (typeof setSelectedId === "function") setSelectedId(intIds[0]);
+                  }
+                }}
+              >
+                🎯 Select All Int ({ (walls || []).filter(w => getWallClass(w) === "interior_wall" || getWallClass(w) === "partition_wall").length })
+              </button>
+            </div>
+
             <div className="panel-field">
               <span className="panel-label">Wall Type</span>
               <select
                 className="panel-select"
                 value={
                   selectedWallIds.length > 1
-                    ? "multiple"
-                    : (selectedWall ? getWallClass(selectedWall) : "interior_wall")
+                    ? (selectedWallIds.every(id => getWallClass(walls?.find(w => w.id === id)) === getWallClass(selectedWall)) ? getWallClass(selectedWall) : "multiple")
+                    : (selectedWall ? getWallClass(selectedWall) : "exterior_wall")
                 }
                 onChange={(e) => {
                   if (e.target.value === "multiple") return;
                   const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                  updateWallsProperty && updateWallsProperty(targetIds, "class_name", e.target.value);
+                  const newClass = e.target.value;
+                  updateWallsProperty && updateWallsProperty(targetIds, "class_name", newClass);
+                  updateWallsProperty && updateWallsProperty(targetIds, "wall_type", newClass === "exterior_wall" ? "ext" : (newClass === "block_wall" ? "block" : "int"));
+                  if (newClass === "block_wall" && doors && updateDoorsProperty) {
+                    const hostedDoorIds = doors.filter(d => targetIds.includes(d.parentWallId)).map(d => d.id);
+                    if (hostedDoorIds.length > 0) {
+                      updateDoorsProperty(hostedDoorIds, "block_work", "Yes");
+                    }
+                  }
                 }}
               >
                 {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Types --</option>}
                 <option value="exterior_wall">Exterior Wall</option>
                 <option value="interior_wall">Interior Wall</option>
                 <option value="partition_wall">Partition Wall</option>
+                <option value="block_wall">Block Wall</option>
               </select>
             </div>
 

@@ -899,9 +899,11 @@ export default function ThreeDView({
         const wClass = getWallClass(wall);
         const wType = getWallType(wall);
         const isExteriorWall = wClass === "exterior_wall" || wType === "ext";
+        const isBlockWall = wClass === "block_wall" || wType === "block";
 
         if (wallColorMode === "type") {
-          if (wType === "ext") colorHex = extWallColor || "#f1f5f9";
+          if (isBlockWall) colorHex = "#78716c";
+          else if (wType === "ext") colorHex = extWallColor || "#f1f5f9";
           else if (wType === "part") colorHex = partWallColor || "#cbd5e1";
           else colorHex = intWallColor || "#f8fafc";
         } else if (wallColorMode === "height") {
@@ -910,7 +912,7 @@ export default function ThreeDView({
           else if (wallHeightMmVal < 3300) colorHex = heightTier3Color;
           else colorHex = heightTier4Color;
         } else {
-          colorHex = isExteriorWall ? "#f8fafc" : "#f1f5f9";
+          colorHex = isBlockWall ? "#78716c" : (isExteriorWall ? "#f8fafc" : "#f1f5f9");
         }
 
         const baseId = getBaseWallId ? getBaseWallId(wall.id) : wall.id.split('-A-')[0].split('-B-')[0];
