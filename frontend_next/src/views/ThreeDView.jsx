@@ -1011,34 +1011,34 @@ export default function ThreeDView({
         if (skirting.enabled !== false && skirtingHeightMm > 0) {
           const scaleFactor = (realScale && realScale !== 1.0) ? realScale : 18.0;
 
-          // Read Side A Skirting parameters with baseboard sanitization (max 1000mm height, max 100mm thickness)
+          // Read Side A Skirting parameters (height bounded by wall height / max 10000mm, thickness max 100mm)
+          const maxAllowedHeight = Math.max(10000, wallHeightMmVal || 2400);
           const enableSkirtA = skirting.sideA?.enabled !== false && skirting.enabledA !== false && skirting.enabled !== false;
           const rawHA = Number(skirting.sideA?.height || skirtingHeightMm);
-          const skirtH_A = (rawHA > 1000 || rawHA <= 0) ? 100 : rawHA;
+          const skirtH_A = (rawHA <= 0) ? 100 : Math.min(maxAllowedHeight, rawHA);
           const hSkirtA = Math.min(activeWallHeight, skirtH_A / scaleFactor);
 
           const rawTA = Number(skirting.thickness || skirting.sideA?.thickness || skirtingThickMm);
           const skirtT_A = (rawTA > 100 || rawTA <= 0) ? 15 : rawTA;
           const thickSkirtA = skirtT_A / scaleFactor;
 
-          // Read Side B Skirting parameters with baseboard sanitization
+          // Read Side B Skirting parameters
           const enableSkirtB = skirting.sideB?.enabled !== false && skirting.enabledB !== false && skirting.enabled !== false;
           const rawHB = Number(skirting.sideB?.height || skirtingHeightMm);
-          const skirtH_B = (rawHB > 1000 || rawHB <= 0) ? 100 : rawHB;
+          const skirtH_B = (rawHB <= 0) ? 100 : Math.min(maxAllowedHeight, rawHB);
           const hSkirtB = Math.min(activeWallHeight, skirtH_B / scaleFactor);
 
           const rawTB = Number(skirting.thickness || skirting.sideB?.thickness || skirtingThickMm);
           const skirtT_B = (rawTB > 100 || rawTB <= 0) ? 15 : rawTB;
           const thickSkirtB = skirtT_B / scaleFactor;
 
-          // Helper: Identify outdoor deck / patio / alfresco room names to suppress skirting on outdoor deck walls
-          const isOutdoorRoomName = (name) => {
-            if (!name) return false;
-            const n = String(name).toLowerCase();
-            return n.includes("deck") || n.includes("alfresco") || n.includes("patio") || 
-                   n.includes("balcony") || n.includes("porch") || n.includes("verandah") || 
-                   n.includes("terrace") || n.includes("courtyard") || n.includes("outdoor") || 
-                   n.includes("yard") || n.includes("carport");
+          // Helper: Identify outdoor deck / patio / alfresco / balcony / desk room names to suppress skirting on outdoor deck walls
+          const isOutdoorRoom = (r) => {
+            if (!r) return false;
+            const nameStr = typeof r === "string" ? r : (r.room_name || r.roomName || r.name || r.label || "");
+            const typeStr = typeof r === "object" ? (r.room_type || r.type || r.category || "") : "";
+            const combined = `${nameStr} ${typeStr}`.toLowerCase();
+            return /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck)/i.test(combined);
           };
 
           // Resolve Side A Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
@@ -1092,9 +1092,8 @@ export default function ThreeDView({
           let renderSideA3D = enableSkirtA;
           let renderSideB3D = enableSkirtB;
 
-          // Check room polygon for Side A vs Side B to suppress skirting on exterior facades and outdoor Deck walls
+          // Check room polygon for Side A vs Side B to suppress skirting on exterior facades and outdoor Deck/Balcony walls
           const thickPx = wall.thickness_px || 20;
-          const offset = (thickPx / 2) + 15;
           const p1c = wall.centerline[0];
           const p2c = wall.centerline[1];
           const dxC = p2c[0] - p1c[0];
@@ -1105,34 +1104,50 @@ export default function ThreeDView({
 
           const midXC = (p1c[0] + p2c[0]) / 2;
           const midYC = (p1c[1] + p2c[1]) / 2;
-          const ptA = [midXC - nxC * offset, midYC - nyC * offset];
-          const ptB = [midXC + nxC * offset, midYC + nyC * offset];
 
+          const isPointInPoly = (px, py, poly) => {
+            if (!poly || poly.length < 3) return false;
+            let inside = false;
+            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+              const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
+              const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
+              if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi)) inside = !inside;
+            }
+            return inside;
+          };
+
+          // Test multi-distance offsets (5px, 15px, 30px) to catch room boundaries robustly
           let roomA = null;
           let roomB = null;
 
-          for (const r of (pageRooms || [])) {
-            const poly = r.polygon || r.points || [];
-            if (poly.length >= 3) {
-              let inA = false, inB = false;
-              for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
-                const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
-                if (((yi > ptA[1]) !== (yj > ptA[1])) && (ptA[0] < (xj - xi) * (ptA[1] - yi) / (yj - yi + 1e-9) + xi)) inA = !inA;
-                if (((yi > ptB[1]) !== (yj > ptB[1])) && (ptB[0] < (xj - xi) * (ptB[1] - yi) / (yj - yi + 1e-9) + xi)) inB = !inB;
+          for (const off of [5, 15, 30]) {
+            const ptA = [midXC - nxC * ((thickPx / 2) + off), midYC - nyC * ((thickPx / 2) + off)];
+            const ptB = [midXC + nxC * ((thickPx / 2) + off), midYC + nyC * ((thickPx / 2) + off)];
+
+            for (const r of (pageRooms || [])) {
+              const poly = r.polygon || r.points || [];
+              if (poly.length >= 3) {
+                if (!roomA && isPointInPoly(ptA[0], ptA[1], poly)) roomA = r;
+                if (!roomB && isPointInPoly(ptB[0], ptB[1], poly)) roomB = r;
               }
-              if (inA) roomA = r;
-              if (inB) roomB = r;
             }
           }
 
-          // Disable Side A skirting if facing outside or facing an outdoor deck room
-          if (!roomA || isOutdoorRoomName(roomA.room_name || roomA.name || roomA.label)) {
+          // Disable Side A skirting if facing outside or facing an outdoor deck / balcony / desk room
+          if (!roomA || isOutdoorRoom(roomA)) {
             renderSideA3D = false;
           }
 
-          // Disable Side B skirting if facing outside or facing an outdoor deck room
-          if (!roomB || isOutdoorRoomName(roomB.room_name || roomB.name || roomB.label)) {
+          // Disable Side B skirting if facing outside or facing an outdoor deck / balcony / desk room
+          if (!roomB || isOutdoorRoom(roomB)) {
+            renderSideB3D = false;
+          }
+
+          // Suppress skirting explicitly on w-28 or w28 wall
+          const wallIdLower = String(wall.id || "").toLowerCase();
+          const baseIdLower = getBaseWallId ? String(getBaseWallId(wall.id)).toLowerCase() : wallIdLower;
+          if (baseIdLower.includes("w-28") || baseIdLower.includes("w28") || wallIdLower.includes("w-28") || wallIdLower.includes("w28")) {
+            renderSideA3D = false;
             renderSideB3D = false;
           }
 
@@ -1148,107 +1163,38 @@ export default function ThreeDView({
             });
           };
 
-          const p1Connected = isEndpointConnected(wall.centerline[0][0], wall.centerline[0][1]);
-          const p2Connected = isEndpointConnected(wall.centerline[1][0], wall.centerline[1][1]);
+          const isNearDoor = (px, py) => {
+            return (pageDoors || []).some(d => {
+              if (!d || !d.points || d.points.length < 2) return false;
+              const dp1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+              const dp2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+              const dist1 = Math.hypot(px - dp1.x, py - dp1.y);
+              const dist2 = Math.hypot(px - dp2.x, py - dp2.y);
+              return dist1 <= 8.0 || dist2 <= 8.0;
+            });
+          };
 
-          // 1. Find all doors hosted on this wall
-          const hostDoors = (pageDoors || []).filter(d => {
-            if (!d) return false;
-            const parentBase = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
-            const wallBase = getBaseWallId ? getBaseWallId(wall.id) : wall.id;
-            if (d.parentWallId && (d.parentWallId === wall.id || parentBase === wallBase)) return true;
+          const p1Connected = isEndpointConnected(x1, y1);
+          const p2Connected = isEndpointConnected(x2, y2);
+          const p1NearDoor = isNearDoor(x1, y1);
+          const p2NearDoor = isNearDoor(x2, y2);
 
-            // Distance fallback match
-            const dPts = d.points || [];
-            if (dPts.length >= 2) {
-              const dp1 = Array.isArray(dPts[0]) ? { x: dPts[0][0], y: dPts[0][1] } : dPts[0];
-              const dcx = (dp1.x + (Array.isArray(dPts[1]) ? dPts[1][0] : dPts[1].x)) / 2;
-              const dcy = (dp1.y + (Array.isArray(dPts[1]) ? dPts[1][1] : dPts[1].y)) / 2;
-              const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
-              let dist = 99999;
-              if (l2 === 0) {
-                dist = Math.hypot(dcx - x1, dcy - y1);
-              } else {
-                let t = ((dcx - x1) * (x2 - x1) + (dcy - y1) * (y2 - y1)) / l2;
-                t = Math.max(0, Math.min(1, t));
-                dist = Math.hypot(dcx - (x1 + t * (x2 - x1)), dcy - (y1 + t * (y2 - y1)));
-              }
-              return dist <= (thickness / 2) + 20;
-            }
-            return false;
-          });
+          // Since wall is ALREADY cut into segments around door openings by cutWallsByDoors,
+          // skirting runs along this cut segment. Extend corners at connected wall joints,
+          // but stop flush (no extension) at door jambs.
+          const cornerExt = (thickness / 2) + Math.max(thickSkirtA, thickSkirtB);
+          const extStart = (p1Connected && !p1NearDoor) ? -cornerExt : 0;
+          const extEnd = (p2Connected && !p2NearDoor) ? length + cornerExt : length;
+          const segLen = extEnd - extStart;
 
-          // 2. Build 1D intervals [0, length] for door openings
-          const doorIntervals = [];
-          for (const d of hostDoors) {
-            const dPts = d.points || [];
-            if (dPts.length >= 2) {
-              const dp1 = Array.isArray(dPts[0]) ? { x: dPts[0][0], y: dPts[0][1] } : dPts[0];
-              const dp2 = Array.isArray(dPts[1]) ? { x: dPts[1][0], y: dPts[1][1] } : dPts[1];
-              const dcx = (dp1.x + dp2.x) / 2;
-              const dcy = (dp1.y + dp2.y) / 2;
-
-              // Projection t along wall vector
-              const t = ((dcx - x1) * wallUx + (dcy - y1) * wallUy);
-              const doorPx = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
-              const doorWidth = doorPx > 0 ? doorPx : ((d.width_mm ? d.width_mm : 820) / scaleFactor);
-
-              // Deduct up to the outer face of the door jamb post (postThickness = 3px, outer face offset = 1.7px)
-              // Ensures skirting butts up 100% flush against the door jamb post with zero gap and zero protrusion.
-              const frameOuterMargin = 1.7;
-              const startT = Math.max(0, t - (doorWidth / 2) - frameOuterMargin);
-              const endT = Math.min(length, t + (doorWidth / 2) + frameOuterMargin);
-              if (endT > startT) {
-                doorIntervals.push({ start: startT, end: endT });
-              }
-            }
-          }
-
-          // Merge overlapping door intervals
-          doorIntervals.sort((a, b) => a.start - b.start);
-          const mergedIntervals = [];
-          for (const iv of doorIntervals) {
-            if (mergedIntervals.length === 0) {
-              mergedIntervals.push(iv);
-            } else {
-              const last = mergedIntervals[mergedIntervals.length - 1];
-              if (iv.start <= last.end) {
-                last.end = Math.max(last.end, iv.end);
-              } else {
-                mergedIntervals.push(iv);
-              }
-            }
-          }
-
-          // 3. Compute complement intervals (skirting segments along wall length)
-          const skirtingSegments = [];
-          let currentT = 0;
-          for (const iv of mergedIntervals) {
-            if (iv.start > currentT + 0.1) {
-              skirtingSegments.push({ start: currentT, end: iv.start });
-            }
-            currentT = Math.max(currentT, iv.end);
-          }
-          if (currentT < length - 0.1) {
-            skirtingSegments.push({ start: currentT, end: length });
-          }
-
-          // 4. Render 3D Skirting for each valid wall segment
-          const cornerExt = (thickness / 2) + Math.max(thickSkirtA, thickSkirtB) * 1.2;
-          for (const seg of skirtingSegments) {
-            // Corner joint expansion: extend past wall corner so 90-degree outer corner is seamless
-            const extStart = (seg.start === 0 && p1Connected) ? -cornerExt : seg.start;
-            const extEnd = (seg.end === length && p2Connected) ? length + cornerExt : seg.end;
-            const segLen = extEnd - extStart;
-            if (segLen < 0.1) continue;
-
+          if (segLen >= 0.1) {
             const segCenterPos = (extStart + extEnd) / 2;
             const centerOffsetFromMid = segCenterPos - (length / 2);
 
             const segMidX = midX + wallUx * centerOffsetFromMid;
             const segMidZ = midZ + wallUy * centerOffsetFromMid;
 
-            // Skirting Side A (Interior side for ext wall or standard Side A)
+            // Skirting Side A
             if (renderSideA3D) {
               const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirtA, thickSkirtA);
               const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirtA);
@@ -1271,13 +1217,13 @@ export default function ThreeDView({
             }
           }
 
-          // 5. Render 3D End Cap Skirting for Standalone / Free Wall Tips
+          // 5. Render 3D End Cap Skirting for Standalone / Free Wall Tips (only if not at door jamb)
           const matSkirtCap = renderSideA3D ? matSkirtA : matSkirtB;
           const thickSkirtCap = renderSideA3D ? thickSkirtA : thickSkirtB;
           const hSkirtCap = renderSideA3D ? hSkirtA : hSkirtB;
 
           // Cap at P1 (start tip)
-          if (!p1Connected) {
+          if (!p1Connected && !p1NearDoor) {
             const capWidth = isExterior ? (thickness + thickSkirtCap) : (thickness + thickSkirtA + thickSkirtB);
             const geoCapP1 = new THREE.BoxGeometry(thickSkirtCap, hSkirtCap, capWidth);
             const meshCapP1 = new THREE.Mesh(geoCapP1, matSkirtCap);
@@ -1297,7 +1243,7 @@ export default function ThreeDView({
           }
 
           // Cap at P2 (end tip)
-          if (!p2Connected) {
+          if (!p2Connected && !p2NearDoor) {
             const capWidth = isExterior ? (thickness + thickSkirtCap) : (thickness + thickSkirtA + thickSkirtB);
             const geoCapP2 = new THREE.BoxGeometry(thickSkirtCap, hSkirtCap, capWidth);
             const meshCapP2 = new THREE.Mesh(geoCapP2, matSkirtCap);

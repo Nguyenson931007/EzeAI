@@ -1166,7 +1166,7 @@ export default function RightPropertyPaneView({
                       />
                     </div>
 
-                    {/* Side A Skirting Toggle & Color */}
+                    {/* Side A Skirting Toggle, Height & Color */}
                     <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc" }}>Skirting Side A</span>
@@ -1182,6 +1182,23 @@ export default function RightPropertyPaneView({
                           />
                           <span>On</span>
                         </label>
+                      </div>
+                      <div className="panel-field" style={{ marginBottom: 6 }}>
+                        <span className="panel-label">SIDE A HEIGHT (MM)</span>
+                        <input
+                          type="number"
+                          className="panel-input"
+                          style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                          value={selectedWall?.skirting?.sideA?.height ?? selectedWall?.skirting?.height ?? 100}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                            const rawVal = e.target.value;
+                            const val = rawVal === "" ? 0 : Number(rawVal);
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.height", val);
+                          }}
+                        />
                       </div>
                       <div className="panel-field">
                         <span className="panel-label">SIDE A COLOR</span>
@@ -1199,7 +1216,7 @@ export default function RightPropertyPaneView({
                       </div>
                     </div>
 
-                    {/* Side B Skirting Toggle & Color */}
+                    {/* Side B Skirting Toggle, Height & Color */}
                     <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc" }}>Skirting Side B</span>
@@ -1215,6 +1232,23 @@ export default function RightPropertyPaneView({
                           />
                           <span>On</span>
                         </label>
+                      </div>
+                      <div className="panel-field" style={{ marginBottom: 6 }}>
+                        <span className="panel-label">SIDE B HEIGHT (MM)</span>
+                        <input
+                          type="number"
+                          className="panel-input"
+                          style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
+                          value={selectedWall?.skirting?.sideB?.height ?? selectedWall?.skirting?.height ?? 100}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                            const rawVal = e.target.value;
+                            const val = rawVal === "" ? 0 : Number(rawVal);
+                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.height", val);
+                          }}
+                        />
                       </div>
                       <div className="panel-field">
                         <span className="panel-label">SIDE B COLOR</span>

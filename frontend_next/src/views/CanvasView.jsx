@@ -911,41 +911,71 @@ const WallLayer = React.memo(({
         const skirtingColorB = w.skirting?.sideB?.color || w.skirting?.color || "#854d0e";
         const isExterior = w.is_ext || w.wall_type === 'ext' || (w.class_name || '').includes('exterior');
 
-        let renderSideA = w.skirting?.sideA?.enabled ?? w.skirting?.enabledA ?? true;
-        let renderSideB = w.skirting?.sideB?.enabled ?? w.skirting?.enabledB ?? true;
+        const isOutdoorRoom = (r) => {
+          if (!r) return false;
+          const nameStr = typeof r === "string" ? r : (r.room_name || r.roomName || r.name || r.label || "");
+          const typeStr = typeof r === "object" ? (r.room_type || r.type || r.category || "") : "";
+          const combined = `${nameStr} ${typeStr}`.toLowerCase();
+          return /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck)/i.test(combined);
+        };
 
-        if (isExterior) {
-          const midX = (p1[0] + p2[0]) / 2;
-          const midY = (p1[1] + p2[1]) / 2;
-          const ptA = [midX + nx * offsetA, midY + ny * offsetA];
-          const ptB = [midX + nx * offsetB, midY + ny * offsetB];
+        const midX = (p1[0] + p2[0]) / 2;
+        const midY = (p1[1] + p2[1]) / 2;
 
-          let sideAInRoom = false;
-          let sideBInRoom = false;
+        const isPointInPoly = (px, py, poly) => {
+          if (!poly || poly.length < 3) return false;
+          let inside = false;
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
+            const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
+            if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi)) inside = !inside;
+          }
+          return inside;
+        };
+
+        let roomA = null;
+        let roomB = null;
+
+        for (const off of [5, 15, 30]) {
+          const ptA = [midX + nx * (offsetA - off), midY + ny * (offsetA - off)];
+          const ptB = [midX + nx * (offsetB + off), midY + ny * (offsetB + off)];
 
           for (const r of (rooms || [])) {
             const poly = r.polygon || r.points || [];
             if (poly.length >= 3) {
-              // Ray casting point in polygon
-              let inA = false, inB = false;
-              for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
-                const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
-                if (((yi > ptA[1]) !== (yj > ptA[1])) && (ptA[0] < (xj - xi) * (ptA[1] - yi) / (yj - yi + 1e-9) + xi)) inA = !inA;
-                if (((yi > ptB[1]) !== (yj > ptB[1])) && (ptB[0] < (xj - xi) * (ptB[1] - yi) / (yj - yi + 1e-9) + xi)) inB = !inB;
-              }
-              if (inA) sideAInRoom = true;
-              if (inB) sideBInRoom = true;
+              if (!roomA && isPointInPoly(ptA[0], ptA[1], poly)) roomA = r;
+              if (!roomB && isPointInPoly(ptB[0], ptB[1], poly)) roomB = r;
             }
           }
+        }
 
-          if (sideBInRoom && !sideAInRoom) {
+        let renderSideA = w.skirting?.sideA?.enabled ?? w.skirting?.enabledA ?? true;
+        let renderSideB = w.skirting?.sideB?.enabled ?? w.skirting?.enabledB ?? true;
+
+        if (isExterior) {
+          if (roomB && !roomA) {
             renderSideA = false;
-            renderSideB = (w.skirting?.sideB?.enabled ?? w.skirting?.enabledB ?? true);
-          } else {
-            renderSideA = (w.skirting?.sideA?.enabled ?? w.skirting?.enabledA ?? true);
+          } else if (roomA && !roomB) {
             renderSideB = false;
           }
+        }
+
+        // Disable 2D Side A skirting if facing outside or facing an outdoor deck / balcony / desk room
+        if (!roomA || isOutdoorRoom(roomA)) {
+          renderSideA = false;
+        }
+
+        // Disable 2D Side B skirting if facing outside or facing an outdoor deck / balcony / desk room
+        if (!roomB || isOutdoorRoom(roomB)) {
+          renderSideB = false;
+        }
+
+        // Explicitly suppress 2D skirting on W-28 wall
+        const wIdLower = String(w.id || "").toLowerCase();
+        const baseIdLower = getBaseWallId ? String(getBaseWallId(w.id)).toLowerCase() : wIdLower;
+        if (baseIdLower.includes("w-28") || baseIdLower.includes("w28") || wIdLower.includes("w-28") || wIdLower.includes("w28")) {
+          renderSideA = false;
+          renderSideB = false;
         }
 
         // Check if endpoints are connected to other walls
