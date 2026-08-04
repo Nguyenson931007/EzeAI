@@ -731,11 +731,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const pageWalls = wallsByPage[currentPage] || [];
     const targetBaseIds = wallIds.map(id => getBaseWallId(id));
     const newWalls = pageWalls.filter(w => (!wallIds.includes(w.id) && !targetBaseIds.includes(w.id) && !targetBaseIds.includes(getBaseWallId(w.id))) || w.locked);
-    
+
     // Cascaded delete: remove lintels whose wallId is among the deleted wall IDs
     const pageLintels = lintelsByPage[currentPage] || [];
     const newLintels = pageLintels.filter(l => !wallIds.includes(l.wallId) && !targetBaseIds.includes(l.wallId));
-    
+
     setWallsByPage({
       ...wallsByPage,
       [currentPage]: newWalls
@@ -1755,7 +1755,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function updateRoofPitch(roofId, pitchAngle) {
     const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, pitchAngle: Math.max(0, Math.min(85, pitchAngle)) } : r);
+    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, pitchAngle: Math.max(0, Math.min(85, pitchAngle)), roof_type: pitchAngle > 0 ? "pitched" : "flat" } : r);
     pushRoofHistory(updated);
   }
 
@@ -2296,9 +2296,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               constrainedDoor.parentWallId = parentWall.id;
               const isExtWall = parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior;
               const isSlidingOrCavity = constrainedDoor.doorTypeId === 'cavity_slider' || constrainedDoor.type === 'slider' ||
-                                       constrainedDoor.class === 'sliding_door' || constrainedDoor.class === 'ext_sliding' ||
-                                       (constrainedDoor.door_name || constrainedDoor.doorName || '').toLowerCase().includes('slide') ||
-                                       (constrainedDoor.door_name || constrainedDoor.doorName || '').toLowerCase().includes('cavity');
+                constrainedDoor.class === 'sliding_door' || constrainedDoor.class === 'ext_sliding' ||
+                (constrainedDoor.door_name || constrainedDoor.doorName || '').toLowerCase().includes('slide') ||
+                (constrainedDoor.door_name || constrainedDoor.doorName || '').toLowerCase().includes('cavity');
 
               if (isExtWall) {
                 let typeId = constrainedDoor.doorTypeId;
@@ -3128,9 +3128,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                 finalDoor.parentWallId = parentWall.id;
                 const isExtWall = parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior;
                 const isSlidingOrCavity = finalDoor.doorTypeId === 'cavity_slider' || finalDoor.type === 'slider' ||
-                                         finalDoor.class === 'sliding_door' || finalDoor.class === 'ext_sliding' ||
-                                         (finalDoor.door_name || finalDoor.doorName || '').toLowerCase().includes('slide') ||
-                                         (finalDoor.door_name || finalDoor.doorName || '').toLowerCase().includes('cavity');
+                  finalDoor.class === 'sliding_door' || finalDoor.class === 'ext_sliding' ||
+                  (finalDoor.door_name || finalDoor.doorName || '').toLowerCase().includes('slide') ||
+                  (finalDoor.door_name || finalDoor.doorName || '').toLowerCase().includes('cavity');
 
                 if (isExtWall) {
                   let typeId = finalDoor.doorTypeId;
