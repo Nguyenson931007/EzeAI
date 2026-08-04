@@ -156,15 +156,15 @@ class TakeoffExporter:
 
         # ---------- helpers ----------
         def add_section_header(r, text, fill=header_fill, font=bold_white):
-            merge_and_label(f"A{r}:G{r}", text, font=font, fill=fill, align=center)
+            merge_and_label(f"A{r}:I{r}", text, font=font, fill=fill, align=center)
             rh(r, 20)
 
         def add_sub_header(r, text):
-            ws.merge_cells(f"A{r}:G{r}")
+            ws.merge_cells(f"A{r}:I{r}")
             ws[f"A{r}"] = text
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = left_indent
-            style_range(f"A{r}:G{r}", fill=subheader_fill, border=True)
+            style_range(f"A{r}:I{r}", fill=subheader_fill, border=True)
             rh(r, 17)
 
         def add_wall_col_headers(r):
@@ -174,7 +174,8 @@ class TakeoffExporter:
             ws[f"E{r}"] = "Height (mm)"
             ws[f"F{r}"] = "Qty"
             ws[f"G{r}"] = "Area (m2)"
-            style_range(f"A{r}:G{r}", font=bold, fill=colhead_fill, align=center)
+            ws.merge_cells(f"G{r}:I{r}")
+            style_range(f"A{r}:I{r}", font=bold, fill=colhead_fill, align=center)
             rh(r, 18)
             return r
 
@@ -388,50 +389,118 @@ class TakeoffExporter:
         ws[f"G{row}"] = f"=G{lb_total_row}+G{nlb_total_row}"
         ws[f"G{row}"].number_format = "0.00"
         ws[f"G{row}"].font = bold
-        style_range(f"A{row}:G{row}", fill=total_fill, border=True)
+        style_range(f"A{row}:I{row}", fill=total_fill, border=True)
         rh(row, 18)
         int_total_row = row
         row += 2
+        # ---------- DOORS & WINDOWS ----------
+        add_section_header(row, "DOORS & WINDOWS"); row += 1
 
+        def add_door_col_headers(r):
+            ws[f"A{r}"] = "Description / Size"
+            ws[f"B{r}"] = "Height (mm)"
+            ws[f"C{r}"] = "Width (mm)"
+            ws[f"D{r}"] = "Block Work"
+            ws[f"E{r}"] = "Qty"
+            ws[f"F{r}"] = "Area (m2)"
+            ws[f"G{r}"] = "Perimeter (m)"
+            ws[f"H{r}"] = "5.4/2"
+            ws[f"I{r}"] = "Reveal"
+            style_range(f"A{r}:I{r}", font=bold, fill=colhead_fill, align=center)
+            rh(r, 18)
+            return r
 
-        # ---------- DOORS ----------
-        add_section_header(row, "DOORS"); row += 1
+        add_door_col_headers(row); row += 1
 
-        ws.merge_cells(f"A{row}:C{row}")
-        ws[f"A{row}"] = "Door Type / Size"
-        ws[f"D{row}"] = "Width (mm)"
-        ws[f"E{row}"] = "Height (mm)"
-        ws[f"F{row}"] = "Qty"
-        ws[f"G{row}"] = "Area (m2)"
-        style_range(f"A{row}:G{row}", font=bold, fill=colhead_fill, align=center)
-        rh(row, 18)
-        row += 1
+        def add_door_data_row(r, desc, h_mm, w_mm, qty=1, block_work="No"):
+            ws[f"A{r}"] = desc
+            ws[f"A{r}"].alignment = left_indent
+            ws[f"A{r}"].font = normal
+            ws[f"A{r}"].border = border_all
 
-        def add_door_data_row(r):
-            ws.merge_cells(f"A{r}:C{r}")
-            for col in ["A", "D", "E", "F", "G"]:
-                ws[f"{col}{r}"].border = border_all
-                ws[f"{col}{r}"].alignment = center if col != "A" else left_indent
+            ws[f"B{r}"] = round(h_mm)
+            ws[f"B{r}"].alignment = center
+            ws[f"B{r}"].font = input_font
+            ws[f"B{r}"].border = border_all
+
+            ws[f"C{r}"] = round(w_mm)
+            ws[f"C{r}"].alignment = center
+            ws[f"C{r}"].font = input_font
+            ws[f"C{r}"].border = border_all
+
+            ws[f"D{r}"] = block_work
+            ws[f"D{r}"].alignment = center
             ws[f"D{r}"].font = input_font
-            ws[f"E{r}"].font = input_font
-            ws[f"F{r}"].font = input_font
-            ws[f"G{r}"] = f'=IF(OR(D{r}="",E{r}=""),"",D{r}*E{r}/1000000*IF(F{r}="",1,F{r}))'
+            ws[f"D{r}"].border = border_all
+
+            # Qty
+            ws[f"E{r}"] = qty
+            ws[f"E{r}"].alignment = center
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].border = border_all
+
+            # Area = (Height/1000) * (Width/1000) * Qty
+            ws[f"F{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",(B{r}/1000)*(C{r}/1000)*E{r})'
+            ws[f"F{r}"].number_format = "0.00"
+            ws[f"F{r}"].alignment = center
+            ws[f"F{r}"].font = normal
+            ws[f"F{r}"].border = border_all
+
+            # Perimeter = 2 * (Height/1000 + Width/1000) * Qty
+            ws[f"G{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",2*(B{r}/1000+C{r}/1000)*E{r})'
             ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].alignment = center
+            ws[f"G{r}"].font = normal
+            ws[f"G{r}"].border = border_all
+
+            # 5.4/2 = 2.7 * Qty
+            ws[f"H{r}"] = f'=IF(OR(E{r}="",E{r}=0),"",2.7*E{r})'
+            ws[f"H{r}"].number_format = "0.0"
+            ws[f"H{r}"].alignment = center
+            ws[f"H{r}"].font = normal
+            ws[f"H{r}"].border = border_all
+
+            # Reveal Count = piecewise condition on 1-door Perimeter * Qty
+            ws[f"I{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",IF(2*(B{r}+C{r})/1000=0,0,IF(2*(B{r}+C{r})/1000<=2.7,0.5,IF(2*(B{r}+C{r})/1000<=5.4,1,IF(2*(B{r}+C{r})/1000<=7.5,1.5,IF(2*(B{r}+C{r})/1000<=10.8,2,2.5)))))*E{r})'
+            ws[f"I{r}"].number_format = "0.00"
+            ws[f"I{r}"].alignment = center
+            ws[f"I{r}"].font = bold
+            ws[f"I{r}"].border = border_all
             rh(r, 17)
 
         def add_door_subtotal(r, label, first, last):
-            ws.merge_cells(f"A{r}:C{r}")
+            no_data = first > last
+            ws.merge_cells(f"A{r}:D{r}")
             ws[f"A{r}"] = label
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = right_indent
-            ws[f"F{r}"] = f"=SUM(F{first}:F{last})"
+
+            ws[f"E{r}"] = 0 if no_data else f"=SUM(E{first}:E{last})"
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+
+            ws[f"F{r}"] = 0 if no_data else f"=SUM(F{first}:F{last})"
+            ws[f"F{r}"].number_format = "0.00"
             ws[f"F{r}"].font = bold
             ws[f"F{r}"].alignment = center
-            ws[f"G{r}"] = f"=SUM(G{first}:G{last})"
+
+            ws[f"G{r}"] = 0 if no_data else f"=SUM(G{first}:G{last})"
             ws[f"G{r}"].number_format = "0.00"
             ws[f"G{r}"].font = bold
-            style_range(f"A{r}:G{r}", fill=total_fill, border=True)
-            rh(r, 17)
+            ws[f"G{r}"].alignment = center
+
+            ws[f"H{r}"] = 0 if no_data else f"=SUM(H{first}:H{last})"
+            ws[f"H{r}"].number_format = "0.0"
+            ws[f"H{r}"].font = bold
+            ws[f"H{r}"].alignment = center
+
+            ws[f"I{r}"] = 0 if no_data else f"=SUM(I{first}:I{last})"
+            ws[f"I{r}"].number_format = "0.00"
+            ws[f"I{r}"].font = bold
+            ws[f"I{r}"].alignment = center
+
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
+            rh(r, 18)
 
         # Categorize doors
         grouped_doors = defaultdict(int)
@@ -467,23 +536,39 @@ class TakeoffExporter:
                 single_grouped.append(item)
 
         door_subtotal_rows = []
+        int_door_data_rows = []
+        ext_door_data_rows = []
+        window_data_rows = []
+
+        def calc_reveal_count(h_mm, w_mm, qty):
+            p_unit = 2 * (h_mm + w_mm) / 1000.0
+            if p_unit == 0: base = 0
+            elif p_unit <= 2.7: base = 0.5
+            elif p_unit <= 5.4: base = 1.0
+            elif p_unit <= 7.5: base = 1.5
+            elif p_unit <= 10.8: base = 2.0
+            else: base = 2.5
+            return base * qty
+
+        blockwork_reveal_count = 0
 
         # Single Door Section
         add_sub_header(row, "Single Door"); row += 1
         first_single = row
         if single_grouped:
-            for item in single_grouped:
-                add_door_data_row(row)
-                ws[f"A{row}"] = f"Single Door {item['width']}x{item['height']}"
-                ws[f"D{row}"] = round(item["width"])
-                ws[f"E{row}"] = round(item["height"])
-                ws[f"F{row}"] = item["qty"]
+            sorted_single = sorted(single_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_single:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Single Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
                 row += 1
             add_door_subtotal(row, "Subtotal - Single Door", first_single, row - 1)
         else:
-            add_door_subtotal(row, "Subtotal - Single Door", row, row)
-            ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.00
+            add_door_subtotal(row, "Subtotal - Single Door", row, row - 1)
         door_subtotal_rows.append(row)
         row += 1
 
@@ -491,18 +576,19 @@ class TakeoffExporter:
         add_sub_header(row, "Double Door"); row += 1
         first_double = row
         if double_grouped:
-            for item in double_grouped:
-                add_door_data_row(row)
-                ws[f"A{row}"] = f"Double Door {item['width']}x{item['height']}"
-                ws[f"D{row}"] = round(item["width"])
-                ws[f"E{row}"] = round(item["height"])
-                ws[f"F{row}"] = item["qty"]
+            sorted_double = sorted(double_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_double:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Double Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
                 row += 1
             add_door_subtotal(row, "Subtotal - Double Door", first_double, row - 1)
         else:
-            add_door_subtotal(row, "Subtotal - Double Door", row, row)
-            ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.00
+            add_door_subtotal(row, "Subtotal - Double Door", row, row - 1)
         door_subtotal_rows.append(row)
         row += 1
 
@@ -510,18 +596,19 @@ class TakeoffExporter:
         add_sub_header(row, "Sliding Door"); row += 1
         first_sliding = row
         if sliding_grouped:
-            for item in sliding_grouped:
-                add_door_data_row(row)
-                ws[f"A{row}"] = f"Sliding Door {item['width']}x{item['height']}"
-                ws[f"D{row}"] = round(item["width"])
-                ws[f"E{row}"] = round(item["height"])
-                ws[f"F{row}"] = item["qty"]
+            sorted_sliding = sorted(sliding_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_sliding:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Sliding Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
                 row += 1
             add_door_subtotal(row, "Subtotal - Sliding Door", first_sliding, row - 1)
         else:
-            add_door_subtotal(row, "Subtotal - Sliding Door", row, row)
-            ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.00
+            add_door_subtotal(row, "Subtotal - Sliding Door", row, row - 1)
         door_subtotal_rows.append(row)
         row += 1
 
@@ -529,69 +616,152 @@ class TakeoffExporter:
         add_sub_header(row, "Garage Door"); row += 1
         first_garage = row
         if garage_grouped:
-            for item in garage_grouped:
-                add_door_data_row(row)
-                ws[f"A{row}"] = f"Garage Door {item['width']}x{item['height']}"
-                ws[f"D{row}"] = round(item["width"])
-                ws[f"E{row}"] = round(item["height"])
-                ws[f"F{row}"] = item["qty"]
+            sorted_garage = sorted(garage_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_garage:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Garage Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
                 row += 1
             add_door_subtotal(row, "Subtotal - Garage Door", first_garage, row - 1)
         else:
-            add_door_subtotal(row, "Subtotal - Garage Door", row, row)
-            ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.00
+            add_door_subtotal(row, "Subtotal - Garage Door", row, row - 1)
         door_subtotal_rows.append(row)
         row += 1
 
         # TOTAL DOORS
-        ws.merge_cells(f"A{row}:E{row}")
+        ws.merge_cells(f"A{row}:D{row}")
         ws[f"A{row}"] = "TOTAL DOORS"
         ws[f"A{row}"].font = bold
         ws[f"A{row}"].alignment = right_indent
-        qty_terms = "+".join([f"F{r}" for r in door_subtotal_rows])
-        area_terms = "+".join([f"G{r}" for r in door_subtotal_rows])
-        ws[f"F{row}"] = f"={qty_terms}"
+        ws[f"E{row}"] = f'={"+".join([f"E{r}" for r in door_subtotal_rows])}'
+        ws[f"E{row}"].font = bold
+        ws[f"E{row}"].alignment = center
+        ws[f"F{row}"] = f'={"+".join([f"F{r}" for r in door_subtotal_rows])}'
+        ws[f"F{row}"].number_format = "0.00"
         ws[f"F{row}"].font = bold
         ws[f"F{row}"].alignment = center
-        ws[f"G{row}"] = f"={area_terms}"
+        ws[f"G{row}"] = f'={"+".join([f"G{r}" for r in door_subtotal_rows])}'
         ws[f"G{row}"].number_format = "0.00"
         ws[f"G{row}"].font = bold
-        style_range(f"A{row}:G{row}", fill=total_fill, border=True)
+        ws[f"G{row}"].alignment = center
+        ws[f"H{row}"] = f'={"+".join([f"H{r}" for r in door_subtotal_rows])}'
+        ws[f"H{row}"].number_format = "0.0"
+        ws[f"H{row}"].font = bold
+        ws[f"H{row}"].alignment = center
+        ws[f"I{row}"] = f'={"+".join([f"I{r}" for r in door_subtotal_rows])}'
+        ws[f"I{row}"].number_format = "0.00"
+        ws[f"I{row}"].font = bold
+        ws[f"I{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=total_fill, border=True)
         rh(row, 18)
         door_total_row = row
         row += 2
 
         # ---------- WINDOWS ----------
         add_section_header(row, "WINDOWS"); row += 1
-
-        ws.merge_cells(f"A{row}:C{row}")
-        ws[f"A{row}"] = "Window Type / Size"
-        ws[f"D{row}"] = "Width (mm)"
-        ws[f"E{row}"] = "Height (mm)"
-        ws[f"F{row}"] = "Qty"
-        ws[f"G{row}"] = "Area (m2)"
-        style_range(f"A{row}:G{row}", font=bold, fill=colhead_fill, align=center)
-        rh(row, 18)
-        row += 1
+        add_door_col_headers(row); row += 1
 
         add_sub_header(row, "Standard Window"); row += 1
         first_window = row
         if window_grouped:
             for item in window_grouped:
-                add_door_data_row(row)
-                ws[f"A{row}"] = f"Window {item['width']}x{item['height']}"
-                ws[f"D{row}"] = round(item["width"])
-                ws[f"E{row}"] = round(item["height"])
-                ws[f"F{row}"] = item["qty"]
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                window_data_rows.append(row)
+                add_door_data_row(row, f"Window {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
                 row += 1
             add_door_subtotal(row, "Subtotal - Windows", first_window, row - 1)
         else:
-            add_door_subtotal(row, "Subtotal - Windows", row, row)
-            ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.00
+            add_door_subtotal(row, "Subtotal - Windows", row, row - 1)
+        window_subtotal_row = row
         window_total_row = row
         row += 2
+
+        # --- Overall Timber Reveal & Area Summary Box (Image 3) ---
+        ws.merge_cells(f"A{row}:H{row}")
+        ws[f"A{row}"] = "Reveal For Block Work"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"I{row}"] = blockwork_reveal_count
+        ws[f"I{row}"].font = bold
+        ws[f"I{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="00BCFF"), border=True)
+        rh(row, 18); row += 1
+
+        ws.merge_cells(f"A{row}:H{row}")
+        ws[f"A{row}"] = "Total Reveal All"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        all_subtotal_rows = door_subtotal_rows + [window_subtotal_row]
+        total_reveal_terms = "+".join([f"I{r}" for r in all_subtotal_rows])
+        ws[f"I{row}"] = f"={total_reveal_terms}"
+        ws[f"I{row}"].font = bold
+        ws[f"I{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="00FF00"), border=True)
+        rh(row, 18); row += 1
+
+        int_door_terms = "+".join([f"F{r}" for r in int_door_data_rows]) if int_door_data_rows else "0.00"
+        ext_door_terms = "+".join([f"F{r}" for r in ext_door_data_rows]) if ext_door_data_rows else "0.00"
+        win_terms = "+".join([f"F{r}" for r in window_data_rows]) if window_data_rows else "0.00"
+
+        # Total Area Internal Doors (m2)
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area Internal Doors (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"={int_door_terms}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
+        rh(row, 18)
+        int_door_area_row = row; row += 1
+
+        # Total Area External Doors (m2)
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area External Doors (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"={ext_door_terms}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
+        rh(row, 18)
+        ext_door_area_row = row; row += 1
+
+        # Total Area Windows (m2)
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area Windows (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"={win_terms}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
+        rh(row, 18)
+        win_area_row = row; row += 1
+
+        # Total Area Window and Door Grand Total Row
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area Window and Door (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"=F{int_door_area_row}+F{ext_door_area_row}+F{win_area_row}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="93C5FD"), border=True)
+        rh(row, 18); row += 2
 
         # ---------- LINTELS ----------
         add_section_header(row, "LINTELS"); row += 1
@@ -677,291 +847,6 @@ class TakeoffExporter:
             ws[f"H{row}"].border = border_all
         lintel_total_row = row
         row += 2
-
-        # ---------- TIMBER REVEAL SCHEDULE (Below Lintel & Above Summary) ----------
-        add_section_header(row, "TIMBER REVEAL SCHEDULE", fill=PatternFill("solid", fgColor="008080")); row += 1
-
-        def add_reveal_col_headers(r):
-            ws[f"A{r}"] = "Description / Size"
-            ws[f"B{r}"] = "Height (mm)"
-            ws[f"C{r}"] = "Width (mm)"
-            ws[f"D{r}"] = "Block Work"
-            ws[f"E{r}"] = "Qty"
-            ws[f"F{r}"] = "Area (m2)"
-            ws[f"G{r}"] = "Perimeter (m)"
-            ws[f"H{r}"] = "5.4/2"
-            ws[f"I{r}"] = "Reveal"
-            style_range(f"A{r}:I{r}", font=bold, fill=colhead_fill, align=center)
-            rh(r, 18)
-
-        def add_reveal_data_row(r, desc, h_mm, w_mm, qty=1, block_work="No"):
-            ws[f"A{r}"] = desc
-            ws[f"A{r}"].alignment = left_indent
-            ws[f"A{r}"].font = normal
-            ws[f"A{r}"].border = border_all
-
-            ws[f"B{r}"] = round(h_mm)
-            ws[f"B{r}"].alignment = center
-            ws[f"B{r}"].font = input_font
-            ws[f"B{r}"].border = border_all
-
-            ws[f"C{r}"] = round(w_mm)
-            ws[f"C{r}"].alignment = center
-            ws[f"C{r}"].font = input_font
-            ws[f"C{r}"].border = border_all
-
-            ws[f"D{r}"] = block_work
-            ws[f"D{r}"].alignment = center
-            ws[f"D{r}"].font = input_font
-            ws[f"D{r}"].border = border_all
-
-            # Qty
-            ws[f"E{r}"] = qty
-            ws[f"E{r}"].alignment = center
-            ws[f"E{r}"].font = bold
-            ws[f"E{r}"].border = border_all
-
-            # Area = (Height/1000) * (Width/1000) * Qty
-            ws[f"F{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",(B{r}/1000)*(C{r}/1000)*E{r})'
-            ws[f"F{r}"].number_format = "0.00"
-            ws[f"F{r}"].alignment = center
-            ws[f"F{r}"].font = normal
-            ws[f"F{r}"].border = border_all
-
-            # Perimeter = 2 * (Height/1000 + Width/1000) * Qty
-            ws[f"G{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",2*(B{r}/1000+C{r}/1000)*E{r})'
-            ws[f"G{r}"].number_format = "0.00"
-            ws[f"G{r}"].alignment = center
-            ws[f"G{r}"].font = normal
-            ws[f"G{r}"].border = border_all
-
-            # 5.4/2 = 2.7 * Qty
-            ws[f"H{r}"] = f'=IF(OR(E{r}="",E{r}=0),"",2.7*E{r})'
-            ws[f"H{r}"].number_format = "0.0"
-            ws[f"H{r}"].alignment = center
-            ws[f"H{r}"].font = normal
-            ws[f"H{r}"].border = border_all
-
-            # Reveal Count = piecewise condition on 1-door Perimeter * Qty
-            ws[f"I{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",IF(2*(B{r}+C{r})/1000=0,0,IF(2*(B{r}+C{r})/1000<=2.7,0.5,IF(2*(B{r}+C{r})/1000<=5.4,1,IF(2*(B{r}+C{r})/1000<=7.5,1.5,IF(2*(B{r}+C{r})/1000<=10.8,2,2.5)))))*E{r})'
-            ws[f"I{r}"].number_format = "0.00"
-            ws[f"I{r}"].alignment = center
-            ws[f"I{r}"].font = bold
-            ws[f"I{r}"].border = border_all
-            rh(r, 17)
-
-        def add_reveal_subtotal(r, label, first, last):
-            no_data = first > last
-            ws.merge_cells(f"A{r}:D{r}")
-            ws[f"A{r}"] = label
-            ws[f"A{r}"].font = bold
-            ws[f"A{r}"].alignment = right_indent
-
-            ws[f"E{r}"] = 0 if no_data else f"=SUM(E{first}:E{last})"
-            ws[f"E{r}"].font = bold
-            ws[f"E{r}"].alignment = center
-
-            ws[f"F{r}"] = 0 if no_data else f"=SUM(F{first}:F{last})"
-            ws[f"F{r}"].number_format = "0.00"
-            ws[f"F{r}"].font = bold
-            ws[f"F{r}"].alignment = center
-
-            ws[f"G{r}"] = 0 if no_data else f"=SUM(G{first}:G{last})"
-            ws[f"G{r}"].number_format = "0.00"
-            ws[f"G{r}"].font = bold
-            ws[f"G{r}"].alignment = center
-
-            ws[f"H{r}"] = 0 if no_data else f"=SUM(H{first}:H{last})"
-            ws[f"H{r}"].number_format = "0.00"
-            ws[f"H{r}"].font = bold
-            ws[f"H{r}"].alignment = center
-
-            ws[f"I{r}"] = 0 if no_data else f"=SUM(I{first}:I{last})"
-            ws[f"I{r}"].number_format = "0.00"
-            ws[f"I{r}"].font = bold
-            ws[f"I{r}"].alignment = center
-
-            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
-            rh(r, 18)
-
-        reveal_subtotal_rows = []
-        int_door_reveal_data_rows = []
-        ext_door_reveal_data_rows = []
-        window_reveal_data_rows = []
-
-        def calc_reveal_count(h_mm, w_mm, qty):
-            p_unit = 2 * (h_mm + w_mm) / 1000.0
-            if p_unit == 0: base = 0
-            elif p_unit <= 2.7: base = 0.5
-            elif p_unit <= 5.4: base = 1.0
-            elif p_unit <= 7.5: base = 1.5
-            elif p_unit <= 10.8: base = 2.0
-            else: base = 2.5
-            return base * qty
-
-        blockwork_reveal_count = 0
-
-        # Category 1: Single Door Timber Reveals
-        add_sub_header(row, "Single Door Timber Reveals Schedule"); row += 1
-        add_reveal_col_headers(row); row += 1
-        first_reveal_single = row
-        if single_grouped:
-            sorted_single = sorted(single_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
-            for item in sorted_single:
-                bw = item.get("block_work", "No")
-                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
-                is_ext = item.get("is_ext")
-                tag = "External" if is_ext else "Internal"
-                if is_ext: ext_door_reveal_data_rows.append(row)
-                else: int_door_reveal_data_rows.append(row)
-                add_reveal_data_row(row, f"Single Door {tag} {int(item['width'])}", item['height'], item['width'], item['qty'], bw)
-                row += 1
-            add_reveal_subtotal(row, "Total Single Door Reveals", first_reveal_single, row - 1)
-        else:
-            add_reveal_subtotal(row, "Total Single Door Reveals", row, row - 1)
-        reveal_subtotal_rows.append(row)
-        row += 2
-
-        # Category 2: Double Door Timber Reveals
-        add_sub_header(row, "Double Door Timber Reveals Schedule"); row += 1
-        add_reveal_col_headers(row); row += 1
-        first_reveal_double = row
-        if double_grouped:
-            sorted_double = sorted(double_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
-            for item in sorted_double:
-                bw = item.get("block_work", "No")
-                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
-                is_ext = item.get("is_ext")
-                tag = "External" if is_ext else "Internal"
-                if is_ext: ext_door_reveal_data_rows.append(row)
-                else: int_door_reveal_data_rows.append(row)
-                add_reveal_data_row(row, f"Double Door {tag} {int(item['width'])}", item['height'], item['width'], item['qty'], bw)
-                row += 1
-            add_reveal_subtotal(row, "Total Double Door Reveals", first_reveal_double, row - 1)
-        else:
-            add_reveal_subtotal(row, "Total Double Door Reveals", row, row - 1)
-        reveal_subtotal_rows.append(row)
-        row += 2
-
-        # Category 3: Sliding Door Timber Reveals
-        add_sub_header(row, "Sliding Door Timber Reveals Schedule"); row += 1
-        add_reveal_col_headers(row); row += 1
-        first_reveal_sliding = row
-        if sliding_grouped:
-            sorted_sliding = sorted(sliding_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
-            for item in sorted_sliding:
-                bw = item.get("block_work", "No")
-                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
-                is_ext = item.get("is_ext")
-                tag = "External" if is_ext else "Internal"
-                if is_ext: ext_door_reveal_data_rows.append(row)
-                else: int_door_reveal_data_rows.append(row)
-                add_reveal_data_row(row, f"Sliding Door {tag} {int(item['width'])}", item['height'], item['width'], item['qty'], bw)
-                row += 1
-            add_reveal_subtotal(row, "Total Sliding Door Reveals", first_reveal_sliding, row - 1)
-        else:
-            add_reveal_subtotal(row, "Total Sliding Door Reveals", row, row - 1)
-        reveal_subtotal_rows.append(row)
-        row += 2
-
-        # Category 4: Window Timber Reveals
-        add_sub_header(row, "Window Timber Reveals Schedule"); row += 1
-        add_reveal_col_headers(row); row += 1
-        first_reveal_window = row
-        if window_grouped:
-            for item in window_grouped:
-                bw = item.get("block_work", "No")
-                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
-                window_reveal_data_rows.append(row)
-                add_reveal_data_row(row, f"Window {item['width']}x{item['height']}", item['height'], item['width'], item['qty'], bw)
-                row += 1
-            add_reveal_subtotal(row, "Total Window Reveals", first_reveal_window, row - 1)
-        else:
-            add_reveal_subtotal(row, "Total Window Reveals", row, row - 1)
-        reveal_subtotal_rows.append(row)
-        row += 2
-
-        # --- Overall Timber Reveal Summary Box ---
-        ws.merge_cells(f"A{row}:H{row}")
-        ws[f"A{row}"] = "Reveal For Block Work"
-        ws[f"A{row}"].font = bold
-        ws[f"A{row}"].alignment = right_indent
-        ws[f"I{row}"] = blockwork_reveal_count
-        ws[f"I{row}"].font = bold
-        ws[f"I{row}"].alignment = center
-        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="00BCFF"), border=True)
-        rh(row, 18); row += 1
-
-        ws.merge_cells(f"A{row}:H{row}")
-        ws[f"A{row}"] = "Total Reveal All"
-        ws[f"A{row}"].font = bold
-        ws[f"A{row}"].alignment = right_indent
-        total_reveal_terms = "+".join([f"I{r}" for r in reveal_subtotal_rows]) if reveal_subtotal_rows else "0"
-        ws[f"I{row}"] = f"={total_reveal_terms}"
-        ws[f"I{row}"].font = bold
-        ws[f"I{row}"].alignment = center
-        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="00FF00"), border=True)
-        rh(row, 18); row += 1
-
-        # Break down area into Internal Doors, External Doors, Windows using Column F (Area m2)
-        int_door_terms = "+".join([f"F{r}" for r in int_door_reveal_data_rows]) if int_door_reveal_data_rows else "0.00"
-        ext_door_terms = "+".join([f"F{r}" for r in ext_door_reveal_data_rows]) if ext_door_reveal_data_rows else "0.00"
-        win_terms = "+".join([f"F{r}" for r in window_reveal_data_rows]) if window_reveal_data_rows else "0.00"
-
-        # Internal Doors Area Summary Row
-        ws.merge_cells(f"A{row}:E{row}")
-        ws[f"A{row}"] = "Total Area Internal Doors (m2)"
-        ws[f"A{row}"].font = bold
-        ws[f"A{row}"].alignment = right_indent
-        ws[f"F{row}"] = f"={int_door_terms}"
-        ws[f"F{row}"].number_format = "0.00"
-        ws[f"F{row}"].font = bold
-        ws[f"F{row}"].alignment = center
-        ws.merge_cells(f"G{row}:I{row}")
-        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
-        rh(row, 18)
-        int_door_area_row = row; row += 1
-
-        # External Doors Area Summary Row
-        ws.merge_cells(f"A{row}:E{row}")
-        ws[f"A{row}"] = "Total Area External Doors (m2)"
-        ws[f"A{row}"].font = bold
-        ws[f"A{row}"].alignment = right_indent
-        ws[f"F{row}"] = f"={ext_door_terms}"
-        ws[f"F{row}"].number_format = "0.00"
-        ws[f"F{row}"].font = bold
-        ws[f"F{row}"].alignment = center
-        ws.merge_cells(f"G{row}:I{row}")
-        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
-        rh(row, 18)
-        ext_door_area_row = row; row += 1
-
-        # Windows Area Summary Row
-        ws.merge_cells(f"A{row}:E{row}")
-        ws[f"A{row}"] = "Total Area Windows (m2)"
-        ws[f"A{row}"].font = bold
-        ws[f"A{row}"].alignment = right_indent
-        ws[f"F{row}"] = f"={win_terms}"
-        ws[f"F{row}"].number_format = "0.00"
-        ws[f"F{row}"].font = bold
-        ws[f"F{row}"].alignment = center
-        ws.merge_cells(f"G{row}:I{row}")
-        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
-        rh(row, 18)
-        win_area_row = row; row += 1
-
-        # Total Area Window and Door Grand Total Row
-        ws.merge_cells(f"A{row}:E{row}")
-        ws[f"A{row}"] = "Total Area Window and Door (m2)"
-        ws[f"A{row}"].font = bold
-        ws[f"A{row}"].alignment = right_indent
-        ws[f"F{row}"] = f"=F{int_door_area_row}+F{ext_door_area_row}+F{win_area_row}"
-        ws[f"F{row}"].number_format = "0.00"
-        ws[f"F{row}"].font = bold
-        ws[f"F{row}"].alignment = center
-        ws.merge_cells(f"G{row}:I{row}")
-        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="93C5FD"), border=True)
-        rh(row, 18); row += 2
 
         # ---------- SUMMARY ----------
         add_section_header(row, "SUMMARY", fill=dark_fill); row += 1
