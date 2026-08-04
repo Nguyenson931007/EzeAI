@@ -278,6 +278,7 @@ export default function App() {
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
     handleClick, handleRoomDoubleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
+    startDrawingRoof, setRoofEaveEdge,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -884,8 +885,6 @@ export default function App() {
         runROISearch={runROISearch}
         showPDF={showPDF}
         setShowPDF={setShowPDF}
-        interactionMode={interactionMode}
-        setInteractionMode={setInteractionMode}
       />
 
       {activeTab === "Admin" ? (
@@ -1015,6 +1014,7 @@ export default function App() {
               hoveredRoofTarget={hoveredRoofTarget}
               updateRoofPitch={updateRoofPitch}
               updateRoofType={updateRoofType}
+              setRoofEaveEdge={setRoofEaveEdge}
               deleteRoof={deleteRoof}
               currentPoly={currentPoly}
               currentDoor={currentDoor}
@@ -1101,9 +1101,7 @@ export default function App() {
               selectedWallVertex={selectedWallVertex}
               setSelectedWallVertex={setSelectedWallVertex}
               drawingWall={drawingWall}
-              setDrawingWall={setDrawingWall}
               drawingWallEnd={drawingWallEnd}
-              setDrawingWallEnd={setDrawingWallEnd}
               handleWallDoubleClick={handleWallDoubleClick}
               vertexMenu={vertexMenu}
               setVertexMenu={setVertexMenu}
