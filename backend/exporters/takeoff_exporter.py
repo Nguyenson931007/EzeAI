@@ -877,10 +877,10 @@ class TakeoffExporter:
         simple_sums = [
             ("Total Internal Door Area (m2)", f"=F{int_door_area_row}"),
             ("Total External Door Area (m2)", f"=F{ext_door_area_row}"),
-            ("Total Door Opening Area (m2)", f"=G{door_total_row}"),
-            ("Total Door Quantity (pcs)", f"=F{door_total_row}"),
-            ("Total Window Opening Area (m2)", f"=G{window_total_row}"),
-            ("Total Window Quantity (pcs)", f"=F{window_total_row}"),
+            ("Total Door Opening Area (m2)", f"=F{door_total_row}"),
+            ("Total Door Quantity (pcs)", f"=E{door_total_row}"),
+            ("Total Window Opening Area (m2)", f"=F{window_total_row}"),
+            ("Total Window Quantity (pcs)", f"=E{window_total_row}"),
             ("Total Lintel Length (LM)", f"=G{lintel_total_row}"),
             ("Total Lintel Quantity (pcs)", f"=F{lintel_total_row}"),
         ]
