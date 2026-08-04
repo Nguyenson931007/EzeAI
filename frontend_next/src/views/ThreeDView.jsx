@@ -686,10 +686,10 @@ export default function ThreeDView({
           if (!poly || poly.length < 3) return;
 
           const n = poly.length;
-          const pts2d = poly.map(p => ({
-            x: typeof p.x === 'number' ? p.x : p[0],
-            y: typeof p.y === 'number' ? p.y : p[1]
-          }));
+          const pts2d = poly.map(p => new THREE.Vector2(
+            typeof p.x === 'number' ? p.x : p[0],
+            typeof p.y === 'number' ? p.y : p[1]
+          ));
 
           const topYOffset = yOffset + levelWallHeight;
           const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
@@ -704,10 +704,10 @@ export default function ThreeDView({
             metalness: 0.15,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.88
+            opacity: 1
           });
 
-          if (pitchDeg == 0) {
+          if (pitchDeg == 0 || !roof.solvedPolygon3D) {
             // Flat roof extrude
             const shape = new THREE.Shape();
             shape.moveTo(pts2d[0].x, pts2d[0].y);
@@ -725,62 +725,48 @@ export default function ThreeDView({
             scene.add(mesh);
             roofMeshesRef.current.push(mesh);
           } else {
-            // 3D Pitched Slope Roof Mesh
-            const tanPitch = Math.tan(pitchRad);
-
-            // Compute centroid
-            let cx = 0, cy = 0;
-            pts2d.forEach(p => { cx += p.x; cy += p.y; });
-            cx /= n; cy /= n;
-
-            // Compute average distance from centroid to eave edges
-            let totalDist = 0;
-            for (let i = 0; i < n; i++) {
-              const p1 = pts2d[i];
-              const p2 = pts2d[(i + 1) % n];
-              const dx = p2.x - p1.x;
-              const dy = p2.y - p1.y;
-              const len = Math.hypot(dx, dy);
-              if (len > 0) {
-                const dist = Math.abs(dx * (cy - p1.y) - dy * (cx - p1.x)) / len;
-                totalDist += dist;
-              }
-            }
-
-            const avgDist = totalDist / Math.max(1, n);
-            const pitchHeight = avgDist * tanPitch;
-
+            // 3D Pitched Slope Roof Mesh from solvedPolygon3D
             const positions = [];
             const normals = [];
 
-            const apexX = cx - imgSize.w / 2;
-            const apexY = topYOffset + roofThickness + pitchHeight;
-            const apexZ = cy - imgSize.h / 2;
+            // Extract the 3D polygon
+            const poly3D = roof.solvedPolygon3D.map(p => ({
+              x: p.x - imgSize.w / 2,
+              y: topYOffset + roofThickness + (p.z || 0),
+              z: p.y - imgSize.h / 2
+            }));
 
-            for (let i = 0; i < n; i++) {
-              const p1 = pts2d[i];
-              const p2 = pts2d[(i + 1) % n];
+            // Triangulate the 2D base shape to render the 3D roof faces
+            const triangles = THREE.ShapeUtils.triangulateShape(pts2d, []);
 
-              const v1x = p1.x - imgSize.w / 2;
-              const v1y = topYOffset + roofThickness;
-              const v1z = p1.y - imgSize.h / 2;
+            for (let i = 0; i < triangles.length; i++) {
+              const [i0, i1, i2] = triangles[i];
 
-              const v2x = p2.x - imgSize.w / 2;
-              const v2y = topYOffset + roofThickness;
-              const v2z = p2.y - imgSize.h / 2;
+              const v0 = poly3D[i0];
+              const v1 = poly3D[i1];
+              const v2 = poly3D[i2];
 
-              // Facet Triangle (V1, V2, Apex)
               positions.push(
-                v1x, v1y, v1z,
-                v2x, v2y, v2z,
-                apexX, apexY, apexZ
+                v0.x, v0.y, v0.z,
+                v1.x, v1.y, v1.z,
+                v2.x, v2.y, v2.z
               );
 
-              const ax = v2x - v1x, ay = v2y - v1y, az = v2z - v1z;
-              const bx = apexX - v1x, by = apexY - v1y, bz = apexZ - v1z;
+              // Calculate normal
+              let ax = v1.x - v0.x, ay = v1.y - v0.y, az = v1.z - v0.z;
+              let bx = v2.x - v0.x, by = v2.y - v0.y, bz = v2.z - v0.z;
               let nx = ay * bz - az * by;
               let ny = az * bx - ax * bz;
               let nz = ax * by - ay * bx;
+
+              // If normal points down, reverse winding
+              if (ny < 0) {
+                nx = -nx; ny = -ny; nz = -nz;
+                const l = positions.length;
+                positions[l - 6] = v2.x; positions[l - 5] = v2.y; positions[l - 4] = v2.z;
+                positions[l - 3] = v1.x; positions[l - 2] = v1.y; positions[l - 1] = v1.z;
+              }
+
               const normLen = Math.hypot(nx, ny, nz) || 1;
               nx /= normLen; ny /= normLen; nz /= normLen;
 
@@ -790,11 +776,11 @@ export default function ThreeDView({
                 nx, ny, nz
               );
 
-              // Underside Eave Triangle (V1, Apex_bottom, V2)
+              // Underside Flat Ceiling Triangle (bottom of roof)
               positions.push(
-                v1x, topYOffset, v1z,
-                apexX, topYOffset, apexZ,
-                v2x, topYOffset, v2z
+                v0.x, topYOffset, v0.z,
+                v2.x, topYOffset, v2.z,  // Reversed winding for bottom
+                v1.x, topYOffset, v1.z
               );
               normals.push(
                 0, -1, 0,
@@ -803,10 +789,42 @@ export default function ThreeDView({
               );
             }
 
+            // Add vertical perimeter skirts to seal the roof volume
+            for (let i = 0; i < n; i++) {
+              const v1_top = poly3D[i];
+              const v2_top = poly3D[(i + 1) % n];
+
+              const v1_bot = { x: v1_top.x, y: topYOffset, z: v1_top.z };
+              const v2_bot = { x: v2_top.x, y: topYOffset, z: v2_top.z };
+
+              positions.push(
+                v1_bot.x, v1_bot.y, v1_bot.z,
+                v2_bot.x, v2_bot.y, v2_bot.z,
+                v2_top.x, v2_top.y, v2_top.z
+              );
+              positions.push(
+                v1_bot.x, v1_bot.y, v1_bot.z,
+                v2_top.x, v2_top.y, v2_top.z,
+                v1_top.x, v1_top.y, v1_top.z
+              );
+
+              const ax = v2_bot.x - v1_bot.x, ay = v2_bot.y - v1_bot.y, az = v2_bot.z - v1_bot.z;
+              const bx = v2_top.x - v1_bot.x, by = v2_top.y - v1_bot.y, bz = v2_top.z - v1_bot.z;
+              let nx = ay * bz - az * by;
+              let ny = az * bx - ax * bz;
+              let nz = ax * by - ay * bx;
+              const normLen = Math.hypot(nx, ny, nz) || 1;
+              nx /= normLen; ny /= normLen; nz /= normLen;
+
+              normals.push(
+                nx, ny, nz, nx, ny, nz, nx, ny, nz,
+                nx, ny, nz, nx, ny, nz, nx, ny, nz
+              );
+            }
+
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-            geometry.computeVertexNormals();
 
             const mesh = new THREE.Mesh(geometry, material);
             mesh.castShadow = enableShadows;

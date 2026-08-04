@@ -12,7 +12,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
-import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex, ADD_POINT_SNAP_DISTANCE, findBestRoomInsertionPoint, snapRoomPolygonToWalls } from "@/utils/geometry";
+import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex, ADD_POINT_SNAP_DISTANCE, findBestRoomInsertionPoint, snapRoomPolygonToWalls, getRoofPlane, getHeightOnPlane, intersectTwoPlanes, intersectThreePlanes, buildRoofAdjacency } from "@/utils/geometry";
 import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
@@ -492,7 +492,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           finishPolygon();
         } else if (isDrawingRoof) {
           e.preventDefault();
-          finishRoof();
+          if (currentPoly.length >= 3) finishRoof();
+          setCurrentPoly([]);
+          setIsDrawingRoof(false);
+          setRoofInteractionState(RoofInteractionState.IDLE);
+          if (setInteractionMode) setInteractionMode("select");
         } else if (isDrawingDoor && doorPreset) {
           e.preventDefault();
           finishDoor();
@@ -1728,12 +1732,62 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     setDrawing(false);
   }
 
+  function solveRoofs3D(roofs) {
+    if (!roofs || roofs.length === 0) return [];
+    
+    const graph = buildRoofAdjacency(roofs);
+    const roofPlanes = {};
+    for (const r of roofs) {
+      roofPlanes[r.id] = getRoofPlane(r.polygon, r.pitchAngle, r.eaveEdgeIndex, r.baseHeight || 0);
+    }
+    
+    const solvedNodes = {};
+    for (const v of graph.vertices) {
+      const sharedCount = v.sharedBy.length;
+      let solvedPt = null;
+      
+      if (sharedCount >= 3) {
+        const pA = roofPlanes[v.sharedBy[0].roofId];
+        const pB = roofPlanes[v.sharedBy[1].roofId];
+        const pC = roofPlanes[v.sharedBy[2].roofId];
+        solvedPt = intersectThreePlanes(pA, pB, pC) || intersectTwoPlanes(pA, pB, v);
+      } else if (sharedCount === 2) {
+        const pA = roofPlanes[v.sharedBy[0].roofId];
+        const pB = roofPlanes[v.sharedBy[1].roofId];
+        solvedPt = intersectTwoPlanes(pA, pB, v);
+      } else if (sharedCount === 1) {
+        const pA = roofPlanes[v.sharedBy[0].roofId];
+        solvedPt = { x: v.x, y: v.y, z: getHeightOnPlane(pA, v.x, v.y) };
+      }
+      
+      solvedNodes[v.id] = solvedPt;
+    }
+    
+    return roofs.map(r => {
+      const solvedPolygon3D = [];
+      for (let i = 0; i < r.polygon.length; i++) {
+        const node = graph.vertices.find(v => v.sharedBy.some(s => s.roofId === r.id && s.vIdx === i));
+        if (node && solvedNodes[node.id]) {
+          solvedPolygon3D.push(solvedNodes[node.id]);
+        } else {
+          const plane = roofPlanes[r.id];
+          const pt = r.polygon[i];
+          const px = pt.x !== undefined ? pt.x : pt[0];
+          const py = pt.y !== undefined ? pt.y : pt[1];
+          solvedPolygon3D.push({ x: px, y: py, z: getHeightOnPlane(plane, px, py) });
+        }
+      }
+      return { ...r, solvedPolygon3D };
+    });
+  }
+
   function pushRoofHistory(newRoofs) {
+    const solvedRoofs = solveRoofs3D(newRoofs);
     setRoofHistory(h => [...h, JSON.stringify(roofsByPage)]);
     setRoofFuture([]);
     setRoofsByPage(prev => ({
       ...prev,
-      [currentPage]: newRoofs
+      [currentPage]: solvedRoofs
     }));
   }
 
@@ -1774,30 +1828,49 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushRoofHistory(updated);
   }
 
-  function finishRoof() {
-    if (currentPoly.length < 3) return;
+  function finishRoof(points = currentPoly) {
+    if (points.length < 3) return;
 
     // Validate polygon before committing
-    const validation = validateRoofPolygon(currentPoly, scaleValue);
+    const validation = validateRoofPolygon(points, scaleValue);
     if (!validation.valid) {
       showAlert(validation.error);
       return;
     }
 
+    const roofId = `roof_${Date.now()}`;
     const pageRoofs = roofsByPage[currentPage] || [];
     const roofName = `Roof ${String.fromCharCode(65 + (pageRoofs.length % 26))}`;
     const newRoof = {
-      id: `roof_${Date.now()}`,
+      id: roofId,
       name: roofName,
-      polygon: [...currentPoly],
+      polygon: points.map(p => ({ ...p })),
       pitchAngle: 0,
+      roofType: 'flat',
+      eaveEdgeIndex: null
     };
 
     pushRoofHistory([...pageRoofs, newRoof]);
-    setSelectedRoofId(newRoof.id);
+    setSelectedRoofId(roofId);
     setCurrentPoly([]);
-    setIsDrawingRoof(false);
-    setRoofInteractionState(RoofInteractionState.IDLE);
+    // Removed to allow continuous drawing until ESC is pressed
+    // setIsDrawingRoof(false);
+    // setRoofInteractionState(RoofInteractionState.IDLE);
+  }
+
+  function setRoofEaveEdge(roofId, edgeIndex) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        return {
+          ...r,
+          eaveEdgeIndex: edgeIndex,
+          // Let user set the pitch explicitly after setting the eave edge.
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
   }
 
 
@@ -2693,7 +2766,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         // Shift doors
         setDoorsByPage(prev => {
-          const pageDoors = prev[currentPage] || [];
+          const pageDoors = doorsByPage[currentPage] || [];
           const shifted = pageDoors.map(d => {
             if (!d.points) return d;
             const shiftedPts = d.points.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
@@ -2709,7 +2782,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         // Shift rooms
         setRoomsByPage(prev => {
-          const pageRooms = prev[currentPage] || [];
+          const pageRooms = roomsByPage[currentPage] || [];
           const shifted = pageRooms.map(r => {
             if (!r.polygon) return r;
             const shiftedPoly = r.polygon.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
@@ -2961,6 +3034,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const updatedRoofs = removeSharedRoofVertex(pageRoofs, targetPt, 18);
           setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
           pushRoofHistory(updatedRoofs);
+          setHoveredRoofTarget(null); // FIX: clear target after mutation
           return;
         }
 
@@ -2972,6 +3046,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const updatedRoofs = insertSharedRoofVertex(pageRoofs, targetRoof.id, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint, 18);
           setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
           pushRoofHistory(updatedRoofs);
+          setHoveredRoofTarget(null); // FIX: clear target after mutation
           return;
         }
 
@@ -3372,6 +3447,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     scale, setScale,
     offset, setOffset,
     isPanning,
+    // Cleaned up duplicates
     drawing, setDrawing,
     isDrawingDoor, setIsDrawingDoor,
     showPenetrations, setShowPenetrations,
@@ -3381,7 +3457,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     hoveredRoofTarget, setHoveredRoofTarget,
     activeRoofDragTarget,
     roofHistory, roofFuture,
-    updateRoofPitch, updateRoofType, deleteRoof,
+    updateRoofPitch, updateRoofType, setRoofEaveEdge, deleteRoof,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,

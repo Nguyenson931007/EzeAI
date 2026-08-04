@@ -17,6 +17,7 @@ import WindowEditDialog from "../components/WindowEditDialog";
 import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
+import RoofContextMenu from "../components/RoofContextMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
 import {
@@ -2704,6 +2705,7 @@ export default function CanvasView({
   hoveredRoofTarget,
   updateRoofPitch,
   updateRoofType,
+  setRoofEaveEdge,
   deleteRoof,
   currentPoly,
   currentDoor,
@@ -2826,6 +2828,17 @@ export default function CanvasView({
 
   // Wall context menu state
   const [wallContextMenu, setWallContextMenu] = useState({ visible: false, x: 0, y: 0, wall: null });
+  
+  // Roof context menu state
+  const [roofContextMenu, setRoofContextMenu] = useState({ visible: false, x: 0, y: 0, roof: null, edgeIndex: null });
+
+  const handleRoofContextMenu = (e, roof, edgeIndex) => {
+    e.preventDefault();
+    setRoofContextMenu({ visible: true, x: e.clientX, y: e.clientY, roof, edgeIndex });
+  };
+  const closeRoofContextMenu = () => {
+    setRoofContextMenu({ visible: false, x: 0, y: 0, roof: null, edgeIndex: null });
+  };
 
   const handleWallContextMenu = (e, wall) => {
     e.preventDefault();
@@ -3479,44 +3492,6 @@ export default function CanvasView({
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
 
-        {/* Floating Dynamic Diagnostic ROI Panel (Requirement 10) */}
-        {/* {roiRect && (
-          <div className="roi-debug-panel glassmorphic">
-            <div className="debug-header">🛠 ROI DIAGNOSTICS</div>
-            <div className="debug-row">
-              <span className="debug-label">Image X, Y:</span>
-              <span className="debug-val">{Math.round(roiRect.x)}, {Math.round(roiRect.y)}</span>
-            </div>
-            <div className="debug-row">
-              <span className="debug-label">Dimensions:</span>
-              <span className="debug-val">{Math.round(roiRect.w)}×{Math.round(roiRect.h)} px</span>
-            </div>
-            <div className="debug-row">
-              <span className="debug-label">Detections:</span>
-              <span className="debug-val highlight">{rooms.filter(r => r.id && String(r.id).startsWith("roi_")).length} rooms</span>
-            </div>
-            <div className="debug-row">
-              <span className="debug-label">Viewport Zoom:</span>
-              <span className="debug-val">{(scale * 100).toFixed(0)}%</span>
-            </div>
-            <div className="debug-row">
-              <span className="debug-label">Cache Key:</span>
-              <span className="debug-val monospace">room_seg_{Math.round(roiRect.w)}</span>
-            </div>
-            <div className="debug-status-indicator">
-              <span className={`status-badge ${cacheStatus}`}>
-                {cacheStatus === "processing" ? "🤖 Processing"
-                  : cacheStatus === "cached" ? "⚡ LRU Cache Hit"
-                    : cacheStatus === "completed" ? "✓ Done"
-                      : cacheStatus === "canceled" ? "🛑 Canceled"
-                        : cacheStatus === "failed" ? "❌ Failed"
-                          : "Idle"}
-              </span>
-              {inferenceTiming && <span className="metrics-badge">{inferenceTiming}</span>}
-            </div>
-          </div>
-        )} */}
-
         {activeScanRoom && (
           <div className="scanner-panel">
             <div className="scanner-header">
@@ -3629,6 +3604,7 @@ export default function CanvasView({
             if (handleClick) handleClick(e);
             closeDoorContextMenu();
             closeWallContextMenu();
+            closeRoofContextMenu();
             if (setVertexMenu) setVertexMenu({ visible: false, x: 0, y: 0, vertex: null });
             if (e.target === svgRef.current || e.target.tagName === 'svg') {
               if (isDrawingLintel) return; // Don't deselect during lintel draw mode
@@ -3802,6 +3778,13 @@ export default function CanvasView({
                 <g key={roof.id}>
                   {/* Roof Base Polygon */}
                   <polygon
+                    onContextMenu={(e) => {
+                      if (isHovered && hoveredRoofTarget?.type === 'edge') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleRoofContextMenu(e, roof, hoveredRoofTarget.edgeIndex);
+                      }
+                    }}
                     points={(roof.polygon || []).map(p => {
                       const px = typeof p.x === 'number' ? p.x : (Array.isArray(p) ? p[0] : 0);
                       const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
@@ -4603,7 +4586,7 @@ export default function CanvasView({
                 return (
                   <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={4} />
-                    <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke="#2196F3" strokeWidth={1} />
+                    <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke="#2196F3" strokeWidth={1} opacity={0.5} />
                     <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
                   </g>
                 );
@@ -4980,61 +4963,6 @@ export default function CanvasView({
           </div>
         )}
 
-        {/* Temporary Developer Debug Panel (Requirement 4) */}
-        {/* {selectedId && selectedType === "room" && (() => {
-          const r = rooms.find(room => room.id === selectedId);
-          if (!r) return null;
-          return (
-            <div className="roi-debug-panel" style={{
-              position: "absolute", bottom: 40, left: 20, width: 300,
-              background: "rgba(15,23,42,0.9)", backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8,
-              padding: 16, color: "#e2e8f0", fontSize: 13, zIndex: 9999,
-              boxShadow: "0 10px 25px -5px rgba(0,0,0,0.5)"
-            }}>
-              <h4 style={{ margin: "0 0 10px 0", color: "#38bdf8", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 6 }}>
-                AI Semantic Debug
-              </h4>
-              <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 6 }}>
-                <span style={{ color: "#94a3b8" }}>Polygon Conf:</span>
-                <span style={{ color: r.conf > 0.6 ? "#4ade80" : "#f87171" }}>{r.conf ? r.conf.toFixed(3) : "N/A"}</span>
-
-                <span style={{ color: "#94a3b8" }}>OCR Source:</span>
-                <span>{r.room_name_source || "AutoAI"}</span>
-
-                <span style={{ color: "#94a3b8" }}>Class / Type:</span>
-                <span>{r.room_class || "N/A"}</span>
-
-                <span style={{ color: "#94a3b8" }}>Wet/Dry Zone:</span>
-                <span><strong style={{ color: r.wetness === "wet" ? "#f87171" : "#38bdf8" }}>{r.wetness || r.type || "dry"}</strong></span>
-
-                <span style={{ color: "#94a3b8" }}>BIM Vertex:</span>
-                <span>{r.polygon?.length} pts</span>
-
-                {r.telemetry && (
-                  <>
-                    <span style={{ color: "#38bdf8", gridColumn: "span 2", marginTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 6, fontWeight: "bold" }}>
-                      OCR Telemetry
-                    </span>
-                    <span style={{ color: "#94a3b8" }}>Latency:</span>
-                    <span>{r.telemetry.latency_ms} ms</span>
-                    <span style={{ color: "#94a3b8" }}>Prep Latency:</span>
-                    <span>{r.telemetry.prep_latency_ms} ms</span>
-                    <span style={{ color: "#94a3b8" }}>Effective DPI:</span>
-                    <span>{r.telemetry.dpi} DPI</span>
-                    <span style={{ color: "#94a3b8" }}>Upscale:</span>
-                    <span>{r.telemetry.upscale_factor}x</span>
-                    <span style={{ color: "#94a3b8" }}>Prep Mode:</span>
-                    <span style={{ textTransform: "capitalize" }}>{r.telemetry.prep_mode || "none"}</span>
-                    <span style={{ color: "#94a3b8" }}>Orientation:</span>
-                    <span>{r.telemetry.angle}°</span>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })()} */}
-
         {/* ===== STATUS BAR ===== */}
         <div className="cad-statusbar">
           <div className="status-item">
@@ -5082,6 +5010,17 @@ export default function CanvasView({
         onChangeClass={handleWallChangeClass}
         onAddPoint={handleWallStartCut}
         onToggleLock={handleWallToggleLock}
+      />
+
+      {/* ===== ROOF CONTEXT MENU OVERLAY ===== */}
+      <RoofContextMenu
+        visible={roofContextMenu.visible}
+        x={roofContextMenu.x}
+        y={roofContextMenu.y}
+        roof={roofContextMenu.roof}
+        edgeIndex={roofContextMenu.edgeIndex}
+        onClose={closeRoofContextMenu}
+        onSetEaveEdge={setRoofEaveEdge}
       />
 
       {/* ===== WALL VERTEX MENU OVERLAY ===== */}
