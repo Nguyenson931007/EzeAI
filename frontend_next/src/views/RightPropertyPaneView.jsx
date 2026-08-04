@@ -1,6 +1,6 @@
 import React from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util, getWallClass, calcDoorWindowMetrics } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { BASE_URL } from "@/models/api.service";
@@ -890,67 +890,138 @@ export default function RightPropertyPaneView({
               </div>
             )}
 
-            {/* BATCH SELECTION BUTTONS ABOVE WALL TYPE */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-              <button
-                className="rp-action-btn"
-                style={{ padding: "6px 8px", fontSize: "11px", fontWeight: 700, background: "#0284c7" }}
-                onClick={() => {
-                  const extIds = (walls || []).filter(w => getWallClass(w) === "exterior_wall").map(w => w.id);
-                  if (extIds.length > 0) {
-                    if (typeof setSelectedWallIds === "function") setSelectedWallIds(extIds);
-                    if (typeof setSelectedType === "function") setSelectedType("wall");
-                    if (typeof setSelectedId === "function") setSelectedId(extIds[0]);
-                  }
-                }}
-              >
-                🎯 Select All Ext ({ (walls || []).filter(w => getWallClass(w) === "exterior_wall").length })
-              </button>
-              <button
-                className="rp-action-btn"
-                style={{ padding: "6px 8px", fontSize: "11px", fontWeight: 700, background: "#0284c7" }}
-                onClick={() => {
-                  const intIds = (walls || []).filter(w => getWallClass(w) === "interior_wall" || getWallClass(w) === "partition_wall").map(w => w.id);
-                  if (intIds.length > 0) {
-                    if (typeof setSelectedWallIds === "function") setSelectedWallIds(intIds);
-                    if (typeof setSelectedType === "function") setSelectedType("wall");
-                    if (typeof setSelectedId === "function") setSelectedId(intIds[0]);
-                  }
-                }}
-              >
-                🎯 Select All Int ({ (walls || []).filter(w => getWallClass(w) === "interior_wall" || getWallClass(w) === "partition_wall").length })
-              </button>
-            </div>
+            {/* DYNAMIC SELECT ALL BUTTON - based on selected wall type */}
+            {(() => {
+              const typeLabels = {
+                exterior_wall: { label: "Ext", color: "#0284c7" },
+                interior_wall: { label: "Int", color: "#6366f1" },
+                partition_wall: { label: "Part", color: "#8b5cf6" },
+                block_wall: { label: "Block", color: "#64748b" },
+              };
+
+              // Determine the type of currently selected wall
+              const selectedClass = selectedWall ? getWallClass(selectedWall) : null;
+              const sameTypeWalls = selectedClass
+                ? (walls || []).filter(w => getWallClass(w) === selectedClass)
+                : [];
+              const sameTypeCount = sameTypeWalls.length;
+              const typeInfo = typeLabels[selectedClass] || { label: selectedClass || "Wall", color: "#0284c7" };
+
+              // Check if all same-type walls are already selected
+              const allAlreadySelected = selectedWallIds.length === sameTypeCount && sameTypeCount > 0
+                && sameTypeWalls.every(w => selectedWallIds.includes(w.id));
+
+              return (
+                <div style={{ marginBottom: 10 }}>
+                  {selectedClass && sameTypeCount > 1 && (
+                    <button
+                      className="rp-action-btn"
+                      style={{
+                        padding: "7px 12px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        background: allAlreadySelected ? "#10b981" : typeInfo.color,
+                        width: "100%",
+                        borderRadius: 8,
+                        transition: "all 0.15s ease",
+                      }}
+                      onClick={() => {
+                        const ids = sameTypeWalls.map(w => w.id);
+                        if (typeof setSelectedWallIds === "function") setSelectedWallIds(ids);
+                        if (typeof setSelectedType === "function") setSelectedType("wall");
+                        if (typeof setSelectedId === "function") setSelectedId(ids[0]);
+                      }}
+                    >
+                      {allAlreadySelected
+                        ? `✓ All ${sameTypeCount} ${typeInfo.label} Walls Selected`
+                        : `🎯 Select All ${typeInfo.label} Walls (${sameTypeCount})`
+                      }
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="panel-field">
               <span className="panel-label">Wall Type</span>
-              <select
-                className="panel-select"
-                value={
-                  selectedWallIds.length > 1
-                    ? (selectedWallIds.every(id => getWallClass(walls?.find(w => w.id === id)) === getWallClass(selectedWall)) ? getWallClass(selectedWall) : "multiple")
-                    : (selectedWall ? getWallClass(selectedWall) : "exterior_wall")
-                }
-                onChange={(e) => {
-                  if (e.target.value === "multiple") return;
-                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                  const newClass = e.target.value;
-                  updateWallsProperty && updateWallsProperty(targetIds, "class_name", newClass);
-                  updateWallsProperty && updateWallsProperty(targetIds, "wall_type", newClass === "exterior_wall" ? "ext" : (newClass === "block_wall" ? "block" : "int"));
-                  if (newClass === "block_wall" && doors && updateDoorsProperty) {
-                    const hostedDoorIds = doors.filter(d => targetIds.includes(d.parentWallId)).map(d => d.id);
-                    if (hostedDoorIds.length > 0) {
-                      updateDoorsProperty(hostedDoorIds, "block_work", "Yes");
-                    }
+              {(() => {
+                const handleTypeChange = (newClass) => {
+                  const targetIds = selectedWallIds.length > 0 ? [...selectedWallIds] : (selectedWall ? [selectedWall.id] : []);
+                  if (targetIds.length === 0) return;
+                  if (updateWallsProperty) {
+                    updateWallsProperty(targetIds, "class_name", newClass);
                   }
-                }}
-              >
-                {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Types --</option>}
-                <option value="exterior_wall">Exterior Wall</option>
-                <option value="interior_wall">Interior Wall</option>
-                <option value="partition_wall">Partition Wall</option>
-                <option value="block_wall">Block Wall</option>
-              </select>
+                };
+
+                // Get current type for display
+                const currentType = (() => {
+                  if (selectedWallIds.length > 1) {
+                    const types = new Set();
+                    for (const id of selectedWallIds) {
+                      const w = (walls || []).find(ww => ww.id === id);
+                      if (w) {
+                        types.add(getWallClass(w));
+                      } else {
+                        const bId = getBaseWallId ? getBaseWallId(id) : id;
+                        const found = (walls || []).find(ww => (getBaseWallId ? getBaseWallId(ww.id) : ww.id) === bId);
+                        if (found) types.add(getWallClass(found));
+                      }
+                    }
+                    if (types.size === 0) return "exterior_wall";
+                    if (types.size === 1) return [...types][0];
+                    return "multiple";
+                  }
+                  return selectedWall ? getWallClass(selectedWall) : "exterior_wall";
+                })();
+
+                // Use button group for multi-wall selection (immune to React controlled select re-render issues)
+                if (selectedWallIds.length > 1) {
+                  const typeOptions = [
+                    { value: "exterior_wall", label: "Ext", color: "#0284c7" },
+                    { value: "interior_wall", label: "Int", color: "#6366f1" },
+                    { value: "partition_wall", label: "Part", color: "#8b5cf6" },
+                    { value: "block_wall", label: "Block", color: "#64748b" },
+                  ];
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4 }}>
+                      {typeOptions.map(opt => (
+                        <button
+                          key={opt.value}
+                          style={{
+                            padding: "6px 4px",
+                            fontSize: 11,
+                            fontWeight: currentType === opt.value ? 800 : 600,
+                            background: currentType === opt.value ? opt.color : "#1e293b",
+                            color: "#fff",
+                            border: currentType === opt.value ? `2px solid ${opt.color}` : "1px solid #334155",
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            opacity: currentType === opt.value ? 1 : 0.7,
+                          }}
+                          onClick={() => handleTypeChange(opt.value)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                }
+
+                // Single wall: use normal select
+                return (
+                  <select
+                    className="panel-select"
+                    value={currentType}
+                    onChange={(e) => handleTypeChange(e.target.value)}
+                  >
+                    <option value="exterior_wall">Exterior Wall</option>
+                    <option value="interior_wall">Interior Wall</option>
+                    <option value="partition_wall">Partition Wall</option>
+                    <option value="block_wall">Block Wall</option>
+                  </select>
+                );
+              })()}
             </div>
 
             <div className="panel-field">

@@ -784,7 +784,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           let class_name = w.class_name;
           let wall_type = w.wall_type;
           let thicknessMm = w.thickness || 90;
-          if (value === "exterior_wall" || value === "ext") {
+          if (value === "block_wall" || value === "block") {
+            class_name = "block_wall";
+            wall_type = "block";
+            thicknessMm = w.thickness || 90;
+          } else if (value === "exterior_wall" || value === "ext") {
             class_name = "exterior_wall";
             wall_type = "ext";
             thicknessMm = 90;
@@ -796,6 +800,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             class_name = "partition_wall";
             wall_type = "part";
             thicknessMm = 70;
+          } else {
+            class_name = value;
+            wall_type = value;
           }
           newWall.class_name = class_name;
           newWall.wall_type = wall_type;
@@ -954,6 +961,26 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             area_mm2: (d.width_mm || 820) * newDoorHeight,
             perimeter_mm: 2 * ((d.width_mm || 820) + newDoorHeight)
           };
+        }
+        return d;
+      });
+      setDoorsByPage(prev => ({
+        ...prev,
+        [currentPage]: updatedDoors
+      }));
+      pushHistory(null, finalized, updatedDoors);
+      return;
+    }
+
+    // When changing to block_wall, auto-set block_work on hosted doors
+    if ((field === "class_name" || field === "wall_type") && (value === "block_wall" || value === "block")) {
+      const pageDoors = doorsByPage[currentPage] || [];
+      const updatedDoors = pageDoors.map(d => {
+        if (!d.parentWallId) return d;
+        const dBaseId = getBaseWallId(d.parentWallId);
+        const isHosted = wallIds.some(wId => wId === d.parentWallId || getBaseWallId(wId) === dBaseId);
+        if (isHosted) {
+          return { ...d, block_work: "Yes", blockWork: "Yes" };
         }
         return d;
       });

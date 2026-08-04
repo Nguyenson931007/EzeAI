@@ -793,7 +793,9 @@ const WallLayer = React.memo(({
 
         const cls = getWallClass(chain.className);
         let strokeColor = "#a855f7"; // purple default
-        if (cls === "exterior_wall") {
+        if (cls === "block_wall") {
+          strokeColor = "#64748b";
+        } else if (cls === "exterior_wall") {
           strokeColor = "#a855f7";
         } else if (cls === "interior_wall") {
           strokeColor = "#ea580c";
@@ -843,7 +845,9 @@ const WallLayer = React.memo(({
 
         const cls = getWallClass(chain.className);
         let fillColor = "rgba(168, 85, 247, 0.15)";
-        if (cls === "exterior_wall") {
+        if (cls === "block_wall") {
+          fillColor = "rgba(100, 116, 139, 0.55)";
+        } else if (cls === "exterior_wall") {
           fillColor = "rgba(168, 85, 247, 0.15)";
         } else if (cls === "interior_wall") {
           fillColor = "rgba(234, 88, 12, 0.45)";
@@ -860,6 +864,24 @@ const WallLayer = React.memo(({
             strokeWidth={chain.thickness - 2.0}
             strokeLinecap="butt"
             strokeLinejoin="miter"
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
+      {/* Block Wall 2D Color Fill Overlay */}
+      {(walls || []).map((w, idx) => {
+        if (getWallClass(w) !== "block_wall") return null;
+        const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
+        if (!pointsStr) return null;
+
+        return (
+          <polygon
+            key={`block-wall-2d-fill-${w.id}-${idx}`}
+            points={pointsStr}
+            fill="rgba(100, 116, 139, 0.55)"
+            stroke="#475569"
+            strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
         );
@@ -1244,11 +1266,7 @@ const WallHandlesLayer = React.memo(({
     if (typeof selectWall === 'function') {
       selectWall(wallId, isShiftKey);
     }
-    if (setSelectedWallIds) {
-      setSelectedWallIds(prev => isShiftKey ? (prev.includes(wallId) ? prev.filter(id => id !== wallId) : [...prev, wallId]) : [wallId]);
-    }
-    if (setSelectedId) setSelectedId(wallId);
-    if (setSelectedType) setSelectedType('wall');
+    // Note: selectWall in the controller already handles setSelectedWallIds, setSelectedId, setSelectedType
   }
 
   function formatWallDisplayName(w, index) {

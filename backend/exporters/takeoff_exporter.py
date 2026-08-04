@@ -85,7 +85,7 @@ class TakeoffExporter:
         left_indent = Alignment(horizontal="left", vertical="center", indent=1)
         right_indent = Alignment(horizontal="right", vertical="center", indent=1)
 
-        widths = {"A": 24, "B": 13, "C": 13, "D": 12, "E": 10, "F": 14, "G": 13, "H": 10, "I": 10}
+        widths = {"A": 30, "B": 14, "C": 14, "D": 16, "E": 14, "F": 12, "G": 15, "H": 12, "I": 12}
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
@@ -108,50 +108,50 @@ class TakeoffExporter:
         row = 1
 
         # ---------- Title ----------
-        ws.merge_cells(f"A{row}:G{row}")
+        ws.merge_cells(f"A{row}:I{row}")
         ws[f"A{row}"] = "WALL & DOOR MATERIAL TAKE-OFF"
         ws[f"A{row}"].font = title_font
         ws[f"A{row}"].alignment = center
         rh(row, 26); row += 1
 
-        ws.merge_cells(f"A{row}:G{row}")
+        ws.merge_cells(f"A{row}:I{row}")
         ws[f"A{row}"] = "For Supplier Quotation Purposes"
         ws[f"A{row}"].font = italic
         ws[f"A{row}"].alignment = center
         row += 2
 
-        # Draw a custom bottom border under row 3 (columns A to G) to stop it at G
-        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+        # Draw a custom bottom border under row 3 (columns A to I)
+        for col in ["A", "B", "C", "D", "E", "F", "G", "H", "I"]:
             ws[f"{col}3"].border = Border(bottom=thin)
 
         # ---------- Project info ----------
         info_start = row
         ws[f"A{row}"] = "Client:"; ws[f"A{row}"].font = bold
-        ws.merge_cells(f"B{row}:C{row}")
-        style_range(f"B{row}:C{row}", font=normal)
+        ws.merge_cells(f"B{row}:D{row}")
+        style_range(f"B{row}:D{row}", font=normal)
         ws[f"B{row}"] = request.client_name or ""
 
-        ws[f"D{row}"] = "Job No:"; ws[f"D{row}"].font = bold
-        ws.merge_cells(f"E{row}:G{row}")
-        style_range(f"E{row}:G{row}", font=normal)
-        ws[f"E{row}"] = request.job_no or ""
+        ws[f"E{row}"] = "Job No:"; ws[f"E{row}"].font = bold
+        ws.merge_cells(f"F{row}:I{row}")
+        style_range(f"F{row}:I{row}", font=normal)
+        ws[f"F{row}"] = request.job_no or ""
         rh(row, 18); row += 1
 
         ws[f"A{row}"] = "Project:"; ws[f"A{row}"].font = bold
-        ws.merge_cells(f"B{row}:C{row}")
-        style_range(f"B{row}:C{row}", font=normal)
+        ws.merge_cells(f"B{row}:D{row}")
+        style_range(f"B{row}:D{row}", font=normal)
         ws[f"B{row}"] = request.project_name or ""
         rh(row, 18); row += 1
 
         ws[f"A{row}"] = "Detailer:"; ws[f"A{row}"].font = bold
-        ws.merge_cells(f"B{row}:C{row}")
-        style_range(f"B{row}:C{row}", font=normal)
+        ws.merge_cells(f"B{row}:D{row}")
+        style_range(f"B{row}:D{row}", font=normal)
         ws[f"B{row}"] = request.detailer_name or ""
 
-        ws[f"D{row}"] = "Date:"; ws[f"D{row}"].font = bold
-        ws.merge_cells(f"E{row}:G{row}")
-        style_range(f"E{row}:G{row}", font=normal)
-        ws[f"E{row}"] = request.date or ""
+        ws[f"E{row}"] = "Date:"; ws[f"E{row}"].font = bold
+        ws.merge_cells(f"F{row}:I{row}")
+        style_range(f"F{row}:I{row}", font=normal)
+        ws[f"F{row}"] = request.date or ""
         rh(row, 18); row += 2
 
         # ---------- helpers ----------
@@ -181,13 +181,17 @@ class TakeoffExporter:
 
         def add_wall_data_row(r):
             ws.merge_cells(f"A{r}:C{r}")
-            for col in ["A", "D", "E", "F", "G"]:
-                ws[f"{col}{r}"].border = border_all
-                ws[f"{col}{r}"].alignment = center if col != "A" else left_indent
+            ws.merge_cells(f"G{r}:I{r}")
+            style_range(f"A{r}:I{r}", border=True)
+            ws[f"A{r}"].alignment = left_indent
+            ws[f"D{r}"].alignment = center
             ws[f"D{r}"].font = input_font
+            ws[f"E{r}"].alignment = center
             ws[f"E{r}"].font = input_font
+            ws[f"F{r}"].alignment = center
             ws[f"F{r}"].fill = PatternFill("solid", fgColor="E7E6E6")
             ws[f"F{r}"].font = Font(name=FONT_NAME, size=11, color="BFBFBF")
+            ws[f"G{r}"].alignment = center
             ws[f"G{r}"].font = normal
             # Area = Length x Height / 1,000,000 x Qty x 2 sides
             ws[f"G{r}"] = f'=IF(OR(D{r}="",E{r}=""),"",D{r}*E{r}/1000000*IF(F{r}="",1,F{r})*2)'
@@ -196,12 +200,12 @@ class TakeoffExporter:
 
         def add_wall_subtotal(r, label, first, last, wall_count=0):
             ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
             ws[f"A{r}"] = label
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = right_indent
             # Total Length (mm) in column D
             # Guard against a self-referencing SUM when there are no data rows
-            # (first == last == r, i.e. the subtotal row summing itself → circular ref)
             no_data = wall_count == 0 or first == r or last == r
             ws[f"D{r}"] = 0 if no_data else f"=SUM(D{first}:D{last})"
             ws[f"D{r}"].number_format = "#,##0"
@@ -219,14 +223,16 @@ class TakeoffExporter:
             ws[f"G{r}"] = 0 if no_data else f"=SUM(G{first}:G{last})"
             ws[f"G{r}"].number_format = "0.00"
             ws[f"G{r}"].font = bold
-            style_range(f"A{r}:G{r}", fill=total_fill, border=True)
+            ws[f"G{r}"].alignment = center
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
             rh(r, 18)
 
-        height_value_font = Font(name=FONT_NAME, bold=True, size=11, color="006100")  # distinct red = height-group figures
+        height_value_font = Font(name=FONT_NAME, bold=True, size=11, color="006100")
 
         def add_wall_height_row(r, data_rows, height_mm):
-            """Total-style row for walls at a specific height (same font/fill as the grand total row, no label text; values highlighted)."""
+            """Total-style row for walls at a specific height."""
             ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
             ws[f"A{r}"] = ""
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = right_indent
@@ -250,12 +256,14 @@ class TakeoffExporter:
             ws[f"G{r}"] = f"={area_parts}"
             ws[f"G{r}"].number_format = "0.00"
             ws[f"G{r}"].font = height_value_font
-            style_range(f"A{r}:G{r}", fill=total_fill, border=True)
+            ws[f"G{r}"].alignment = center
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
             rh(r, 18)
 
         def add_wall_total_from_refs(r, label, ref_rows, wall_count):
             """Total row that sums specific referenced rows (height subtotals)."""
             ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
             ws[f"A{r}"] = label
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = right_indent
@@ -277,7 +285,7 @@ class TakeoffExporter:
             ws[f"G{r}"] = f"={area_parts}"
             ws[f"G{r}"].number_format = "0.00"
             ws[f"G{r}"].font = bold
-            style_range(f"A{r}:G{r}", fill=total_fill, border=True)
+            ws[f"G{r}"].alignment = center
             rh(r, 18)
 
         def write_walls_with_height_groups(walls_list, label_prefix, row_start):
@@ -369,6 +377,7 @@ class TakeoffExporter:
         # Total Interior Wall Area
         int_wall_count = len(lb_walls) + len(nlb_walls)
         ws.merge_cells(f"A{row}:C{row}")
+        ws.merge_cells(f"G{row}:I{row}")
         ws[f"A{row}"] = "Total Interior Wall"
         ws[f"A{row}"].font = bold
         ws[f"A{row}"].alignment = right_indent
@@ -389,6 +398,7 @@ class TakeoffExporter:
         ws[f"G{row}"] = f"=G{lb_total_row}+G{nlb_total_row}"
         ws[f"G{row}"].number_format = "0.00"
         ws[f"G{row}"].font = bold
+        ws[f"G{row}"].alignment = center
         style_range(f"A{row}:I{row}", fill=total_fill, border=True)
         rh(row, 18)
         int_total_row = row
@@ -791,8 +801,9 @@ class TakeoffExporter:
         ws[f"E{row}"] = "Length (m)"
         ws[f"F{row}"] = "Qty"
         ws[f"G{row}"] = "Total LM"
+        ws.merge_cells(f"H{row}:I{row}")
         ws[f"H{row}"] = "Size/Qty Breakdown"
-        style_range(f"A{row}:H{row}", font=bold, fill=colhead_fill, align=center)
+        style_range(f"A{row}:I{row}", font=bold, fill=colhead_fill, align=center)
         rh(row, 18)
         row += 1
 
@@ -827,15 +838,8 @@ class TakeoffExporter:
                 for length, qty in sorted_lengths:
                     ws.merge_cells(f"A{row}:C{row}")
                     ws[f"A{row}"] = desc_label
-                    ws[f"A{row}"].border = border_all
                     ws[f"A{row}"].alignment = left_indent
                     ws[f"A{row}"].font = input_font
-
-                    for col in ["D", "E", "F", "G"]:
-                        ws[f"{col}{row}"].border = border_all
-                        ws[f"{col}{row}"].alignment = center
-                        ws[f"{col}{row}"].font = input_font
-                    ws[f"H{row}"].border = border_all
 
                     ws[f"D{row}"] = size_str
                     ws[f"E{row}"] = length
@@ -843,27 +847,33 @@ class TakeoffExporter:
                     ws[f"F{row}"] = qty
                     ws[f"G{row}"] = f"=E{row}*F{row}"
                     ws[f"G{row}"].number_format = "0.00"
+
+                    for col in ["D", "E", "F", "G"]:
+                        ws[f"{col}{row}"].alignment = center
+                        ws[f"{col}{row}"].font = input_font
+                    ws.merge_cells(f"H{row}:I{row}")
+                    style_range(f"A{row}:I{row}", border=True)
                     rh(row, 17)
                     row += 1
                 group_last_row = row - 1
 
                 # One copy-paste-ready breakdown per group, e.g. "0.90/1, 1.20/1, 3.00/1"
                 breakdown_text = ", ".join(f"{length:.2f}/{qty}" for length, qty in sorted_lengths)
-                ws.merge_cells(f"H{group_first_row}:H{group_last_row}")
+                ws.merge_cells(f"H{group_first_row}:I{group_last_row}")
                 ws[f"H{group_first_row}"] = breakdown_text
                 ws[f"H{group_first_row}"].font = italic
                 ws[f"H{group_first_row}"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                ws[f"H{group_first_row}"].border = border_all
+                style_range(f"H{group_first_row}:I{group_last_row}", border=True)
 
             add_door_subtotal(row, "Subtotal - Lintels", first_lintel, row - 1)
-            ws[f"H{row}"].fill = total_fill
-            ws[f"H{row}"].border = border_all
+            ws.merge_cells(f"H{row}:I{row}")
+            style_range(f"A{row}:I{row}", fill=total_fill, border=True)
         else:
             add_door_subtotal(row, "Subtotal - Lintels", row, row)
             ws[f"F{row}"] = 0
             ws[f"G{row}"] = 0.00
-            ws[f"H{row}"].fill = total_fill
-            ws[f"H{row}"].border = border_all
+            ws.merge_cells(f"H{row}:I{row}")
+            style_range(f"A{row}:I{row}", fill=total_fill, border=True)
         lintel_total_row = row
         row += 2
 
@@ -874,6 +884,7 @@ class TakeoffExporter:
 
         # Row: Total Wall summary with length, qty, and area
         ws.merge_cells(f"A{row}:C{row}")
+        ws.merge_cells(f"G{row}:I{row}")
         ws[f"A{row}"] = "Total Wall Area - Both Sides (m2)"
         ws[f"A{row}"].font = bold
         ws[f"A{row}"].alignment = right_indent
@@ -888,7 +899,8 @@ class TakeoffExporter:
         ws[f"G{row}"] = f"=G{ext_total_row}+G{int_total_row}+G{block_total_row}"
         ws[f"G{row}"].number_format = "0.00"
         ws[f"G{row}"].font = bold
-        style_range(f"A{row}:G{row}", fill=grand_fill, border=True)
+        ws[f"G{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=grand_fill, border=True)
         rh(row, 19)
         row += 1
 
@@ -906,23 +918,25 @@ class TakeoffExporter:
         ]
         for label, formula in simple_sums:
             ws.merge_cells(f"A{row}:F{row}")
+            ws.merge_cells(f"G{row}:I{row}")
             ws[f"A{row}"] = label
             ws[f"A{row}"].font = bold
             ws[f"A{row}"].alignment = right_indent
             ws[f"G{row}"] = formula
-            ws[f"G{row}"].number_format = "0.00" if "Area" in label else "0"
+            ws[f"G{row}"].number_format = "0.00" if "Area" in label or "LM" in label else "0"
             ws[f"G{row}"].font = bold
-            style_range(f"A{row}:G{row}", fill=grand_fill, border=True)
+            ws[f"G{row}"].alignment = center
+            style_range(f"A{row}:I{row}", fill=grand_fill, border=True)
             rh(row, 19)
             row += 1
 
         row += 1
 
         # ---------- Notes ----------
-        ws.merge_cells(f"A{row}:G{row}")
+        ws.merge_cells(f"A{row}:I{row}")
         ws[f"A{row}"].font = italic
         ws[f"A{row}"].alignment = left
-        ws.merge_cells(f"A{row+1}:G{row+1}")
+        ws.merge_cells(f"A{row+1}:I{row+1}")
 
         ws.sheet_view.showGridLines = False
         ws.print_area = f"A1:I{row+1}"
