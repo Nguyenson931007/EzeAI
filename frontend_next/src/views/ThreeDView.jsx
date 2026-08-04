@@ -1010,12 +1010,16 @@ export default function ThreeDView({
 
         const p1 = centerline[0];
         const p2 = centerline[1];
-        const x1 = p1[0], y1 = p1[1];
-        const x2 = p2[0], y2 = p2[1];
+        const x1 = (p1[0] ?? p1.x ?? 0);
+        const y1 = (p1[1] ?? p1.y ?? 0);
+        const x2 = (p2[0] ?? p2.x ?? 0);
+        const y2 = (p2[1] ?? p2.y ?? 0);
 
         const dx = x2 - x1;
         const dy = y2 - y1;
         const length = Math.sqrt(dx * dx + dy * dy);
+        if (length < 0.1) return;
+
         const angle = Math.atan2(dy, dx);
         const thickness = wall.thickness_px || 20;
 
@@ -1034,8 +1038,10 @@ export default function ThreeDView({
 
         const midX = (x1 + x2) / 2 - imgSize.w / 2;
         const midZ = (y1 + y2) / 2 - imgSize.h / 2;
-        const nx = Math.sin(-angle);
-        const nz = Math.cos(-angle);
+        const wallUx = dx / length;
+        const wallUy = dy / length;
+        const nx = -wallUy;
+        const nz = wallUx;
 
         const skirtingHeightMm = Number(skirting.height || wall.skirtingHeight || 100);
         const skirtingThickMm = Number(skirting.thickness || wall.skirtingThickness || 15);
@@ -1116,9 +1122,6 @@ export default function ThreeDView({
           // Check if wall is exterior wall using getWallClass
           const isExterior = getWallClass(wall) === "exterior_wall";
 
-          const wallUx = (x2 - x1) / (length || 1);
-          const wallUy = (y2 - y1) / (length || 1);
-
           let renderSideA3D = enableSkirtA;
           let renderSideB3D = enableSkirtB;
 
@@ -1126,14 +1129,16 @@ export default function ThreeDView({
           const thickPx = wall.thickness_px || 20;
           const p1c = wall.centerline[0];
           const p2c = wall.centerline[1];
-          const dxC = p2c[0] - p1c[0];
-          const dyC = p2c[1] - p1c[1];
+          const p1cX = (p1c[0] ?? p1c.x ?? 0), p1cY = (p1c[1] ?? p1c.y ?? 0);
+          const p2cX = (p2c[0] ?? p2c.x ?? 0), p2cY = (p2c[1] ?? p2c.y ?? 0);
+          const dxC = p2cX - p1cX;
+          const dyC = p2cY - p1cY;
           const lenC = Math.hypot(dxC, dyC) || 1;
           const nxC = -dyC / lenC;
           const nyC = dxC / lenC;
 
-          const midXC = (p1c[0] + p2c[0]) / 2;
-          const midYC = (p1c[1] + p2c[1]) / 2;
+          const midXC = (p1cX + p2cX) / 2;
+          const midYC = (p1cY + p2cY) / 2;
 
           const isPointInPoly = (px, py, poly) => {
             if (!poly || poly.length < 3) return false;
@@ -1190,14 +1195,14 @@ export default function ThreeDView({
               const op1 = ow.centerline[0];
               const op2 = ow.centerline[1];
               const l2 = (op2[0] - op1[0]) ** 2 + (op2[1] - op1[1]) ** 2;
-              if (l2 === 0) return Math.hypot(px - op1[0], py - op1[1]) <= 45;
+              if (l2 === 0) return Math.hypot(px - op1[0], py - op1[1]) <= 60;
               let t = ((px - op1[0]) * (op2[0] - op1[0]) + (py - op1[1]) * (op2[1] - op1[1])) / l2;
-              t = Math.max(-0.25, Math.min(1.25, t));
+              t = Math.max(-0.5, Math.min(1.5, t));
               const projX = op1[0] + t * (op2[0] - op1[0]);
               const projY = op1[1] + t * (op2[1] - op1[1]);
               const dist = Math.hypot(px - projX, py - projY);
               const owThick = ow.thickness_px || 20;
-              return dist <= Math.max(45, owThick + 25);
+              return dist <= Math.max(60, owThick + 35);
             });
           };
 
@@ -1246,25 +1251,24 @@ export default function ThreeDView({
             }
           }
 
-          // Render 3D End Cap Skirting for Standalone / Free Wall Tips (only if not at door jamb)
+          // Render 3D End Cap Skirting for Standalone / Free Wall Tips (never on exterior building facades)
           const matSkirtCap = renderSideA3D ? matSkirtA : matSkirtB;
           const thickSkirtCap = renderSideA3D ? thickSkirtA : thickSkirtB;
           const hSkirtCap = renderSideA3D ? hSkirtA : hSkirtB;
 
           // Cap at P1 (start tip)
-          if (!p1Connected && !p1NearDoor) {
-            const capWidth = isExterior ? (thickness + thickSkirtCap) : (thickness + thickSkirtA + thickSkirtB);
+          if (!p1Connected && !p1NearDoor && !isExterior) {
+            const capWidth = (thickness + thickSkirtA + thickSkirtB);
             const geoCapP1 = new THREE.BoxGeometry(thickSkirtCap, hSkirtCap, capWidth);
             const meshCapP1 = new THREE.Mesh(geoCapP1, matSkirtCap);
 
             const p1MidX = midX - wallUx * (length / 2);
             const p1MidZ = midZ - wallUy * (length / 2);
-            const capShiftSideB = isExterior ? (renderSideB3D ? -(thickSkirtCap / 2) : (thickSkirtCap / 2)) : 0;
 
             meshCapP1.position.set(
               p1MidX - wallUx * (thickSkirtCap / 2),
               yOffset + hSkirtCap / 2,
-              p1MidZ - wallUy * (thickSkirtCap / 2) + nx * capShiftSideB
+              p1MidZ - wallUy * (thickSkirtCap / 2)
             );
             meshCapP1.rotation.y = -angle;
             scene.add(meshCapP1);
@@ -1272,19 +1276,18 @@ export default function ThreeDView({
           }
 
           // Cap at P2 (end tip)
-          if (!p2Connected && !p2NearDoor) {
-            const capWidth = isExterior ? (thickness + thickSkirtCap) : (thickness + thickSkirtA + thickSkirtB);
+          if (!p2Connected && !p2NearDoor && !isExterior) {
+            const capWidth = (thickness + thickSkirtA + thickSkirtB);
             const geoCapP2 = new THREE.BoxGeometry(thickSkirtCap, hSkirtCap, capWidth);
             const meshCapP2 = new THREE.Mesh(geoCapP2, matSkirtCap);
 
             const p2MidX = midX + wallUx * (length / 2);
             const p2MidZ = midZ + wallUy * (length / 2);
-            const capShiftSideB = isExterior ? (renderSideB3D ? -(thickSkirtCap / 2) : (thickSkirtCap / 2)) : 0;
 
             meshCapP2.position.set(
               p2MidX + wallUx * (thickSkirtCap / 2),
               yOffset + hSkirtCap / 2,
-              p2MidZ + wallUy * (thickSkirtCap / 2) + nx * capShiftSideB
+              p2MidZ + wallUy * (thickSkirtCap / 2)
             );
             meshCapP2.rotation.y = -angle;
             scene.add(meshCapP2);
