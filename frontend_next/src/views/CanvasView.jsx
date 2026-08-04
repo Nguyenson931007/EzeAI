@@ -915,8 +915,8 @@ const WallLayer = React.memo(({
           if (!r) return false;
           const nameStr = typeof r === "string" ? r : (r.room_name || r.roomName || r.name || r.label || "");
           const typeStr = typeof r === "object" ? (r.room_type || r.type || r.category || "") : "";
-          const combined = `${nameStr} ${typeStr}`.toLowerCase();
-          return /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck)/i.test(combined);
+          const combined = `${nameStr} ${typeStr}`.toLowerCase().trim();
+          return combined === "0" || combined === "room 0" || combined === "room_0" || combined === "" || /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck|void|exterior)/i.test(combined);
         };
 
         const midX = (p1[0] + p2[0]) / 2;
@@ -2171,9 +2171,11 @@ const OCRLabelLayer = React.memo(({
   return (
     <g id="OCRLabelLayer">
       {rooms.map(r => {
+        if (!r || !r.polygon || r.polygon.length < 3) return null;
         const isText = r.id && String(r.id).startsWith("text-");
         const c = centroid(r.polygon);
         const area = scaleValue ? polygonAreaM2Util(r.polygon, scaleValue) : 0;
+        if (scaleValue && area <= 0.005) return null; // Suppress rooms with 0.00 m² area!
         const xs = r.polygon.map(p => p.x);
         const ys = r.polygon.map(p => p.y);
         const bboxW = Math.max(...xs) - Math.min(...xs);

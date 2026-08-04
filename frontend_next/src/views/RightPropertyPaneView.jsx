@@ -419,7 +419,8 @@ export default function RightPropertyPaneView({
     (room) =>
       room?.polygon &&
       room.polygon.length >= 3 &&
-      !(room.id && String(room.id).startsWith("text-"))
+      !(room.id && String(room.id).startsWith("text-")) &&
+      (scaleValue ? polygonAreaM2Util(room.polygon, scaleValue) > 0.005 : true)
   );
 
   let dry = 0, wet = 0, timber = 0, tile = 0;

@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, distancePointToSegment } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
 
 function insetPolygon3D(pts, offset = 20.0) {
   if (!pts || pts.length < 3) return pts;
@@ -568,11 +568,13 @@ export default function ThreeDView({
       const levelWallHeight = pageHeightsMm[originalIndex] !== undefined ? pageHeightsMm[originalIndex] : wallHeight;
 
       // --- 1. RENDER ROOMS (FLOORS) ---
-      if (showFloors) {
+      if (showFloors && floorDepthMm > 0) {
         // 1a. Render continuous subfloor slab under all room footprints to eliminate blueprint image gaps under door thresholds
         pageRooms.forEach(room => {
           const poly = room.polygon;
           if (!poly || poly.length < 3) return;
+          const roomArea = realScale ? polygonAreaM2(poly, realScale) : 0;
+          if (realScale && roomArea <= 0.005) return; // Skip 0.00 m² rooms!
 
           const pts2d = poly.map(p => ({
             x: typeof p.x === 'number' ? p.x : (Array.isArray(p) && typeof p[0] === 'number' ? p[0] : 0),
@@ -607,6 +609,8 @@ export default function ThreeDView({
         pageRooms.forEach(room => {
           const poly = room.polygon;
           if (!poly || poly.length < 3) return;
+          const roomArea = realScale ? polygonAreaM2(poly, realScale) : 0;
+          if (realScale && roomArea <= 0.005) return; // Skip 0.00 m² rooms!
 
           const pts2d = poly.map(p => ({
             x: typeof p.x === 'number' ? p.x : (Array.isArray(p) && typeof p[0] === 'number' ? p[0] : 0),
@@ -1068,13 +1072,13 @@ export default function ThreeDView({
           const skirtT_B = (rawTB > 100 || rawTB <= 0) ? 15 : rawTB;
           const thickSkirtB = skirtT_B / scaleFactor;
 
-          // Helper: Identify outdoor deck / patio / alfresco / balcony / desk room names to suppress skirting on outdoor deck walls
+          // Helper: Identify outdoor deck / patio / room = 0 / void names to suppress skirting on outdoor walls
           const isOutdoorRoom = (r) => {
             if (!r) return false;
             const nameStr = typeof r === "string" ? r : (r.room_name || r.roomName || r.name || r.label || "");
             const typeStr = typeof r === "object" ? (r.room_type || r.type || r.category || "") : "";
-            const combined = `${nameStr} ${typeStr}`.toLowerCase();
-            return /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck)/i.test(combined);
+            const combined = `${nameStr} ${typeStr}`.toLowerCase().trim();
+            return combined === "0" || combined === "room 0" || combined === "room_0" || combined === "" || /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck|void|exterior)/i.test(combined);
           };
 
           // Resolve Side A Skirting Material & Finish Type (Tile / Gạch vs Wood / Gỗ)
@@ -1215,8 +1219,8 @@ export default function ThreeDView({
           const p1Connected = isEndpointConnected(x1, y1);
           const p2Connected = isEndpointConnected(x2, y2);
 
-          // Extend corners at connected wall joints, but stop flush (no extension) at door jambs.
-          const cornerExt = (thickness / 2) + Math.max(thickSkirtA, thickSkirtB);
+          // Extend corners at connected wall joints for interior partition walls; stop flush for exterior facade walls to prevent protrusion.
+          const cornerExt = isExterior ? 0 : ((thickness / 2) + Math.max(thickSkirtA, thickSkirtB));
           const extStart = (p1Connected && !p1NearDoor) ? -cornerExt : 0;
           const extEnd = (p2Connected && !p2NearDoor) ? length + cornerExt : length;
           const segLen = extEnd - extStart;
