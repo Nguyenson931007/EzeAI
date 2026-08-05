@@ -1269,8 +1269,8 @@ export default function ThreeDView({
           let roomB = null;
 
           for (const off of [5, 15, 30]) {
-            const ptA = [midXC - nxC * ((thickPx / 2) + off), midYC - nyC * ((thickPx / 2) + off)];
-            const ptB = [midXC + nxC * ((thickPx / 2) + off), midYC + nyC * ((thickPx / 2) + off)];
+            const ptA = [midXC + nxC * sideASign * ((thickPx / 2) + off), midYC + nyC * sideASign * ((thickPx / 2) + off)];
+            const ptB = [midXC + nxC * sideBSign * ((thickPx / 2) + off), midYC + nyC * sideBSign * ((thickPx / 2) + off)];
 
             for (const r of (pageRooms || [])) {
               const poly = r.polygon || r.points || [];

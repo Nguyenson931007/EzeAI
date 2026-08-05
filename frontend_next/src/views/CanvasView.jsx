@@ -958,8 +958,8 @@ const WallLayer = React.memo(({
         let roomB = null;
 
         for (const off of [5, 15, 30]) {
-          const ptA = [midX + nx * (offsetA - off), midY + ny * (offsetA - off)];
-          const ptB = [midX + nx * (offsetB + off), midY + ny * (offsetB + off)];
+          const ptA = [midX + nx * sideASign * ((thickPx / 2) + off), midY + ny * sideASign * ((thickPx / 2) + off)];
+          const ptB = [midX + nx * sideBSign * ((thickPx / 2) + off), midY + ny * sideBSign * ((thickPx / 2) + off)];
 
           for (const r of (rooms || [])) {
             const poly = r.polygon || r.points || [];
