@@ -41,6 +41,7 @@ class LintelInput(BaseModel):
     description: str
     category: Optional[str] = "lintel"
     lengthOffset: Optional[float] = 0.0
+    ply: Optional[int] = 1
 
 class TakeoffExportRequest(BaseModel):
     walls: List[WallInput]
@@ -834,7 +835,8 @@ class TakeoffExporter:
 
                 length_qty = defaultdict(int)
                 for l in items:
-                    length_qty[l.final_length] += 1
+                    qty_to_add = l.ply if getattr(l, "ply", None) is not None else 1
+                    length_qty[l.final_length] += qty_to_add
                 sorted_lengths = sorted(length_qty.items())
 
                 group_first_row = row
@@ -846,10 +848,10 @@ class TakeoffExporter:
 
                     ws[f"D{row}"] = size_str
                     ws[f"E{row}"] = length
-                    ws[f"E{row}"].number_format = "0.00"
+                    ws[f"E{row}"].number_format = "0.0"
                     ws[f"F{row}"] = qty
                     ws[f"G{row}"] = f"=E{row}*F{row}"
-                    ws[f"G{row}"].number_format = "0.00"
+                    ws[f"G{row}"].number_format = "0.0"
 
                     for col in ["D", "E", "F", "G"]:
                         ws[f"{col}{row}"].alignment = center
@@ -861,7 +863,7 @@ class TakeoffExporter:
                 group_last_row = row - 1
 
                 # One copy-paste-ready breakdown per group, e.g. "0.90/1, 1.20/1, 3.00/1"
-                breakdown_text = ", ".join(f"{length:.2f}/{qty}" for length, qty in sorted_lengths)
+                breakdown_text = ", ".join(f"{length:.1f}/{qty}" for length, qty in sorted_lengths)
                 ws.merge_cells(f"H{group_first_row}:I{group_last_row}")
                 ws[f"H{group_first_row}"] = breakdown_text
                 ws[f"H{group_first_row}"].font = italic
@@ -874,7 +876,7 @@ class TakeoffExporter:
         else:
             add_door_subtotal(row, "Subtotal - Lintels", row, row)
             ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.00
+            ws[f"G{row}"] = 0.0
             ws.merge_cells(f"H{row}:I{row}")
             style_range(f"A{row}:I{row}", fill=total_fill, border=True)
         lintel_total_row = row
