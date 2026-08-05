@@ -1303,6 +1303,38 @@ export default function RightPropertyPaneView({
                       />
                     </div>
 
+                    {/* Flip Wall Sides Toggle Button */}
+                    <button
+                      style={{
+                        width: "100%",
+                        padding: "6px 10px",
+                        marginTop: 8,
+                        marginBottom: 4,
+                        fontSize: "11px",
+                        fontWeight: "bold",
+                        borderRadius: "4px",
+                        border: "1px solid #0284c7",
+                        background: "#0369a1",
+                        color: "#ffffff",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "6px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall?.id ? [selectedWall.id] : []];
+                        if (!targetIds.length) return;
+                        const currentFlipped = Boolean(selectedWall?.flipSides || selectedWall?.skirting?.flipSides);
+                        updateWallsProperty && updateWallsProperty(targetIds, "flipSides", !currentFlipped);
+                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.flipSides", !currentFlipped);
+                      }}
+                    >
+                      🔄 FLIP WALL SIDES (Side A ↔ Side B)
+                    </button>
+
                     {/* Side A Skirting Toggle, Height & Color */}
                     <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -2220,7 +2252,7 @@ export default function RightPropertyPaneView({
               border: "1px solid rgba(255, 255, 255, 0.08)"
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>MẶT TƯỜNG (SIDES):</span>
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>WALL SIDES:</span>
                 <div style={{ display: "flex", gap: "4px" }}>
                   <button
                     onClick={() => setWallSides(2)}
@@ -2235,7 +2267,7 @@ export default function RightPropertyPaneView({
                       cursor: "pointer"
                     }}
                   >
-                    2 Mặt (Mặc định)
+                    2 Sides (Default)
                   </button>
                   <button
                     onClick={() => setWallSides(1)}
@@ -2250,13 +2282,13 @@ export default function RightPropertyPaneView({
                       cursor: "pointer"
                     }}
                   >
-                    1 Mặt
+                    1 Side
                   </button>
                 </div>
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>TRỪ LỖ CỬA (OPENINGS):</span>
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>DOOR OPENINGS:</span>
                 <div style={{ display: "flex", gap: "4px" }}>
                   <button
                     onClick={() => setDeductDoors(false)}
@@ -2271,7 +2303,7 @@ export default function RightPropertyPaneView({
                       cursor: "pointer"
                     }}
                   >
-                    Thô (Gross)
+                    Gross Area
                   </button>
                   <button
                     onClick={() => setDeductDoors(true)}
@@ -2286,7 +2318,7 @@ export default function RightPropertyPaneView({
                       cursor: "pointer"
                     }}
                   >
-                    Trừ Cửa (Net)
+                    Net Area
                   </button>
                 </div>
               </div>

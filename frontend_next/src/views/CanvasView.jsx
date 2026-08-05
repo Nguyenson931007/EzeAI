@@ -31,6 +31,7 @@ import {
   getBaseWallId,
   getWallClass,
   getWallType,
+  getCanonicalWallNormal,
   ADD_POINT_SNAP_DISTANCE,
   findBestRoomInsertionPoint
 } from "@/utils/geometry";
@@ -918,17 +919,14 @@ const WallLayer = React.memo(({
         if (!w.centerline || w.centerline.length !== 2) return null;
         const p1 = w.centerline[0];
         const p2 = w.centerline[1];
-        const dx = p2[0] - p1[0];
-        const dy = p2[1] - p1[1];
-        const len = Math.hypot(dx, dy);
+        const flipSides = Boolean(w.flipSides || w.skirting?.flipSides || w.flip_sides);
+        const { nx, ny, len } = getCanonicalWallNormal(p1, p2, flipSides);
         if (len < 5) return null;
 
         const thickPx = w.thickness_px || 10;
-        const nx = -dy / len;
-        const ny = dx / len;
 
-        const offsetA = -(thickPx / 2) - 1;
-        const offsetB = (thickPx / 2) + 1;
+        const offsetA = (thickPx / 2) + 1;
+        const offsetB = -(thickPx / 2) - 1;
 
         const skirtingColorA = w.skirting?.sideA?.color || w.skirting?.color || "#854d0e";
         const skirtingColorB = w.skirting?.sideB?.color || w.skirting?.color || "#854d0e";

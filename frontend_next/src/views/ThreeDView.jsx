@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, getCanonicalWallNormal, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
 
 function insetPolygon3D(pts, offset = 20.0) {
   if (!pts || pts.length < 3) return pts;
@@ -999,7 +999,7 @@ export default function ThreeDView({
           });
           const geoA = new THREE.BoxGeometry(length, clampedHA, thickA3D);
           const meshA = new THREE.Mesh(geoA, matA);
-          const offsetA = -(thickness / 2) - (thickA3D / 2) - 0.02;
+          const offsetA = (thickness / 2) + (thickA3D / 2) + 0.02;
           meshA.position.set(midX + nx * offsetA, yOffset + clampedHA / 2, midZ + nz * offsetA);
           meshA.rotation.y = -angle;
           scene.add(meshA);
@@ -1019,7 +1019,7 @@ export default function ThreeDView({
           });
           const geoB = new THREE.BoxGeometry(length, clampedHB, thickB3D);
           const meshB = new THREE.Mesh(geoB, matB);
-          const offsetB = (thickness / 2) + (thickB3D / 2) + 0.02;
+          const offsetB = -(thickness / 2) - (thickB3D / 2) - 0.02;
           meshB.position.set(midX + nx * offsetB, yOffset + clampedHB / 2, midZ + nz * offsetB);
           meshB.rotation.y = -angle;
           scene.add(meshB);
@@ -1064,8 +1064,10 @@ export default function ThreeDView({
         const midZ = (y1 + y2) / 2 - imgSize.h / 2;
         const wallUx = dx / length;
         const wallUy = dy / length;
-        const nx = -wallUy;
-        const nz = wallUx;
+        const flipSides = Boolean(wall.flipSides || wall.skirting?.flipSides || wall.flip_sides);
+        const { nx: canonicalNx, ny: canonicalNy } = getCanonicalWallNormal([x1, y1], [x2, y2], flipSides);
+        const nx = canonicalNx;
+        const nz = canonicalNy;
 
         const skirtingHeightMm = Number(skirting.height || wall.skirtingHeight || 100);
         const skirtingThickMm = Number(skirting.thickness || wall.skirtingThickness || 15);
@@ -1284,7 +1286,7 @@ export default function ThreeDView({
             if (renderSideA3D) {
               const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirtA, thickSkirtA);
               const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirtA);
-              const offsetSkirtA = -(thickness / 2) - (thickSkirtA / 2) - 0.02;
+              const offsetSkirtA = (thickness / 2) + (thickSkirtA / 2) + 0.02;
               meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirtA / 2, segMidZ + nz * offsetSkirtA);
               meshSkirtA.rotation.y = -angle;
               scene.add(meshSkirtA);
@@ -1295,7 +1297,7 @@ export default function ThreeDView({
             if (renderSideB3D) {
               const geoSkirtB = new THREE.BoxGeometry(segLen, hSkirtB, thickSkirtB);
               const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirtB);
-              const offsetSkirtB = (thickness / 2) + (thickSkirtB / 2) + 0.02;
+              const offsetSkirtB = -(thickness / 2) - (thickSkirtB / 2) - 0.02;
               meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirtB / 2, segMidZ + nz * offsetSkirtB);
               meshSkirtB.rotation.y = -angle;
               scene.add(meshSkirtB);

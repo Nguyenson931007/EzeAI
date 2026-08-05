@@ -32,6 +32,52 @@ export function getWallType(w) {
   return "int";
 }
 
+/**
+ * Computes canonical unit normal for wall endpoints p1 -> p2
+ * Guarantees Side A & Side B orientation stability regardless of P1/P2 drag/draw order.
+ * If flipSides is true, inverts normal vector.
+ */
+export function getCanonicalWallNormal(p1, p2, flipSides = false) {
+  const x1 = typeof p1?.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
+  const y1 = typeof p1?.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
+  const x2 = typeof p2?.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
+  const y2 = typeof p2?.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
+
+  let dx = x2 - x1;
+  let dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-5) return { nx: 0, ny: 1, len: 1, dx: 0, dy: 1, isReversed: false };
+
+  let isReversed = false;
+  // Canonical orientation logic:
+  // For horizontal/slanted walls (|dx| >= |dy|): force dx > 0 (Left -> Right)
+  // For vertical walls (|dy| > |dx|): force dy > 0 (Top -> Bottom)
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx < 0) {
+      dx = -dx;
+      dy = -dy;
+      isReversed = true;
+    }
+  } else {
+    if (dy < 0) {
+      dx = -dx;
+      dy = -dy;
+      isReversed = true;
+    }
+  }
+
+  let nx = -dy / len;
+  let ny = dx / len;
+
+  if (flipSides) {
+    nx = -nx;
+    ny = -ny;
+    isReversed = !isReversed;
+  }
+
+  return { nx, ny, len, dx, dy, isReversed };
+}
+
 const _getCoord = (pt) => {
   if (!pt) return { x: 0, y: 0 };
   const x = typeof pt.x === 'number' ? pt.x : (Array.isArray(pt) ? pt[0] : 0);
