@@ -3,7 +3,61 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, getCanonicalWallNormal, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
+import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, getWallSideOffsets, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
+
+let _blockWallTextureCache = null;
+function getBlockWallTexture() {
+  if (_blockWallTextureCache) return _blockWallTextureCache;
+  if (typeof document === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+
+  // Mortar joint background (mạch vữa xám bê tông)
+  ctx.fillStyle = "#4b5563";
+  ctx.fillRect(0, 0, 512, 512);
+
+  const rows = 8;
+  const cols = 4;
+  const rowH = 512 / rows;
+  const colW = 512 / cols;
+  const mortar = 6;
+
+  for (let r = 0; r < rows; r++) {
+    const isOdd = r % 2 === 1;
+    const offsetX = isOdd ? colW / 2 : 0;
+    const y = r * rowH;
+
+    for (let c = -1; c <= cols; c++) {
+      const x = c * colW + offsetX;
+
+      // Concrete block body (gạch block xám xi măng)
+      ctx.fillStyle = "#9ca3af";
+      ctx.fillRect(x + mortar / 2, y + mortar / 2, colW - mortar, rowH - mortar);
+
+      // Inner bevel shade
+      ctx.fillStyle = "#cbd5e1";
+      ctx.fillRect(x + mortar / 2 + 2, y + mortar / 2 + 2, colW - mortar - 4, rowH - mortar - 4);
+
+      // Double-hole hollow core cell (Gạch block 2 lỗ / gạch đinh)
+      ctx.fillStyle = "#6b7280";
+      const holeW = (colW - mortar - 24) / 2;
+      const holeH = rowH - mortar - 16;
+      if (holeW > 8 && holeH > 8) {
+        ctx.fillRect(x + mortar / 2 + 8, y + mortar / 2 + 8, holeW, holeH);
+        ctx.fillRect(x + mortar / 2 + 16 + holeW, y + mortar / 2 + 8, holeW, holeH);
+      }
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  _blockWallTextureCache = texture;
+  return texture;
+}
 
 function insetPolygon3D(pts, offset = 20.0) {
   if (!pts || pts.length < 3) return pts;
@@ -919,16 +973,50 @@ export default function ThreeDView({
         const selectedBaseId = selected3DWall ? (getBaseWallId ? getBaseWallId(selected3DWall.wallId) : selected3DWall.wallId.split('-A-')[0].split('-B-')[0]) : null;
         const isSelected3D = (selected3DWall && (selected3DWall.wallId === wall.id || selectedBaseId === baseId)) || (selectedId === wall.id);
 
-        const material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color(colorHex),
-          roughness: 0.45,
-          metalness: 0.05,
-          polygonOffset: isExteriorWall,
-          polygonOffsetFactor: isExteriorWall ? -2 : 0,
-          polygonOffsetUnits: isExteriorWall ? -2 : 0,
-          emissive: isSelected3D ? new THREE.Color(0xf97316) : new THREE.Color(0x000000),
-          emissiveIntensity: isSelected3D ? 0.75 : 0
-        });
+        let material;
+        if (isBlockWall) {
+          const blockTex = getBlockWallTexture();
+          if (blockTex) {
+            const clonedTex = blockTex.clone();
+            clonedTex.needsUpdate = true;
+            const repeatX = Math.max(1, Math.round(length / 30));
+            const repeatY = Math.max(1, Math.round(activeWallHeight / 30));
+            clonedTex.repeat.set(repeatX, repeatY);
+
+            material = new THREE.MeshStandardMaterial({
+              map: clonedTex,
+              roughness: 0.8,
+              metalness: 0.05,
+              polygonOffset: isExteriorWall,
+              polygonOffsetFactor: isExteriorWall ? -2 : 0,
+              polygonOffsetUnits: isExteriorWall ? -2 : 0,
+              emissive: isSelected3D ? new THREE.Color(0xf97316) : new THREE.Color(0x000000),
+              emissiveIntensity: isSelected3D ? 0.75 : 0
+            });
+          } else {
+            material = new THREE.MeshStandardMaterial({
+              color: new THREE.Color("#78716c"),
+              roughness: 0.7,
+              metalness: 0.05,
+              polygonOffset: isExteriorWall,
+              polygonOffsetFactor: isExteriorWall ? -2 : 0,
+              polygonOffsetUnits: isExteriorWall ? -2 : 0,
+              emissive: isSelected3D ? new THREE.Color(0xf97316) : new THREE.Color(0x000000),
+              emissiveIntensity: isSelected3D ? 0.75 : 0
+            });
+          }
+        } else {
+          material = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(colorHex),
+            roughness: 0.45,
+            metalness: 0.05,
+            polygonOffset: isExteriorWall,
+            polygonOffsetFactor: isExteriorWall ? -2 : 0,
+            polygonOffsetUnits: isExteriorWall ? -2 : 0,
+            emissive: isSelected3D ? new THREE.Color(0xf97316) : new THREE.Color(0x000000),
+            emissiveIntensity: isSelected3D ? 0.75 : 0
+          });
+        }
 
         let mesh;
         const poly = wall.polygon;
@@ -999,7 +1087,7 @@ export default function ThreeDView({
           });
           const geoA = new THREE.BoxGeometry(length, clampedHA, thickA3D);
           const meshA = new THREE.Mesh(geoA, matA);
-          const offsetA = (thickness / 2) + (thickA3D / 2) + 0.02;
+          const offsetA = sideASign * ((thickness / 2) + (thickA3D / 2) + 0.02);
           meshA.position.set(midX + nx * offsetA, yOffset + clampedHA / 2, midZ + nz * offsetA);
           meshA.rotation.y = -angle;
           scene.add(meshA);
@@ -1019,7 +1107,7 @@ export default function ThreeDView({
           });
           const geoB = new THREE.BoxGeometry(length, clampedHB, thickB3D);
           const meshB = new THREE.Mesh(geoB, matB);
-          const offsetB = -(thickness / 2) - (thickB3D / 2) - 0.02;
+          const offsetB = sideBSign * ((thickness / 2) + (thickB3D / 2) + 0.02);
           meshB.position.set(midX + nx * offsetB, yOffset + clampedHB / 2, midZ + nz * offsetB);
           meshB.rotation.y = -angle;
           scene.add(meshB);
@@ -1065,9 +1153,7 @@ export default function ThreeDView({
         const wallUx = dx / length;
         const wallUy = dy / length;
         const flipSides = Boolean(wall.flipSides || wall.skirting?.flipSides || wall.flip_sides);
-        const { nx: canonicalNx, ny: canonicalNy } = getCanonicalWallNormal([x1, y1], [x2, y2], flipSides);
-        const nx = canonicalNx;
-        const nz = canonicalNy;
+        const { nx, ny: nz, sideASign, sideBSign } = getWallSideOffsets([x1, y1], [x2, y2], flipSides);
 
         const skirtingHeightMm = Number(skirting.height || wall.skirtingHeight || 100);
         const skirtingThickMm = Number(skirting.thickness || wall.skirtingThickness || 15);
@@ -1080,7 +1166,7 @@ export default function ThreeDView({
           const skirtH_A = (rawHA <= 0) ? 100 : Math.min(maxAllowedHeight, rawHA);
           const hSkirtA = Math.min(activeWallHeight, skirtH_A / scaleFactor);
 
-          const rawTA = Number(skirting.thickness || skirting.sideA?.thickness || skirtingThickMm);
+          const rawTA = Number(skirting.sideA?.thickness ?? skirting.thickness ?? skirtingThickMm);
           const skirtT_A = (rawTA > 100 || rawTA <= 0) ? 15 : rawTA;
           const thickSkirtA = skirtT_A / scaleFactor;
 
@@ -1090,7 +1176,7 @@ export default function ThreeDView({
           const skirtH_B = (rawHB <= 0) ? 100 : Math.min(maxAllowedHeight, rawHB);
           const hSkirtB = Math.min(activeWallHeight, skirtH_B / scaleFactor);
 
-          const rawTB = Number(skirting.thickness || skirting.sideB?.thickness || skirtingThickMm);
+          const rawTB = Number(skirting.sideB?.thickness ?? skirting.thickness ?? skirtingThickMm);
           const skirtT_B = (rawTB > 100 || rawTB <= 0) ? 15 : rawTB;
           const thickSkirtB = skirtT_B / scaleFactor;
 
@@ -1195,13 +1281,13 @@ export default function ThreeDView({
             }
           }
 
-          // Disable Side A skirting if facing outside or facing an outdoor deck / balcony / desk room
-          if (!roomA || isOutdoorRoom(roomA)) {
+          // Disable Side A skirting if facing outside building (on exterior walls) or facing an outdoor balcony/deck
+          if ((isExterior && !roomA) || isOutdoorRoom(roomA)) {
             renderSideA3D = false;
           }
 
-          // Disable Side B skirting if facing outside or facing an outdoor deck / balcony / desk room
-          if (!roomB || isOutdoorRoom(roomB)) {
+          // Disable Side B skirting if facing outside building (on exterior walls) or facing an outdoor balcony/deck
+          if ((isExterior && !roomB) || isOutdoorRoom(roomB)) {
             renderSideB3D = false;
           }
 
@@ -1286,7 +1372,7 @@ export default function ThreeDView({
             if (renderSideA3D) {
               const geoSkirtA = new THREE.BoxGeometry(segLen, hSkirtA, thickSkirtA);
               const meshSkirtA = new THREE.Mesh(geoSkirtA, matSkirtA);
-              const offsetSkirtA = (thickness / 2) + (thickSkirtA / 2) + 0.02;
+              const offsetSkirtA = sideASign * ((thickness / 2) + (thickSkirtA / 2) + 0.02);
               meshSkirtA.position.set(segMidX + nx * offsetSkirtA, yOffset + hSkirtA / 2, segMidZ + nz * offsetSkirtA);
               meshSkirtA.rotation.y = -angle;
               scene.add(meshSkirtA);
@@ -1297,7 +1383,7 @@ export default function ThreeDView({
             if (renderSideB3D) {
               const geoSkirtB = new THREE.BoxGeometry(segLen, hSkirtB, thickSkirtB);
               const meshSkirtB = new THREE.Mesh(geoSkirtB, matSkirtB);
-              const offsetSkirtB = -(thickness / 2) - (thickSkirtB / 2) - 0.02;
+              const offsetSkirtB = sideBSign * ((thickness / 2) + (thickSkirtB / 2) + 0.02);
               meshSkirtB.position.set(segMidX + nx * offsetSkirtB, yOffset + hSkirtB / 2, segMidZ + nz * offsetSkirtB);
               meshSkirtB.rotation.y = -angle;
               scene.add(meshSkirtB);

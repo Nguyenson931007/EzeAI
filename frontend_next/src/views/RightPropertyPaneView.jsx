@@ -1,6 +1,6 @@
 import React from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { BASE_URL } from "@/models/api.service";
@@ -345,6 +345,16 @@ export default function RightPropertyPaneView({
   const { showConfirm } = useDialog();
   const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user, lintelsByPage } = useAppModel();
   const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
+  const lastSingleWallIdRef = React.useRef(null);
+
+  // Track single wall selection before bulk edit
+  React.useEffect(() => {
+    if (selectedWallIds.length === 1) {
+      lastSingleWallIdRef.current = selectedWallIds[0];
+    } else if (selectedWall?.id && selectedWallIds.length <= 1) {
+      lastSingleWallIdRef.current = selectedWall.id;
+    }
+  }, [selectedWallIds, selectedWall]);
 
   // Resolve savedDefault wall height using the specified precedence rules
   const savedDefault = React.useMemo(() => {
@@ -1121,65 +1131,249 @@ export default function RightPropertyPaneView({
                 <span>🧱 SURFACE FINISH & SKIRTING SYSTEM</span>
               </div>
 
-              {/* Side A (Left / Bottom Face) */}
-              <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>
-                  {(() => {
-                    if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return "Side A (Face 1)";
-                    const p1 = selectedWall.centerline[0];
-                    const p2 = selectedWall.centerline[1];
-                    const isHoriz = Math.abs(p2[0] - p1[0]) > Math.abs(p2[1] - p1[1]);
-                    return isHoriz ? "Side A (Front Face - Bottom of Wall)" : "Side A (Left Face - Left of Wall)";
-                  })()}
-                </div>
-                <div className="panel-field">
-                  <span className="panel-label">Finish Type</span>
-                  <select
-                    className="panel-select"
-                    value={selectedWall?.surface?.sideA?.finishType || selectedWall?.finishTypeSideA || "none"}
-                    onChange={(e) => {
-                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                      updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideA", e.target.value);
-                      updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.finishType", e.target.value);
-                    }}
-                  >
-                    {getFinishTypeOptions().map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              {(() => {
+                const wallClass = selectedWall ? getWallClass(selectedWall) : "interior_wall";
+                const isExteriorWall = wallClass === "exterior_wall" || wallClass === "block_wall";
 
-              {/* Side B (Right / Top Face) */}
-              <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>
-                  {(() => {
-                    if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return "Side B (Face 2)";
-                    const p1 = selectedWall.centerline[0];
-                    const p2 = selectedWall.centerline[1];
-                    const isHoriz = Math.abs(p2[0] - p1[0]) > Math.abs(p2[1] - p1[1]);
-                    return isHoriz ? "Side B (Back Face - Top of Wall)" : "Side B (Right Face - Right of Wall)";
-                  })()}
-                </div>
-                <div className="panel-field">
-                  <span className="panel-label">Finish Type</span>
-                  <select
-                    className="panel-select"
-                    value={selectedWall?.surface?.sideB?.finishType || selectedWall?.finishTypeSideB || "none"}
-                    onChange={(e) => {
-                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                      updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideB", e.target.value);
-                      updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.finishType", e.target.value);
-                    }}
-                  >
-                    {getFinishTypeOptions().map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                let isSideAHidden = false;
+                let isSideBHidden = false;
 
-              {/* SKIRTING SYSTEM (FEATURE 2 - DUAL FACE CONTROLS & BULK EDIT) */}
+                if (isExteriorWall && selectedWall && selectedWall.centerline && selectedWall.centerline.length === 2) {
+                  const p1 = selectedWall.centerline[0];
+                  const p2 = selectedWall.centerline[1];
+                  const flipSides = Boolean(selectedWall.flipSides || selectedWall.skirting?.flipSides);
+                  const { sideASign, sideBSign } = getWallSideOffsets(p1, p2, flipSides);
+                  const midX = (p1[0] + p2[0]) / 2;
+                  const midY = (p1[1] + p2[1]) / 2;
+                  const dx = p2[0] - p1[0];
+                  const dy = p2[1] - p1[1];
+                  const len = Math.hypot(dx, dy) || 1;
+                  const nx = -dy / len;
+                  const ny = dx / len;
+                  const thick = selectedWall.thickness_px || 20;
+
+                  const isOutdoorRoom = (r) => {
+                    if (!r) return false;
+                    const nameStr = typeof r === "string" ? r : (r.room_name || r.roomName || r.name || r.label || "");
+                    const typeStr = typeof r === "object" ? (r.room_type || r.type || r.category || "") : "";
+                    const combined = `${nameStr} ${typeStr}`.toLowerCase().trim();
+                    return combined === "0" || combined === "room_0" || combined === "" || /(balcony|deck|desk|alfresco|patio|porch|verandah|terrace|courtyard|outdoor|yard|carport|timber_deck|void|exterior)/i.test(combined);
+                  };
+
+                  const isPointInPoly = (px, py, poly) => {
+                    if (!poly || poly.length < 3) return false;
+                    let inside = false;
+                    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                      const xi = poly[i][0] ?? poly[i].x, yi = poly[i][1] ?? poly[i].y;
+                      const xj = poly[j][0] ?? poly[j].x, yj = poly[j][1] ?? poly[j].y;
+                      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi)) inside = !inside;
+                    }
+                    return inside;
+                  };
+
+                  let hasRoomA = false;
+                  for (const off of [5, 15, 30]) {
+                    const testX = midX + nx * sideASign * ((thick / 2) + off);
+                    const testY = midY + ny * sideASign * ((thick / 2) + off);
+                    for (const r of (rooms || [])) {
+                      const poly = r.polygon || r.points || [];
+                      if (poly.length >= 3 && isPointInPoly(testX, testY, poly)) {
+                        if (!isOutdoorRoom(r)) { hasRoomA = true; break; }
+                      }
+                    }
+                    if (hasRoomA) break;
+                  }
+                  isSideAHidden = !hasRoomA;
+
+                  let hasRoomB = false;
+                  for (const off of [5, 15, 30]) {
+                    const testX = midX + nx * sideBSign * ((thick / 2) + off);
+                    const testY = midY + ny * sideBSign * ((thick / 2) + off);
+                    for (const r of (rooms || [])) {
+                      const poly = r.polygon || r.points || [];
+                      if (poly.length >= 3 && isPointInPoly(testX, testY, poly)) {
+                        if (!isOutdoorRoom(r)) { hasRoomB = true; break; }
+                      }
+                    }
+                    if (hasRoomB) break;
+                  }
+                  isSideBHidden = !hasRoomB;
+                }
+
+                const isHorizWall = (() => {
+                  if (!selectedWall || !selectedWall.centerline || selectedWall.centerline.length !== 2) return true;
+                  const p1 = selectedWall.centerline[0];
+                  const p2 = selectedWall.centerline[1];
+                  return Math.abs(p2[0] - p1[0]) >= Math.abs(p2[1] - p1[1]);
+                })();
+
+                const sideATitle = isHorizWall ? "Side A (Front Face)" : "Side A (Left Face)";
+                const sideBTitle = isHorizWall ? "Side B (Back Face)" : "Side B (Right Face)";
+
+                return (
+                  <>
+                    {/* Side A Card */}
+                    {!isSideAHidden && (
+                      <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8" }}>{sideATitle}</span>
+                        </div>
+
+                        {/* Row 1: Type (Finish Type) */}
+                        <div className="panel-field" style={{ marginBottom: 8 }}>
+                          <span className="panel-label">type</span>
+                          <select
+                            className="panel-select"
+                            value={selectedWall?.surface?.sideA?.finishType || selectedWall?.finishTypeSideA || "none"}
+                            onChange={(e) => {
+                              const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                              updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideA", e.target.value);
+                              updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.finishType", e.target.value);
+                            }}
+                          >
+                            {getFinishTypeOptions().map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Row 2: Grid 3 Columns for height, thickness & color */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                          <div className="panel-field">
+                            <span className="panel-label">height</span>
+                            <input
+                              type="number"
+                              className="panel-input"
+                              style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                              value={selectedWall?.skirting?.sideA?.height ?? selectedWall?.skirting?.height ?? 100}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                                const rawVal = e.target.value;
+                                const val = rawVal === "" ? 0 : Number(rawVal);
+                                updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.height", val);
+                              }}
+                            />
+                          </div>
+                          <div className="panel-field">
+                            <span className="panel-label">thickness</span>
+                            <input
+                              type="number"
+                              className="panel-input"
+                              style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                              value={selectedWall?.skirting?.sideA?.thickness ?? selectedWall?.skirting?.thickness ?? 15}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                                const rawVal = e.target.value;
+                                const val = rawVal === "" ? 0 : Number(rawVal);
+                                updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.thickness", val);
+                              }}
+                            />
+                          </div>
+                          <div className="panel-field">
+                            <span className="panel-label">color</span>
+                            <input
+                              type="color"
+                              style={{ width: "100%", height: "30px", padding: "2px 4px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "4px", cursor: "pointer", background: "#0f172a", boxSizing: "border-box" }}
+                              value={selectedWall?.skirting?.sideA?.color || selectedWall?.skirting?.color || "#854d0e"}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                                updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", e.target.value);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Side B Card */}
+                    {!isSideBHidden && (
+                      <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8" }}>{sideBTitle}</span>
+                        </div>
+
+                        {/* Row 1: Type (Finish Type) */}
+                        <div className="panel-field" style={{ marginBottom: 8 }}>
+                          <span className="panel-label">type</span>
+                          <select
+                            className="panel-select"
+                            value={selectedWall?.surface?.sideB?.finishType || selectedWall?.finishTypeSideB || "none"}
+                            onChange={(e) => {
+                              const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                              updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideB", e.target.value);
+                              updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.finishType", e.target.value);
+                            }}
+                          >
+                            {getFinishTypeOptions().map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Row 2: Grid 3 Columns for height, thickness & color */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                          <div className="panel-field">
+                            <span className="panel-label">height</span>
+                            <input
+                              type="number"
+                              className="panel-input"
+                              style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                              value={selectedWall?.skirting?.sideB?.height ?? selectedWall?.skirting?.height ?? 100}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                                const rawVal = e.target.value;
+                                const val = rawVal === "" ? 0 : Number(rawVal);
+                                updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.height", val);
+                              }}
+                            />
+                          </div>
+                          <div className="panel-field">
+                            <span className="panel-label">thickness</span>
+                            <input
+                              type="number"
+                              className="panel-input"
+                              style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                              value={selectedWall?.skirting?.sideB?.thickness ?? selectedWall?.skirting?.thickness ?? 15}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                                const rawVal = e.target.value;
+                                const val = rawVal === "" ? 0 : Number(rawVal);
+                                updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.thickness", val);
+                              }}
+                            />
+                          </div>
+                          <div className="panel-field">
+                            <span className="panel-label">color</span>
+                            <input
+                              type="color"
+                              style={{ width: "100%", height: "30px", padding: "2px 4px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "4px", cursor: "pointer", background: "#0f172a", boxSizing: "border-box" }}
+                              value={selectedWall?.skirting?.sideB?.color || selectedWall?.skirting?.color || "#854d0e"}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
+                                updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", e.target.value);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* GLOBAL SKIRTING SETTINGS & BULK EDIT */}
               <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
                 {/* BULK SELECTION & QUICK PRESETS BAR */}
                 <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1197,14 +1391,30 @@ export default function RightPropertyPaneView({
                       gap: 6
                     }}
                     onClick={() => {
-                      const allIds = (walls || []).map(w => w.id);
-                      if (typeof setSelectedWallIds === "function") setSelectedWallIds(allIds);
-                      if (typeof setSelectedType === "function") setSelectedType("wall");
-                      if (allIds.length > 0 && typeof setSelectedId === "function") setSelectedId(allIds[0]);
+                      const isAllSelected = selectedWallIds.length === (walls || []).length && (walls || []).length > 0;
+                      if (isAllSelected) {
+                        const targetId = lastSingleWallIdRef.current || selectedWall?.id || (selectedWallIds.length > 0 ? selectedWallIds[0] : null);
+                        if (targetId) {
+                          if (typeof setSelectedWallIds === "function") setSelectedWallIds([targetId]);
+                          if (typeof setSelectedType === "function") setSelectedType("wall");
+                          if (typeof setSelectedId === "function") setSelectedId(targetId);
+                        } else {
+                          if (typeof setSelectedWallIds === "function") setSelectedWallIds([]);
+                        }
+                      } else {
+                        if (selectedWall?.id) {
+                          lastSingleWallIdRef.current = selectedWall.id;
+                        }
+                        const allIds = (walls || []).map(w => w.id);
+                        const activeId = lastSingleWallIdRef.current || selectedWall?.id || (allIds.length > 0 ? allIds[0] : null);
+                        if (typeof setSelectedWallIds === "function") setSelectedWallIds(allIds);
+                        if (typeof setSelectedType === "function") setSelectedType("wall");
+                        if (activeId && typeof setSelectedId === "function") setSelectedId(activeId);
+                      }
                     }}
                   >
                     {(selectedWallIds.length === (walls || []).length && (walls || []).length > 0)
-                      ? `✓ ALL ${(walls || []).length} SKIRTINGS SELECTED`
+                      ? `✓ ALL ${(walls || []).length} SKIRTINGS SELECTED (CLICK TO UNSELECT)`
                       : `🎯 SELECT ALL ${(walls || []).length} SKIRTINGS (EDIT ALL)`}
                   </button>
 
@@ -1213,229 +1423,7 @@ export default function RightPropertyPaneView({
                       ⚡ Bulk editing <b>{selectedWallIds.length}</b> skirtings simultaneously.
                     </div>
                   )}
-
-                  {/* Quick Bulk Presets */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                    <button
-                      className="rp-action-btn"
-                      style={{ padding: "4px 6px", fontSize: "10px", background: "#334155", marginBottom: 0 }}
-                      onClick={() => {
-                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall?.id];
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", 100);
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", 15);
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", "#854d0e");
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", "#854d0e");
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", "#854d0e");
-                      }}
-                      title="Set 100x15mm Timber Wood Skirting across selected walls"
-                    >
-                      🪵 Wood 100x15
-                    </button>
-                    <button
-                      className="rp-action-btn"
-                      style={{ padding: "4px 6px", fontSize: "10px", background: "#334155", marginBottom: 0 }}
-                      onClick={() => {
-                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall?.id];
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", 100);
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", 10);
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.color", "#cbd5e1");
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", "#cbd5e1");
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", "#cbd5e1");
-                      }}
-                      title="Set 100x10mm Ceramic Tile Skirting across selected walls"
-                    >
-                      🧱 Tile 100x10
-                    </button>
-                  </div>
                 </div>
-
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>SKIRTING SYSTEM</span>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedWall?.skirting?.enabled ?? true}
-                      onChange={(e) => {
-                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabled", e.target.checked);
-                      }}
-                    />
-                    <span>Enable All</span>
-                  </label>
-                </div>
-
-                {(selectedWall?.skirting?.enabled ?? true) && (
-                  <>
-
-
-                    <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">HEIGHT (MM)</span>
-                      <input
-                        type="number"
-                        className="panel-input"
-                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                        value={selectedWall?.skirting?.height ?? 100}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          const rawVal = e.target.value;
-                          const val = rawVal === "" ? 0 : Number(rawVal);
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.height", val);
-                        }}
-                      />
-                    </div>
-                    <div className="panel-field" style={{ marginBottom: 6 }}>
-                      <span className="panel-label">THICKNESS (MM)</span>
-                      <input
-                        type="number"
-                        className="panel-input"
-                        style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                        value={selectedWall?.skirting?.thickness ?? 15}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                          const rawVal = e.target.value;
-                          const val = rawVal === "" ? 0 : Number(rawVal);
-                          updateWallsProperty && updateWallsProperty(targetIds, "skirting.thickness", val);
-                        }}
-                      />
-                    </div>
-
-                    {/* Flip Wall Sides Toggle Button */}
-                    <button
-                      style={{
-                        width: "100%",
-                        padding: "6px 10px",
-                        marginTop: 8,
-                        marginBottom: 4,
-                        fontSize: "11px",
-                        fontWeight: "bold",
-                        borderRadius: "4px",
-                        border: "1px solid #0284c7",
-                        background: "#0369a1",
-                        color: "#ffffff",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "6px",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall?.id ? [selectedWall.id] : []];
-                        if (!targetIds.length) return;
-                        const currentFlipped = Boolean(selectedWall?.flipSides || selectedWall?.skirting?.flipSides);
-                        updateWallsProperty && updateWallsProperty(targetIds, "flipSides", !currentFlipped);
-                        updateWallsProperty && updateWallsProperty(targetIds, "skirting.flipSides", !currentFlipped);
-                      }}
-                    >
-                      🔄 FLIP WALL SIDES (Side A ↔ Side B)
-                    </button>
-
-                    {/* Side A Skirting Toggle, Height & Color */}
-                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc" }}>Skirting Side A</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedWall?.skirting?.sideA?.enabled ?? selectedWall?.skirting?.enabledA ?? true}
-                            onChange={(e) => {
-                              const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.enabled", e.target.checked);
-                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabledA", e.target.checked);
-                            }}
-                          />
-                          <span>On</span>
-                        </label>
-                      </div>
-                      <div className="panel-field" style={{ marginBottom: 6 }}>
-                        <span className="panel-label">SIDE A HEIGHT (MM)</span>
-                        <input
-                          type="number"
-                          className="panel-input"
-                          style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                          value={selectedWall?.skirting?.sideA?.height ?? selectedWall?.skirting?.height ?? 100}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                            const rawVal = e.target.value;
-                            const val = rawVal === "" ? 0 : Number(rawVal);
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.height", val);
-                          }}
-                        />
-                      </div>
-                      <div className="panel-field">
-                        <span className="panel-label">SIDE A COLOR</span>
-                        <input
-                          type="color"
-                          style={{ width: "100%", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
-                          value={selectedWall?.skirting?.sideA?.color || selectedWall?.skirting?.color || "#854d0e"}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideA.color", e.target.value);
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Side B Skirting Toggle, Height & Color */}
-                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed rgba(255,255,255,0.1)" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#f8fafc" }}>Skirting Side B</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11 }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedWall?.skirting?.sideB?.enabled ?? selectedWall?.skirting?.enabledB ?? true}
-                            onChange={(e) => {
-                              const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.enabled", e.target.checked);
-                              updateWallsProperty && updateWallsProperty(targetIds, "skirting.enabledB", e.target.checked);
-                            }}
-                          />
-                          <span>On</span>
-                        </label>
-                      </div>
-                      <div className="panel-field" style={{ marginBottom: 6 }}>
-                        <span className="panel-label">SIDE B HEIGHT (MM)</span>
-                        <input
-                          type="number"
-                          className="panel-input"
-                          style={{ width: "100%", padding: "4px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff" }}
-                          value={selectedWall?.skirting?.sideB?.height ?? selectedWall?.skirting?.height ?? 100}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                            const rawVal = e.target.value;
-                            const val = rawVal === "" ? 0 : Number(rawVal);
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.height", val);
-                          }}
-                        />
-                      </div>
-                      <div className="panel-field">
-                        <span className="panel-label">SIDE B COLOR</span>
-                        <input
-                          type="color"
-                          style={{ width: "100%", height: "24px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", background: "transparent" }}
-                          value={selectedWall?.skirting?.sideB?.color || selectedWall?.skirting?.color || "#854d0e"}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                            updateWallsProperty && updateWallsProperty(targetIds, "skirting.sideB.color", e.target.value);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* CALCULATED METRICS CARD */}

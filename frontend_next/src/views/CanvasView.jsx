@@ -31,7 +31,7 @@ import {
   getBaseWallId,
   getWallClass,
   getWallType,
-  getCanonicalWallNormal,
+  getWallSideOffsets,
   ADD_POINT_SNAP_DISTANCE,
   findBestRoomInsertionPoint
 } from "@/utils/geometry";
@@ -920,13 +920,13 @@ const WallLayer = React.memo(({
         const p1 = w.centerline[0];
         const p2 = w.centerline[1];
         const flipSides = Boolean(w.flipSides || w.skirting?.flipSides || w.flip_sides);
-        const { nx, ny, len } = getCanonicalWallNormal(p1, p2, flipSides);
+        const { nx, ny, sideASign, sideBSign, len } = getWallSideOffsets(p1, p2, flipSides);
         if (len < 5) return null;
 
         const thickPx = w.thickness_px || 10;
 
-        const offsetA = (thickPx / 2) + 1;
-        const offsetB = -(thickPx / 2) - 1;
+        const offsetA = sideASign * ((thickPx / 2) + 1);
+        const offsetB = sideBSign * ((thickPx / 2) + 1);
 
         const skirtingColorA = w.skirting?.sideA?.color || w.skirting?.color || "#854d0e";
         const skirtingColorB = w.skirting?.sideB?.color || w.skirting?.color || "#854d0e";
@@ -981,13 +981,13 @@ const WallLayer = React.memo(({
           }
         }
 
-        // Disable 2D Side A skirting if facing outside or facing an outdoor deck / balcony / desk room
-        if (!roomA || isOutdoorRoom(roomA)) {
+        // Disable 2D Side A skirting if facing outside building (on exterior walls) or facing an outdoor balcony/deck
+        if ((isExterior && !roomA) || isOutdoorRoom(roomA)) {
           renderSideA = false;
         }
 
-        // Disable 2D Side B skirting if facing outside or facing an outdoor deck / balcony / desk room
-        if (!roomB || isOutdoorRoom(roomB)) {
+        // Disable 2D Side B skirting if facing outside building (on exterior walls) or facing an outdoor balcony/deck
+        if ((isExterior && !roomB) || isOutdoorRoom(roomB)) {
           renderSideB = false;
         }
 

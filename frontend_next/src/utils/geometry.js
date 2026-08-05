@@ -33,49 +33,43 @@ export function getWallType(w) {
 }
 
 /**
- * Computes canonical unit normal for wall endpoints p1 -> p2
- * Guarantees Side A & Side B orientation stability regardless of P1/P2 drag/draw order.
- * If flipSides is true, inverts normal vector.
+ * Computes natural segment unit normal and side offset signs for wall endpoints p1 -> p2.
+ * Guarantees Side A is always BOTTOM/LEFT and Side B is always TOP/RIGHT,
+ * while maintaining 100% geometric alignment with P1/P2 endpoints and end caps.
  */
-export function getCanonicalWallNormal(p1, p2, flipSides = false) {
+export function getWallSideOffsets(p1, p2, flipSides = false) {
   const x1 = typeof p1?.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
   const y1 = typeof p1?.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
   const x2 = typeof p2?.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
   const y2 = typeof p2?.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
 
-  let dx = x2 - x1;
-  let dy = y2 - y1;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
   const len = Math.hypot(dx, dy);
-  if (len < 1e-5) return { nx: 0, ny: 1, len: 1, dx: 0, dy: 1, isReversed: false };
-
-  let isReversed = false;
-  // Canonical orientation logic:
-  // For horizontal/slanted walls (|dx| >= |dy|): force dx > 0 (Left -> Right)
-  // For vertical walls (|dy| > |dx|): force dy > 0 (Top -> Bottom)
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    if (dx < 0) {
-      dx = -dx;
-      dy = -dy;
-      isReversed = true;
-    }
-  } else {
-    if (dy < 0) {
-      dx = -dx;
-      dy = -dy;
-      isReversed = true;
-    }
+  if (len < 1e-5) {
+    return { nx: 0, ny: 1, sideASign: 1, sideBSign: -1, len: 1, dx: 0, dy: 1 };
   }
 
-  let nx = -dy / len;
-  let ny = dx / len;
+  // Natural normal vector of segment P1 -> P2
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  // Determine whether natural normal +n points to Side A or Side B:
+  // Side A goal: BOTTOM (down, +ny) for horizontal, LEFT (left, -nx) for vertical.
+  let sideASign = 1;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    sideASign = dx >= 0 ? 1 : -1;
+  } else {
+    sideASign = dy >= 0 ? 1 : -1;
+  }
 
   if (flipSides) {
-    nx = -nx;
-    ny = -ny;
-    isReversed = !isReversed;
+    sideASign = -sideASign;
   }
 
-  return { nx, ny, len, dx, dy, isReversed };
+  const sideBSign = -sideASign;
+
+  return { nx, ny, sideASign, sideBSign, len, dx, dy };
 }
 
 const _getCoord = (pt) => {
