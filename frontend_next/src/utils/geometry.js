@@ -226,6 +226,10 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
           const otherThick = otherW.thickness_px || 20;
           const targetExt = (otherThick / 2) * cappedFactor;
 
+          // Check if the other wall is a block wall or exterior wall (thicker boundary walls)
+          const otherClass = getWallClass(otherW);
+          const isOtherBlockOrExt = otherClass === "block_wall" || otherClass === "exterior_wall";
+
           // Determine if it is a corner (L-junction) or segment-touch (T-junction)
           const distToP1 = Math.hypot(pt.x - otherP1.x, pt.y - otherP1.y);
           const distToP2 = Math.hypot(pt.x - otherP2.x, pt.y - otherP2.y);
@@ -234,11 +238,23 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
             // L-junction (Corner): Only the more vertical wall extends to avoid double-extension protrusions
             const currentIsVert = Math.abs(uy) > Math.abs(ux);
             if (currentIsVert) {
-              maxExtension = Math.max(maxExtension, targetExt);
+              if (isOtherBlockOrExt) {
+                // Clamp extension at block/ext wall inner face to prevent polygon from protruding through the outer face
+                const clampedExt = Math.max(0, (otherThick / 2) - (thicknessPx * 0.1));
+                maxExtension = Math.max(maxExtension, clampedExt);
+              } else {
+                maxExtension = Math.max(maxExtension, targetExt);
+              }
             }
           } else {
-            // T-junction (stem touches side): Stem wall always extends to centerline
-            maxExtension = Math.max(maxExtension, targetExt);
+            // T-junction (stem touches side): Stem wall extends to centerline
+            if (isOtherBlockOrExt) {
+              // Clamp extension at block/ext wall inner face to prevent polygon from protruding through the outer face
+              const clampedExt = Math.max(0, (otherThick / 2) - (thicknessPx * 0.15));
+              maxExtension = Math.max(maxExtension, clampedExt);
+            } else {
+              maxExtension = Math.max(maxExtension, targetExt);
+            }
           }
         }
       }

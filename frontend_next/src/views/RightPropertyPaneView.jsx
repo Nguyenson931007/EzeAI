@@ -377,12 +377,17 @@ export default function RightPropertyPaneView({
   const [isWindowSummaryExpanded, setIsWindowSummaryExpanded] = React.useState(true);
   const [isSkirtingSummaryExpanded, setIsSkirtingSummaryExpanded] = React.useState(true);
 
+  // Wall calculation options: default is 2 sides (2 mặt), gross area (không trừ cửa)
+  const [wallSides, setWallSides] = React.useState(2);
+  const [deductDoors, setDeductDoors] = React.useState(false);
+
   // 1. Calculations for Walls
   const wallData = React.useMemo(() => {
     const groups = {
       interior_wall: { label: "Interior", color: "#3b82f6", walls: [] },
       exterior_wall: { label: "Exterior", color: "#f59e0b", walls: [] },
       partition_wall: { label: "Partition", color: "#8b5cf6", walls: [] },
+      block_wall: { label: "Block", color: "#78716c", walls: [] },
     };
 
     walls.forEach((w) => {
@@ -395,16 +400,32 @@ export default function RightPropertyPaneView({
       const lengthM = scaleValue ? lengthPx * scaleValue : null;
       const heightMm = w.height ?? savedDefault;
       const heightM = heightMm / 1000;
-      const areaM2 = lengthM != null ? lengthM * heightM : null;
+
+      let openingAreaM2 = 0;
+      if (deductDoors && doors && scaleValue) {
+        const wallBaseId = getBaseWallId ? getBaseWallId(w.id) : w.id;
+        const wallDoors = doors.filter(d => {
+          const dWallId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+          return dWallId === wallBaseId || d.parentWallId === w.id;
+        });
+        wallDoors.forEach(d => {
+          const m = calcDoorWindowMetrics(d, scaleValue);
+          openingAreaM2 += (m.lengthM || 0) * (m.heightM || 0);
+        });
+      }
+
+      const rawGrossM2 = lengthM != null ? lengthM * heightM : 0;
+      const netSingleM2 = Math.max(0, rawGrossM2 - openingAreaM2);
+      const areaM2 = lengthM != null ? netSingleM2 * wallSides : null;
 
       const type = getWallClass(w);
       const key = groups[type] ? type : "interior_wall";
 
-      groups[key].walls.push({ id: w.id, lengthM, heightM, areaM2, thicknessMm: w.thickness || 90 });
+      groups[key].walls.push({ id: w.id, lengthM, heightM, areaM2, openingAreaM2, thicknessMm: w.thickness || 90 });
     });
 
     return groups;
-  }, [walls, scaleValue, savedDefault]);
+  }, [walls, doors, scaleValue, savedDefault, wallSides, deductDoors]);
 
   const totalWallCount = walls.filter((w) => w.centerline && w.centerline.length === 2).length;
   const sumOf = (group, field) => group.walls.reduce((s, w) => s + (w[field] || 0), 0);
@@ -723,6 +744,8 @@ export default function RightPropertyPaneView({
         walls: mappedWalls,
         doors: mappedDoors,
         lintels: mappedLintels,
+        wall_sides: wallSides,
+        deduct_doors: deductDoors,
         project_name: takeoffForm.projectName,
         client_name: takeoffForm.clientName,
         detailer_name: takeoffForm.detailerName,
@@ -2186,6 +2209,89 @@ export default function RightPropertyPaneView({
       >
         {totalWallCount > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {/* Wall Calculation Option Controls */}
+            <div style={{
+              background: "#1e293b",
+              borderRadius: "8px",
+              padding: "10px 12px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              border: "1px solid rgba(255, 255, 255, 0.08)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>MẶT TƯỜNG (SIDES):</span>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <button
+                    onClick={() => setWallSides(2)}
+                    style={{
+                      padding: "3px 8px",
+                      fontSize: "11px",
+                      borderRadius: "4px",
+                      border: "none",
+                      background: wallSides === 2 ? "#10b981" : "#334155",
+                      color: "#fff",
+                      fontWeight: wallSides === 2 ? "bold" : "normal",
+                      cursor: "pointer"
+                    }}
+                  >
+                    2 Mặt (Mặc định)
+                  </button>
+                  <button
+                    onClick={() => setWallSides(1)}
+                    style={{
+                      padding: "3px 8px",
+                      fontSize: "11px",
+                      borderRadius: "4px",
+                      border: "none",
+                      background: wallSides === 1 ? "#10b981" : "#334155",
+                      color: "#fff",
+                      fontWeight: wallSides === 1 ? "bold" : "normal",
+                      cursor: "pointer"
+                    }}
+                  >
+                    1 Mặt
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>TRỪ LỖ CỬA (OPENINGS):</span>
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <button
+                    onClick={() => setDeductDoors(false)}
+                    style={{
+                      padding: "3px 8px",
+                      fontSize: "11px",
+                      borderRadius: "4px",
+                      border: "none",
+                      background: !deductDoors ? "#3b82f6" : "#334155",
+                      color: "#fff",
+                      fontWeight: !deductDoors ? "bold" : "normal",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Thô (Gross)
+                  </button>
+                  <button
+                    onClick={() => setDeductDoors(true)}
+                    style={{
+                      padding: "3px 8px",
+                      fontSize: "11px",
+                      borderRadius: "4px",
+                      border: "none",
+                      background: deductDoors ? "#3b82f6" : "#334155",
+                      color: "#fff",
+                      fontWeight: deductDoors ? "bold" : "normal",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Trừ Cửa (Net)
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Project/Grand Wall Summary */}
             <div>
               <SectionHeader>Totals</SectionHeader>
@@ -2287,6 +2393,35 @@ export default function RightPropertyPaneView({
                 </KPIRow>
                 {scaleValue && sumOf(wallData.partition_wall, "areaM2") > 0 && (
                   <MiniBar ratio={sumOf(wallData.partition_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#8b5cf6" />
+                )}
+              </div>
+            )}
+
+            {/* Block Walls */}
+            {wallData.block_wall?.walls.length > 0 && (
+              <div>
+                <SectionHeader>Block Walls</SectionHeader>
+                <KPIRow>
+                  <KPICard
+                    value={wallData.block_wall.walls.length}
+                    label="Walls"
+                    color="#e1e4ea"
+                  />
+                  <KPICard
+                    value={scaleValue ? sumOf(wallData.block_wall, "lengthM").toFixed(1) : "—"}
+                    label="Length"
+                    unit={scaleValue ? " m" : ""}
+                    color="#e1e4ea"
+                  />
+                  <KPICard
+                    value={scaleValue ? sumOf(wallData.block_wall, "areaM2").toFixed(1) : "—"}
+                    label="Area"
+                    unit={scaleValue ? " m²" : ""}
+                    color="#78716c"
+                  />
+                </KPIRow>
+                {scaleValue && sumOf(wallData.block_wall, "areaM2") > 0 && (
+                  <MiniBar ratio={sumOf(wallData.block_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#78716c" />
                 )}
               </div>
             )}

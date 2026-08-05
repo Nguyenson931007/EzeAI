@@ -51,6 +51,8 @@ class TakeoffExportRequest(BaseModel):
     detailer_name: Optional[str] = ""
     job_no: Optional[str] = ""
     date: Optional[str] = ""
+    wall_sides: Optional[int] = 2
+    deduct_doors: Optional[bool] = False
 
 # ──────────────────────────────────────────────────────────
 # EXPORTER IMPLEMENTATION
@@ -193,8 +195,9 @@ class TakeoffExporter:
             ws[f"F{r}"].font = Font(name=FONT_NAME, size=11, color="BFBFBF")
             ws[f"G{r}"].alignment = center
             ws[f"G{r}"].font = normal
-            # Area = Length x Height / 1,000,000 x Qty x 2 sides
-            ws[f"G{r}"] = f'=IF(OR(D{r}="",E{r}=""),"",D{r}*E{r}/1000000*IF(F{r}="",1,F{r})*2)'
+            sides_mult = 1 if getattr(request, 'wall_sides', 2) == 1 else 2
+            # Area = Length x Height / 1,000,000 x Qty x sides_mult
+            ws[f"G{r}"] = f'=IF(OR(D{r}="",E{r}=""),"",D{r}*E{r}/1000000*IF(F{r}="",1,F{r})*{sides_mult})'
             ws[f"G{r}"].number_format = "0.00"
             rh(r, 17)
 

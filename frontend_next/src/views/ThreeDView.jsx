@@ -1143,8 +1143,9 @@ export default function ThreeDView({
             metalness: isTileB ? 0.05 : 0.02,
           });
 
-          // Check if wall is exterior wall using getWallClass
-          const isExterior = getWallClass(wall) === "exterior_wall";
+          // Check if wall is exterior wall or block wall using getWallClass
+          const wallClass = getWallClass(wall);
+          const isExterior = wallClass === "exterior_wall" || wallClass === "block_wall";
 
           let renderSideA3D = enableSkirtA;
           let renderSideB3D = enableSkirtB;
@@ -1230,6 +1231,28 @@ export default function ThreeDView({
             });
           };
 
+          // Check if endpoint connects specifically to a block wall or exterior wall (to suppress skirting extension at those junctions)
+          const isEndpointConnectedToBlockOrExt = (px, py) => {
+            const baseId = getBaseWallId ? getBaseWallId(wall.id) : wall.id.split('-A-')[0].split('-B-')[0];
+            return (pageWalls || []).some(ow => {
+              const owBaseId = getBaseWallId ? getBaseWallId(ow.id) : ow.id.split('-A-')[0].split('-B-')[0];
+              if (ow.id === wall.id || owBaseId === baseId || !ow.centerline || ow.centerline.length !== 2) return false;
+              const owClass = getWallClass(ow);
+              if (owClass !== "exterior_wall" && owClass !== "block_wall") return false;
+              const op1 = ow.centerline[0];
+              const op2 = ow.centerline[1];
+              const l2 = (op2[0] - op1[0]) ** 2 + (op2[1] - op1[1]) ** 2;
+              if (l2 === 0) return Math.hypot(px - op1[0], py - op1[1]) <= 60;
+              let t = ((px - op1[0]) * (op2[0] - op1[0]) + (py - op1[1]) * (op2[1] - op1[1])) / l2;
+              t = Math.max(-0.5, Math.min(1.5, t));
+              const projX = op1[0] + t * (op2[0] - op1[0]);
+              const projY = op1[1] + t * (op2[1] - op1[1]);
+              const dist = Math.hypot(px - projX, py - projY);
+              const owThick = ow.thickness_px || 20;
+              return dist <= Math.max(60, owThick + 35);
+            });
+          };
+
           // Deterministic door endpoint detection from cutWallsByDoors naming convention:
           // Segment A (-A-) has P2 at door jamb; Segment B (-B-) has P1 at door jamb.
           const wallIdStr = String(wall.id || "");
@@ -1239,10 +1262,15 @@ export default function ThreeDView({
           const p1Connected = isEndpointConnected(x1, y1);
           const p2Connected = isEndpointConnected(x2, y2);
 
-          // Extend corners at connected wall joints for interior partition walls; stop flush for exterior facade walls to prevent protrusion.
+          // Detect if endpoint connects to a block wall or exterior wall to stop skirting flush (no protrusion)
+          const p1ConnToBlockExt = isEndpointConnectedToBlockOrExt(x1, y1);
+          const p2ConnToBlockExt = isEndpointConnectedToBlockOrExt(x2, y2);
+
+          // Extend corners at connected wall joints for interior partition walls;
+          // stop flush for exterior/block facade walls to prevent skirting protrusion through them.
           const cornerExt = isExterior ? 0 : ((thickness / 2) + Math.max(thickSkirtA, thickSkirtB));
-          const extStart = (p1Connected && !p1NearDoor) ? -cornerExt : 0;
-          const extEnd = (p2Connected && !p2NearDoor) ? length + cornerExt : length;
+          const extStart = (p1Connected && !p1NearDoor) ? (p1ConnToBlockExt ? 0 : -cornerExt) : 0;
+          const extEnd = (p2Connected && !p2NearDoor) ? (p2ConnToBlockExt ? length : length + cornerExt) : length;
           const segLen = extEnd - extStart;
 
           if (segLen >= 0.1) {
