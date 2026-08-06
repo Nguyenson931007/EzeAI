@@ -16,6 +16,7 @@ import { WALL_HEIGHT_OPTIONS } from '@/components/WallThicknessDialog';
 
 import { computeWallAreas } from "@/engines/WallAreaCalculator";
 import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirting } from "@/models/FinishRegistry";
+import floorTypesConfig from "@/constants/floorTypes.json";
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -664,7 +665,8 @@ export default function RightPropertyPaneView({
           class_name: getWallClass(w),
           length_mm: lengthMm,
           height_mm: w.height ?? savedDefault,
-          thickness_mm: w.thickness || 90
+          thickness_mm: w.thickness || 90,
+          floor_type: w.floor_type || "Timber"
         };
       });
 
@@ -899,7 +901,7 @@ export default function RightPropertyPaneView({
               </div>
             </div>
           </>
-        ) : selectedType === "wall" && (selectedWall || selectedWallIds.length > 0) ? (
+        ) : (selectedType === "wall" || selectedWallIds.length > 0) && (selectedWall || selectedWallIds.length > 0) ? (
           <>
             {selectedWallIds.length <= 1 && selectedWall && (() => {
               const wallIdx = (walls || []).findIndex(w => w.id === selectedWall.id);
@@ -1064,7 +1066,7 @@ export default function RightPropertyPaneView({
                 value={
                   selectedWallIds.length > 1
                     ? "multiple"
-                    : (selectedWall?.thickness ?? (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : 90))
+                    : (selectedWall?.thickness ?? (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : 70))
                 }
                 onChange={(e) => {
                   if (e.target.value === "multiple") return;
@@ -1112,6 +1114,64 @@ export default function RightPropertyPaneView({
                       <option value="custom">{isCustom ? `Custom: ${currentHeight} mm` : "Custom..."}</option>
                     </select>
                   </>
+                );
+              })()}
+            </div>
+
+            {/* FLOOR BASE TYPE SELECTOR (Slab Floor vs Timber Floor) */}
+            <div style={{ marginTop: 12, marginBottom: 8 }}>
+              <span className="panel-label" style={{ fontWeight: 700, color: "#38bdf8", marginBottom: 6, display: "block" }}>
+                🪵 FLOOR BASE TYPE
+              </span>
+              {(() => {
+                const targetIds = selectedWallIds.length > 0 ? selectedWallIds : (selectedWall ? [selectedWall.id] : []);
+                const targetWalls = (walls || []).filter(w => targetIds.includes(w.id));
+                const firstType = targetWalls[0]?.floor_type || "Timber";
+                const isMixed = targetWalls.length > 1 && targetWalls.some(w => (w.floor_type || "Timber") !== firstType);
+                const currentFloorType = isMixed ? "multiple" : firstType;
+
+                const floorOptions = [
+                  { value: "Timber", label: "Timber Floor", color: "#eab308" },
+                  { value: "Slab", label: "Concrete Slab", color: "#0284c7" }
+                ];
+
+                return (
+                  <div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      {floorOptions.map(opt => {
+                        const isActive = currentFloorType === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            style={{
+                              padding: "8px 6px",
+                              fontSize: 12,
+                              fontWeight: isActive ? 800 : 600,
+                              background: isActive ? opt.color : "#1e293b",
+                              color: isActive ? "#0f172a" : "#cbd5e1",
+                              border: isActive ? `2px solid ${opt.color}` : "1px solid #334155",
+                              borderRadius: 6,
+                              cursor: "pointer",
+                              transition: "all 0.15s ease",
+                            }}
+                            onClick={() => {
+                              if (targetIds.length > 0 && updateWallsProperty) {
+                                updateWallsProperty(targetIds, "floor_type", opt.value);
+                              }
+                            }}
+                          >
+                            {isActive ? `✓ ${opt.label}` : opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {isMixed && (
+                      <div style={{ fontSize: 10, color: "#cbd5e1", marginTop: 4, fontStyle: "italic", textAlign: "center" }}>
+                        Multiple Floor Types selected. Click a floor type above to unify.
+                      </div>
+                    )}
+                  </div>
                 );
               })()}
             </div>
@@ -1470,6 +1530,20 @@ export default function RightPropertyPaneView({
                 </button>
               </div>
             )}
+
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="rp-action-btn"
+                style={{
+                  background: interactionMode === "draw-wall" ? "#dc2626" : "#8b5cf6",
+                }}
+                onClick={() => {
+                  setInteractionMode && setInteractionMode((prev) => (prev === "draw-wall" ? "select" : "draw-wall"));
+                }}
+              >
+                {interactionMode === "draw-wall" ? "Hủy Chế Độ Vẽ Tường" : "🧱 Vẽ Tường Mới"}
+              </button>
+            </div>
 
             <div style={{ marginTop: 4 }}>
               <button

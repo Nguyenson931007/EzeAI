@@ -15,6 +15,7 @@ class WallInput(BaseModel):
     length_mm: float
     height_mm: float
     thickness_mm: float
+    floor_type: Optional[str] = "Timber"  # 'Timber' or 'Slab'
 
 class DoorInput(BaseModel):
     id: str
@@ -233,11 +234,12 @@ class TakeoffExporter:
 
         height_value_font = Font(name=FONT_NAME, bold=True, size=11, color="006100")
 
-        def add_wall_height_row(r, data_rows, height_mm):
+        def add_wall_height_row(r, data_rows, height_mm, label_prefix=""):
             """Total-style row for walls at a specific height."""
             ws.merge_cells(f"A{r}:C{r}")
             ws.merge_cells(f"G{r}:I{r}")
-            ws[f"A{r}"] = ""
+            label = f"Total {label_prefix} ({height_mm}mm Height)" if label_prefix else f"Total Walls ({height_mm}mm Height)"
+            ws[f"A{r}"] = label
             ws[f"A{r}"].font = bold
             ws[f"A{r}"].alignment = right_indent
             # Length sum from non-contiguous rows
@@ -290,6 +292,7 @@ class TakeoffExporter:
             ws[f"G{r}"].number_format = "0.00"
             ws[f"G{r}"].font = bold
             ws[f"G{r}"].alignment = center
+            style_range(f"A{r}:I{r}", fill=grand_fill, border=True)
             rh(r, 18)
 
         def write_walls_with_height_groups(walls_list, label_prefix, row_start):
@@ -318,7 +321,7 @@ class TakeoffExporter:
 
             height_sub_rows = []
             for h_mm, data_rows in sorted(height_to_rows.items()):
-                add_wall_height_row(r, data_rows, h_mm)
+                add_wall_height_row(r, data_rows, h_mm, label_prefix=label_prefix)
                 height_sub_rows.append(r)
                 r += 1
 
@@ -426,6 +429,40 @@ class TakeoffExporter:
             ws[f"G{row}"] = 0.00
         block_total_row = row
         row += 2
+
+        # ---------- FRAME HARDWARE - FLOOR BASE BREAKDOWN (CONCRETE SLAB vs TIMBER FLOOR) ----------
+        add_section_header(row, "FRAME HARDWARE - FLOOR BASE BREAKDOWN"); row += 1
+
+        # 3. Walls on Concrete Slab Floor
+        add_sub_header(row, "Walls on Concrete Slab Floor (Grouped by Height)"); row += 1
+        row = add_wall_col_headers(row) + 1
+        slab_walls = [w for w in request.walls if w.class_name in ["exterior_wall", "interior_wall"] and (w.floor_type or "Timber") == "Slab"]
+        if slab_walls:
+            row, slab_height_refs, slab_first_row, slab_last_row = write_walls_with_height_groups(slab_walls, "Slab Wall", row)
+            if slab_height_refs:
+                add_wall_total_from_refs(row, "Total Concrete Slab Floor Walls", slab_height_refs, wall_count=len(slab_walls))
+            else:
+                add_wall_subtotal(row, "Total Concrete Slab Floor Walls", slab_first_row, slab_last_row, wall_count=len(slab_walls))
+        else:
+            add_wall_subtotal(row, "Total Concrete Slab Floor Walls", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        row += 2
+
+        # 4. Walls on Timber Floor
+        add_sub_header(row, "Walls on Timber Floor (Grouped by Height)"); row += 1
+        row = add_wall_col_headers(row) + 1
+        timber_walls = [w for w in request.walls if w.class_name in ["exterior_wall", "interior_wall"] and (w.floor_type or "Timber") != "Slab"]
+        if timber_walls:
+            row, timber_height_refs, timber_first_row, timber_last_row = write_walls_with_height_groups(timber_walls, "Timber Wall", row)
+            if timber_height_refs:
+                add_wall_total_from_refs(row, "Total Timber Floor Walls", timber_height_refs, wall_count=len(timber_walls))
+            else:
+                add_wall_subtotal(row, "Total Timber Floor Walls", timber_first_row, timber_last_row, wall_count=len(timber_walls))
+        else:
+            add_wall_subtotal(row, "Total Timber Floor Walls", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        row += 2
+
         # ---------- DOORS & WINDOWS ----------
         add_section_header(row, "DOORS & WINDOWS"); row += 1
 

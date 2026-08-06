@@ -1326,7 +1326,7 @@ const WallHandlesLayer = React.memo(({
               style={{ cursor: 'pointer', pointerEvents: 'auto' }}
               onClick={(e) => {
                 e.stopPropagation();
-                handleSelectWall(w.id, e.shiftKey);
+                handleSelectWall(w.id, e.shiftKey || e.ctrlKey || e.metaKey);
               }}
             >
               <rect
@@ -2873,11 +2873,21 @@ export default function CanvasView({
   const handleWallContextMenu = (e, wall) => {
     e.preventDefault();
     e.stopPropagation();
-    setWallContextMenu({ visible: true, x: e.clientX, y: e.clientY, wall });
+    let clickPt = null;
+    if (svgRef && svgRef.current && wall && wall.centerline && wall.centerline.length === 2) {
+      const rect = svgRef.current.getBoundingClientRect();
+      const mx = (e.clientX - rect.left - offset.x) / scale;
+      const my = (e.clientY - rect.top - offset.y) / scale;
+      const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+      const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+      const proj = distancePointToSegment({ x: mx, y: my }, p1, p2);
+      clickPt = { x: proj.x, y: proj.y };
+    }
+    setWallContextMenu({ visible: true, x: e.clientX, y: e.clientY, wall, clickPt });
   };
 
   const closeWallContextMenu = () => {
-    setWallContextMenu({ visible: false, x: 0, y: 0, wall: null });
+    setWallContextMenu({ visible: false, x: 0, y: 0, wall: null, clickPt: null });
   };
 
   const handleWallDelete = () => {
@@ -3518,6 +3528,30 @@ export default function CanvasView({
             }}
           >
             ✋ Drag anywhere to align PDF background with walls
+          </div>
+        )}
+
+        {interactionMode === "draw-wall" && (
+          <div
+            className="glassmorphic"
+            style={{
+              position: "absolute",
+              top: "20px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 100,
+              padding: "8px 18px",
+              borderRadius: "8px",
+              border: "1px solid rgba(59, 130, 246, 0.4)",
+              background: "rgba(37, 99, 235, 0.25)",
+              color: "#93c5fd",
+              fontWeight: "600",
+              fontSize: "12px",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)"
+            }}
+          >
+            🧱 <b>Đang vẽ tường:</b> Click chọn điểm | Giữ <b>Shift</b> để di chuyển tự do | Nhấn <b>Esc</b> / <b>Enter</b> hoặc chạm tường khác để dừng
           </div>
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
@@ -5036,6 +5070,27 @@ export default function CanvasView({
         y={wallContextMenu.y}
         wall={wallContextMenu.wall}
         onClose={closeWallContextMenu}
+        onDrawWall={() => {
+          if (setInteractionMode) setInteractionMode("draw-wall");
+          if (wallContextMenu.wall && wallContextMenu.clickPt) {
+            const startPt = wallContextMenu.clickPt;
+            const thickness = wallContextMenu.wall.thickness_px || 15;
+            const wallType = wallContextMenu.wall.class_name || "interior_wall";
+            if (setDrawingWall) {
+              setDrawingWall({
+                startX: startPt.x,
+                startY: startPt.y,
+                lock: null,
+                wallType: wallType,
+                thickness: thickness,
+                wallId: wallContextMenu.wall.id
+              });
+            }
+            if (setDrawingWallEnd) {
+              setDrawingWallEnd({ x: startPt.x, y: startPt.y });
+            }
+          }
+        }}
         onDelete={handleWallDelete}
         onChangeClass={handleWallChangeClass}
         onAddPoint={handleWallStartCut}
@@ -5061,14 +5116,9 @@ export default function CanvasView({
         vertex={vertexMenu.vertex}
         walls={walls}
         onClose={() => setVertexMenu({ visible: false, x: 0, y: 0, vertex: null })}
-        onDrawHorizontal={() => {
+        onDrawWall={() => {
           if (startDrawWallFromVertex) {
-            startDrawWallFromVertex(vertexMenu.vertex, 'horizontal');
-          }
-        }}
-        onDrawVertical={() => {
-          if (startDrawWallFromVertex) {
-            startDrawWallFromVertex(vertexMenu.vertex, 'vertical');
+            startDrawWallFromVertex(vertexMenu.vertex, null);
           }
         }}
         onSeparateJunction={() => {

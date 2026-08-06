@@ -18,6 +18,7 @@ export default function WallContextMenu({
   y,
   wall,
   onClose,
+  onDrawWall,
   onDelete,
   onChangeClass,
   onAddPoint,
@@ -106,11 +107,13 @@ export default function WallContextMenu({
         Wall Options
       </div>
 
-      {/* Item: Add Point (Split Wall) */}
+
+
+      {/* Item: Draw Wall */}
       <button
         onClick={(e) => {
           e.stopPropagation();
-          if (onAddPoint) onAddPoint();
+          if (onDrawWall) onDrawWall();
           onClose();
         }}
         style={btnStyle(false)}
@@ -118,8 +121,8 @@ export default function WallContextMenu({
         onMouseOut={hoverOut}
       >
         <span style={lblStyle()}>
-          <span style={iconStyle()}>📌</span>
-          <span>Add Point</span>
+          <span style={iconStyle()}>🧱</span>
+          <span>Draw Wall</span>
         </span>
       </button>
 

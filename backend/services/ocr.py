@@ -52,30 +52,63 @@ def _init_easyocr():
             return None
 
 
+import re
+import cv2
+
+def _preprocess_crop_for_tesseract(image: Image.Image):
+    """Preprocesses a crop image for PyTesseract OCR."""
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    crop_np = np.array(image)
+    if crop_np.size == 0:
+        return None, 1.0
+        
+    h, w = crop_np.shape[:2]
+    scale = 3.0 if h < 60 or w < 60 else 2.0
+    crop_resized = cv2.resize(crop_np, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
+    crop_padded = cv2.copyMakeBorder(crop_resized, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+    gray = cv2.cvtColor(crop_padded, cv2.COLOR_RGB2GRAY)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return thresh, scale
+
+
 def run_ocr(image: Image.Image):
-    """Recognize text from a crop image using EasyOCR.
+    """Recognize text from a crop image using PyTesseract & EasyOCR fallback.
     
     Returns list of {text, conf, bbox}.
-    Designed for small crops from YOLO Text detection.
     """
     t0 = time.time()
-    
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+        
+    w, h = image.size
+
+    # Fast & accurate PyTesseract check for clean CAD technical fonts (e.g. ENS, WIR, BEDROOM, STORE, LAUNDRY, LINEN, BROOM)
+    try:
+        import pytesseract
+        thresh_img, scale = _preprocess_crop_for_tesseract(image)
+        if thresh_img is not None:
+            tess_raw = pytesseract.image_to_string(thresh_img, config="--psm 6").strip()
+            tess_clean = re.sub(r"[^A-Za-z0-9.'\-]", "", tess_raw).strip()
+            if len(tess_clean) >= 2 and re.search(r"[A-Za-z]", tess_clean):
+                elapsed = time.time() - t0
+                print(f"[ocr.py] PyTesseract hit: '{tess_clean}' ({elapsed:.3f}s)")
+                return [{
+                    "text": tess_clean,
+                    "conf": 0.95,
+                    "bbox": {"x": 0.0, "y": 0.0, "w": float(w), "h": float(h)}
+                }]
+    except Exception as tess_err:
+        pass
+
     reader = _init_easyocr()
     if reader is None:
         return []
     
-    if image.mode != "RGB":
-        image = image.convert("RGB")
-    
     img_np = np.array(image)
-    w, h = image.size
-    
     texts = []
     try:
-        # Serialize access to reader.readtext to prevent PyTorch/OMP thread safety issues
         with _ocr_lock:
-            # For small crops: paragraph=False gives individual word results
-            # detail=1 gives full bounding box info
             results = reader.readtext(img_np, detail=1, paragraph=False)
         
         for (bbox, text, conf) in results:
@@ -83,7 +116,6 @@ def run_ocr(image: Image.Image):
             if not text or conf < 0.1:
                 continue
             
-            # bbox is [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
             xs = [p[0] for p in bbox]
             ys = [p[1] for p in bbox]
             

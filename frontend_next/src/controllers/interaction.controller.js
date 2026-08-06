@@ -446,7 +446,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
           if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
             const wallId = `man_wall_${Date.now()}`;
-            const thickness = drawingWall.thickness || 20;
+            const thickness = drawingWall.thickness || mmToPx(70, realScale);
             const newWall = {
               id: wallId,
               class_name: drawingWall.wallType || "interior_wall",
@@ -1311,52 +1311,114 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       return;
     }
 
-    if (interactionMode === "draw-wall" && drawingWall && drawingWallEnd) {
+    if (interactionMode === "draw-wall") {
       e.stopPropagation();
-      const endX = drawingWallEnd.x;
-      const endY = drawingWallEnd.y;
+      const pageWalls = wallsByPage[currentPage] || [];
 
-      if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
-        const wallId = `man_wall_${Date.now()}`;
-        const thickness = drawingWall.thickness || 20;
-        const newWall = {
-          id: wallId,
-          class_name: drawingWall.wallType || "interior_wall",
-          centerline: [
-            [drawingWall.startX, drawingWall.startY],
-            [endX, endY]
-          ],
-          thickness_px: thickness,
-          confidence: 1.0,
-          review_state: 'MANUAL',
-          height: defaultHeightVal
-        };
+      // Helper function to check if end point touches another wall or wall endpoint
+      const checkPointTouchesWall = (pt, startPt, walls) => {
+        if (!walls || walls.length === 0) return false;
+        const SNAP_DIST = 20;
+        for (const w of walls) {
+          if (!w.centerline || w.centerline.length !== 2) continue;
+          const p1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+          const p2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
 
-        const pageWalls = wallsByPage[currentPage] || [];
-        const pts = [{ x: drawingWall.startX, y: drawingWall.startY }, { x: endX, y: endY }];
-        const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
-        newWall.polygon = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : [
-          [drawingWall.startX - 10, drawingWall.startY],
-          [drawingWall.startX + 10, drawingWall.startY],
-          [endX + 10, endY],
-          [endX - 10, endY]
-        ];
+          const isStartP1 = Math.hypot(startPt.x - p1.x, startPt.y - p1.y) < 5;
+          const isStartP2 = Math.hypot(startPt.x - p2.x, startPt.y - p2.y) < 5;
 
-        const updatedWalls = [...pageWalls, newWall];
-        const recalculatedWalls = recalculateAllWallsPolygons(updatedWalls);
+          if (!isStartP1 && Math.hypot(pt.x - p1.x, pt.y - p1.y) < SNAP_DIST) return true;
+          if (!isStartP2 && Math.hypot(pt.x - p2.x, pt.y - p2.y) < SNAP_DIST) return true;
 
-        pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
-        setWallsByPage(prev => ({ ...prev, [currentPage]: recalculatedWalls }));
+          const proj = distancePointToSegment(pt, p1, p2);
+          if (proj.dist < SNAP_DIST) {
+            if (Math.hypot(proj.x - startPt.x, proj.y - startPt.y) > 10) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      // Case 1: First click to start wall drawing (if drawingWall doesn't exist yet)
+      if (!drawingWall) {
+        const snappedToWall = snapToOtherWalls(p, null, pageWalls, 20, true);
+        const startPt = { x: snappedToWall.x, y: snappedToWall.y };
+        const defaultThickPx = mmToPx(70, realScale);
+        setDrawingWall({
+          startX: startPt.x,
+          startY: startPt.y,
+          lock: null,
+          wallType: "interior_wall",
+          thickness: defaultThickPx
+        });
+        setDrawingWallEnd({ x: startPt.x, y: startPt.y });
+        return;
       }
 
-      // Always clear drawing state and return to select mode
-      setDrawingWall(null);
-      setDrawingWallEnd(null);
-      setSelectedWallVertex(null);
-      if (setInteractionMode) {
-        setInteractionMode("select");
+      // Case 2: Subsequent click to place current segment
+      if (drawingWall && drawingWallEnd) {
+        const endX = drawingWallEnd.x;
+        const endY = drawingWallEnd.y;
+        const startX = drawingWall.startX;
+        const startY = drawingWall.startY;
+        const defaultThickPx = mmToPx(70, realScale);
+
+        let nextWalls = pageWalls;
+        if (Math.hypot(endX - startX, endY - startY) > 5) {
+          const wallId = `man_wall_${Date.now()}`;
+          const thickness = drawingWall.thickness || defaultThickPx;
+          const newWall = {
+            id: wallId,
+            class_name: drawingWall.wallType || "interior_wall",
+            centerline: [
+              [startX, startY],
+              [endX, endY]
+            ],
+            thickness_px: thickness,
+            confidence: 1.0,
+            review_state: 'MANUAL',
+            height: defaultHeightVal
+          };
+
+          const pts = [{ x: startX, y: startY }, { x: endX, y: endY }];
+          const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
+          newWall.polygon = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : [
+            [startX - 10, startY],
+            [startX + 10, startY],
+            [endX + 10, endY],
+            [endX - 10, endY]
+          ];
+
+          const updatedWalls = [...pageWalls, newWall];
+          nextWalls = recalculateAllWallsPolygons(updatedWalls);
+
+          pushHistory(rooms, nextWalls, doorsByPage[currentPage] || []);
+          setWallsByPage(prev => ({ ...prev, [currentPage]: nextWalls }));
+        }
+
+        // Condition 3: Check if end point touches another wall or wall endpoint
+        const touchesAnotherWall = checkPointTouchesWall({ x: endX, y: endY }, { x: startX, y: startY }, pageWalls);
+
+        if (touchesAnotherWall) {
+          // Stopped by Condition 3: Touched another wall -> Finish drawing!
+          setDrawingWall(null);
+          setDrawingWallEnd(null);
+          setSelectedWallVertex(null);
+          if (setInteractionMode) setInteractionMode("select");
+        } else {
+          // Continue continuous wall drawing from current end point
+          setDrawingWall({
+            startX: endX,
+            startY: endY,
+            lock: null,
+            wallType: drawingWall.wallType || "interior_wall",
+            thickness: drawingWall.thickness || defaultThickPx
+          });
+          setDrawingWallEnd({ x: endX, y: endY });
+        }
+        return;
       }
-      return;
     }
 
     // Intercept roof selection to prevent room selection from overriding selectedRoofId
@@ -3380,18 +3442,25 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           .filter(w => {
             if (!w.centerline || w.centerline.length !== 2) return false;
             const [p1, p2] = w.centerline;
-            return inBox(p1[0], p1[1]) && inBox(p2[0], p2[1]);
+            return inBox(p1[0], p1[1]) || inBox(p2[0], p2[1]);
           })
           .map(w => w.id);
 
         if (matchedWallIds.length > 0) {
-          setSelectedWallIds(matchedWallIds);
+          const isAppend = e && (e.ctrlKey || e.shiftKey || e.metaKey);
+          if (isAppend) {
+            setSelectedWallIds(prev => Array.from(new Set([...prev, ...matchedWallIds])));
+          } else {
+            setSelectedWallIds(matchedWallIds);
+          }
           setSelectedId(matchedWallIds[matchedWallIds.length - 1]);
           setSelectedType("wall");
         } else {
-          setSelectedWallIds([]);
-          setSelectedId(null);
-          setSelectedType(null);
+          if (!e || !(e.ctrlKey || e.shiftKey || e.metaKey)) {
+            setSelectedWallIds([]);
+            setSelectedId(null);
+            setSelectedType(null);
+          }
         }
         setRect(null);
       } else {

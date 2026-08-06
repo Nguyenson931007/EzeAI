@@ -22,6 +22,7 @@ export default function WallVertexMenu({
   vertex,
   walls = [],
   onClose,
+  onDrawWall,
   onDrawHorizontal,
   onDrawVertical,
   onSeparateJunction,
@@ -107,11 +108,12 @@ export default function WallVertexMenu({
         Draw Wall
       </div>
 
-      {/* Draw Horizontal */}
+      {/* Draw Wall */}
       <button
         onClick={(e) => {
           e.stopPropagation();
-          if (onDrawHorizontal) onDrawHorizontal();
+          if (onDrawWall) onDrawWall();
+          else if (onDrawHorizontal) onDrawHorizontal();
           onClose();
         }}
         style={btnStyle(false)}
@@ -119,25 +121,8 @@ export default function WallVertexMenu({
         onMouseOut={hoverOut}
       >
         <span style={lblStyle()}>
-          <span style={iconStyle()}>↔️</span>
-          <span>Draw Horizontal Wall</span>
-        </span>
-      </button>
-
-      {/* Draw Vertical */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          if (onDrawVertical) onDrawVertical();
-          onClose();
-        }}
-        style={btnStyle(false)}
-        onMouseOver={hoverIn}
-        onMouseOut={hoverOut}
-      >
-        <span style={lblStyle()}>
-          <span style={iconStyle()}>↕️</span>
-          <span>Draw Vertical Wall</span>
+          <span style={iconStyle()}>🧱</span>
+          <span>Draw Wall</span>
         </span>
       </button>
 

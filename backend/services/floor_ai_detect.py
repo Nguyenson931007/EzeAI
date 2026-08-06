@@ -168,12 +168,12 @@ JUNK_TEXTS = [
     # Materials / finishes
     "VINYL", "TILES", "CARPET", "TIMBER", "SCRNS", "SHR", "OVEN", "FR", "MW", "DW",
     "D/W", "F/R", "POLISHED", "CONCRETE", "HEATED", "FLOOR",
-    # Construction annotations
+    # Construction annotations & door/window hardware
     "EXISTING", "NEW", "PROPOSED", "LINE OF", "ABOVE", "BELOW",
-    "HIGH", "SILL", "REBATED", "SLIDING", "DOOR", "WINDOW",
+    "HIGH", "SILL", "REBATED", "SLIDING", "SLIDERS", "SLIDER", "SLDERS", "SUDERS", "SLD", "DOOR", "WINDOW",
     "INSUL", "NICHE", "SHELVES", "METER", "BARN",
     "WALL", "WALLS", "INTERNAL", "EXTERNAL", "21265STK",
-    "CSD", "SD", "AW", "FW", "BF", "SW", "DH", "CS","ONIONVH",
+    "CSD", "SD", "AW", "FW", "BF", "SW", "DH", "CS", "770CS", "720CS", "ONIONVH",
     "MAX", "MIN", "RAIL", "FALL", "WAIST", "HEIGHT", "JAMD",
     # Misc
     "GAS", "BOTTLES", "SLAB", "RAIN", "BANK", "CARPET", "CARFET", "ENGINEERING",
@@ -182,11 +182,12 @@ JUNK_TEXTS = [
 
 # Regex patterns for junk text (construction codes, dimensions)
 _JUNK_CODE_RE = re.compile(
-    r"^\d{3,}\s*[A-Z/]{1,4}$"      # door/window codes: 820CSD, 870 C/S
+    r"^\d{3,}\s*[A-Z/]{1,4}$"      # door/window codes: 820CSD, 870 C/S, 770cs, 720cs
     r"|^\d+[A-Z/]+$"                # codes: 180P, 400H
     r"|^[A-Z]\d{1,2}$"              # ref: D1, W5, D10
     r"|^D\d+$"                       # door refs: D1, D8, D10
     r"|^W\d+$"                       # window refs: W13, W17
+    r"|\bSLIDERS?\b|\bSLDERS?\b|\bSUDERS?\b|\bSLIDING\b"  # slider annotations
     r"|GARAGE DOOR"                  # not a room
     r"|\d+\s*[Xx×]\s*\d+"            # dimensions: 1200 X 1500, 1200x1500
     r"|\d{4,}"                       # long numbers: 2440, 5200
@@ -197,7 +198,8 @@ _JUNK_CODE_RE = re.compile(
     r"|EAVES|STUD\s*WALL|FEATURE\s*WALL"  # construction annotations
     r"|RECESSED|MIRROR|CABINET"     # fixture annotations
     r"|^\d+[Hh]$"                    # height codes: 400H
-    r"|OPENING|SIDE\s*LIGHT"         # opening annotations
+    r"|OPENING|SIDE\s*LIGHT",        # opening annotations
+    re.I
 )
 
 # Regex to strip material/finish words from room labels
@@ -347,7 +349,10 @@ GLOBAL_OCR_CORRECTIONS = {
     "BED1": "BED 1", "BED2": "BED 2", "BED3": "BED 3", "BED4": "BED 4",
     "BATH1": "BATH 1", "BATH2": "BATH 2", "LAUNDRYTEXT": "LAUNDRY", "LDRYTEXT": "LAUNDRY",
     
-    # Bed corrections
+    # Bed corrections (including vertical OCR misreads where B -> 8)
+    "8": "BED",
+    "8D": "BED",
+    "8ED": "BED",
     "BEO": "BED",
     "BE0": "BED",
     "BFD": "BED",
@@ -355,6 +360,14 @@ GLOBAL_OCR_CORRECTIONS = {
     "BEU": "BED",
     "BEDD": "BED",
     "BEDS": "BED",
+    "8ED1": "BED 1", "8ED2": "BED 2", "8ED3": "BED 3", "8ED4": "BED 4", "8ED5": "BED 5",
+    "81": "BED 1", "82": "BED 2", "83": "BED 3", "84": "BED 4", "85": "BED 5",
+    
+    # Robe corrections (vertical B/R -> 8/3)
+    "8OBE": "ROBE",
+    "3OBE": "ROBE",
+    "EBOB": "ROBE",
+    "R0BE": "ROBE",
     
     # Ens corrections
     "EMS": "ENS",
@@ -365,17 +378,35 @@ GLOBAL_OCR_CORRECTIONS = {
     "EH5": "ENS",
     "EIS": "ENS",
     "EHI5": "ENS",
+    "SNAI": "ENS",
+    "ENSS": "ENS",
     
     # Linen corrections
     "L1NEN": "LINEN",
     "LMEN": "LINEN",
     "LNEN": "LINEN",
+    "LNEV": "LINEN",
     
-    # WC corrections
+    # Laundry corrections
+    "'DRY": "LAUNDRY",
+    "L'DRY": "LAUNDRY",
+    "LDRY": "LAUNDRY",
+    "IXUA": "LAUNDRY",
+    
+    # Broom & Storage corrections
+    "EEROOW": "BROOM",
+    "BROOW": "BROOM",
+    "STOR": "STORE",
+    
+    # WC corrections (vertical W -> 2 / C -> 2)
     "WE": "WC",
     "VVC": "WC",
     "WVC": "WC",
-    "VC": "WC"
+    "VC": "WC",
+    "2C": "WC",
+    "C2": "WC",
+    "OM": "WC",
+    "UVC": "WC"
 }
 
 def _correct_dimension_code(text: str) -> str:
@@ -397,7 +428,6 @@ def _correct_dimension_code(text: str) -> str:
         return f"{digits}{suff.lower()}"
         
     # Window/door sizes with L suffix (e.g. 2406L, 1518, 0906, 1212)
-    # Common OCR swaps: 'O'/'o' -> '0', 'S' -> '5' if mixed with numbers
     if re.search(r"\d", t_upper) or re.search(r"^[0-9OoSsLl]{3,6}$", t_upper):
         cleaned_num = ""
         for ch in t_upper:
@@ -412,7 +442,6 @@ def _correct_dimension_code(text: str) -> str:
             else:
                 cleaned_num += ch
         
-        # Check standard CAD format patterns: 2406L, 1518, 0906, 1212, 0624, 820
         dim_match = re.match(r"^(\d{3,4})([A-Z]{0,2})$", cleaned_num)
         if dim_match:
             digits, suffix = dim_match.groups()
@@ -427,10 +456,15 @@ def _fuzzy_correct_room_name(text: str) -> str:
         return ""
         
     s = text.upper().strip()
+    clean_s = re.sub(r"[^A-Z0-9]", "", s)
     
     # Check exact dictionary match
     if s in GLOBAL_OCR_CORRECTIONS:
         return GLOBAL_OCR_CORRECTIONS[s]
+    if clean_s in GLOBAL_OCR_CORRECTIONS:
+        return GLOBAL_OCR_CORRECTIONS[clean_s]
+    if clean_s in VALID_ROOM_WORDS:
+        return clean_s
         
     # Check dimension/door codes first
     dim_corrected = _correct_dimension_code(s)
@@ -440,20 +474,20 @@ def _fuzzy_correct_room_name(text: str) -> str:
     # Check single word vs multi word
     words = s.split()
     if len(words) == 1:
-        w = words[0]
+        w = re.sub(r"[^A-Z0-9]", "", words[0])
         if w in GLOBAL_OCR_CORRECTIONS:
             return GLOBAL_OCR_CORRECTIONS[w]
             
         try:
             from rapidfuzz import fuzz, process
             best_res = process.extractOne(w, VALID_ROOM_WORDS, scorer=fuzz.ratio)
-            if best_res and best_res[1] >= 82:
+            if best_res and best_res[1] >= 72:
                 return best_res[0]
         except Exception:
             pass
     else:
-        # Check compound room names like "BED 5", "BATH 1", "ENS 2"
-        prefix_match = re.match(r"^(BED|BATH|ENS|BR|BA)\s*(\d+)$", s)
+        # Check compound room names like "BED 5", "BATH 1", "ENS 2", "8 3" -> "BED 3"
+        prefix_match = re.match(r"^(8ED|8D|8|BED|BATH|ENS|BR|BA)\s*(\d+)$", s)
         if prefix_match:
             p, n = prefix_match.groups()
             p_clean = GLOBAL_OCR_CORRECTIONS.get(p, p)
@@ -890,7 +924,11 @@ def _extract_valid_room_token(text: str) -> str:
         return None
         
     raw_clean = text.strip()
-    
+    corrected = _fuzzy_correct_room_name(raw_clean)
+    if _score_room_name(corrected) < 0:
+        return None
+    raw_clean = corrected
+        
     # 1. First, check if the collapsed version matches any valid room word directly
     collapsed = re.sub(r"[^A-Za-zÀ-ỹ0-9]", "", raw_clean).upper()
     if collapsed in VALID_ROOM_WORDS:
@@ -2212,32 +2250,56 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
             best_score = -9999
             
             for t in texts:
+                raw_txt = t.get("text", "").strip()
+                if not raw_txt:
+                    continue
+
+                # Apply OCR typo correction first (e.g. 2C -> WC, 8 3 -> BED 3)
+                corrected_txt = _fuzzy_correct_room_name(raw_txt)
+
+                # Reject junk texts (sliders, door annotations, hardware codes, dimensions)
+                if _score_room_name(corrected_txt) < 0:
+                    continue
+
                 bbox = t.get("bbox", {})
                 tx = bbox.get("x", 0) + bbox.get("w", 0) / 2
                 ty = bbox.get("y", 0) + bbox.get("h", 0) / 2
                 pt = Point(tx, ty)
                 
-                # Check if text falls inside the room polygon (or very close, within 15 pixels)
-                if poly.contains(pt) or poly.intersects(pt.buffer(15)):
-                    norm_text = _clean_text(t["text"])
-                    room_token = _extract_valid_room_token(norm_text)
-                    if not room_token:
-                        room_token = _extract_valid_room_token(t["text"])
-                    if not room_token and re.search(r"[A-Za-zÀ-ỹ]", t["text"]):
-                        room_token = t["text"].strip().upper()
-                        
-                    if room_token and room_token != "UNKNOWN":
+                # Check if text falls STRICTLY inside the room polygon (or tiny 3px edge tolerance)
+                if poly.contains(pt) or poly.distance(pt) <= 3.0:
+                    fuzzy_name = _fuzzy_correct_room_name(corrected_txt)
+                    if _score_room_name(fuzzy_name) >= 10000 or fuzzy_name in VALID_ROOM_WORDS or re.match(r"^(BED|BATH|ENS)\s+\d+$", fuzzy_name):
+                        matched_name = fuzzy_name
+                        room_token = fuzzy_name
+                    else:
+                        norm_text = _clean_text(corrected_txt)
+                        room_token = _extract_valid_room_token(norm_text) or _extract_valid_room_token(corrected_txt)
+                        if not room_token and re.search(r"[A-Za-zÀ-ỹ]", corrected_txt) and _score_room_name(corrected_txt) >= 0:
+                            room_token = corrected_txt.upper()
                         matched_name = room_token
-                        # Preserve numbers if digit is present and not already in token
-                        digit_match = re.search(r"\d+", norm_text) or re.search(r"\d+", t["text"])
-                        if digit_match and not re.search(r"\d+", room_token):
-                            matched_name = f"{room_token} {digit_match.group(0)}"
+                        if room_token and not re.search(r"\d+", room_token):
+                            digit_match = re.search(r"\d+", norm_text) or re.search(r"\d+", raw_txt)
+                            if digit_match and raw_txt not in GLOBAL_OCR_CORRECTIONS:
+                                matched_name = f"{room_token} {digit_match.group(0)}"
+                                
+                    if room_token and room_token != "UNKNOWN" and _score_room_name(matched_name) >= 0:
                             
                         dist = poly.centroid.distance(pt)
                         max_dist = max(1, poly.length / 2)
                         center_score = max(0, 100 - (dist / max_dist) * 100)
                         
-                        score = center_score + t.get("conf", 0.5) * 50
+                        # Priority bonus: +10,000 pts if token is a valid room word or recognized room keyword
+                        validity_bonus = 0
+                        token_score = _score_room_name(matched_name)
+                        if token_score >= 10000 or _score_room_name(room_token) >= 10000:
+                            validity_bonus = 10000
+                        elif matched_name in VALID_ROOM_WORDS or room_token in VALID_ROOM_WORDS:
+                            validity_bonus = 10000
+                        elif token_score > 0:
+                            validity_bonus = 500
+
+                        score = validity_bonus + center_score + t.get("conf", 0.5) * 50
                         
                         if score > best_score:
                             best_score = score
@@ -3757,10 +3819,11 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
             
             # Confidence bonus if text matches known valid room word or CAD dimension
             score_bonus = 0.0
-            if processed_text in VALID_ROOM_WORDS or processed_text in GLOBAL_OCR_CORRECTIONS.values():
-                score_bonus += 0.30
-            elif re.search(r"^\d{3,4}[A-Za-z]{0,3}$", processed_text) or processed_text == "sliders":
-                score_bonus += 0.25
+            room_name_score = _score_room_name(processed_text)
+            if room_name_score > 0 or processed_text in VALID_ROOM_WORDS or processed_text in GLOBAL_OCR_CORRECTIONS.values():
+                score_bonus += 0.60
+            elif re.search(r"^\d{3,4}[A-Za-z]{0,3}$", processed_text):
+                score_bonus += 0.15
                 
             effective_conf = conf + score_bonus
             

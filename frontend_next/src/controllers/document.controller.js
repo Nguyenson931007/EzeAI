@@ -57,7 +57,7 @@ export function useDocumentController({
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 4.1667 }); // 300 DPI (300/72)
+      const viewport = page.getViewport({ scale: 9.7222 }); // 700 DPI (700/72)
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       canvas.height = viewport.height;

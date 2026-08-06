@@ -17,7 +17,7 @@ def load_images_from_file(filename: str, content: bytes):
         pdf = fitz.open(stream=content, filetype="pdf")
 
         for page in pdf:
-            pix = page.get_pixmap(dpi=300)  # 300 DPI
+            pix = page.get_pixmap(dpi=700)  # 700 DPI for high resolution vector & text recognition
             img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
             images.append(img)
 
