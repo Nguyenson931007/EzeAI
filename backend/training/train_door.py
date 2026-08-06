@@ -17,7 +17,14 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 from dataset_manager import DatasetManager, DATASETS_ROOT
 
-DATASET_YAML = DATASETS_ROOT / "door" / "data.yaml"
+DATASET_PATH = Path(r"C:\Users\LND01\Downloads\window\window")
+if not (DATASET_PATH / "data.yaml").exists():
+    alt_path = Path(r"C:\Users\LND01\Downloads\sumdata-phase 3 (with window) 1\sumdata-phase 3 (with window)")
+    if (alt_path / "data.yaml").exists():
+        DATASET_PATH = alt_path
+
+DATASET_YAML = DATASET_PATH / "data.yaml"
+PREVIOUS_DOOR_MODEL_PATH = BACKEND_DIR / "models" / "Doors" / "best.pt"
 # Production path matching the first candidate for "door_seg" in model_paths.py
 PRODUCTION_MODEL_PATH = BACKEND_DIR / "models" / "Door_Seg" / "weights" / "best.pt"
 RUNS_DIR = BACKEND_DIR / "runs"
@@ -28,47 +35,26 @@ def main():
     print("🚀 EzeFloor AI Training Pipeline - DEDICATED DOOR SEGMENTATION")
     print("=" * 60)
 
-    mgr = DatasetManager()
-    mgr.ensure_dirs("door")
-    mgr.generate_yaml("door")
-
     if not DATASET_YAML.exists():
         print(f"❌ Error: Dataset configuration file not found at {DATASET_YAML}")
         sys.exit(1)
 
-    images_dir = DATASETS_ROOT / "door" / "images" / "train"
-    img_count = len(list(images_dir.glob("*.png"))) if images_dir.exists() else 0
+    images_dir = DATASET_PATH / "train" / "images"
+    if not images_dir.exists():
+        images_dir = DATASET_PATH / "images" / "train"
+    img_count = len(list(images_dir.glob("*.*"))) if images_dir.exists() else 0
     if img_count == 0:
-        print("⚠️ Warning: No images found in datasets/door/images/train.")
-        print("Please save door annotations from the CAD interface first.")
+        print(f"⚠️ Warning: No images found in {images_dir}.")
 
-    # Determine base model with fallbacks:
-    # 1. Existing production door_seg weights (for fine-tuning)
-    # 2. Local/Download yolo11m-seg.pt (medium model)
-    # 3. Fallback to yolov8m-seg.pt if needed
-    # 4. Fallback to yolov8n-seg.pt (nano)
-    base_model = None
-    if PRODUCTION_MODEL_PATH.exists():
-        print(f"📦 Loading production door segmentation model for fine-tuning: {PRODUCTION_MODEL_PATH}")
-        base_model = str(PRODUCTION_MODEL_PATH)
+    # Determine base model with priority:
+    # Priority: yolov8m-seg.pt
+    yolov8m_local = BACKEND_DIR / "yolov8m-seg.pt"
+    if yolov8m_local.exists():
+        print(f"📦 Loading local base model: {yolov8m_local}")
+        base_model = str(yolov8m_local)
     else:
-        # Check potential local files first
-        yolo11m_local = BACKEND_DIR / "yolo11m-seg.pt"
-        yolov8m_local = BACKEND_DIR / "yolov8m-seg.pt"
-        yolov8n_local = BACKEND_DIR / "yolov8n-seg.pt"
-
-        if yolo11m_local.exists():
-            print(f"📦 Loading local pre-trained base model: {yolo11m_local}")
-            base_model = str(yolo11m_local)
-        elif yolov8m_local.exists():
-            print(f"📦 Local yolo11m-seg.pt not found, loading local yolov8m-seg.pt: {yolov8m_local}")
-            base_model = str(yolov8m_local)
-        elif yolov8n_local.exists():
-            print(f"📦 Local medium models not found, loading local nano model: {yolov8n_local}")
-            base_model = str(yolov8n_local)
-        else:
-            print("📦 No local base model found. Will download yolo11m-seg.pt...")
-            base_model = "yolo11m-seg.pt"
+        print("📦 Using base model: yolov8m-seg.pt (will download automatically if not cached)")
+        base_model = "yolov8m-seg.pt"
 
     print(f"⚙️ Training configuration:")
     print(f"  - Dataset config: {DATASET_YAML}")

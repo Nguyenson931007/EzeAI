@@ -296,36 +296,22 @@ class TakeoffExporter:
             rh(r, 18)
 
         def write_walls_with_height_groups(walls_list, label_prefix, row_start):
-            """Write wall data rows, then (if 2+ distinct heights) height-grouped total-style rows.
-            Returns (next_row, height_sub_rows_or_None, first_data_row, last_data_row).
-            When only one height is present, height_sub_rows is None and the caller should
-            total directly off first_data_row:last_data_row instead."""
+            """Write wall data rows and return (next_row, None, first_data_row, last_data_row).
+            Per user request, per-height breakdown subtotal rows are omitted."""
             r = row_start
             if not walls_list:
                 return r, None, None, None
 
             first_data_row = r
-            height_to_rows = defaultdict(list)
             for w in walls_list:
                 add_wall_data_row(r)
                 ws[f"A{r}"] = f"{label_prefix} {w.id}"
                 ws[f"D{r}"] = round(w.length_mm)
                 ws[f"E{r}"] = round(w.height_mm)
-                height_to_rows[round(w.height_mm)].append(r)
                 r += 1
             last_data_row = r - 1
 
-            # Only break out per-height total-style rows when there's more than one height group
-            if len(height_to_rows) < 2:
-                return r, None, first_data_row, last_data_row
-
-            height_sub_rows = []
-            for h_mm, data_rows in sorted(height_to_rows.items()):
-                add_wall_height_row(r, data_rows, h_mm, label_prefix=label_prefix)
-                height_sub_rows.append(r)
-                r += 1
-
-            return r, height_sub_rows, first_data_row, last_data_row
+            return r, None, first_data_row, last_data_row
 
         # ---------- EXTERIOR WALL ----------
         add_section_header(row, "EXTERIOR WALL"); row += 1
@@ -434,7 +420,7 @@ class TakeoffExporter:
         add_section_header(row, "FRAME HARDWARE - FLOOR BASE BREAKDOWN"); row += 1
 
         # 3. Walls on Concrete Slab Floor
-        add_sub_header(row, "Walls on Concrete Slab Floor (Grouped by Height)"); row += 1
+        add_sub_header(row, "Walls on Concrete Slab Floor"); row += 1
         row = add_wall_col_headers(row) + 1
         slab_walls = [w for w in request.walls if w.class_name in ["exterior_wall", "interior_wall"] and (w.floor_type or "Timber") == "Slab"]
         if slab_walls:
@@ -449,7 +435,7 @@ class TakeoffExporter:
         row += 2
 
         # 4. Walls on Timber Floor
-        add_sub_header(row, "Walls on Timber Floor (Grouped by Height)"); row += 1
+        add_sub_header(row, "Walls on Timber Floor"); row += 1
         row = add_wall_col_headers(row) + 1
         timber_walls = [w for w in request.walls if w.class_name in ["exterior_wall", "interior_wall"] and (w.floor_type or "Timber") != "Slab"]
         if timber_walls:
