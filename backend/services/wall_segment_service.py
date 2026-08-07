@@ -1871,15 +1871,17 @@ def _filter_walls_by_doors(walls: List[dict], image_bytes: bytes) -> List[dict]:
         )
         
         doors = door_result.get("doors", [])
-        if not doors:
-            logger.info("[wall_segment_service] No doors detected for cross-filtering")
+        windows = door_result.get("windows", [])
+        openings = doors + windows
+        if not openings:
+            logger.info("[wall_segment_service] No doors or windows detected for cross-filtering")
             return walls
         
-        logger.info(f"[wall_segment_service] Cross-filtering walls against {len(doors)} detected doors")
+        logger.info(f"[wall_segment_service] Cross-filtering walls against {len(doors)} doors and {len(windows)} windows")
         
-        # Build Shapely polygons for each door bbox (expanded by 5px for tolerance)
+        # Build Shapely polygons for each opening bbox (expanded by 5px for tolerance)
         door_geometries = []
-        for door in doors:
+        for door in openings:
             bbox = door.get("bbox")
             if bbox and len(bbox) == 4:
                 x1, y1, x2, y2 = bbox

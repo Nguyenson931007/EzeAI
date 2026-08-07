@@ -121,6 +121,26 @@ export const DOOR_TYPE_REGISTRY = {
     iconType: 'garage',
   },
 
+  // ── Windows ──
+  win_standard: {
+    id: 'win_standard',
+    label: 'Standard Window',
+    shortLabel: 'Window',
+    category: 'external',
+    renderClass: 'window',
+    doorType: 'window',
+    headOffset: 100,
+    defaultWidth: 1200,
+    defaultHeight: 1200,
+    minWidth: 400,
+    maxWidth: 4000,
+    presetSizes: [
+      { w: 1200, h: 1200, label: '1200h × 1200w' },
+      { w: 1800, h: 1200, label: '1200h × 1800w' },
+    ],
+    iconType: 'window',
+  },
+
   // ── Internal Penetrations ──
   int_hinged_single: {
     id: 'int_hinged_single',
@@ -716,17 +736,51 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     : findParentWall(centerPoint, walls);
 
   // Resolve door type
-  const doorClass = door.class || 'single_door';
+  let isWindowObj = door.class === 'window' || door.type === 'window' || door.doorTypeId === 'win_standard';
   const isParentWallExt = parentWall && (
     parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior
   );
+
+  const doorNameLower = (door.door_name || door.doorName || door.ocr_text || '').toLowerCase();
+  const isNameInternal = doorNameLower.includes('internal') || doorNameLower.includes('int') || doorNameLower.includes('door') || doorNameLower.includes('cs') || doorNameLower.includes('slider');
+
+  // If a window is located on an interior wall OR has an internal door label, convert it to a sliding door!
+  if (isWindowObj && (isNameInternal || (parentWall && !isParentWallExt))) {
+    isWindowObj = false;
+    if (door.id) {
+      door.id = door.id.replace('window_', 'door_').replace('win_', 'door_');
+    }
+    door.class = 'sliding_door';
+    door.type = 'sliding';
+    door.doorTypeId = 'int_sliding';
+    if (!door.doorName || door.doorName.startsWith('W-') || door.doorName === 'Internal Door') {
+      door.doorName = `D-${(door.id || '').replace('door_', '').substring(0, 3)}`;
+      door.door_name = door.doorName;
+    }
+  }
+
+  const doorClass = isWindowObj ? 'window' : (door.class || 'single_door');
   const isExternal = door.is_ext || door.is_exterior || door.location === 'external' || isParentWallExt || doorClass.includes('ext') || (door.door_name || door.doorName || '').toLowerCase().includes('external');
   const category = isExternal ? 'external' : 'internal';
-  const doorTypeId = door.doorTypeId || resolveDoorTypeId(doorClass, category);
-  const doorDef = DOOR_TYPE_REGISTRY[doorTypeId] || DOOR_TYPE_REGISTRY.int_hinged_single;
+  const doorTypeId = door.doorTypeId || (isWindowObj ? 'win_standard' : resolveDoorTypeId(doorClass, category));
+  const doorDef = DOOR_TYPE_REGISTRY[doorTypeId] || (isWindowObj ? DOOR_TYPE_REGISTRY.win_standard : DOOR_TYPE_REGISTRY.int_hinged_single);
 
   // Compute metrics
-  let widthMm = door.width_mm || doorDef.defaultWidth;
+  let widthMm = door.width_mm;
+  if (!widthMm || (door.width_source !== 'manual' && door.width_source !== 'ocr')) {
+    if (door.points && door.points.length >= 2 && realScale && realScale > 0) {
+      const p1 = Array.isArray(door.points[0]) ? { x: door.points[0][0], y: door.points[0][1] } : door.points[0];
+      const p2 = Array.isArray(door.points[1]) ? { x: door.points[1][0], y: door.points[1][1] } : door.points[1];
+      const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const calcMm = Math.round(distPx * realScale);
+      if (calcMm > 0) {
+        widthMm = calcMm;
+      }
+    }
+  }
+  if (!widthMm) {
+    widthMm = doorDef.defaultWidth;
+  }
   let heightMm = door.height_mm || doorDef.defaultHeight;
   if (parentWall) {
     const wallClass = parentWall.class_name || 'interior_wall';
@@ -754,7 +808,7 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     // New BIM fields (defaults, won't overwrite existing)
     doorName: door.doorName || door.door_name || (
       (door.type === 'window' || door.class === 'window' || doorTypeId === 'win_standard')
-        ? `W-${(door.id || '').replace('door_', '').replace('win_', '').substring(0, 3)}`
+        ? `W-${(door.id || '').replace('door_', '').replace('win_', '').replace('window_', '').substring(0, 3)}`
         : `D-${(door.id || '').replace('door_', '').substring(0, 3)}`
     ),
     doorTypeId: doorTypeId,
@@ -805,8 +859,9 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     }) : null,
 
     // Ensure normalized field aliases
-    type: doorDef.doorType,
-    class: doorDef.renderClass,
+    doorTypeId: isWindowObj ? 'win_standard' : doorTypeId,
+    type: isWindowObj ? 'window' : doorDef.doorType,
+    class: isWindowObj ? 'window' : doorDef.renderClass,
     width_mm: widthMm,
     height_mm: heightMm,
     hingeSide: door.hingeSide || door.hinge_side || 'left',

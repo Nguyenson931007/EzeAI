@@ -44,8 +44,8 @@ _DIM_STANDALONE = re.compile(r"^(\d{3,4})$")
 # Sliding door pattern: WxH (e.g. 2400x2700, 1800 x 2100)
 _DIM_SLIDING = re.compile(r"(\d{3,4})\s*[xX×]\s*(\d{3,4})")
 
-# Prefixed dimension (SD820, CSD920, CS870, BF1200)
-_DIM_PREFIXED = re.compile(r"^(?:SD|CSD|CS|BF)\s*(\d{3,4})$", re.IGNORECASE)
+# Prefixed dimension (SD820, CSD920, CS870, BF1200, W1200, AW1810, WIN900)
+_DIM_PREFIXED = re.compile(r"^(?:SD|CSD|CS|BF|W|AW|SF|WIN|WD)\s*(\d{3,4})$", re.IGNORECASE)
 
 # Room/label keywords to ignore (case-insensitive)
 _IGNORE_KEYWORDS = re.compile(
@@ -441,6 +441,19 @@ def _parse_dimension_text(text: str) -> Optional[Tuple[int, Optional[int]]]:
         h = int(m.group(2))
         if _MIN_WIDTH_MM <= w <= _MAX_WIDTH_MM:
             return (w, h)
+
+    # Try 4-digit Australian window code HHWW e.g. 1518 (1500h x 1800w), 0906 (900h x 600w), 0618, 1212, 1506A
+    code_match = re.search(r"\b([0-9]{4})[A-Z]?\b", text)
+    if code_match:
+        val_str = code_match.group(1)
+        hh = int(val_str[:2])
+        ww = int(val_str[2:])
+        valid_dims = {6, 8, 9, 10, 11, 12, 13, 14, 15, 18, 20, 21, 24, 27, 30, 36}
+        if hh in valid_dims and ww in valid_dims:
+            w_mm = ww * 100
+            h_mm = hh * 100
+            if _MIN_WIDTH_MM <= w_mm <= _MAX_WIDTH_MM:
+                return (w_mm, h_mm)
 
     # Try prefixed pattern
     m = _DIM_PREFIXED.match(text)

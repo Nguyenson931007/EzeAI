@@ -676,7 +676,7 @@ export default function RightPropertyPaneView({
         let t = d.penetration_type || d.penetrationType || "";
         let cls = d.class || "";
         let type = d.type || "";
-        const isWindow = type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'));
+        const isWindow = (type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'))) && cls !== 'sliding_door' && type !== 'sliding';
         const isGarage = cls.includes("garage") || t.includes("garage") || type === "garage" || d.doorTypeId === "ext_garage" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || (d.doorName && d.doorName.toLowerCase().includes("garage"));
 
         let doorType = "Single Door";
@@ -1572,10 +1572,11 @@ export default function RightPropertyPaneView({
           </>
         ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
           (() => {
-            const isSelectedWindow = selectedDoor.type === 'window' ||
+            const isSelectedWindow = (selectedDoor.type === 'window' ||
               selectedDoor.class === 'window' ||
               selectedDoor.doorTypeId === 'win_standard' ||
-              (selectedDoor.doorName && selectedDoor.doorName.startsWith('W-'));
+              (selectedDoor.doorName && selectedDoor.doorName.startsWith('W-'))) &&
+              selectedDoor.class !== 'sliding_door' && selectedDoor.type !== 'sliding';
 
             if (isSelectedWindow) {
               return (

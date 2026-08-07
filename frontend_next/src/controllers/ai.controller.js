@@ -131,10 +131,16 @@ function extractDoorsFromResponse(data) {
     if (Array.isArray(item.doors) && item.doors.length > 0) {
       allDoors.push(...item.doors);
     }
+    if (Array.isArray(item.windows) && item.windows.length > 0) {
+      allDoors.push(...item.windows);
+    }
     if (Array.isArray(item.pages)) {
       for (const page of item.pages) {
         if (page && Array.isArray(page.doors) && page.doors.length > 0) {
           allDoors.push(...page.doors);
+        }
+        if (page && Array.isArray(page.windows) && page.windows.length > 0) {
+          allDoors.push(...page.windows);
         }
       }
     }
@@ -142,6 +148,9 @@ function extractDoorsFromResponse(data) {
       for (const res of item.results) {
         if (res && Array.isArray(res.doors) && res.doors.length > 0) {
           allDoors.push(...res.doors);
+        }
+        if (res && Array.isArray(res.windows) && res.windows.length > 0) {
+          allDoors.push(...res.windows);
         }
       }
     }
@@ -936,6 +945,7 @@ export const useAIController = (
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => {
             const snapped = snapDoorToWalls(d, uncutWalls, 80, true);
+            let pw = null;
             if (snapped.points && snapped.points.length >= 2) {
               const pt0 = snapped.points[0];
               const pt1 = snapped.points[1];
@@ -944,12 +954,41 @@ export const useAIController = (
               const px1 = Array.isArray(pt1) ? pt1[0] : pt1.x;
               const py1 = Array.isArray(pt1) ? pt1[1] : pt1.y;
               const center = { x: (px0 + px1) / 2, y: (py0 + py1) / 2 };
-              const pw = findParentWall(center, uncutWalls);
+              pw = findParentWall(center, uncutWalls);
               if (pw) snapped.parentWallId = pw.id;
             }
+
+            // Convert windows on interior walls (or with 'Internal' / 'door' / 'cs' label) to sliding doors!
+            const isWin = snapped.class === 'window' || snapped.type === 'window' || snapped.doorTypeId === 'win_standard' || snapped.id?.startsWith('window_');
+            const isExtWall = pw && (pw.class_name === 'exterior_wall' || pw.type === 'ext' || pw.is_ext || pw.is_exterior);
+            const nameLower = (snapped.doorName || snapped.door_name || snapped.ocr_text || '').toLowerCase();
+            const isInternalName = nameLower.includes('internal') || nameLower.includes('int') || nameLower.includes('door') || nameLower.includes('cs') || nameLower.includes('slider');
+
+            if (isWin && (isInternalName || (pw && !isExtWall))) {
+              if (snapped.id) snapped.id = snapped.id.replace('window_', 'door_').replace('win_', 'door_');
+              snapped.class = 'sliding_door';
+              snapped.type = 'sliding';
+              snapped.doorTypeId = 'int_sliding';
+              snapped.doorName = `D-${(snapped.id || '').replace('door_', '').substring(0, 3)}`;
+              snapped.door_name = snapped.doorName;
+            }
+
             return snapped;
           })
-          : detectedDoors;
+          : detectedDoors.map(d => {
+            const isWin = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || d.id?.startsWith('window_');
+            const nameLower = (d.doorName || d.door_name || d.ocr_text || '').toLowerCase();
+            const isInternalName = nameLower.includes('internal') || nameLower.includes('int') || nameLower.includes('door') || nameLower.includes('cs') || nameLower.includes('slider');
+            if (isWin && isInternalName) {
+              if (d.id) d.id = d.id.replace('window_', 'door_').replace('win_', 'door_');
+              d.class = 'sliding_door';
+              d.type = 'sliding';
+              d.doorTypeId = 'int_sliding';
+              d.doorName = `D-${(d.id || '').replace('door_', '').substring(0, 3)}`;
+              d.door_name = d.doorName;
+            }
+            return d;
+          });
 
         const mergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
 

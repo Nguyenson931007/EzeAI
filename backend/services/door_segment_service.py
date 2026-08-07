@@ -45,22 +45,30 @@ _door_model: YOLO = None
 _model_lock = threading.Lock()
 
 def _get_model() -> YOLO:
-    """Gets or loads the singleton door segmentation YOLO model."""
+    """Gets or loads the singleton door/window segmentation YOLO model."""
     global _door_model
     if _door_model is None:
         with _model_lock:
             if _door_model is None:
-                model_path = BASE_DIR / "backend" / "models" / "Doors" / "best.pt"
+                model_path = None
+                try:
+                    from services.model_paths import resolve_model_path
+                    model_path, _ = resolve_model_path("door_seg")
+                except Exception:
+                    model_path = None
+
+                if not model_path or not Path(model_path).exists():
+                    model_path = BASE_DIR / "backend" / "models" / "Doors" / "best.pt"
                 if not model_path.exists():
                     model_path = Path("backend/models/Doors/best.pt")
                 if not model_path.exists():
-                    raise FileNotFoundError(f"Door model not found at {model_path}")
-                logger.info(f"[door_segment_service] Loading YOLO Door model: {model_path}")
+                    raise FileNotFoundError(f"Door/Window model not found at {model_path}")
+                logger.info(f"[door_segment_service] Loading YOLO Door/Window model: {model_path}")
                 _door_model = YOLO(str(model_path))
     return _door_model
 
 class DoorSegmentService:
-    """Service to run door segmentation and extract coordinates."""
+    """Service to run door & window segmentation and extract coordinates."""
 
     def __init__(self, debug: bool = False):
         self.debug = debug
@@ -74,7 +82,7 @@ class DoorSegmentService:
         imgsz: int = 1280,
         **kwargs
     ) -> Dict[str, Any]:
-        """Runs segmentation inference on a single image and extracts door properties."""
+        """Runs segmentation inference on a single image and extracts door & window properties."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = _get_model()
         
@@ -146,6 +154,7 @@ class DoorSegmentService:
         plant_area = plant_polygon.area
 
         doors_list = []
+        windows_list = []
         
         if len(results) > 0:
             res = results[0]
@@ -153,6 +162,8 @@ class DoorSegmentService:
             masks = res.masks
 
             if boxes is not None and masks is not None:
+                door_count = 0
+                window_count = 0
                 for idx in range(len(boxes)):
                     if idx >= len(masks.xy):
                         continue
@@ -164,10 +175,13 @@ class DoorSegmentService:
                     
                     # Resolve class name from model names
                     class_name = model.names.get(cls_id, f"door_{cls_id}")
+                    class_name_lower = str(class_name).lower()
 
-                    # Manually filter low confidence
-                    is_sliding = "sliding" in class_name.lower()
-                    if is_sliding:
+                    is_window = "window" in class_name_lower
+                    is_sliding = "sliding" in class_name_lower
+
+                    # Confidence filtering
+                    if is_sliding or is_window:
                         if conf < 0.02:
                             continue
                     else:
@@ -180,8 +194,6 @@ class DoorSegmentService:
                         continue
 
                     # Apply coordinate scaling back to original drawing size:
-                    # original_x = detected_x * original_width / inference_width
-                    # original_y = detected_y * original_height / inference_height
                     scaled_coords = [
                         [
                             float(p[0] * original_width / inference_width),
@@ -243,35 +255,38 @@ class DoorSegmentService:
                         final_poly_geom = ShapelyPolygon(final_coords)
                         if not final_poly_geom.is_valid:
                             final_poly_geom = final_poly_geom.buffer(0)
-                        door_area = final_poly_geom.area
+                        poly_area = final_poly_geom.area
                         
-                        # Reject if door area exceeds 5% of total plant area
-                        if door_area > plant_area * 0.05:
-                            logger.info(f"Rejecting door (area too large: {door_area:.1f} vs {plant_area:.1f})")
+                        # Reject if area exceeds 5% of total plant area
+                        if poly_area > plant_area * 0.05:
+                            logger.info(f"Rejecting object (area too large: {poly_area:.1f} vs {plant_area:.1f})")
                             continue
 
-                        # Aspect ratio check
+                        # Aspect ratio check (allow longer windows up to 35.0)
                         bxs = [p[0] for p in final_coords]
                         bys = [p[1] for p in final_coords]
                         bbox_w = max(bxs) - min(bxs)
                         bbox_h = max(bys) - min(bys)
                         aspect_ratio = max(bbox_w, bbox_h) / max(1.0, min(bbox_w, bbox_h))
-                        if aspect_ratio > 15.0:
-                            logger.info(f"Rejecting door (abnormal aspect ratio: {aspect_ratio:.2f})")
+                        max_aspect = 35.0 if is_window else 15.0
+                        if aspect_ratio > max_aspect:
+                            logger.info(f"Rejecting object (abnormal aspect ratio: {aspect_ratio:.2f})")
                             continue
 
                         # Absolute dimension checks
                         max_dim = max(bbox_w, bbox_h)
                         min_dim = min(bbox_w, bbox_h)
+                        max_allowed_dim_mm = 4500.0 if is_window else 3500.0
+                        max_allowed_min_dim_mm = 1200.0 if is_window else 1000.0
                         if real_scale:
                             max_dim_mm = max_dim * real_scale
                             min_dim_mm = min_dim * real_scale
-                            if max_dim_mm > 3500.0 or min_dim_mm > 1000.0:
-                                logger.info(f"Rejecting door (dimensions too large: {max_dim_mm:.1f}x{min_dim_mm:.1f}mm)")
+                            if max_dim_mm > max_allowed_dim_mm or min_dim_mm > max_allowed_min_dim_mm:
+                                logger.info(f"Rejecting object (dimensions too large: {max_dim_mm:.1f}x{min_dim_mm:.1f}mm)")
                                 continue
                         else:
                             if max_dim > max(original_width, original_height) * 0.5:
-                                logger.info(f"Rejecting door (pixel dimension too large: {max_dim:.1f}px)")
+                                logger.info(f"Rejecting object (pixel dimension too large: {max_dim:.1f}px)")
                                 continue
                     except Exception as err:
                         logger.warning(f"Validation failed with error: {err}")
@@ -280,27 +295,48 @@ class DoorSegmentService:
                     # Calculate centroid
                     centroid_pt = self._calculate_centroid(final_coords)
 
-                    door_id = f"door_{idx + 1:03d}"
+                    if is_window:
+                        window_count += 1
+                        obj_id = f"window_{window_count:03d}"
+                        obj_type = "window"
+                    else:
+                        door_count += 1
+                        obj_id = f"door_{door_count:03d}"
+                        obj_type = "door"
 
-                    door_obj = {
-                        "id": door_id,
-                        "type": "door",
+                    item_obj = {
+                        "id": obj_id,
+                        "type": obj_type,
                         "class": class_name,
                         "confidence": float(round(conf, 3)),
                         "bbox": [float(round(v, 1)) for v in bbox],
                         "polygon": final_coords,
                         "centroid": [float(round(centroid_pt[0], 1)), float(round(centroid_pt[1], 1))]
                     }
-                    doors_list.append(door_obj)
+                    if is_window:
+                        windows_list.append(item_obj)
+                    else:
+                        doors_list.append(item_obj)
 
         # ── OCR Width Enrichment ──────────────────────────────────
-        # Run local-region OCR around each door to extract dimension text
-        if doors_list:
+        # Run local-region OCR around each door and window to extract dimension text
+        all_openings = doors_list + windows_list
+        if all_openings:
             try:
                 from services.door_width_ocr_service import enrich_doors_with_ocr_width
                 img_np = np.array(img_original)  # PIL RGB → numpy
-                doors_list = enrich_doors_with_ocr_width(img_np, doors_list, buffer_px=120)
-                logger.info("[door_segment_service] OCR width enrichment complete for %d doors", len(doors_list))
+                enriched_all = enrich_doors_with_ocr_width(img_np, all_openings, buffer_px=120)
+                for item in enriched_all:
+                    txt = str(item.get("ocr_text") or item.get("text") or "").lower()
+                    if item.get("type") == "window" and ("internal" in txt or "door" in txt or "slider" in txt or "cs" in txt):
+                        door_count += 1
+                        item["id"] = f"door_{door_count:03d}"
+                        item["type"] = "door"
+                        item["class"] = "sliding_door"
+                        item["doorTypeId"] = "int_sliding"
+                doors_list = [item for item in enriched_all if item.get("type") == "door"]
+                windows_list = [item for item in enriched_all if item.get("type") == "window"]
+                logger.info("[door_segment_service] OCR width enrichment complete for %d doors, %d windows", len(doors_list), len(windows_list))
             except Exception as ocr_err:
                 logger.warning("[door_segment_service] OCR width enrichment failed: %s", ocr_err)
 
@@ -308,7 +344,8 @@ class DoorSegmentService:
             "filename": filename,
             "width": original_width,
             "height": original_height,
-            "doors": doors_list
+            "doors": doors_list + windows_list,
+            "windows": windows_list
         }
 
     def predict_from_pdf(

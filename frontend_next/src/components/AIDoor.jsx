@@ -69,11 +69,22 @@ export default function AIDoor({
   const cxAvg = cxSum / polyPoints.length;
   const cyAvg = cySum / polyPoints.length;
 
-  const widthLabel = d.width_mm ? `${d.width_mm}mm` : null;
+  let displayWidthMm = d.width_mm;
+  if (d.width_source !== "manual" && d.width_source !== "ocr") {
+    const centerline = getDoorCenterline(d, walls);
+    if (centerline && centerline.p1 && centerline.p2 && realScale && realScale > 0) {
+      const lenPx = Math.hypot(centerline.p2.x - centerline.p1.x, centerline.p2.y - centerline.p1.y);
+      const calcMm = Math.round(lenPx * realScale);
+      if (calcMm > 0) {
+        displayWidthMm = calcMm;
+      }
+    }
+  }
+  const widthLabel = displayWidthMm ? `${displayWidthMm}mm` : null;
   const widthSource = d.width_source || "geometry";
 
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
-  const isWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
+  const isWindow = (d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'))) && !isSliding;
 
   // Sliding Door Box Calculations
   let slidingWidth = 0;
@@ -82,7 +93,7 @@ export default function AIDoor({
   let slidingCx = cxAvg;
   let slidingCy = cyAvg;
 
-  if (isSliding) {
+  if (isSliding || isWindow) {
     const centerline = getDoorCenterline(d, walls);
     const p1 = centerline.p1;
     const p2 = centerline.p2;
@@ -184,7 +195,7 @@ export default function AIDoor({
   let sectorPath2 = null;
   let doubleEdges = [];
 
-  if (polyPoints.length >= 3 && !isSliding && !isGarage) {
+  if (polyPoints.length >= 3 && !isSliding && !isGarage && !isWindow) {
     // Determine frame endpoints h1, h2: prioritize d.points (CAD centerline) if available
     let bestH1 = null;
     let bestH2 = null;
@@ -956,6 +967,63 @@ export default function AIDoor({
         />
       )}
 
+      {/* For Windows: Render standard CAD window geometry with end caps and double glass lines */}
+      {isWindow && (
+        <g transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`} style={{ pointerEvents: 'none' }}>
+          {/* Outer opening background box */}
+          <rect
+            x={-slidingWidth / 2}
+            y={-slidingHeight / 2}
+            width={slidingWidth}
+            height={slidingHeight}
+            fill={isSelected ? "rgba(255, 87, 34, 0.2)" : (isHovered ? "rgba(59, 130, 246, 0.2)" : "rgba(59, 130, 246, 0.12)")}
+            stroke={isSelected ? "#FF5722" : (isHovered ? "#60a5fa" : "#3b82f6")}
+            strokeWidth={isSelected ? 2.5 : 1.5}
+            rx={1}
+          />
+          
+          {/* Left Jamb End Cap */}
+          <rect
+            x={-slidingWidth / 2}
+            y={-slidingHeight / 2}
+            width={Math.min(14, slidingWidth / 4)}
+            height={slidingHeight}
+            fill="#64748b"
+            stroke="#475569"
+            strokeWidth={1}
+          />
+          
+          {/* Right Jamb End Cap */}
+          <rect
+            x={slidingWidth / 2 - Math.min(14, slidingWidth / 4)}
+            y={-slidingHeight / 2}
+            width={Math.min(14, slidingWidth / 4)}
+            height={slidingHeight}
+            fill="#64748b"
+            stroke="#475569"
+            strokeWidth={1}
+          />
+
+          {/* Double Parallel Glass Panes */}
+          <line
+            x1={-slidingWidth / 2 + Math.min(14, slidingWidth / 4)}
+            y1={-slidingHeight / 4}
+            x2={slidingWidth / 2 - Math.min(14, slidingWidth / 4)}
+            y2={-slidingHeight / 4}
+            stroke={isSelected ? "#FF5722" : "#2563eb"}
+            strokeWidth={1.8}
+          />
+          <line
+            x1={-slidingWidth / 2 + Math.min(14, slidingWidth / 4)}
+            y1={slidingHeight / 4}
+            x2={slidingWidth / 2 - Math.min(14, slidingWidth / 4)}
+            y2={slidingHeight / 4}
+            stroke={isSelected ? "#FF5722" : "#2563eb"}
+            strokeWidth={1.8}
+          />
+        </g>
+      )}
+
       {/* For Garage Doors */}
       {isGarage && (
         <g>
@@ -1011,7 +1079,7 @@ export default function AIDoor({
       )}
 
       {/* For Swing Doors (Single and Double) */}
-      {!isSliding && !isGarage && (
+      {!isSliding && !isGarage && !isWindow && (
         <>
           {/* Jambs */}
           {renderJambs()}
