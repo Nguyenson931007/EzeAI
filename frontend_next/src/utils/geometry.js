@@ -1427,8 +1427,8 @@ export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.9
         if (w1.class_name !== w2.class_name) continue;
 
         if (onlySameBaseId) {
-          const baseId1 = w1.id ? w1.id.split('-A-')[0].split('-B-')[0] : '';
-          const baseId2 = w2.id ? w2.id.split('-A-')[0].split('-B-')[0] : '';
+          const baseId1 = getBaseWallId(w1.id);
+          const baseId2 = getBaseWallId(w2.id);
           if (baseId1 !== baseId2) continue;
         }
 

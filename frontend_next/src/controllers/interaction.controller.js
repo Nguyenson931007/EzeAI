@@ -392,11 +392,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
       if (e.code === "Space") {
         e.preventDefault();
-        setIsSpaceDown(true);
+        setIsSpaceDown(prev => (prev ? prev : true));
       }
-      if (e.key === "Shift") setIsShiftDown(true);
-      if (e.key === "Alt") { e.preventDefault(); setIsAltDown(true); }
-      if (e.key === "Control") setIsCtrlDown(true);
+      if (e.key === "Shift") setIsShiftDown(prev => (prev ? prev : true));
+      if (e.key === "Alt") { e.preventDefault(); setIsAltDown(prev => (prev ? prev : true)); }
+      if (e.key === "Control") setIsCtrlDown(prev => (prev ? prev : true));
 
       if (e.code === "Escape") {
         cancelActiveZoomAnimation();
@@ -554,10 +554,10 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     };
 
     const up = (e) => {
-      if (e.code === "Space") setIsSpaceDown(false);
-      if (e.key === "Shift") setIsShiftDown(false);
-      if (e.key === "Alt") setIsAltDown(false);
-      if (e.key === "Control") setIsCtrlDown(false);
+      if (e.code === "Space") setIsSpaceDown(prev => (!prev ? prev : false));
+      if (e.key === "Shift") setIsShiftDown(prev => (!prev ? prev : false));
+      if (e.key === "Alt") setIsAltDown(prev => (!prev ? prev : false));
+      if (e.key === "Control") setIsCtrlDown(prev => (!prev ? prev : false));
     };
 
     window.addEventListener("keydown", down);

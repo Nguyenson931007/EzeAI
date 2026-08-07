@@ -2,7 +2,8 @@ import { create } from 'zustand';
 
 const DEFAULT_CONFIDENCE = {
   rooms: 0.3,
-  doors: 0.20,
+  doors: 0.2,
+  windows: 0.01,
   walls: 0.01,
   ocr: 0.7,
   symbols: 0.60
@@ -18,6 +19,7 @@ const loadPersistedConfig = () => {
       return {
         rooms: typeof parsed.rooms === 'number' ? parsed.rooms : DEFAULT_CONFIDENCE.rooms,
         doors: typeof parsed.doors === 'number' ? parsed.doors : DEFAULT_CONFIDENCE.doors,
+        windows: typeof parsed.windows === 'number' ? parsed.windows : DEFAULT_CONFIDENCE.windows,
         walls: typeof parsed.walls === 'number' ? parsed.walls : DEFAULT_CONFIDENCE.walls,
         ocr: typeof parsed.ocr === 'number' ? parsed.ocr : DEFAULT_CONFIDENCE.ocr,
         symbols: typeof parsed.symbols === 'number' ? parsed.symbols : DEFAULT_CONFIDENCE.symbols
@@ -48,6 +50,12 @@ export const useAIConfigStore = create((set, get) => ({
 
   setDoorConfidence: (val) => {
     const updated = { ...get().config, doors: Math.max(0, Math.min(1, parseFloat(val) || 0)) };
+    set({ config: updated });
+    localStorage.setItem('ezefloor_ai_confidence', JSON.stringify(updated));
+  },
+
+  setWindowConfidence: (val) => {
+    const updated = { ...get().config, windows: Math.max(0, Math.min(1, parseFloat(val) || 0)) };
     set({ config: updated });
     localStorage.setItem('ezefloor_ai_confidence', JSON.stringify(updated));
   },
@@ -95,6 +103,7 @@ export const useAIConfigStore = create((set, get) => ({
       const updated = {
         rooms: typeof parsed.rooms === 'number' ? parsed.rooms : get().config.rooms,
         doors: typeof parsed.doors === 'number' ? parsed.doors : get().config.doors,
+        windows: typeof parsed.windows === 'number' ? parsed.windows : get().config.windows,
         walls: typeof parsed.walls === 'number' ? parsed.walls : get().config.walls,
         ocr: typeof parsed.ocr === 'number' ? parsed.ocr : get().config.ocr,
         symbols: typeof parsed.symbols === 'number' ? parsed.symbols : get().config.symbols

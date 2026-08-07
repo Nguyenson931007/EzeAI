@@ -14,19 +14,15 @@ MODEL_CANDIDATES = {
     ],
 
     "door": [
+        BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_1.pt",
         BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
         BASE_DIR / "models" / "Doors" / "best.pt",
-        BASE_DIR / "backend" / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
-        BASE_DIR / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
     ],
     "door_seg": [
+        BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_1.pt",
         BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+        BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt",
         BASE_DIR / "models" / "Doors" / "best.pt",
-        BASE_DIR / "backend" / "models" / "Door_Seg" / "weights" / "best.pt",
-        BASE_DIR / "backend" / "runs" / "segment" / "Door_Seg_v2" / "weights" / "best.pt",
-        BASE_DIR / "runs" / "segment" / "Door_Seg_v2" / "weights" / "best.pt",
-        BASE_DIR / "backend" / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
-        BASE_DIR / "runs" / "segment" / "Room_6class" / "weights" / "best.pt",
     ],
 
     "wall_seg": [
