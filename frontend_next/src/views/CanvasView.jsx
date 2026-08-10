@@ -1258,13 +1258,12 @@ const WallHandlesLayer = React.memo(({
   setSelectedType,
   setSelectedWallIds
 }) => {
-  if (interactionMode === "cut-wall" || !layerVisibility?.wall) return null;
+  if (interactionMode === "cut-wall" || !layerVisibility?.wall || layerVisibility?.labels === false) return null;
 
   function handleSelectWall(wallId, isShiftKey) {
     if (typeof selectWall === 'function') {
       selectWall(wallId, isShiftKey);
     }
-    // Note: selectWall in the controller already handles setSelectedWallIds, setSelectedId, setSelectedType
   }
 
   function formatWallDisplayName(w, index) {
@@ -1310,13 +1309,16 @@ const WallHandlesLayer = React.memo(({
         
         let angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle > 90 || angle < -90) angle += 180;
+
+        const wallFontSz = Math.max(8, Math.min(10, wallLen * 0.07));
         const isBlockWall = getWallClass ? getWallClass(w) === "block_wall" : (w.class_name === "block_wall" || w.wall_type === "block");
         const displayLabel = isBlockWall ? `${wallLabel} [BLOCK]` : wallLabel;
-        const badgeWidth = Math.max(28, displayLabel.length * 6.0 + 8);
+        const badgeWidth = Math.max(22, displayLabel.length * wallFontSz * 0.55 + 6);
+        const badgeHeight = wallFontSz + 4;
 
         // Smart perpendicular offset for short walls (wallLen < 50px) so badge shifts off wall body
         const isShortWall = wallLen < 50;
-        const offsetY = isShortWall ? -16 : 0;
+        const offsetY = isShortWall ? -badgeHeight * 0.8 : 0;
 
         return (
           <g key={`wall-group-${w.id}-${idx}`}>
@@ -1331,18 +1333,19 @@ const WallHandlesLayer = React.memo(({
             >
               <rect
                 x={-badgeWidth / 2}
-                y={-8}
+                y={-badgeHeight / 2}
                 width={badgeWidth}
-                height={16}
-                rx={4}
-                fill={isSelected ? "rgba(245, 158, 11, 0.92)" : (isHovered ? "rgba(59, 130, 246, 0.9)" : (isBlockWall ? "rgba(71, 85, 105, 0.95)" : "rgba(30, 41, 59, 0.82)"))}
-                stroke={isSelected ? "#fef3c7" : (isHovered ? "#93c5fd" : (isBlockWall ? "#cbd5e1" : "rgba(148, 163, 184, 0.4)"))}
+                height={badgeHeight}
+                rx={3}
+                fill={isSelected ? "rgba(245, 158, 11, 0.95)" : (isHovered ? "rgba(59, 130, 246, 0.92)" : (isBlockWall ? "rgba(71, 85, 105, 0.95)" : "rgba(30, 41, 59, 0.88)"))}
+                stroke={isSelected ? "#fef3c7" : (isHovered ? "#93c5fd" : (isBlockWall ? "#cbd5e1" : "rgba(148, 163, 184, 0.5)"))}
                 strokeWidth={isBlockWall ? 1.5 : 1}
+                style={{ pointerEvents: 'none' }}
               />
               <text
                 x={0}
-                y={3}
-                fontSize={9.0}
+                y={wallFontSz * 0.35}
+                fontSize={wallFontSz}
                 fontWeight="700"
                 fill="#ffffff"
                 textAnchor="middle"
@@ -1506,6 +1509,7 @@ const DoorLayer = React.memo(({
                 realScale={realScale}
                 onEdit={() => onEditDoor && onEditDoor(d)}
                 checkAndResetIgnoreClick={checkAndResetIgnoreClick}
+                showLabels={layerVisibility?.labels !== false}
               />
             );
           }
@@ -1914,13 +1918,13 @@ const DoorLayer = React.memo(({
                   {renderDoubleDoor()}
                   <text
                     x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 10}
-                    fontSize="10"
+                    y={(p1.y + p2.y) / 2 - 13}
+                    fontSize="14"
                     textAnchor="middle"
                     fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                   >
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
@@ -1930,13 +1934,13 @@ const DoorLayer = React.memo(({
                   {renderSlidingDoor()}
                   <text
                     x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 10}
-                    fontSize="10"
+                    y={(p1.y + p2.y) / 2 - 13}
+                    fontSize="14"
                     textAnchor="middle"
                     fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                   >
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
@@ -1946,13 +1950,13 @@ const DoorLayer = React.memo(({
                   {renderWindow()}
                   <text
                     x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 10}
-                    fontSize="10"
+                    y={(p1.y + p2.y) / 2 - 13}
+                    fontSize="14"
                     textAnchor="middle"
                     fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                   >
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
@@ -1962,13 +1966,13 @@ const DoorLayer = React.memo(({
                   {renderGarageDoor()}
                   <text
                     x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 10}
-                    fontSize="10"
+                    y={(p1.y + p2.y) / 2 - 13}
+                    fontSize="14"
                     textAnchor="middle"
                     fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                   >
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
@@ -1978,13 +1982,13 @@ const DoorLayer = React.memo(({
                   {renderSingleDoor()}
                   <text
                     x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 10}
-                    fontSize="10"
+                    y={(p1.y + p2.y) / 2 - 13}
+                    fontSize="14"
                     textAnchor="middle"
                     fill={isSelected ? color : "#1e293b"}
                     fontFamily="Inter, sans-serif"
                     fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 2px white' }}
+                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                   >
                     {d.door_name || d.width || Math.round(len * (realScale || 20))}
                   </text>
@@ -2185,7 +2189,7 @@ const OCRLabelLayer = React.memo(({
 }) => {
   const [activeDropdownRoomId, setActiveDropdownRoomId] = React.useState(null);
 
-  if (!layerVisibility?.ocr) return null;
+  if (!layerVisibility?.ocr || layerVisibility?.labels === false) return null;
 
   return (
     <g id="OCRLabelLayer">
@@ -2203,16 +2207,16 @@ const OCRLabelLayer = React.memo(({
 
         // Sizing override for detected text boxes - sleek compact badge sizing
         const nameFontSize = isText
-          ? Math.max(9, Math.min(18, bboxH * 0.6))
-          : Math.max(10, Math.min(13, dim * 0.07));
-        const areaFontSize = Math.max(8, nameFontSize * 0.82);
-        const lineGap = nameFontSize * 1.15;
+          ? Math.max(10, Math.min(13, bboxH * 0.4))
+          : Math.max(9, Math.min(12, dim * 0.05));
+        const areaFontSize = Math.max(8, nameFontSize * 0.75);
+        const lineGap = nameFontSize * 1.1;
         const areaText = scaleValue ? `${area.toFixed(2)} m²` : "";
         const pillW = Math.max(
-          ((r.room_name || "").length + (heatmapMode && r.conf !== undefined ? 6 : 0)) * nameFontSize * 0.62,
-          areaText.length * areaFontSize * 0.62
-        ) + 16;
-        const pillH = nameFontSize + (areaText ? areaFontSize + 4 : 0) + 8;
+          ((r.room_name || "").length + (heatmapMode && r.conf !== undefined ? 6 : 0)) * nameFontSize * 0.52,
+          areaText.length * areaFontSize * 0.52
+        ) + 10;
+        const pillH = nameFontSize + (areaText ? areaFontSize + 2 : 0) + 5;
 
         // Review state color boost
         const isLowConfidence = r.conf !== undefined && r.conf < (config?.rooms ?? 0.55);

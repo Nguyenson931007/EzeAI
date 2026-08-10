@@ -216,6 +216,7 @@ export default function App() {
     wall: true,
     door: true,
     ocr: true,
+    labels: true,
   });
   const [showExportPageSelector, setShowExportPageSelector] = useState(false);
   const [exportSelectedPages, setExportSelectedPages] = useState([]);
@@ -775,7 +776,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels } = useDocumentController({
+  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -864,6 +865,8 @@ export default function App() {
         addTrain={addTrain}
         addTrainPages={addTrainPages}
         exportWallLabels={exportWallLabels}
+        exportDoorWindowLabels={exportDoorWindowLabels}
+        exportRoomLabels={exportRoomLabels}
         showExportPageSelector={showExportPageSelector}
         setShowExportPageSelector={setShowExportPageSelector}
         exportSelectedPages={exportSelectedPages}

@@ -49,6 +49,8 @@ export default function RibbonView({
   exportPDF, addTrain,
   addTrainPages,
   exportWallLabels,
+  exportDoorWindowLabels,
+  exportRoomLabels,
   showExportPageSelector, setShowExportPageSelector,
   exportSelectedPages, setExportSelectedPages,
   showImportPageSelector, setShowImportPageSelector,
@@ -627,11 +629,14 @@ export default function RibbonView({
             {/* ML */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button className="ribbon-btn" onClick={addTrain} title="Export current page to training dataset">
-                  <span className="icon">📥</span><span className="label">Export Room</span>
+                <button className="ribbon-btn" onClick={exportWallLabels} title="Export current page walls & image to checking dataset (label_exports/wall/)">
+                  <span className="icon">🧱</span><span className="label">Label Wall</span>
                 </button>
-                <button className="ribbon-btn" onClick={exportWallLabels} title="Export current page walls & image to checking dataset (Label Data)">
-                  <span className="icon">🏷️</span><span className="label">Label Data</span>
+                <button className="ribbon-btn" onClick={exportDoorWindowLabels} title="Export current page doors/windows & image to dataset (label_exports/door/)">
+                  <span className="icon">🚪</span><span className="label">Label Door</span>
+                </button>
+                <button className="ribbon-btn" onClick={exportRoomLabels} title="Export current page rooms & image to dataset (label_exports/room/)">
+                  <span className="icon">🏠</span><span className="label">Label Room</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => {
                   // Open page selector for multi-page export
@@ -731,13 +736,20 @@ export default function RibbonView({
                 <button
                   className={`ribbon-btn ${layerVisibility?.ocr ? "active" : ""}`}
                   onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, ocr: !prev?.ocr }))}
-                  title="Bật/Tắt lớp Nhãn chữ OCR (Text/OCR Labels)"
+                  title="Bật/Tắt lớp Nhãn chữ OCR (Text/OCR Layer)"
                 >
                   <span className="icon">📝</span><span className="label">Text</span>
                 </button>
                 <button
+                  className={`ribbon-btn ${layerVisibility?.labels !== false ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, labels: prev?.labels === false }))}
+                  title="Bật/Tắt hiển thị nhãn của Tường, Cửa, Cửa sổ, Phòng (Toggle Labels)"
+                >
+                  <span className="icon">🏷️</span><span className="label">Labels</span>
+                </button>
+                <button
                   className="ribbon-btn"
-                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true })}
+                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true, labels: true })}
                   title="Hiển thị tất cả các lớp (Show All Layers)"
                 >
                   <span className="icon">👁</span><span className="label">All</span>

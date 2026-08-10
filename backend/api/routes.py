@@ -26,7 +26,7 @@ from pathlib import Path
 import logging
 import time
 
-from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest, ExportWallLabelsRequest
+from app.schemas import LabelRequest, RoomNameModel, OCRCorrectionRequest, ExportWallLabelsRequest, ExportDoorLabelsRequest, ExportRoomLabelsRequest
 from services import dataset_service
 from services.model_paths import get_model_health
 from utils.helpers import convert_to_yolo
@@ -1735,9 +1735,9 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
     from shapely.geometry import LineString as ShapelyLine
     
     try:
-        # Root export directory: EzeFloor-main/label_exports
+        # Root export directory: EzeFloor-main/label_exports/wall
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        export_dir = os.path.join(base_dir, "label_exports")
+        export_dir = os.path.join(base_dir, "label_exports", "wall")
 
         # Create 4 fixed subdirectories on first run
         dirs = {
@@ -2099,6 +2099,11 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(yolo_lines))
 
+        # 5. Save YOLO data.yaml dataset config
+        yaml_content = "path: ./label_exports/wall\ntrain: images\nval: images\nnc: 3\nnames:\n  0: ext_wall\n  1: int_wall\n  2: partition_wall\n"
+        with open(os.path.join(export_dir, "data.yaml"), "w", encoding="utf-8") as f:
+            f.write(yaml_content)
+
         return {
             "status": "ok",
             "message": f"Exported to {export_dir}",
@@ -2109,6 +2114,446 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
         }
     except Exception as e:
         print(f"Error exporting labels: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _extract_xy_point(item):
+    if not item:
+        return None
+    if isinstance(item, dict):
+        x = item.get("x") if item.get("x") is not None else item.get("X")
+        y = item.get("y") if item.get("y") is not None else item.get("Y")
+        if x is not None and y is not None:
+            return (float(x), float(y))
+    elif isinstance(item, (list, tuple)) and len(item) >= 2:
+        return (float(item[0]), float(item[1]))
+    return None
+
+def _extract_polygon_pts(obj):
+    if not obj:
+        return []
+    if isinstance(obj, dict):
+        p1 = _extract_xy_point(obj.get("p1"))
+        p2 = _extract_xy_point(obj.get("p2"))
+        if p1 and p2:
+            return [p1, p2]
+        pt = _extract_xy_point(obj)
+        if pt:
+            return [pt]
+        return []
+    if isinstance(obj, (list, tuple)):
+        pts = []
+        for item in obj:
+            xy = _extract_xy_point(item)
+            if xy:
+                pts.append(xy)
+        return pts
+    return []
+
+
+def draw_architectural_door(img, door, scale_x, scale_y):
+    import math
+    import cv2
+    import numpy as np
+
+    # 1. Classify Door / Window / Sliding Type
+    cls_str = " ".join([
+        str(door.get("class") or ""),
+        str(door.get("class_name") or ""),
+        str(door.get("type") or ""),
+        str(door.get("doorTypeId") or ""),
+        str(door.get("doorName") or ""),
+        str(door.get("door_name") or ""),
+        str(door.get("ocr_text") or ""),
+    ]).lower()
+
+    is_window = "win" in cls_str or "w-" in cls_str
+    is_sliding = "slid" in cls_str or "cs" in cls_str
+    is_double = "double" in cls_str or "2x" in cls_str
+    is_garage = "garage" in cls_str
+
+    raw_pts = door.get("polygon") or door.get("mask_polygon") or door.get("points")
+    poly_pts = _extract_polygon_pts(raw_pts)
+    if not poly_pts:
+        return
+
+    scaled_pts = [(pt[0] * scale_x, pt[1] * scale_y) for pt in poly_pts]
+
+    # Check if frontend engine calculated exact geometry (geom)
+    geom = door.get("geom")
+    if geom and isinstance(geom, dict) and geom.get("hinge") and geom.get("other"):
+        h1 = (float(geom["hinge"]["x"]) * scale_x, float(geom["hinge"]["y"]) * scale_y)
+        h2 = (float(geom["other"]["x"]) * scale_x, float(geom["other"]["y"]) * scale_y)
+        arc_end_pt = (float(geom["arcEnd"]["x"]) * scale_x, float(geom["arcEnd"]["y"]) * scale_y) if geom.get("arcEnd") else None
+        arc_mid_pt = (float(geom["arcMidpoint"]["x"]) * scale_x, float(geom["arcMidpoint"]["y"]) * scale_y) if geom.get("arcMidpoint") else None
+    else:
+        # 2. Extract Frame Endpoints (h1, h2) from Points or Longest Boundary Edge
+        c_pts = _extract_polygon_pts(door.get("points"))
+        if c_pts and len(c_pts) >= 2:
+            h1 = (c_pts[0][0] * scale_x, c_pts[0][1] * scale_y)
+            h2 = (c_pts[1][0] * scale_x, c_pts[1][1] * scale_y)
+        elif len(scaled_pts) >= 3:
+            max_edge_len = 0
+            best_edge = (scaled_pts[0], scaled_pts[1])
+            n_pts = len(scaled_pts)
+            for i in range(n_pts):
+                pA = scaled_pts[i]
+                pB = scaled_pts[(i + 1) % n_pts]
+                edge_len = math.hypot(pB[0] - pA[0], pB[1] - pA[1])
+                if edge_len > max_edge_len:
+                    max_edge_len = edge_len
+                    best_edge = (pA, pB)
+            h1, h2 = best_edge
+        elif len(scaled_pts) == 2:
+            h1, h2 = scaled_pts[0], scaled_pts[1]
+        else:
+            return
+        arc_end_pt = None
+        arc_mid_pt = None
+
+    w = math.hypot(h2[0] - h1[0], h2[1] - h1[1])
+    if w < 5:
+        return
+
+    # Frame unit direction vector
+    ux, uy = (h2[0] - h1[0]) / w, (h2[1] - h1[1]) / w
+    # Normal vector (perpendicular to frame)
+    nx, ny = -uy, ux
+
+    # Orient normal vector into door opening direction
+    if scaled_pts and not geom:
+        cx = sum(p[0] for p in scaled_pts) / len(scaled_pts)
+        cy = sum(p[1] for p in scaled_pts) / len(scaled_pts)
+        mid_x, mid_y = (h1[0] + h2[0]) / 2, (h1[1] + h2[1]) / 2
+        if (cx - mid_x) * nx + (cy - mid_y) * ny < 0:
+            nx, ny = -nx, -ny
+
+    if not geom:
+        swing_dir = str(door.get("swing") or door.get("swing_direction") or "inward").lower()
+        if swing_dir == "outward":
+            nx, ny = -nx, -ny
+
+        hinge_side = str(door.get("hingeSide") or door.get("hinge_side") or "left").lower()
+        if hinge_side == "right":
+            h1, h2 = h2, h1
+            ux, uy = -ux, -uy
+
+    # 3. Draw Geometry
+    if is_window:
+        thickness = 14.0
+        p1a = (int(h1[0] + nx * thickness / 2), int(h1[1] + ny * thickness / 2))
+        p2a = (int(h2[0] + nx * thickness / 2), int(h2[1] + ny * thickness / 2))
+        p2b = (int(h2[0] - nx * thickness / 2), int(h2[1] - ny * thickness / 2))
+        p1b = (int(h1[0] - nx * thickness / 2), int(h1[1] - ny * thickness / 2))
+        box_pts = np.array([p1a, p2a, p2b, p1b], dtype=np.int32)
+        cv2.fillPoly(img, [box_pts], (245, 245, 245))
+        cv2.polylines(img, [box_pts], True, (255, 0, 255), 2)
+        cv2.line(img, (int(h1[0]), int(h1[1])), (int(h2[0]), int(h2[1])), (255, 0, 255), 2)
+
+    elif is_sliding:
+        thickness = 14.0
+        p1a = (int(h1[0] + nx * thickness / 2), int(h1[1] + ny * thickness / 2))
+        p2a = (int(h2[0] + nx * thickness / 2), int(h2[1] + ny * thickness / 2))
+        p2b = (int(h2[0] - nx * thickness / 2), int(h2[1] - ny * thickness / 2))
+        p1b = (int(h1[0] - nx * thickness / 2), int(h1[1] - ny * thickness / 2))
+        box_pts = np.array([p1a, p2a, p2b, p1b], dtype=np.int32)
+        cv2.fillPoly(img, [box_pts], (245, 245, 245))
+        cv2.polylines(img, [box_pts], True, (255, 255, 0), 2)
+
+        mid_x, mid_y = (h1[0] + h2[0]) / 2, (h1[1] + h2[1]) / 2
+        off_x, off_y = nx * 3, ny * 3
+        cv2.line(img, (int(h1[0] + off_x), int(h1[1] + off_y)), (int(mid_x + off_x), int(mid_y + off_y)), (255, 200, 0), 3)
+        cv2.line(img, (int(mid_x - off_x), int(mid_y - off_y)), (int(h2[0] - off_x), int(h2[1] - off_y)), (255, 200, 0), 3)
+
+    elif is_double:
+        r = w / 2.0
+        if geom and isinstance(geom, dict) and geom.get("O1") and geom.get("O2"):
+            o1 = (float(geom["O1"]["x"]) * scale_x, float(geom["O1"]["y"]) * scale_y)
+            o2 = (float(geom["O2"]["x"]) * scale_x, float(geom["O2"]["y"]) * scale_y)
+            mid_x, mid_y = (float(geom["mid"]["x"]) * scale_x, float(geom["mid"]["y"]) * scale_y)
+            a1_start = float(geom["a1Start"])
+            a1_end = float(geom["a1End"])
+            a2_start = float(geom["a2Start"])
+            a2_end = float(geom["a2End"])
+        else:
+            mid_x, mid_y = (h1[0] + h2[0]) / 2, (h1[1] + h2[1]) / 2
+            o1 = (h1[0] + r * nx, h1[1] + r * ny)
+            o2 = (h2[0] + r * nx, h2[1] + r * ny)
+            a1_start = math.atan2(mid_y - h1[1], mid_x - h1[0])
+            a1_end = math.atan2(o1[1] - h1[1], o1[0] - h1[0])
+            a2_start = math.atan2(mid_y - h2[1], mid_x - h2[0])
+            a2_end = math.atan2(o2[1] - h2[1], o2[0] - h2[0])
+
+        dAng1 = a1_end - a1_start
+        while dAng1 > math.pi:
+            dAng1 -= 2 * math.pi
+        while dAng1 < -math.pi:
+            dAng1 += 2 * math.pi
+
+        dAng2 = a2_end - a2_start
+        while dAng2 > math.pi:
+            dAng2 -= 2 * math.pi
+        while dAng2 < -math.pi:
+            dAng2 += 2 * math.pi
+
+        sec1 = [(int(h1[0]), int(h1[1]))]
+        for step in range(21):
+            t = step / 20.0
+            ang = a1_start + dAng1 * t
+            sec1.append((int(h1[0] + r * math.cos(ang)), int(h1[1] + r * math.sin(ang))))
+        
+        sec2 = [(int(h2[0]), int(h2[1]))]
+        for step in range(21):
+            t = step / 20.0
+            ang = a2_start + dAng2 * t
+            sec2.append((int(h2[0] + r * math.cos(ang)), int(h2[1] + r * math.sin(ang))))
+
+        overlay = img.copy()
+        cv2.fillPoly(overlay, [np.array(sec1, dtype=np.int32)], (200, 255, 200))
+        cv2.fillPoly(overlay, [np.array(sec2, dtype=np.int32)], (200, 255, 200))
+        cv2.addWeighted(overlay, 0.4, img, 0.6, 0, img)
+
+        cv2.polylines(img, [np.array(sec1[1:], dtype=np.int32)], False, (0, 180, 0), 2)
+        cv2.polylines(img, [np.array(sec2[1:], dtype=np.int32)], False, (0, 180, 0), 2)
+
+    else:
+        r = w
+        leaf_end = arc_end_pt if arc_end_pt else (h1[0] + r * nx, h1[1] + r * ny)
+
+        cv2.line(img, (int(h1[0]), int(h1[1])), (int(h2[0]), int(h2[1])), (0, 0, 255), 2)
+        cv2.line(img, (int(h1[0]), int(h1[1])), (int(leaf_end[0]), int(leaf_end[1])), (0, 200, 0), 3)
+
+        a_start = math.atan2(h2[1] - h1[1], h2[0] - h1[0])
+        if geom and "sweepAngleRad" in geom:
+            diff = float(geom["sweepAngleRad"])
+        else:
+            a_end = math.atan2(leaf_end[1] - h1[1], leaf_end[0] - h1[0])
+            diff = (a_end - a_start) % (2 * math.pi)
+            if diff > math.pi:
+                diff -= 2 * math.pi
+
+        sec_pts = [(int(h1[0]), int(h1[1]))]
+        for step in range(21):
+            t = step / 20.0
+            ang = a_start + diff * t
+            sec_pts.append((int(h1[0] + r * math.cos(ang)), int(h1[1] + r * math.sin(ang))))
+
+        overlay = img.copy()
+        cv2.fillPoly(overlay, [np.array(sec_pts, dtype=np.int32)], (200, 255, 200))
+        cv2.addWeighted(overlay, 0.4, img, 0.6, 0, img)
+
+        cv2.polylines(img, [np.array(sec_pts[1:], dtype=np.int32)], False, (0, 180, 0), 2)
+
+    # Render door label text
+    label_tag = str(door.get("doorName") or door.get("door_name") or door.get("ocr_text") or "DOOR")
+    c_pt = _extract_xy_point(door.get("centerPoint"))
+    if not c_pt and len(poly_pts) >= 2:
+        c_pt = ((poly_pts[0][0] + poly_pts[1][0]) / 2, (poly_pts[0][1] + poly_pts[1][1]) / 2)
+    if c_pt:
+        cx = int(c_pt[0] * scale_x)
+        cy = int(c_pt[1] * scale_y)
+        cv2.putText(img, label_tag, (cx - 20, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+
+@router.post("/api/export-door-labels")
+async def export_door_labels(data: ExportDoorLabelsRequest):
+    import base64
+    import os
+    import re
+    import cv2
+    import numpy as np
+    
+    try:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        export_dir = os.path.join(base_dir, "label_exports", "door")
+
+        dirs = {
+            "images": os.path.join(export_dir, "images"),
+            "labels": os.path.join(export_dir, "labels"),
+            "checks": os.path.join(export_dir, "checks"),
+            "js":     os.path.join(export_dir, "js"),
+        }
+        for d in dirs.values():
+            os.makedirs(d, exist_ok=True)
+            
+        clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', data.image_name)
+        
+        # 1. Save Image
+        header, encoded = data.image_data.split(",", 1) if "," in data.image_data else ("", data.image_data)
+        img_bytes = base64.b64decode(encoded)
+        img_path = os.path.join(dirs["images"], f"{clean_name}.png")
+        with open(img_path, "wb") as f:
+            f.write(img_bytes)
+            
+        # 2. Render Verification Overlay Check Image
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        yolo_lines = []
+        # 4 distinct classes: 0 = single_door, 1 = double_door, 2 = sliding_door, 3 = window
+        
+        if img is not None:
+            h, w = img.shape[:2]
+            scale_x = w / (data.width or w)
+            scale_y = h / (data.height or h)
+            
+            for door in data.doors:
+                d_class = str(door.get("class") or door.get("class_name") or door.get("type") or door.get("doorTypeId") or "").lower()
+                d_name = str(door.get("doorName") or door.get("door_name") or door.get("ocr_text") or "").lower()
+                full_str = f"{d_class} {d_name}"
+
+                if "win" in full_str or "w-" in full_str:
+                    cls_id = 3
+                elif "slid" in full_str or "cs" in full_str:
+                    cls_id = 2
+                elif "double" in full_str or "2x" in full_str:
+                    cls_id = 1
+                else:
+                    cls_id = 0
+
+                # Render architectural complete geometry (frame line, leaf line, arc, sector fill)
+                draw_architectural_door(img, door, scale_x, scale_y)
+                
+                raw_pts = door.get("polygon") or door.get("mask_polygon") or door.get("bbox_polygon") or door.get("points")
+                poly_pts = _extract_polygon_pts(raw_pts)
+
+                # Convert 2-point line [p1, p2] into 4-point rectangle (thickness = 15px)
+                if len(poly_pts) == 2:
+                    p1, p2 = poly_pts[0], poly_pts[1]
+                    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+                    length = math.hypot(dx, dy)
+                    if length > 0:
+                        nx, ny = -dy / length * 7.5, dx / length * 7.5
+                        poly_pts = [
+                            (p1[0] + nx, p1[1] + ny),
+                            (p2[0] + nx, p2[1] + ny),
+                            (p2[0] - nx, p2[1] - ny),
+                            (p1[0] - nx, p1[1] - ny)
+                        ]
+
+                # YOLO segmentation requires at least 3 points per polygon
+                if len(poly_pts) >= 3:
+                    norm_coords = " ".join(f"{(pt[0] * scale_x) / w:.6f} {(pt[1] * scale_y) / h:.6f}" for pt in poly_pts)
+                    yolo_lines.append(f"{cls_id} {norm_coords}")
+
+            cv2.imwrite(os.path.join(dirs["checks"], f"{clean_name}_check.png"), img)
+
+        # 3. Save JS / JSON schema file
+        door_json_content = json.dumps({"image_name": clean_name, "width": data.width, "height": data.height, "doors": data.doors}, indent=2)
+        with open(os.path.join(dirs["js"], f"{clean_name}.json"), "w", encoding="utf-8") as f:
+            f.write(door_json_content)
+
+        # 4. Save YOLO label file
+        with open(os.path.join(dirs["labels"], f"{clean_name}.txt"), "w", encoding="utf-8") as f:
+            f.write("\n".join(yolo_lines))
+
+        # 5. Save YOLO data.yaml dataset config
+        yaml_content = "path: ./label_exports/door\ntrain: images\nval: images\nnc: 4\nnames:\n  0: single_door\n  1: double_door\n  2: sliding_door\n  3: window\n"
+        with open(os.path.join(export_dir, "data.yaml"), "w", encoding="utf-8") as f:
+            f.write(yaml_content)
+
+        return {
+            "status": "ok",
+            "message": f"Exported doors to {export_dir}",
+            "export_dir": export_dir,
+            "door_file": os.path.join(dirs["js"], f"{clean_name}.json"),
+            "door_content": door_json_content,
+            "label_count": len(data.doors)
+        }
+    except Exception as e:
+        print(f"Error exporting door labels: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/export-room-labels")
+async def export_room_labels(data: ExportRoomLabelsRequest):
+    import base64
+    import os
+    import re
+    import cv2
+    import numpy as np
+    
+    try:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        export_dir = os.path.join(base_dir, "label_exports", "room")
+
+        dirs = {
+            "images": os.path.join(export_dir, "images"),
+            "labels": os.path.join(export_dir, "labels"),
+            "checks": os.path.join(export_dir, "checks"),
+            "js":     os.path.join(export_dir, "js"),
+        }
+        for d in dirs.values():
+            os.makedirs(d, exist_ok=True)
+            
+        clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', data.image_name)
+        
+        # 1. Save Image
+        header, encoded = data.image_data.split(",", 1) if "," in data.image_data else ("", data.image_data)
+        img_bytes = base64.b64decode(encoded)
+        img_path = os.path.join(dirs["images"], f"{clean_name}.png")
+        with open(img_path, "wb") as f:
+            f.write(img_bytes)
+            
+        # 2. Render Verification Overlay Check Image
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        yolo_lines = []
+        
+        if img is not None:
+            h, w = img.shape[:2]
+            scale_x = w / (data.width or w)
+            scale_y = h / (data.height or h)
+            overlay = img.copy()
+            
+            for idx, room in enumerate(data.rooms):
+                r_name = str(room.get("room_name") or room.get("name") or "ROOM")
+                raw_pts = room.get("polygon") or room.get("points")
+                poly_pts = _extract_polygon_pts(raw_pts)
+                
+                if poly_pts and len(poly_pts) >= 3:
+                    pts_np = np.array([[int(pt[0] * scale_x), int(pt[1] * scale_y)] for pt in poly_pts], dtype=np.int32)
+                    
+                    # Fill semi-transparent polygon
+                    color = (int((idx * 45) % 255), int((idx * 90) % 255), 255)
+                    cv2.fillPoly(overlay, [pts_np], color)
+                    cv2.polylines(img, [pts_np], isClosed=True, color=(255, 0, 0), thickness=2)
+                    
+                    # Room text centroid label
+                    cx = int(sum(p[0] for p in pts_np) / len(pts_np))
+                    cy = int(sum(p[1] for p in pts_np) / len(pts_np))
+                    cv2.putText(img, r_name, (cx - 30, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+                    
+                    norm_coords = " ".join(f"{(pt[0] * scale_x) / w:.6f} {(pt[1] * scale_y) / h:.6f}" for pt in poly_pts)
+                    yolo_lines.append(f"0 {norm_coords}")
+
+            cv2.addWeighted(overlay, 0.35, img, 0.65, 0, img)
+            cv2.imwrite(os.path.join(dirs["checks"], f"{clean_name}_check.png"), img)
+
+        # 3. Save JS / JSON schema file
+        room_json_content = json.dumps({"image_name": clean_name, "width": data.width, "height": data.height, "rooms": data.rooms}, indent=2)
+        with open(os.path.join(dirs["js"], f"{clean_name}.json"), "w", encoding="utf-8") as f:
+            f.write(room_json_content)
+
+        # 4. Save YOLO label file
+        with open(os.path.join(dirs["labels"], f"{clean_name}.txt"), "w", encoding="utf-8") as f:
+            f.write("\n".join(yolo_lines))
+
+        return {
+            "status": "ok",
+            "message": f"Exported rooms to {export_dir}",
+            "export_dir": export_dir,
+            "room_file": os.path.join(dirs["js"], f"{clean_name}.json"),
+            "room_content": room_json_content,
+            "label_count": len(data.rooms)
+        }
+    except Exception as e:
+        print(f"Error exporting room labels: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

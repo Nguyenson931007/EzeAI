@@ -14,6 +14,8 @@ import * as pdfjsLib from "pdfjs-dist";
 import { centroid, polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
 import { BASE_URL } from "@/models/api.service";
 import { useDialog } from "@/components/DialogContext";
+import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
+import { getDoorGeometry } from "@/utils/doorGeometryCache";
 
 export function useDocumentController({
   image, setImage,
@@ -556,5 +558,146 @@ export function useDocumentController({
     }
   }
 
-  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels };
+  async function exportDoorWindowLabels() {
+    const currentDoors = doorsByPage[currentPage] || [];
+    if (currentDoors.length === 0) {
+      alert("Error: No doors or windows on current page to export.");
+      return;
+    }
+
+    try {
+      let base64Image = image;
+      if (image && !image.startsWith("data:image")) {
+        const blob = await fetch(image).then(r => r.blob());
+        base64Image = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const formattedDoors = currentDoors.map(d => {
+        let p1 = null;
+        let p2 = null;
+        if (d.points && d.points.length >= 2) {
+          p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+          p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+        }
+        const bbox = getDoorBoundingBox(d);
+        const cachedGeom = d.id ? getDoorGeometry(d.id) : null;
+        const geom = cachedGeom || calculateDoorGeometry({
+          p1,
+          p2,
+          type: d.type || d.class || 'single',
+          hingeSide: d.hingeSide || d.hinge_side || 'left',
+          swing: d.swing || d.swing_direction || 'inward',
+          angle: d.angle || d.opening_angle || 90
+        });
+
+        return {
+          ...d,
+          bbox_polygon: bbox || d.polygon,
+          geom: geom
+        };
+      });
+
+      const exportName = `${currentProjectName || "plan"}_page_${currentPage}`;
+
+      const res = await fetch(`${BASE_URL}/api/export-door-labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_name: exportName,
+          image_data: base64Image,
+          width: Math.round(imgSize.w),
+          height: Math.round(imgSize.h),
+          doors: formattedDoors
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const resData = await res.json();
+
+      if (resData && resData.door_content) {
+        const blob = new Blob([resData.door_content], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${exportName}_doors.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      alert(`Xuất dữ liệu Cửa (Door & Window) thành công!\n- Tải về: ${exportName}_doors.json\n- Thư mục server: ${resData.export_dir}`);
+    } catch (err) {
+      console.error("Export door labels error:", err);
+      alert(`Failed to export door labels: ${err.message}`);
+    }
+  }
+
+  async function exportRoomLabels() {
+    const currentRooms = roomsByPage[currentPage] || [];
+    if (currentRooms.length === 0) {
+      alert("Error: No rooms on current page to export.");
+      return;
+    }
+
+    try {
+      let base64Image = image;
+      if (image && !image.startsWith("data:image")) {
+        const blob = await fetch(image).then(r => r.blob());
+        base64Image = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const exportName = `${currentProjectName || "plan"}_page_${currentPage}`;
+
+      const res = await fetch(`${BASE_URL}/api/export-room-labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_name: exportName,
+          image_data: base64Image,
+          width: Math.round(imgSize.w),
+          height: Math.round(imgSize.h),
+          rooms: currentRooms
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const resData = await res.json();
+
+      if (resData && resData.room_content) {
+        const blob = new Blob([resData.room_content], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${exportName}_rooms.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      alert(`Xuất dữ liệu Phòng (Room) thành công!\n- Tải về: ${exportName}_rooms.json\n- Thư mục server: ${resData.export_dir}`);
+    } catch (err) {
+      console.error("Export room labels error:", err);
+      alert(`Failed to export room labels: ${err.message}`);
+    }
+  }
+
+  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels };
 }

@@ -747,14 +747,11 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
   // If a window is located on an interior wall OR has an internal door label, convert it to a sliding door!
   if (isWindowObj && (isNameInternal || (parentWall && !isParentWallExt))) {
     isWindowObj = false;
-    if (door.id) {
-      door.id = door.id.replace('window_', 'door_').replace('win_', 'door_');
-    }
     door.class = 'sliding_door';
     door.type = 'sliding';
     door.doorTypeId = 'int_sliding';
-    if (!door.doorName || door.doorName.startsWith('W-') || door.doorName === 'Internal Door') {
-      door.doorName = `D-${(door.id || '').replace('door_', '').substring(0, 3)}`;
+    if (!door.doorName || door.doorName === 'Internal Door') {
+      door.doorName = `D-${(door.id || '').replace('window_', '').replace('door_', '').replace('win_', '').substring(0, 3)}`;
       door.door_name = door.doorName;
     }
   }

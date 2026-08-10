@@ -102,3 +102,17 @@ class ExportWallLabelsRequest(BaseModel):
     height: int
     walls: List[dict]
 
+class ExportDoorLabelsRequest(BaseModel):
+    image_name: str
+    image_data: str
+    width: int
+    height: int
+    doors: List[dict]
+
+class ExportRoomLabelsRequest(BaseModel):
+    image_name: str
+    image_data: str
+    width: int
+    height: int
+    rooms: List[dict]
+

@@ -119,6 +119,34 @@ export function getDoorPoints(door) {
       : { x: door.points[1].x, y: door.points[1].y };
     return { p1, p2 };
   }
+
+  // Fallback: extract p1, p2 from polygon or mask_polygon
+  const poly = (door.polygon && door.polygon.length >= 3) ? door.polygon : (door.mask_polygon || []);
+  if (poly.length >= 3) {
+    const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+    const n = pts.length;
+    let maxLen = 0;
+    let bestP1 = pts[0];
+    let bestP2 = pts[1];
+    for (let i = 0; i < n; i++) {
+      const next = pts[(i + 1) % n];
+      const len = Math.hypot(next.x - pts[i].x, next.y - pts[i].y);
+      if (len > maxLen) {
+        maxLen = len;
+        bestP1 = pts[i];
+        bestP2 = next;
+      }
+    }
+    return { p1: bestP1, p2: bestP2 };
+  }
+
+  if (door.centerPoint) {
+    const cx = door.centerPoint.x;
+    const cy = door.centerPoint.y;
+    const halfW = (door.width_mm ? door.width_mm / 20 : 30);
+    return { p1: { x: cx - halfW, y: cy }, p2: { x: cx + halfW, y: cy } };
+  }
+
   return null;
 }
 

@@ -2462,7 +2462,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                 (constrainedDoor.door_name || constrainedDoor.doorName || '').toLowerCase().includes('slide') ||
                 (constrainedDoor.door_name || constrainedDoor.doorName || '').toLowerCase().includes('cavity');
 
-              if (isExtWall) {
+              const isWindowObj = constrainedDoor.class === 'window' || constrainedDoor.type === 'window' || (constrainedDoor.doorTypeId && constrainedDoor.doorTypeId.startsWith('win_'));
+              if (isWindowObj) {
+                constrainedDoor = {
+                  ...constrainedDoor,
+                  is_ext: isExtWall,
+                  is_exterior: isExtWall,
+                  location: isExtWall ? 'external' : 'internal',
+                  door_name: constrainedDoor.door_name || constrainedDoor.doorName || 'Window',
+                  doorName: constrainedDoor.doorName || constrainedDoor.door_name || 'Window'
+                };
+              } else if (isExtWall) {
                 let typeId = constrainedDoor.doorTypeId;
                 if (isSlidingOrCavity) {
                   typeId = 'ext_sliding';
@@ -2471,13 +2481,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                 } else if (!typeId) {
                   typeId = 'ext_hinged_single';
                 }
+                const existingDoorName = constrainedDoor.doorName || constrainedDoor.door_name;
                 constrainedDoor = {
                   ...constrainedDoor,
                   is_ext: true,
                   is_exterior: true,
                   location: 'external',
                   doorTypeId: typeId,
-                  door_name: isSlidingOrCavity ? 'Exterior Sliding Door' : (constrainedDoor.door_name && !constrainedDoor.door_name.includes('Internal') ? constrainedDoor.door_name : 'External Door')
+                  doorName: existingDoorName || (isSlidingOrCavity ? 'Exterior Sliding Door' : 'External Door'),
+                  door_name: existingDoorName || (isSlidingOrCavity ? 'Exterior Sliding Door' : 'External Door')
                 };
               } else {
                 let typeId = constrainedDoor.doorTypeId;
@@ -2488,13 +2500,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                 } else if (!typeId) {
                   typeId = 'int_hinged_single';
                 }
+                const existingDoorName = constrainedDoor.doorName || constrainedDoor.door_name;
                 constrainedDoor = {
                   ...constrainedDoor,
                   is_ext: false,
                   is_exterior: false,
                   location: 'internal',
                   doorTypeId: typeId,
-                  door_name: isSlidingOrCavity ? 'Internal Sliding Door' : (constrainedDoor.door_name && !constrainedDoor.door_name.includes('External') ? constrainedDoor.door_name : 'Internal Door')
+                  doorName: existingDoorName || (isSlidingOrCavity ? 'Internal Sliding Door' : 'Internal Door'),
+                  door_name: existingDoorName || (isSlidingOrCavity ? 'Internal Sliding Door' : 'Internal Door')
                 };
               }
             } else {
@@ -3283,10 +3297,27 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             if (isCtrl) {
               finalDoor = { ...targetDoor, parentWallId: null };
             } else {
+              const targetPts = getDoorPoints(targetDoor);
+              let doorCenter = targetDoor.centerPoint;
+              if (!doorCenter && targetPts) {
+                doorCenter = { x: (targetPts.p1.x + targetPts.p2.x) / 2, y: (targetPts.p1.y + targetPts.p2.y) / 2 };
+              }
+              if (!doorCenter && (targetDoor.polygon || targetDoor.mask_polygon)) {
+                const poly = (targetDoor.polygon && targetDoor.polygon.length >= 3 ? targetDoor.polygon : targetDoor.mask_polygon) || [];
+                if (poly.length > 0) {
+                  const pts = poly.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+                  doorCenter = {
+                    x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
+                    y: pts.reduce((s, p) => s + p.y, 0) / pts.length
+                  };
+                }
+              }
+              if (!doorCenter) {
+                doorCenter = getMouse(e);
+              }
+
               const currentParent = pageWalls.find(w => w.id === targetDoor.parentWallId);
               const parentWall = currentParent || findParentWall(doorCenter, pageWalls, 100) || dragging.parentWall || findParentWallForDoor(targetDoor, pageWalls);
-              const targetPts = getDoorPoints(targetDoor);
-              const doorCenter = (targetPts && { x: (targetPts.p1.x + targetPts.p2.x) / 2, y: (targetPts.p1.y + targetPts.p2.y) / 2 }) || targetDoor.centerPoint;
               finalDoor = parentWall ? constrainDoorToParentWall(targetDoor, parentWall, doorCenter, pageWalls) : targetDoor;
               if (parentWall) {
                 finalDoor.parentWallId = parentWall.id;
@@ -3296,7 +3327,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                   (finalDoor.door_name || finalDoor.doorName || '').toLowerCase().includes('slide') ||
                   (finalDoor.door_name || finalDoor.doorName || '').toLowerCase().includes('cavity');
 
-                if (isExtWall) {
+                const isWindowObj = finalDoor.class === 'window' || finalDoor.type === 'window' || (finalDoor.doorTypeId && finalDoor.doorTypeId.startsWith('win_'));
+                if (isWindowObj) {
+                  finalDoor = {
+                    ...finalDoor,
+                    is_ext: isExtWall,
+                    is_exterior: isExtWall,
+                    location: isExtWall ? 'external' : 'internal',
+                    door_name: finalDoor.door_name || finalDoor.doorName || 'Window',
+                    doorName: finalDoor.doorName || finalDoor.door_name || 'Window'
+                  };
+                } else if (isExtWall) {
                   let typeId = finalDoor.doorTypeId;
                   if (isSlidingOrCavity) {
                     typeId = 'ext_sliding';
@@ -3305,13 +3346,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                   } else if (!typeId) {
                     typeId = 'ext_hinged_single';
                   }
+                  const existingDoorName = finalDoor.doorName || finalDoor.door_name;
                   finalDoor = {
                     ...finalDoor,
                     is_ext: true,
                     is_exterior: true,
                     location: 'external',
                     doorTypeId: typeId,
-                    door_name: isSlidingOrCavity ? 'Exterior Sliding Door' : (finalDoor.door_name && !finalDoor.door_name.includes('Internal') ? finalDoor.door_name : 'External Door')
+                    doorName: existingDoorName || (isSlidingOrCavity ? 'Exterior Sliding Door' : 'External Door'),
+                    door_name: existingDoorName || (isSlidingOrCavity ? 'Exterior Sliding Door' : 'External Door')
                   };
                 } else {
                   let typeId = finalDoor.doorTypeId;
@@ -3322,13 +3365,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                   } else if (!typeId) {
                     typeId = 'int_hinged_single';
                   }
+                  const existingDoorName = finalDoor.doorName || finalDoor.door_name;
                   finalDoor = {
                     ...finalDoor,
                     is_ext: false,
                     is_exterior: false,
                     location: 'internal',
                     doorTypeId: typeId,
-                    door_name: isSlidingOrCavity ? 'Internal Sliding Door' : (finalDoor.door_name && !finalDoor.door_name.includes('External') ? finalDoor.door_name : 'Internal Door')
+                    doorName: existingDoorName || (isSlidingOrCavity ? 'Internal Sliding Door' : 'Internal Door'),
+                    door_name: existingDoorName || (isSlidingOrCavity ? 'Internal Sliding Door' : 'Internal Door')
                   };
                 }
               }

@@ -228,6 +228,43 @@ function _mergeOverlappingDoors(existingDoors, newDoors) {
   return merged;
 }
 
+/**
+ * Ensures all doors in array have 100% unique doorName/door_name labels.
+ */
+function _deduplicateDoorNames(doors) {
+  if (!doors || doors.length === 0) return doors;
+
+  const usedNames = new Set();
+  let maxNum = 0;
+
+  doors.forEach(d => {
+    const name = d.doorName || d.door_name || '';
+    const match = name.match(/D-(\d+)/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  });
+
+  return doors.map(d => {
+    let name = d.doorName || d.door_name;
+    if (!name || name === 'Internal Door' || name === 'External Door') {
+      maxNum++;
+      name = `D-${String(maxNum).padStart(3, '0')}`;
+    } else if (usedNames.has(name.toUpperCase())) {
+      maxNum++;
+      name = `D-${String(maxNum).padStart(3, '0')}`;
+    }
+
+    usedNames.add(name.toUpperCase());
+    return {
+      ...d,
+      doorName: name,
+      door_name: name
+    };
+  });
+}
+
 // ====================================================
 // AI Threshold Configurations
 // Edit these confidence threshold values directly in the code:
@@ -942,6 +979,44 @@ export const useAIController = (
         // Merge cut walls back into continuous segments so snap can find walls
         // even when the door midpoint sits in the gap between two cut segments.
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true) : [];
+        // Find maximum door sequence number among non-converted real doors
+        const existingPageDoors = (doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [];
+        const allDoorsBeforeConversion = [...existingPageDoors, ...detectedDoors];
+        let maxRealDoorNum = 0;
+        allDoorsBeforeConversion.forEach(d => {
+          const isWinObj = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || d.id?.startsWith('window_');
+          if (!isWinObj) {
+            const name = d.doorName || d.door_name || '';
+            const match = name.match(/D-(\d+)/i);
+            if (match) {
+              const num = parseInt(match[1], 10);
+              if (num > maxRealDoorNum) maxRealDoorNum = num;
+            }
+          }
+        });
+
+        let nextConvertedSeq = maxRealDoorNum + 1;
+
+        const processWindowConversion = (d) => {
+          const isWin = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || d.id?.startsWith('window_');
+          const nameLower = (d.doorName || d.door_name || d.ocr_text || '').toLowerCase();
+          const isInternalName = nameLower.includes('internal') || nameLower.includes('cs') || nameLower.includes('slider');
+
+          if (isWin && isInternalName) {
+            const newSeqName = `D-${String(nextConvertedSeq).padStart(3, '0')}`;
+            nextConvertedSeq++;
+            return {
+              ...d,
+              class: 'sliding_door',
+              type: 'sliding',
+              doorTypeId: 'int_sliding',
+              doorName: newSeqName,
+              door_name: newSeqName
+            };
+          }
+          return d;
+        };
+
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => {
             const snapped = snapDoorToWalls(d, uncutWalls, 80, true);
@@ -958,39 +1033,12 @@ export const useAIController = (
               if (pw) snapped.parentWallId = pw.id;
             }
 
-            // Convert windows on interior walls (or with 'Internal' / 'door' / 'cs' label) to sliding doors!
-            const isWin = snapped.class === 'window' || snapped.type === 'window' || snapped.doorTypeId === 'win_standard' || snapped.id?.startsWith('window_');
-            const isExtWall = pw && (pw.class_name === 'exterior_wall' || pw.type === 'ext' || pw.is_ext || pw.is_exterior);
-            const nameLower = (snapped.doorName || snapped.door_name || snapped.ocr_text || '').toLowerCase();
-            const isInternalName = nameLower.includes('internal') || nameLower.includes('int') || nameLower.includes('door') || nameLower.includes('cs') || nameLower.includes('slider');
-
-            if (isWin && (isInternalName || (pw && !isExtWall))) {
-              if (snapped.id) snapped.id = snapped.id.replace('window_', 'door_').replace('win_', 'door_');
-              snapped.class = 'sliding_door';
-              snapped.type = 'sliding';
-              snapped.doorTypeId = 'int_sliding';
-              snapped.doorName = `D-${(snapped.id || '').replace('door_', '').substring(0, 3)}`;
-              snapped.door_name = snapped.doorName;
-            }
-
-            return snapped;
+            return processWindowConversion(snapped);
           })
-          : detectedDoors.map(d => {
-            const isWin = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || d.id?.startsWith('window_');
-            const nameLower = (d.doorName || d.door_name || d.ocr_text || '').toLowerCase();
-            const isInternalName = nameLower.includes('internal') || nameLower.includes('int') || nameLower.includes('door') || nameLower.includes('cs') || nameLower.includes('slider');
-            if (isWin && isInternalName) {
-              if (d.id) d.id = d.id.replace('window_', 'door_').replace('win_', 'door_');
-              d.class = 'sliding_door';
-              d.type = 'sliding';
-              d.doorTypeId = 'int_sliding';
-              d.doorName = `D-${(d.id || '').replace('door_', '').substring(0, 3)}`;
-              d.door_name = d.doorName;
-            }
-            return d;
-          });
+          : detectedDoors.map(d => processWindowConversion(d));
 
-        const mergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
+        const rawMergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
+        const mergedDoors = _deduplicateDoorNames(rawMergedDoors);
 
         if (setDoorsByPage) {
           setDoorsByPage(prev => ({
@@ -1130,7 +1178,8 @@ export const useAIController = (
           });
 
           const existingDoors = clearExisting ? [] : ((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || []);
-          const mergedDoors = _mergeOverlappingDoors(existingDoors, detectedDoors);
+          const rawMergedDoors = _mergeOverlappingDoors(existingDoors, detectedDoors);
+          const mergedDoors = _deduplicateDoorNames(rawMergedDoors);
           detectedDoors = mergedDoors;
 
           setDoorsByPage(prev => ({

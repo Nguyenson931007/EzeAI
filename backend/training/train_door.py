@@ -17,7 +17,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 from dataset_manager import DatasetManager, DATASETS_ROOT
 
-DATASET_PATH = Path(r"C:\Users\LND01\Downloads\window\window")
+DATASET_PATH = Path(r"D:\EzeFloor-main\label_exports\door")
 if not (DATASET_PATH / "data.yaml").exists():
     alt_path = Path(r"C:\Users\LND01\Downloads\sumdata-phase 3 (with window) 1\sumdata-phase 3 (with window)")
     if (alt_path / "data.yaml").exists():
@@ -48,13 +48,13 @@ def main():
 
     # Determine base model with priority:
     # Priority: yolov8m-seg.pt
-    yolov8m_local = BACKEND_DIR / "yolov8m-seg.pt"
+    yolov8m_local = BACKEND_DIR / "yolov8n-seg.pt"
     if yolov8m_local.exists():
         print(f"📦 Loading local base model: {yolov8m_local}")
         base_model = str(yolov8m_local)
     else:
         print("📦 Using base model: yolov8m-seg.pt (will download automatically if not cached)")
-        base_model = "yolov8m-seg.pt"
+        base_model = "yolov8n-seg.pt"
 
     print(f"⚙️ Training configuration:")
     print(f"  - Dataset config: {DATASET_YAML}")
@@ -64,25 +64,26 @@ def main():
     model = YOLO(base_model)
 
     # Train model using upgraded parameters specified in the engineering plan
+    # Note: imgsz=640 is required for architectural door/window features to maintain resolution
     results = model.train(
         data=str(DATASET_YAML),
-        epochs=200,
-        imgsz=1280,
+        epochs=100,
+        imgsz=640,
         patience=50,
         cache=True,
         workers=4,
         degrees=5.0,        # Small rotation, preserving orientation semantics
         translate=0.05,
-        scale=0.5,          # Upgraded zoom/scale augmentation
+        scale=0.3,          # Moderate zoom/scale augmentation
         fliplr=0.5,
         flipud=0.0,
-        mosaic=1.0,         # Upgraded mosaic
+        mosaic=1.0,         # Mosaic augmentation
         mixup=0.0,
-        copy_paste=0.3,     # Copy-paste augmentation for segmentation
+        copy_paste=0.2,     # Copy-paste augmentation for segmentation
         hsv_h=0.015,        # Small HSV color jitter
         hsv_s=0.3,
         hsv_v=0.2,
-        batch=8,
+        batch=4,
         name="Door_Seg_v2",
         exist_ok=True,
     )

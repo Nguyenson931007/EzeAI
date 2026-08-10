@@ -33,6 +33,13 @@ from shapely.ops import unary_union
 
 from services.model_paths import MODEL_CANDIDATES, get_model_health
 from services.ocr import run_ocr
+from services.room_ocr_service import (
+    parse_and_normalize_room_text,
+    is_cad_noise,
+    compute_multi_signal_confidence,
+    generate_preprocessing_passes,
+    save_ocr_debug_artifact
+)
 
 _room_model = None
 _door_model = None
@@ -1017,70 +1024,56 @@ def _extract_valid_room_token(text: str) -> str:
     return None
 
 def _score_semantic_text(text, conf, bbox, room_polygon, rooms_context, current_idx, cx1=0, cy1=0, actual_upscale=1.0, existing_rooms=None):
-    # 1. Normalization & Correction
-    norm_text, memory_type, is_trusted = _normalize_cad_ocr_text(text)
-    if is_trusted:
-        # High confidence override from persistent memory
-        return 100, norm_text, memory_type
-
-    # Extract valid room token first to handle noisy annotations or abbreviations
-    room_token = _extract_valid_room_token(norm_text)
-    if not room_token:
-        room_token = _extract_valid_room_token(text)
-        
-    if not room_token:
+    # 1. Structured Room Parsing & CAD noise check
+    parsed = parse_and_normalize_room_text(text)
+    if not parsed["is_valid_room"] or parsed["is_cad_noise"]:
         return -9999, "UNKNOWN", "UNKNOWN"
-        
-    matched_word = room_token
-    fuzzy_score = 100
+
+    norm_text = parsed["normalized_text"]
     text_type = "ROOM_NAME"
+
+    if parsed.get("source") == "human_verified":
+        return 100, norm_text, text_type
+
+    matched_word = parsed["category"]
     
-    # 4. Topology & Geometry Reasoning (Local)
+    # 2. Topology & Geometry Reasoning (Local)
     geo_boost = _compute_topology_boost(matched_word, room_polygon, bbox, rooms_context, current_idx)
     
-    # 4b. Topology & Geometry Reasoning (Global)
+    # 2b. Topology & Geometry Reasoning (Global)
     global_boost = 0
     if existing_rooms and actual_upscale > 0:
         try:
-            # Map local crop coordinates of current polygon to global space
             global_polygon = [{"x": pt["x"] / actual_upscale + cx1, "y": pt["y"] / actual_upscale + cy1} for pt in room_polygon]
             global_boost = _compute_global_topology_boost(matched_word, global_polygon, existing_rooms)
         except Exception:
             pass
 
-    # 5. Base Font & Center Scoring
-    bbox_h = bbox["h"]
-    font_score = min(100, (bbox_h / 40.0) * 100)
-    
+    # 3. Base Font & Center Distance Scoring
     poly = Polygon([(p["x"], p["y"]) for p in room_polygon])
     centroid = poly.centroid
     text_center = Point(bbox["x"] + bbox["w"]/2, bbox["y"] + bbox["h"]/2)
+    dist = centroid.distance(text_center)
     
-    # Small room boost: increase max_dist tolerance
-    area = poly.area
     max_dist = max(1, poly.length / 2)
-    if area < 50000:
+    if poly.area < 50000:
         max_dist *= 2.0  # Double tolerance for small rooms
         
-    dist = centroid.distance(text_center)
-    center_score = max(0, 100 - (dist / max_dist) * 100)
-    
-    # Calculate Total including global context boost
-    total = (fuzzy_score * 0.40) + ((geo_boost + global_boost) * 0.20) + (center_score * 0.20) + (font_score * 0.15) + (conf * 100 * 0.05)
-    
-    # Append digit now for the final output (e.g. BED 2, ENS 1)
-    final_word = matched_word
-    digit_match = re.search(r"\d+", norm_text)
-    if not digit_match:
-        digit_match = re.search(r"\d+", text)
-    if digit_match:
-        final_word = f"{matched_word} {digit_match.group(0)}"
-        
-    print(f"[OCR Correction] original={text} | norm={norm_text} | fuzzy_match={matched_word}({fuzzy_score:.1f}) | geo_boost={geo_boost} | global_boost={global_boost} | final={final_word} | score={total:.1f}")
-    
-    # If the text matches a valid room word, we have high confidence so we lower the threshold to 30
-    min_threshold = 30 if matched_word in VALID_ROOM_WORDS else 50
-    if total < min_threshold:
+    scores = compute_multi_signal_confidence(
+        raw_conf=conf,
+        semantic_conf=parsed["semantic_confidence"],
+        spatial_dist=dist,
+        max_dist=max_dist,
+        bbox_h=bbox["h"],
+        topology_boost=geo_boost + global_boost
+    )
+
+    total = scores["total_score"]
+    final_word = norm_text
+
+    print(f"[OCR Correction] original='{text}' | norm='{final_word}' | sem_conf={parsed['semantic_confidence']:.2f} | total_score={total:.1f}")
+
+    if total < 30:
         return total, "UNKNOWN", text_type
         
     return total, final_word, text_type
@@ -1175,12 +1168,21 @@ def _detect_rooms_text_roi(
             pil_crop = Image.fromarray(roi_masked)
             
             # Multi-orientation scanning: test all 4 rotation angles (0°, 180°, 90°, 270°)
-            orientations = [
-                (0, pil_crop),
-                (180, pil_crop.transpose(Image.ROTATE_180)),
-                (90, pil_crop.transpose(Image.ROTATE_270)),
-                (270, pil_crop.transpose(Image.ROTATE_90)),
-            ]
+            is_vertical_crop = roi_h > 1.15 * roi_w
+            if is_vertical_crop:
+                orientations = [
+                    (90, pil_crop.transpose(Image.ROTATE_270)),
+                    (270, pil_crop.transpose(Image.ROTATE_90)),
+                    (0, pil_crop),
+                    (180, pil_crop.transpose(Image.ROTATE_180)),
+                ]
+            else:
+                orientations = [
+                    (0, pil_crop),
+                    (180, pil_crop.transpose(Image.ROTATE_180)),
+                    (90, pil_crop.transpose(Image.ROTATE_270)),
+                    (270, pil_crop.transpose(Image.ROTATE_90)),
+                ]
                 
             best_text = ""
             best_overall_score = -9999
@@ -1239,8 +1241,7 @@ def _detect_rooms_text_roi(
                             best_text = final_text
                             best_conf = r["conf"]
                             
-                        whitelist = ["BED", "BEDROOM", "HALLWAY", "BATH", "ENS", "KITCHEN", "DINING", "GARAGE", "LAUNDRY", "LIVING", "VOID", "STAIRS"]
-                        if r["conf"] > 0.6 and final_text in VALID_ROOM_WORDS and score > 75:
+                        if r["conf"] > 0.6 and final_text in VALID_ROOM_WORDS and score > 80 and not is_vertical_crop:
                             found_strong = True
                             
                     if found_strong:
@@ -1261,8 +1262,11 @@ def _detect_rooms_text_roi(
             if best_text and best_overall_score > 0:
                 res = {"text": best_text, "score": best_overall_score, "conf": best_conf, "candidates": sorted_cands}
                 ocr_cache[crop_hash] = res
+                save_ocr_debug_artifact(idx, roi_masked, [("pass", roi_masked)], sorted_cands, res)
                 return best_overall_score, best_text, best_conf, sorted_cands
                 
+            res = {"text": "UNKNOWN", "score": -9999, "conf": 0, "candidates": sorted_cands}
+            save_ocr_debug_artifact(idx, roi_masked, [("pass", roi_masked)], sorted_cands, res)
             return -9999, "", 0, sorted_cands
 
         # Attempt 1: Standard padding

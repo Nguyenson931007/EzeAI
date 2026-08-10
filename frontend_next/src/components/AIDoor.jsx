@@ -2,6 +2,7 @@ import React from 'react';
 import { getDoorCenterline, getBaseWallId, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, distancePointToSegment } from '@/utils/geometry';
 import { getDoorBoundingBox } from '@/engines/DoorArcLabelEngine';
 import { findParentWall } from '@/models/DoorTypeRegistry';
+import { setDoorGeometry } from '@/utils/doorGeometryCache';
 
 export default function AIDoor({
   door: d,
@@ -21,7 +22,8 @@ export default function AIDoor({
   onDoorContextMenu,
   realScale,
   onEdit,
-  checkAndResetIgnoreClick
+  checkAndResetIgnoreClick,
+  showLabels = true
 }) {
   const lastSelectedOnMouseDown = React.useRef(false);
   const maskPoly = (d.polygon && d.polygon.length >= 3)
@@ -83,7 +85,7 @@ export default function AIDoor({
   const widthLabel = displayWidthMm ? `${displayWidthMm}mm` : null;
   const widthSource = d.width_source || "geometry";
 
-  const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door";
+  const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door" || d.type === "sliding" || (d.doorTypeId && d.doorTypeId.includes("sliding"));
   const isWindow = (d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'))) && !isSliding;
 
   // Sliding Door Box Calculations
@@ -104,22 +106,47 @@ export default function AIDoor({
 
     let minDist = Infinity;
     let nearestWall = null;
-    for (const w of walls) {
-      if (!w.centerline || w.centerline.length !== 2) continue;
-      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
-      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+
+    if (d.parentWallId && walls && walls.length > 0) {
+      const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+      nearestWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
+    }
+
+    if (!nearestWall && walls && walls.length > 0) {
+      for (const w of walls) {
+        if (!w.centerline || w.centerline.length !== 2) continue;
+        const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+        const wdx = wp2.x - wp1.x;
+        const wdy = wp2.y - wp1.y;
+        const wLen = Math.hypot(wdx, wdy);
+        if (wLen === 0) continue;
+        const dist = Math.abs(wdx * (slidingCy - wp1.y) - wdy * (slidingCx - wp1.x)) / wLen;
+        if (dist < minDist && dist < 60) {
+          minDist = dist;
+          nearestWall = w;
+        }
+      }
+    }
+
+    if (nearestWall && nearestWall.centerline && nearestWall.centerline.length === 2) {
+      slidingHeight = nearestWall.thickness_px || 15;
+      const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
+      const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
       const wdx = wp2.x - wp1.x;
       const wdy = wp2.y - wp1.y;
       const wLen = Math.hypot(wdx, wdy);
-      if (wLen === 0) continue;
-      const dist = Math.abs(wdx * (slidingCy - wp1.y) - wdy * (slidingCx - wp1.x)) / wLen;
-      if (dist < minDist) {
-        minDist = dist;
-        nearestWall = w;
+      if (wLen > 0) {
+        // Project (slidingCx, slidingCy) onto wall centerline
+        const t = ((slidingCx - wp1.x) * wdx + (slidingCy - wp1.y) * wdy) / (wLen * wLen);
+        slidingCx = wp1.x + t * wdx;
+        slidingCy = wp1.y + t * wdy;
+
+        // Align slidingAngle to wall angle (0 tilt)
+        const wallAng = Math.atan2(wdy, wdx);
+        const dotVal = Math.cos(slidingAngle - wallAng);
+        slidingAngle = dotVal >= 0 ? wallAng : (wallAng + Math.PI);
       }
-    }
-    if (nearestWall) {
-      slidingHeight = nearestWall.thickness_px || 15;
     }
   }
 
@@ -326,90 +353,132 @@ export default function AIDoor({
       const maxY = Math.max(...allDoubleYs) + 12;
 
       clickPolyPoints = [h1, ...arc1pts, mid, ...arc2pts.slice().reverse(), h2];
+
+      if (d.id) {
+        setDoorGeometry(d.id, {
+          hinge: h1,
+          other: h2,
+          mid: mid,
+          O1: O1,
+          O2: O2,
+          a1Start: a1Start,
+          a1End: a1End,
+          a2Start: a2Start,
+          a2End: a2End,
+          type: 'double'
+        });
+      }
     } else {
       const n = polyPoints.length;
-      const straightSegments = [];
 
-      for (let i = 0; i < n; i++) {
-        let bestJ = (i + 1) % n;
-        let maxLen = Math.hypot(polyPoints[bestJ].x - polyPoints[i].x, polyPoints[bestJ].y - polyPoints[i].y);
-        
-        // Try to expand forward to find a longer collinear path
-        for (let step = 2; step < n; step++) {
-          const j = (i + step) % n;
-          const pA = polyPoints[i];
-          const pB = polyPoints[j];
-          const len = Math.hypot(pB.x - pA.x, pB.y - pA.y);
-          if (len < 5) break;
+      // ── Step 1: Build candidate segments with STRAIGHTNESS score ──
+      // For each starting vertex, expand along boundary.
+      // straightness = chordLength / pathLength  (1.0 = perfectly straight, < 1.0 = curved)
+      const candidates = [];
 
-          let isCollinear = true;
-          const dx = pB.x - pA.x;
-          const dy = pB.y - pA.y;
+      for (let startI = 0; startI < n; startI++) {
+        let pathLen = 0;
+        let bestChord = 0;
+        let bestEndI = (startI + 1) % n;
+        let bestPathLen = 0;
+        let bestStraightness = 0;
 
-          // Verify all intermediate vertices along the boundary path are within 3px of the line pA -> pB
-          for (let k = 1; k < step; k++) {
-            const idx = (i + k) % n;
-            const pC = polyPoints[idx];
-            const cross = dx * (pC.y - pA.y) - dy * (pC.x - pA.x);
-            const dist = Math.abs(cross) / len;
-            if (dist > 3.0) { // 3px tolerance
-              isCollinear = false;
-              break;
-            }
-          }
+        for (let step = 1; step < n - 1; step++) {
+          const prevI = (startI + step - 1) % n;
+          const curI  = (startI + step) % n;
+          const nextI = (startI + step + 1) % n;
 
-          if (isCollinear) {
-            bestJ = j;
-            maxLen = len;
-          } else {
-            break;
+          // Accumulate path length
+          pathLen += Math.hypot(
+            polyPoints[curI].x - polyPoints[prevI].x,
+            polyPoints[curI].y - polyPoints[prevI].y
+          );
+
+          // Chord from start to current vertex
+          const chordLen = Math.hypot(
+            polyPoints[curI].x - polyPoints[startI].x,
+            polyPoints[curI].y - polyPoints[startI].y
+          );
+          if (chordLen < 3) continue;
+
+          const straightness = chordLen / pathLen; // 1.0 = perfectly straight
+
+          // Stop expanding if straightness drops too low (clearly on arc)
+          if (straightness < 0.95) break;
+
+          // Track the longest segment that is still very straight
+          if (straightness >= 0.98 && chordLen > bestChord) {
+            bestChord = chordLen;
+            bestEndI = curI;
+            bestPathLen = pathLen;
+            bestStraightness = straightness;
           }
         }
 
-        straightSegments.push({
-          p1: polyPoints[i],
-          p2: polyPoints[bestJ],
-          len: maxLen
-        });
+        if (bestChord >= 5.0) {
+          candidates.push({
+            p1: polyPoints[startI],
+            p2: polyPoints[bestEndI],
+            len: bestChord,
+            straightness: bestStraightness
+          });
+        }
       }
 
-      // Find the pair of straight segments that are perpendicular and meet at a corner (hinge)
-      let bestPair = null;
-      let maxScore = -Infinity;
+      // ── Step 2: Pick e1 (frame) as wall-parallel, e2 (leaf) as non-overlapping ──
+      // RULE: The frame edge MUST be parallel to the parent/nearest wall.
+      // This prevents hypotenuse/diagonal edges from being selected as frames.
 
-      for (let i = 0; i < straightSegments.length; i++) {
-        for (let j = i + 1; j < straightSegments.length; j++) {
-          const s1 = straightSegments[i];
-          const s2 = straightSegments[j];
+      // Helper: check if two segments are geometrically the same edge
+      const isSameEdge = (seg1, seg2) => {
+        if (!seg1 || !seg2 || seg1.len < 1 || seg2.len < 1) return false;
+        const v1 = { x: (seg1.p2.x - seg1.p1.x) / seg1.len, y: (seg1.p2.y - seg1.p1.y) / seg1.len };
+        const v2 = { x: (seg2.p2.x - seg2.p1.x) / seg2.len, y: (seg2.p2.y - seg2.p1.y) / seg2.len };
+        const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+        if (dot <= 0.9) return false; // not parallel, definitely different edges
+        const midX = (seg2.p1.x + seg2.p2.x) / 2;
+        const midY = (seg2.p1.y + seg2.p2.y) / 2;
+        const perpDist = Math.abs(
+          (seg1.p2.x - seg1.p1.x) * (midY - seg1.p1.y) -
+          (seg1.p2.y - seg1.p1.y) * (midX - seg1.p1.x)
+        ) / seg1.len;
+        return perpDist < 15.0;
+      };
 
-          // Calculate unit direction vectors
-          const v1 = { x: (s1.p2.x - s1.p1.x) / s1.len, y: (s1.p2.y - s1.p1.y) / s1.len };
-          const v2 = { x: (s2.p2.x - s2.p1.x) / s2.len, y: (s2.p2.y - s2.p1.y) / s2.len };
-          const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+      // Find the nearest/parent wall direction
+      let nearestWallDir = null;
+      let nearestWallPerp = Infinity;
+      const polyCx = polyPoints.reduce((s, p) => s + p.x, 0) / n;
+      const polyCy = polyPoints.reduce((s, p) => s + p.y, 0) / n;
 
-          // Must be roughly perpendicular (angles between ~63 and ~117 degrees)
-          if (dot > 0.45) continue;
-
-          // Must share a corner (hinge point) within 30px
-          let shareCorner = false;
-          const pts1 = [s1.p1, s1.p2];
-          const pts2 = [s2.p1, s2.p2];
-          for (const pA of pts1) {
-            for (const pB of pts2) {
-              if (Math.hypot(pA.x - pB.x, pA.y - pB.y) < 30.0) {
-                shareCorner = true;
-                break;
-              }
-            }
-            if (shareCorner) break;
+      // Prefer parentWallId if available
+      if (d.parentWallId && walls && walls.length > 0) {
+        const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+        const parentWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
+        if (parentWall && parentWall.centerline && parentWall.centerline.length === 2) {
+          const C = { x: parentWall.centerline[0][0], y: parentWall.centerline[0][1] };
+          const D = { x: parentWall.centerline[1][0], y: parentWall.centerline[1][1] };
+          const wLen = Math.hypot(D.x - C.x, D.y - C.y);
+          if (wLen > 1) {
+            nearestWallDir = { x: (D.x - C.x) / wLen, y: (D.y - C.y) / wLen };
+            nearestWallPerp = Math.abs((D.x - C.x) * (polyCy - C.y) - (D.y - C.y) * (polyCx - C.x)) / wLen;
           }
-          if (!shareCorner) continue;
+        }
+      }
 
-          // Score is the sum of their lengths
-          const score = s1.len + s2.len;
-          if (score > maxScore) {
-            maxScore = score;
-            bestPair = [s1, s2];
+      // Fallback: find nearest wall by perpendicular distance to polygon centroid
+      if (!nearestWallDir && walls && walls.length > 0) {
+        for (const w of walls) {
+          if (!w.centerline || w.centerline.length !== 2) continue;
+          const C = { x: w.centerline[0][0], y: w.centerline[0][1] };
+          const D = { x: w.centerline[1][0], y: w.centerline[1][1] };
+          const wdx = D.x - C.x, wdy = D.y - C.y;
+          const wLen = Math.hypot(wdx, wdy);
+          if (wLen < 1) continue;
+          const perpDist = Math.abs(wdx * (polyCy - C.y) - wdy * (polyCx - C.x)) / wLen;
+          if (perpDist < nearestWallPerp) {
+            nearestWallPerp = perpDist;
+            nearestWallDir = { x: wdx / wLen, y: wdy / wLen };
           }
         }
       }
@@ -417,70 +486,73 @@ export default function AIDoor({
       let e1 = null;
       let e2 = null;
 
-      if (bestPair) {
-        e1 = bestPair[0];
-        e2 = bestPair[1];
-      } else {
-        // Fallback: select the two longest distinct (non-overlapping) straight segments
-        const sortedSegs = [...straightSegments].sort((a, b) => b.len - a.len);
-        if (sortedSegs.length > 0) {
-          e1 = sortedSegs[0];
+      if (nearestWallDir && candidates.length > 0) {
+        // Score each candidate by wall-parallelism (dot product with wall dir)
+        // and filter to only those that are truly parallel (dot > 0.85)
+        const wallParallelCandidates = [];
+        for (const c of candidates) {
+          if (c.len < 1) continue;
+          const uC = { x: (c.p2.x - c.p1.x) / c.len, y: (c.p2.y - c.p1.y) / c.len };
+          const dotVal = Math.abs(uC.x * nearestWallDir.x + uC.y * nearestWallDir.y);
+          if (dotVal > 0.85) {
+            wallParallelCandidates.push({ ...c, wallDot: dotVal });
+          }
         }
 
-        for (let i = 1; i < sortedSegs.length; i++) {
-          const candidate = sortedSegs[i];
-          if (!e1) {
-            e1 = candidate;
-            continue;
-          }
-          const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-          const v2 = { x: (candidate.p2.x - candidate.p1.x) / candidate.len, y: (candidate.p2.y - candidate.p1.y) / candidate.len };
-          const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
+        // Sort wall-parallel candidates by: parallelism desc, then length desc
+        wallParallelCandidates.sort((a, b) => {
+          const dDot = b.wallDot - a.wallDot;
+          if (Math.abs(dDot) > 0.01) return dDot;
+          return b.len - a.len;
+        });
 
-          if (dot > 0.9) {
-            const midX = (candidate.p1.x + candidate.p2.x) / 2;
-            const midY = (candidate.p1.y + candidate.p2.y) / 2;
-            const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
-            if (dist < 15.0) {
-              continue;
-            }
-          }
-          e2 = candidate;
+        // Pick e1 as the best wall-parallel candidate
+        if (wallParallelCandidates.length > 0) {
+          e1 = wallParallelCandidates[0];
+        }
+      }
+
+      // If no wall-parallel candidate found, fallback to straightness sort
+      if (!e1) {
+        candidates.sort((a, b) => {
+          const sDiff = b.straightness - a.straightness;
+          if (Math.abs(sDiff) > 0.001) return sDiff;
+          return b.len - a.len;
+        });
+        if (candidates.length > 0) e1 = candidates[0];
+      }
+
+      // Pick e2 as the best non-overlapping segment (from all candidates, sorted by straightness/length)
+      candidates.sort((a, b) => {
+        const sDiff = b.straightness - a.straightness;
+        if (Math.abs(sDiff) > 0.001) return sDiff;
+        return b.len - a.len;
+      });
+
+      for (const candidate of candidates) {
+        if (!e1) { e1 = candidate; continue; }
+        if (isSameEdge(e1, candidate)) continue;
+        e2 = candidate;
+        break;
+      }
+
+      // Last-resort fallback to raw individual edges
+      if (!e1 || !e2) {
+        const rawEdges = polyPoints.map((p, i) => {
+          const next = polyPoints[(i + 1) % n];
+          return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
+        }).sort((a, b) => b.len - a.len);
+
+        if (!e1 && rawEdges.length > 0) e1 = rawEdges[0];
+        for (const raw of rawEdges) {
+          if (e1 && isSameEdge(e1, raw)) continue;
+          e2 = raw;
           break;
-        }
-
-        // If still not found, fallback to raw simple edges
-        if (!e1 || !e2) {
-          const rawEdges = polyPoints.map((p, i) => {
-            const next = polyPoints[(i + 1) % polyPoints.length];
-            return { p1: p, p2: next, len: Math.hypot(p.x - next.x, p.y - next.y) };
-          });
-          rawEdges.sort((a, b) => b.len - a.len);
-          if (!e1 && rawEdges.length > 0) {
-            e1 = rawEdges.shift();
-          }
-          while (rawEdges.length > 0) {
-            const raw = rawEdges.shift();
-            if (e1) {
-              const v1 = { x: (e1.p2.x - e1.p1.x) / e1.len, y: (e1.p2.y - e1.p1.y) / e1.len };
-              const v2 = { x: (raw.p2.x - raw.p1.x) / raw.len, y: (raw.p2.y - raw.p1.y) / raw.len };
-              const dot = Math.abs(v1.x * v2.x + v1.y * v2.y);
-              if (dot > 0.9) {
-                const midX = (raw.p1.x + raw.p2.x) / 2;
-                const midY = (raw.p1.y + raw.p2.y) / 2;
-                const dist = Math.abs((e1.p2.x - e1.p1.x) * (midY - e1.p1.y) - (e1.p2.y - e1.p1.y) * (midX - e1.p1.x)) / e1.len;
-                if (dist < 15.0) continue;
-              }
-            }
-            e2 = raw;
-            break;
-          }
         }
       }
 
       let selected = [];
       if (e1 && e2) {
-        // Keep e1 and e2 in fixed deterministic geometric order
         selected = [e1, e2];
       }
 
@@ -513,21 +585,81 @@ export default function AIDoor({
           return null;
         }
         
-        const hingeX = (h1.x + h2.x) / 2;
-        const hingeY = (h1.y + h2.y) / 2;
-        
-        const r = Math.max(e1.len, e2.len);
+        let hingeX = (h1.x + h2.x) / 2;
+        let hingeY = (h1.y + h2.y) / 2;
+
         const len1 = Math.hypot(o1.x - hingeX, o1.y - hingeY);
         const len2 = Math.hypot(o2.x - hingeX, o2.y - hingeY);
 
         if (len1 > 1e-3 && len2 > 1e-3) {
-          const o1_proj = {
+          const r = Math.max(len1, len2);
+          let o1_proj = {
             x: hingeX + (o1.x - hingeX) * (r / len1),
             y: hingeY + (o1.y - hingeY) * (r / len1)
           };
+
+          // Project hinge and frame segment onto target wall centerline (0 offset, 0 tilt)
+          let targetParentWall = null;
+          if (d.parentWallId && walls && walls.length > 0) {
+            const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+            targetParentWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
+          }
+          if (!targetParentWall && walls && walls.length > 0) {
+            let minD = Infinity;
+            const cMid = { x: (hingeX + o1.x) / 2, y: (hingeY + o1.y) / 2 };
+            for (const w of walls) {
+              if (!w.centerline || w.centerline.length !== 2) continue;
+              const C1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+              const C2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+              const wdx = C2.x - C1.x, wdy = C2.y - C1.y;
+              const wLen = Math.hypot(wdx, wdy);
+              if (wLen < 1) continue;
+              const dist = Math.abs(wdx * (cMid.y - C1.y) - wdy * (cMid.x - C1.x)) / wLen;
+              if (dist < minD && dist < 60) {
+                minD = dist;
+                targetParentWall = w;
+              }
+            }
+          }
+
+          if (targetParentWall && targetParentWall.centerline && targetParentWall.centerline.length === 2) {
+            const C1 = { x: targetParentWall.centerline[0][0], y: targetParentWall.centerline[0][1] };
+            const C2 = { x: targetParentWall.centerline[1][0], y: targetParentWall.centerline[1][1] };
+            const wdx = C2.x - C1.x;
+            const wdy = C2.y - C1.y;
+            const wLen = Math.hypot(wdx, wdy);
+            if (wLen > 1) {
+              const uW = { x: wdx / wLen, y: wdy / wLen };
+              const tHing = ((hingeX - C1.x) * wdx + (hingeY - C1.y) * wdy) / (wLen * wLen);
+              hingeX = C1.x + tHing * wdx;
+              hingeY = C1.y + tHing * wdy;
+
+              const origFrameDx = o1.x - h1.x;
+              const origFrameDy = o1.y - h1.y;
+              const dotW = origFrameDx * uW.x + origFrameDy * uW.y;
+              const alignedUF = dotW >= 0 ? uW : { x: -uW.x, y: -uW.y };
+
+              o1_proj = {
+                x: hingeX + r * alignedUF.x,
+                y: hingeY + r * alignedUF.y
+              };
+            }
+          }
+
+          // Compute exact 90-degree perpendicular leaf vector
+          const u_frame = { x: (o1_proj.x - hingeX) / r, y: (o1_proj.y - hingeY) / r };
+          const n1 = { x: -u_frame.y, y: u_frame.x };
+          const n2 = { x: u_frame.y, y: -u_frame.x };
+
+          const rawDx2 = o2.x - hingeX;
+          const rawDy2 = o2.y - hingeY;
+          const dot1 = rawDx2 * n1.x + rawDy2 * n1.y;
+          const dot2 = rawDx2 * n2.x + rawDy2 * n2.y;
+          const norm = dot1 >= dot2 ? n1 : n2;
+
           const o2_proj = {
-            x: hingeX + (o2.x - hingeX) * (r / len2),
-            y: hingeY + (o2.y - hingeY) * (r / len2)
+            x: hingeX + r * norm.x,
+            y: hingeY + r * norm.y
           };
 
           const dx1 = o1_proj.x - hingeX;
@@ -571,7 +703,7 @@ export default function AIDoor({
           ];
 
           let wallDetectedFrameIndex = -1;
-          let targetParentWall = null;
+          targetParentWall = null;
           if (d.parentWallId && walls && walls.length > 0) {
             const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
             targetParentWall = walls.find(w => w.id === d.parentWallId || (getBaseWallId && getBaseWallId(w.id) === baseParentId));
@@ -672,6 +804,28 @@ export default function AIDoor({
         }
       }
     }
+  }
+
+  if (d.id && topEdges && topEdges.length === 2 && topEdges[frameEdgeIndex]) {
+    const frameSeg = topEdges[frameEdgeIndex];
+    const leafSeg = topEdges[1 - frameEdgeIndex];
+    const h = frameSeg.p1;
+    const fEnd = frameSeg.p2;
+    const lEnd = leafSeg.p2;
+    const startAng = Math.atan2(fEnd.y - h.y, fEnd.x - h.x);
+    const endAng = Math.atan2(lEnd.y - h.y, lEnd.x - h.x);
+    let sweepRad = endAng - startAng;
+    if (sweepRad > Math.PI) sweepRad -= 2 * Math.PI;
+    if (sweepRad < -Math.PI) sweepRad += 2 * Math.PI;
+
+    setDoorGeometry(d.id, {
+      hinge: h,
+      other: fEnd,
+      arcEnd: lEnd,
+      startAngle: startAng,
+      sweepAngleRad: sweepRad,
+      type: 'single'
+    });
   }
 
   const isDraggingThis = dragging && dragging.id === d.id;
@@ -1185,77 +1339,83 @@ export default function AIDoor({
         </>
       )}
 
-      {/* OCR Width Dimension Label (Editable) */}
-      {widthLabel && (
-        <g 
-          style={{ pointerEvents: 'auto', cursor: isSelected ? 'text' : 'pointer' }}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!isSelected) {
-              setSelectedId(d.id);
-              setSelectedType("door");
-            } else {
-              const nw = prompt("Enter door width (mm):", d.width_mm || "");
-              if (nw !== null && !isNaN(parseInt(nw, 10)) && updateDoor) {
-                updateDoor({...d, width_mm: parseInt(nw, 10), width_source: "manual"});
-              }
-            }
-          }}
-        >
-          <rect
-            x={cxAvg - 28}
-            y={cyAvg - 8}
-            width={56}
-            height={16}
-            rx={3}
-            fill="rgba(15, 23, 42, 0.85)"
-            stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#6b7280")}
-            strokeWidth={0.8}
-          />
-          <text
-            x={cxAvg}
-            y={cyAvg + 4}
-            fontSize="10"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#9ca3af")}
-            fontWeight="bold"
-            fontFamily="Inter, monospace"
-          >
-            {widthLabel}
-          </text>
-        </g>
-      )}
+      {/* OCR Width Dimension Label & Door ID Label (Shown when showLabels is true) */}
+      {showLabels && (
+        <>
+          {widthLabel && (
+            <g 
+              style={{ pointerEvents: isSelected ? 'auto' : 'none', cursor: isSelected ? 'text' : 'pointer' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isSelected) {
+                  setSelectedId(d.id);
+                  setSelectedType("door");
+                } else {
+                  const nw = prompt("Enter door width (mm):", d.width_mm || "");
+                  if (nw !== null && !isNaN(parseInt(nw, 10)) && updateDoor) {
+                    updateDoor({...d, width_mm: parseInt(nw, 10), width_source: "manual"});
+                  }
+                }
+              }}
+            >
+              <rect
+                x={cxAvg - 23}
+                y={cyAvg - 7}
+                width={46}
+                height={14}
+                rx={3}
+                fill="rgba(15, 23, 42, 0.88)"
+                stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#6b7280")}
+                strokeWidth={1}
+                style={{ pointerEvents: 'none' }}
+              />
+              <text
+                x={cxAvg}
+                y={cyAvg}
+                fontSize="9"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#9ca3af")}
+                fontWeight="600"
+                fontFamily="Inter, monospace"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {widthLabel}
+              </text>
+            </g>
+          )}
 
-      {/* Door Class Name / Door ID Label */}
-      <g 
-        transform={`translate(${cxAvg}, ${cyAvg - 20})`} 
-        style={{ pointerEvents: 'none' }}
-      >
-        {isSelected && (
-          <rect
-            x={-35}
-            y={-10}
-            width={70}
-            height={20}
-            rx={4}
-            fill="#FF5722"
-            opacity={0.9}
-          />
-        )}
-        <text
-          x={0}
-          y={4}
-          fill={isSelected ? "#ffffff" : "#1e293b"}
-          fontSize={11}
-          fontWeight="bold"
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          style={{ textShadow: isSelected ? 'none' : '0 0 2px white' }}
-        >
-          {d.door_name || (d.class ? d.class.replace('_door', '') : 'Door')}
-        </text>
-      </g>
+          {/* Door Class Name / Door ID Label */}
+          <g 
+            transform={`translate(${cxAvg}, ${cyAvg - 15})`} 
+            style={{ pointerEvents: 'none' }}
+          >
+            {isSelected && (
+              <rect
+                x={-28}
+                y={-8}
+                width={56}
+                height={16}
+                rx={4}
+                fill="#FF5722"
+                opacity={0.95}
+              />
+            )}
+            <text
+              x={0}
+              y={0}
+              fill={isSelected ? "#ffffff" : "#1e293b"}
+              fontSize={10}
+              fontWeight="600"
+              textAnchor="middle"
+              alignmentBaseline="middle"
+              style={{ textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white', userSelect: 'none' }}
+            >
+              {d.doorName || d.door_name || (d.class ? d.class.replace('_door', '') : 'Door')}
+            </text>
+          </g>
+        </>
+      )}
 
       {/* Flip Buttons when selected (hidden during drag) */}
       {isSelected && !dragging && updateDoor && (
