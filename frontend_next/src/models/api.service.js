@@ -576,5 +576,32 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  // ── FrameWork Jobs (MSSQL emsflow) ──
+  async fetchFrameworkJobs() {
+    const res = await fetch(`${BASE_URL}/api/framework/jobs`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async checkFrameworkHealth() {
+    const res = await fetch(`${BASE_URL}/api/framework/health`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveFrameworkWall(payload) {
+    const res = await fetch(`${BASE_URL}/api/framework/save`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };

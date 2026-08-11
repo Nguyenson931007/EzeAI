@@ -36,6 +36,13 @@ MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 MYSQL_DB = os.getenv("MYSQL_DB", "ezefloor")
 
+# MSSQL (emsflow - FrameWork / Jobs)
+MSSQL_HOST = os.getenv("MSSQL_HOST", "103.77.167.69")
+MSSQL_PORT = int(os.getenv("MSSQL_PORT", "1433"))
+MSSQL_USER = os.getenv("MSSQL_USER", "ezequotedl2050")
+MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "!(EzequoteDL2050*^")
+MSSQL_DB = os.getenv("MSSQL_DB", "emsflow")
+
 # ── CORS Configuration ──
 _cors_env = os.getenv("CORS_ORIGINS")
 if _cors_env:
