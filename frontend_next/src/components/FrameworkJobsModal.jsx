@@ -1,16 +1,15 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
+import { useAppModel } from "@/models/app.context";
 
 /**
  * FrameworkJobsModal – Modal bóc tách khối lượng tường & phân loại sàn theo FrameWork Jobs (MSSQL emsflow)
- * 
- * ĐÃ CẬP NHẬT THEO YÊU CẦU MỚI:
- * 1. Nút Refresh (🔄 Refresh): Load dữ liệu mới nhất trực tiếp từ cơ sở dữ liệu MSSQL (Bảng FrameWork) và reset buffer chỉnh sửa tạm thời.
- * 2. Nút Auto-Calculate & Fill: Hỗ trợ bóc tách nhiều trang/nhiều tầng (Multi-page / Multi-level).
- *    Khi thêm trang mới (ví dụ Tầng 2), nút Auto-Fill sẽ lấy [Giá trị mới vừa chạy từ AI Canvas] CỘNG VỚI [Giá trị cũ đã lưu trong Database]
- *    để ra tổng khối lượng cho toàn bộ căn nhà!
  */
 export default function FrameworkJobsModal({ visible, onClose, walls = [], scaleValue, realScale }) {
+  // Lấy thông tin tài khoản đang đăng nhập và dữ liệu các trang từ AppContext (backend/api/auth.py)
+  const { user, pages = [], wallsByPage = {}, scalesByPage = {} } = useAppModel();
+  const currentUserUpdate = user?.username || user?.name || "Katherine";
+
   // ══════════════════════════════════════════════════════
   // 1. TRẠNG THÁI GIAO DIỆN & DỮ LIỆU (STATE)
   // ══════════════════════════════════════════════════════
@@ -45,6 +44,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   /** Tập hợp các keys của các dòng đã lưu thành công (hiển thị hiệu ứng đã lưu) */
   const [savedKeys, setSavedKeys] = useState(new Set());
 
+  /** Trạng thái hiển thị 3 cột phân tách 2 tầng (Tầng 1 DB + Tầng 2 AI = Tổng 2 tầng) sau khi bấm Auto-Calculate */
+  const [isAccumulatedView, setIsAccumulatedView] = useState(false);
+
+  /** Modal popup xem chi tiết bóc tách độc lập của tất cả các tầng (5 tầng / N tầng) */
+  const [showMultiFloorModal, setShowMultiFloorModal] = useState(false);
+
+  /** Chế độ xem trong Multi-Floor Modal: 'matrix' (Nhóm theo chiều cao như hình 4) hoặc 'byFloor' (Theo từng tầng) */
+  const [multiFloorViewMode, setMultiFloorViewMode] = useState("matrix");
+
   // ══════════════════════════════════════════════════════
   // 2. KHỞI TẠO & ĐỒNG BỘ CONFIG (EFFECTS)
   // ══════════════════════════════════════════════════════
@@ -62,6 +70,24 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   // (Đồng bộ với logic write_walls_with_height_groups trong takeoff_exporter.py)
   // ══════════════════════════════════════════════════════
 
+  /** Helper chuẩn hóa tính mm từ px và scale factor của từng trang */
+  const computeMmLength = (lenPx, pScale, pRealScale) => {
+    if (!lenPx || lenPx <= 0) return 0;
+    const s = (pScale !== undefined && pScale !== null && pScale > 0)
+      ? pScale
+      : (pRealScale && pRealScale > 0 ? pRealScale : null);
+
+    if (!s) return Math.round(lenPx);
+
+    if (s < 0.5) {
+      // scale được lưu dạng mét/pixel (ví dụ 0.005 m/px)
+      return Math.round(lenPx * s * 1000);
+    } else {
+      // scale được lưu dạng mm/pixel (ví dụ 5.2 mm/px)
+      return Math.round(lenPx * s);
+    }
+  };
+
   /** Tính chiều dài thực tế (mm) cho 1 đoạn tường trên Canvas */
   const calculateWallSegmentLengthMm = (w) => {
     const c = w.centerline;
@@ -69,13 +95,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     const dx = c[1][0] - c[0][0];
     const dy = c[1][1] - c[0][1];
     const lenPx = Math.hypot(dx, dy);
-    let lenMm = 0;
-    if (scaleValue) {
-      lenMm = lenPx * scaleValue * 1000;
-    } else if (realScale && realScale !== 1.0) {
-      lenMm = lenPx * realScale;
-    }
-    return Math.round(lenMm);
+    return computeMmLength(lenPx, scaleValue, realScale);
   };
 
   /** Phân nhóm tường Canvas theo (Loại sàn + Chiều cao tường) */
@@ -120,6 +140,156 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   }, [aiCanvasGroupsMap]);
 
   // ══════════════════════════════════════════════════════
+  // 3.5 BÓC TÁCH KHỐI LƯỢNG TƯỜNG THEO TỪNG TẦNG (PER-FLOOR / MULTI-PAGE BREAKDOWN)
+  // ══════════════════════════════════════════════════════
+
+  /** Chi tiết bóc tách từng tầng / từng trang bản vẽ (Tầng 1, Tầng 2, Tầng 3, Tầng 4, Tầng 5...) */
+  const perPageBreakdown = useMemo(() => {
+    const pageIndices = new Set([
+      ...pages.map((_, i) => i),
+      ...Object.keys(wallsByPage || {}).map(Number)
+    ]);
+
+    if (pageIndices.size === 0) pageIndices.add(0);
+    const sortedIndices = Array.from(pageIndices).sort((a, b) => a - b);
+
+    return sortedIndices.map(pIdx => {
+      const pageWalls = (wallsByPage && wallsByPage[pIdx]) ? wallsByPage[pIdx] : (pIdx === 0 ? walls : []);
+      const pageScale = (scalesByPage && scalesByPage[pIdx] !== undefined) ? scalesByPage[pIdx] : scaleValue;
+
+      const groupsMap = {};
+      let timberMm = 0;
+      let slabMm = 0;
+
+      pageWalls.forEach(w => {
+        const c = w.centerline;
+        if (!c || !Array.isArray(c) || c.length !== 2) return;
+        const dx = c[1][0] - c[0][0];
+        const dy = c[1][1] - c[0][1];
+        const lenPx = Math.hypot(dx, dy);
+
+        const lenMm = computeMmLength(lenPx, pageScale, realScale);
+        if (lenMm <= 0) return;
+
+        const isSlab = (w.floor_type || "Timber") === "Slab";
+        const floorType = isSlab ? "Slab" : "Timber";
+        const hMm = Number(w.height_mm || w.height || 2700);
+
+        if (isSlab) slabMm += lenMm;
+        else timberMm += lenMm;
+
+        const key = `${floorType}_${hMm}`;
+        if (!groupsMap[key]) groupsMap[key] = 0;
+        groupsMap[key] += lenMm;
+      });
+
+      const pageObj = pages[pIdx];
+      const pageTitle = pageObj?.name || pageObj?.title || `Floor ${pIdx + 1} (Page ${pIdx + 1})`;
+
+      return {
+        pageIndex: pIdx,
+        pageName: pageTitle,
+        pageScale,
+        wallsCount: pageWalls.length,
+        timberMm,
+        slabMm,
+        totalMm: timberMm + slabMm,
+        groupsMap
+      };
+    });
+  }, [pages, wallsByPage, scalesByPage, walls, scaleValue, realScale]);
+
+  /** Tổng hợp khối lượng của TẤT CẢ các tầng cộng lại */
+  const grandTotalAllFloorsSummary = useMemo(() => {
+    let timberTotalMm = 0;
+    let slabTotalMm = 0;
+    let totalWallsCount = 0;
+
+    perPageBreakdown.forEach(p => {
+      timberTotalMm += p.timberMm;
+      slabTotalMm += p.slabMm;
+      totalWallsCount += p.wallsCount;
+    });
+
+    return {
+      timberMeters: (timberTotalMm / 1000).toFixed(2),
+      slabMeters: (slabTotalMm / 1000).toFixed(2),
+      grandTotalMeters: ((timberTotalMm + slabTotalMm) / 1000).toFixed(2),
+      timberTotalMm,
+      slabTotalMm,
+      grandTotalMm: timberTotalMm + slabTotalMm,
+      totalWallsCount,
+      pageCount: perPageBreakdown.length
+    };
+  }, [perPageBreakdown]);
+
+  /** Tổng hợp danh sách nhóm (Loại sàn + Chiều cao) của TẤT CẢ các tầng cho Modal Popup (Giống Hình 4) */
+  const allHeightGroupRows = useMemo(() => {
+    const groups = [];
+    const heights = [2100, 2400, 2700, 3000, 3300, 3600];
+    const floorTypes = ["Timber", "Slab"];
+
+    floorTypes.forEach(ft => {
+      heights.forEach(h => {
+        const key = `${ft}_${h}`;
+        let totalMm = 0;
+        const pageLengthsMm = {};
+
+        perPageBreakdown.forEach(p => {
+          const len = (p.groupsMap && p.groupsMap[key]) ? p.groupsMap[key] : 0;
+          pageLengthsMm[p.pageIndex] = len;
+          totalMm += len;
+        });
+
+        groups.push({
+          key,
+          floorType: ft,
+          height: h,
+          totalMm,
+          pageLengthsMm
+        });
+      });
+    });
+
+    const activeGroups = groups.filter(g => g.totalMm > 0);
+    return activeGroups.length > 0 ? activeGroups : groups;
+  }, [perPageBreakdown]);
+
+  /** Áp dụng khối lượng của TẤT CẢ CÁC TẦNG vào bảng bóc tách của Job */
+  const applyAllFloorsTotalToJob = () => {
+    const newEdits = {};
+
+    groupedJobRows.forEach(jobGroup => {
+      jobGroup.subRows.forEach(row => {
+        const isSlab = row.floorType === "Slab";
+        const targetFloorType = isSlab ? "Slab" : "Timber";
+        const rowHeight = getDisplayHeight(row);
+        const heightKey = `${targetFloorType}_${rowHeight}`;
+
+        // Lấy tổng chiều dài mm từ TẤT CẢ các tầng cho mốc chiều cao này
+        let sumAllPagesMm = 0;
+        perPageBreakdown.forEach(p => {
+          if (p.groupsMap && p.groupsMap[heightKey]) {
+            sumAllPagesMm += p.groupsMap[heightKey];
+          }
+        });
+
+        if (sumAllPagesMm > 0) {
+          newEdits[row.rowKey] = {
+            ...editedData[row.rowKey],
+            wall_length: Math.round(sumAllPagesMm),
+            wall_height: rowHeight
+          };
+        }
+      });
+    });
+
+    setEditedData(prev => ({ ...prev, ...newEdits }));
+    setIsAccumulatedView(true);
+    setShowMultiFloorModal(false);
+  };
+
+  // ══════════════════════════════════════════════════════
   // 4. GỌI API LẤY DỮ LIỆU TỪ SERVER (API FETCHING & REFRESH)
   // ══════════════════════════════════════════════════════
 
@@ -134,8 +304,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       const res = await ApiService.fetchFrameworkJobs();
       if (res.success && res.data) {
         setJobsData(res.data);
-        // Reset lại dữ liệu đang sửa tạm thời để cập nhật theo Database mới nhất
+        // Reset lại dữ liệu đang sửa tạm thời và chế độ xem 2 tầng
         setEditedData({});
+        setIsAccumulatedView(false);
       } else {
         setError(res.detail || "Không thể tải danh sách Jobs từ MSSQL.");
       }
@@ -325,20 +496,42 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return row.height;
   }
 
-  /** Lấy chiều dài (mm) hiển thị cho 1 sub-row (Ưu tiên: Edit > DB > AI) */
+  /** Lấy chiều dài (mm) hiển thị cho 1 sub-row (Ưu tiên: Edit > SQL DB > AI Canvas) */
   function getDisplayLength(row) {
+    // 1. Ưu tiên giá trị người dùng đang chỉnh sửa trên UI
     if (editedData[row.rowKey]?.wall_length !== undefined && editedData[row.rowKey]?.wall_length !== "") {
       return editedData[row.rowKey].wall_length;
     }
-    if (row.dbLength != null && row.dbLength !== 0 && row.dbLength !== "0") {
+
+    // 2. Ưu tiên giá trị gốc lấy trực tiếp từ MSSQL Database (row.dbLength)
+    if (row.dbLength != null && row.dbLength !== 0 && row.dbLength !== "0" && row.dbLength !== "") {
       return row.dbLength;
     }
+
+    // 3. Nếu DB chưa có thì mới lấy gợi ý từ AI Canvas
     if (row.aiLength > 0) return row.aiLength;
     return "";
   }
 
-  /** Chỉnh sửa chiều cao cho 1 sub-row */
+  /** Chỉnh sửa chiều cao cho 1 sub-row (Hỗ trợ chọn chiều cao tùy chỉnh Custom...) */
   function handleHeightChange(row, value) {
+    if (value === "CUSTOM") {
+      const currentH = getDisplayHeight(row) || 2700;
+      const customVal = prompt("Enter Custom Wall Height in mm (e.g. 2450, 2850):", currentH);
+      if (customVal !== null && customVal.trim() !== "") {
+        const numVal = Number(customVal.trim());
+        if (!isNaN(numVal) && numVal > 0) {
+          setEditedData(prev => ({
+            ...prev,
+            [row.rowKey]: { ...prev[row.rowKey], wall_height: numVal }
+          }));
+        } else {
+          alert("Invalid wall height! Please enter a positive number.");
+        }
+      }
+      return;
+    }
+
     setEditedData(prev => ({
       ...prev,
       [row.rowKey]: { ...prev[row.rowKey], wall_height: Number(value) }
@@ -365,56 +558,87 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
   /**
    * Nút "⚡ Auto-Calculate & Fill":
-   * ĐÃ CẬP NHẬT MULTI-PAGE ACCUMULATION LOGIC:
-   * Khi người dùng thêm trang mới (ví dụ Tầng 2), nút này sẽ lấy:
-   * [Giá trị cũ trong DB] + [Giá trị AI vừa tính trên trang mới]
-   * để cộng dồn ra tổng khối lượng toàn bộ căn nhà!
+   * Lấy chiều dài wall_height/floor_type đã lưu trong DB (hoặc các tầng cũ)
+   * cộng với khối lượng bóc tách AI độc lập của tầng/trang hiện tại!
    */
   function applyAILengthsToAll() {
     const newEdits = {};
     groupedJobRows.forEach(jobGroup => {
       jobGroup.subRows.forEach(row => {
-        if (row.aiLength > 0) {
-          // Lấy giá trị DB cũ (nếu có)
-          const existingDbMm = parseFloat(row.dbLength) || 0;
-          // Cộng dồn: Giá trị cũ DB + Giá trị mới phát hiện trên Canvas trang hiện tại
-          const accumulatedMm = Math.round(existingDbMm + row.aiLength);
+        const rowHeight = getDisplayHeight(row);
+        const hKey = `${row.floorType === "Slab" ? "Slab" : "Timber"}_${rowHeight}`;
 
+        let sumAllPagesMm = 0;
+        perPageBreakdown.forEach((p, pIdx) => {
+          let pageMm = (p.groupsMap && p.groupsMap[hKey]) ? p.groupsMap[hKey] : 0;
+          if (pIdx === 0 && pageMm === 0 && row.dbLength != null && row.dbLength !== 0 && row.dbLength !== "0") {
+            pageMm = parseFloat(row.dbLength) || 0;
+          }
+          sumAllPagesMm += pageMm;
+        });
+
+        if (sumAllPagesMm > 0) {
           newEdits[row.rowKey] = {
             ...editedData[row.rowKey],
-            wall_length: accumulatedMm,
-            wall_height: getDisplayHeight(row)
+            wall_length: Math.round(sumAllPagesMm),
+            wall_height: rowHeight
           };
         }
       });
     });
     setEditedData(prev => ({ ...prev, ...newEdits }));
+    setIsAccumulatedView(true);
   }
 
-  /** Lưu 1 sub-row vào MSSQL bảng FrameWork */
-  async function saveSingleRow(row) {
-    const lenVal = parseFloat(getDisplayLength(row)) || 0;
-    if (lenVal <= 0) return false;
+  /** Lưu 1 sub-row (hoặc toàn bộ sub-rows của Job chứa dòng đó) vào MSSQL bảng FrameWork qua endpoint POST /api/framework/save-jobs */
+  async function saveSingleRow(targetRow) {
+    const parentJobGroup = groupedJobRows.find(j => String(j.IDJob_HW) === String(targetRow.IDJob_HW));
+    if (!parentJobGroup) return false;
 
-    const rowHeight = getDisplayHeight(row);
-    setSavingKey(row.rowKey);
+    const wallsList = [];
+    const seenHeightsMap = {};
+
+    parentJobGroup.subRows.forEach(row => {
+      const lenVal = parseFloat(getDisplayLength(row)) || 0;
+      if (lenVal > 0) {
+        const rowHeight = getDisplayHeight(row);
+        const floorType = row.floorType === "Slab" ? "Slab" : "Timber";
+        const heightKey = `${floorType}_${rowHeight}`;
+
+        if (!seenHeightsMap[heightKey]) {
+          seenHeightsMap[heightKey] = true;
+          wallsList.push({
+            floor_type: floorType,
+            wall_height: rowHeight,
+            wall_length: Math.round(lenVal)
+          });
+        }
+      }
+    });
+
+    if (wallsList.length === 0) return false;
+
+    setSavingKey(targetRow.rowKey);
 
     try {
-      const res = await ApiService.saveFrameworkWall({
-        framework_id: row.framework_id || null,
-        id_job_hw: row.IDJob_HW,
-        wall_height: rowHeight,
-        wall_length: Math.round(lenVal),
-        floor_type: row.floorType,
-      });
+      const payload = {
+        user_update: currentUserUpdate,
+        jobs: [
+          {
+            id_job_hw: parentJobGroup.IDJob_HW,
+            walls: wallsList
+          }
+        ]
+      };
+      const res = await ApiService.saveFrameworkJobs(payload);
       if (res.success) {
-        setSavedKeys(prev => new Set(prev).add(row.rowKey));
+        setSavedKeys(prev => new Set(prev).add(targetRow.rowKey));
         setTimeout(() => setSavedKeys(prev => {
           const next = new Set(prev);
-          next.delete(row.rowKey);
+          next.delete(targetRow.rowKey);
           return next;
         }), 2500);
-        await loadJobsList(); // Refresh lại dữ liệu DB sau khi lưu thành công
+        await loadJobsList();
         return true;
       }
     } catch (e) {
@@ -425,44 +649,49 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return false;
   }
 
-  /** Nút "💾 Save All Jobs": Lưu đồng loạt tất cả các dòng vào MSSQL */
   async function saveAllRows() {
     setIsSavingAll(true);
-    let countSaved = 0;
     try {
+      const jobsMap = {};
       for (const jobGroup of groupedJobRows) {
+        const jobIdKey = String(jobGroup.IDJob_HW);
         for (const row of jobGroup.subRows) {
           const lenVal = parseFloat(getDisplayLength(row)) || 0;
           if (lenVal > 0) {
             const rowHeight = getDisplayHeight(row);
-            const res = await ApiService.saveFrameworkWall({
-              framework_id: row.framework_id || null,
-              id_job_hw: row.IDJob_HW,
-              wall_height: rowHeight,
-              wall_length: Math.round(lenVal),
-              floor_type: row.floorType,
-            });
-            if (res.success) {
-              setSavedKeys(prev => new Set(prev).add(row.rowKey));
-              countSaved++;
+            const floorType = row.floorType === "Slab" ? "Slab" : "Timber";
+            const heightKey = `${floorType}_${rowHeight}`;
+            if (!jobsMap[jobIdKey]) {
+              jobsMap[jobIdKey] = { id_job_hw: jobGroup.IDJob_HW, wallsMap: {} };
             }
+            jobsMap[jobIdKey].wallsMap[heightKey] = {
+              floor_type: floorType,
+              wall_height: rowHeight,
+              wall_length: Math.round(lenVal)
+            };
           }
         }
       }
-      if (countSaved > 0) {
+      const jobsList = Object.values(jobsMap).map(j => ({
+        id_job_hw: j.id_job_hw,
+        walls: Object.values(j.wallsMap)
+      }));
+      if (jobsList.length === 0) {
+        setIsSavingAll(false);
+        return;
+      }
+      const payload = { user_update: currentUserUpdate, jobs: jobsList };
+      const res = await ApiService.saveFrameworkJobs(payload);
+      if (res.success) {
         await loadJobsList();
       }
     } catch (e) {
-      console.error("Lỗi khi lưu đồng loạt (Save All):", e);
+      console.error("Lỗi khi lưu đồng loạt (Save All Jobs):", e);
     } finally {
       setIsSavingAll(false);
       setTimeout(() => setSavedKeys(new Set()), 3000);
     }
   }
-
-  // ══════════════════════════════════════════════════════
-  // 9. HIỂN THỊ GIAO DIỆN (RENDER JSX)
-  // ══════════════════════════════════════════════════════
 
   if (!visible) return null;
 
@@ -470,7 +699,6 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
   return (
     <>
-      {/* Backdrop mờ phía sau modal */}
       <div
         onClick={onClose}
         style={{
@@ -479,7 +707,6 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         }}
       />
 
-      {/* Modal Container */}
       <div style={{
         position: "fixed", top: "50%", left: "50%",
         transform: "translate(-50%, -50%)",
@@ -492,8 +719,6 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         overflow: "hidden", color: "#e1e4ea",
         fontFamily: "Inter, system-ui, sans-serif"
       }}>
-
-        {/* ── HEADER MODAL ── */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "14px 24px",
@@ -511,34 +736,40 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
               </span>
             </div>
           </div>
-
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {currentStep === 2 && (
-              <button
-                onClick={() => setCurrentStep(1)}
-                style={btnStyle("#94a3b8")}
-              >
-                ← Back to Jobs
-              </button>
+              <button onClick={() => setCurrentStep(1)} style={btnStyle("#94a3b8")}>← Back to Jobs</button>
             )}
-
             {currentStep === 2 && (
-              <button
-                onClick={saveAllRows}
-                disabled={isSavingAll || loading || groupedJobRows.length === 0}
-                style={{
-                  background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
-                  border: "none", color: "#fff", borderRadius: 8, padding: "6px 16px",
-                  fontSize: 12, fontWeight: 700, cursor: isSavingAll ? "wait" : "pointer",
-                  boxShadow: "0 2px 10px rgba(34,197,94,0.3)",
-                  transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
-                }}
-              >
-                {isSavingAll ? "⏳ Saving All..." : "💾 Save All Jobs"}
-              </button>
+              <>
+                <button
+                  onClick={() => setShowMultiFloorModal(true)}
+                  style={{
+                    background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+                    border: "none", color: "#fff", borderRadius: 8, padding: "6px 14px",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    boxShadow: "0 2px 10px rgba(139,92,246,0.3)",
+                    transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
+                  }}
+                  title="Xem chi tiết bóc tách khối lượng tường của tất cả các tầng"
+                >
+                  🏢 View Per-Floor Breakdown ({perPageBreakdown.length} Floors)
+                </button>
+                <button
+                  onClick={saveAllRows}
+                  disabled={isSavingAll || loading || groupedJobRows.length === 0}
+                  style={{
+                    background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                    border: "none", color: "#fff", borderRadius: 8, padding: "6px 16px",
+                    fontSize: 12, fontWeight: 700, cursor: isSavingAll ? "wait" : "pointer",
+                    boxShadow: "0 2px 10px rgba(34,197,94,0.3)",
+                    transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
+                  }}
+                >
+                  {isSavingAll ? "⏳ Saving All..." : "💾 Save All Jobs"}
+                </button>
+              </>
             )}
-
-            {/* Nút Refresh: Tải lại dữ liệu trực tiếp từ MSSQL và reset chỉnh sửa tạm */}
             <button onClick={loadJobsList} disabled={loading} style={btnStyle("#3b82f6")}>
               {loading ? "⏳ Loading..." : "🔄 Refresh"}
             </button>
@@ -546,7 +777,6 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           </div>
         </div>
 
-        {/* ── THANH CHỌN JOB VÀ TÌM KIẾM ── */}
         <div style={{
           padding: "12px 24px",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
@@ -577,7 +807,6 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
               ))}
             </select>
           </div>
-
           <div style={{ flex: 1.5, minWidth: 260 }}>
             <input
               type="text"
@@ -595,9 +824,6 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════════════ */}
-        {/* STEP 1: DANH SÁCH TẤT CẢ CÁC JOBS (BƯỚC 1)             */}
-        {/* ══════════════════════════════════════════════════════ */}
         {currentStep === 1 && (
           <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
             {loading && (
@@ -606,36 +832,16 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 <div style={{ fontSize: 14 }}>Loading jobs from MSSQL...</div>
               </div>
             )}
-
-            {error && (
-              <div style={{
-                textAlign: "center", padding: "30px 0", color: "#fca5a5",
-                background: "rgba(239,68,68,0.08)", borderRadius: 8, margin: "16px 0"
-              }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>⚠️</div>
-                <div style={{ fontSize: 13 }}>{error}</div>
-                <button onClick={loadJobsList} style={{
-                  marginTop: 12, padding: "6px 16px", background: "rgba(239,68,68,0.2)",
-                  border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5",
-                  borderRadius: 6, fontSize: 12, cursor: "pointer"
-                }}>Retry</button>
-              </div>
-            )}
-
             {!loading && !error && filteredJobsListStep1.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
                 <div style={{ fontSize: 13 }}>No jobs found</div>
               </div>
             )}
-
             {!loading && !error && filteredJobsListStep1.length > 0 && (
               <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12, fontSize: 13 }}>
                 <thead>
-                  <tr style={{
-                    background: "rgba(59,130,246,0.1)",
-                    borderBottom: "2px solid rgba(59,130,246,0.2)"
-                  }}>
+                  <tr style={{ background: "rgba(59,130,246,0.1)", borderBottom: "2px solid rgba(59,130,246,0.2)" }}>
                     <th style={thStyle}>#</th>
                     <th style={thStyle}>JOB NUMBER</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>ACTION</th>
@@ -645,27 +851,16 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                   {filteredJobsListStep1.map((item, idx) => (
                     <tr
                       key={item.job_number}
-                      style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.05)",
-                        cursor: "pointer",
-                        transition: "background 0.15s"
-                      }}
+                      style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", cursor: "pointer", transition: "background 0.15s" }}
                       onClick={() => handleSelectJob(item.job_number)}
                       onMouseEnter={(e) => e.currentTarget.style.background = "rgba(59,130,246,0.08)"}
                       onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                     >
-                      <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12, width: 60 }}>
-                        {idx + 1}
-                      </td>
-                      <td style={{ padding: "12px 14px", color: "#60a5fa", fontWeight: 700, fontSize: 13 }}>
-                        {item.job_number}
-                      </td>
+                      <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12, width: 60 }}>{idx + 1}</td>
+                      <td style={{ padding: "12px 14px", color: "#60a5fa", fontWeight: 700, fontSize: 13 }}>{item.job_number}</td>
                       <td style={{ padding: "12px 14px", textAlign: "right" }}>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectJob(item.job_number);
-                          }}
+                          onClick={(e) => { e.stopPropagation(); handleSelectJob(item.job_number); }}
                           style={{
                             background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)",
                             color: "#93c5fd", borderRadius: 6, padding: "5px 14px",
@@ -683,108 +878,144 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════════════ */}
-        {/* STEP 2: BẢNG BÓC TÁCH CHI TIẾT THEO MỐC CHIỀU CAO (BƯỚC 2)*/}
-        {/* ══════════════════════════════════════════════════════ */}
         {currentStep === 2 && (
-          <>
-            {/* THỐNG KÊ TỔNG CỘNG KHỐI LƯỢNG */}
+          <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
             {!loading && !error && groupedJobRows.length > 0 && (
               <div style={{
-                display: "flex", gap: 12, padding: "10px 24px", alignItems: "stretch",
+                display: "flex", gap: 12, padding: "10px 0", alignItems: "stretch",
                 borderBottom: "1px solid rgba(255,255,255,0.05)", flexWrap: "wrap"
               }}>
-                {/* Tổng Sàn Gỗ */}
                 <StatCard color="#eab308" flex="1">
                   <div style={{ fontSize: 14, marginBottom: 2 }}>🪵</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#fbbf24" }}>
-                    {summary.timberMeters} m
-                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#fbbf24" }}>{summary.timberMeters} m</div>
                   <div style={statLabel}>Timber Floor</div>
                 </StatCard>
-
-                {/* Tổng Sàn Bê Tông */}
                 <StatCard color="#0284c7" flex="1">
                   <div style={{ fontSize: 14, marginBottom: 2 }}>🧱</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#38bdf8" }}>
-                    {summary.slabMeters} m
-                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#38bdf8" }}>{summary.slabMeters} m</div>
                   <div style={statLabel}>Concrete Slab</div>
                 </StatCard>
-
-                {/* Tổng Cộng Tất Cả */}
                 <StatCard color="#34d399" flex="1">
                   <div style={{ fontSize: 14, marginBottom: 2 }}>📏</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#34d399" }}>
-                    {summary.grandTotalMeters} m
-                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#34d399" }}>{summary.grandTotalMeters} m</div>
                   <div style={statLabel}>Total Length</div>
                 </StatCard>
-
-                {/* Tự động điền khối lượng từ AI Canvas */}
                 {hasAICanvasWalls && (
-                  <StatCard color="#6366f1" flex="1.4">
+                  <StatCard color="#6366f1" flex="1.5">
                     <div style={{ fontSize: 10, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>
                       ⚡ AI Canvas (Grouped by Height)
                     </div>
                     <div style={{ fontSize: 10, color: "#cbd5e1", marginBottom: 4 }}>
                       {aiTimberTotalMm > 0 && <>🪵 Timber: {(aiTimberTotalMm / 1000).toFixed(1)}m</>}
-                      {aiTimberTotalMm > 0 && aiSlabTotalMm > 0 && " · "}
+                      {aiTimberTotalMm > 0 && aiSlabTotalMm > 0 && " - "}
                       {aiSlabTotalMm > 0 && <>🧱 Slab: {(aiSlabTotalMm / 1000).toFixed(1)}m</>}
                     </div>
                     <button
                       onClick={applyAILengthsToAll}
-                      title="Click to accumulate new canvas walls with existing database values"
+                      title="Bấm để tự động cộng dồn khối lượng tường Tầng 2 / Bản vẽ mới vào khối lượng đã lưu trong Database"
                       style={{
                         background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
                         border: "none", color: "#fff", borderRadius: 6,
-                        padding: "4px 10px", fontSize: 11, fontWeight: 700,
-                        cursor: "pointer", width: "100%"
+                        padding: "5px 10px", fontSize: 11, fontWeight: 700,
+                        cursor: "pointer", width: "100%",
+                        boxShadow: "0 2px 8px rgba(99,102,241,0.3)"
                       }}
                     >
-                      ⚡ Auto-Calculate & Fill (Accumulate)
+                      ⚡ Auto-Calculate & Fill
                     </button>
                   </StatCard>
                 )}
               </div>
             )}
 
-            {/* BẢNG CHI TIẾT: NĂNG ĐỘNG DÒNG THEO (LOẠI SÀN, CHIỀU CAO) */}
-            <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
-              {loading && (
-                <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
-                  <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
-                  <div style={{ fontSize: 14 }}>Loading details from MSSQL...</div>
-                </div>
-              )}
+            {/* BẢNG CHI TIẾT */}
+            {loading && (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+                <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
+                <div style={{ fontSize: 14 }}>Loading details from MSSQL...</div>
+              </div>
+            )}
 
-              {error && (
-                <div style={{
-                  textAlign: "center", padding: "30px 0", color: "#fca5a5",
-                  background: "rgba(239,68,68,0.08)", borderRadius: 8, margin: "16px 0"
-                }}>
-                  <div style={{ fontSize: 24, marginBottom: 8 }}>⚠️</div>
-                  <div style={{ fontSize: 13 }}>{error}</div>
-                </div>
-              )}
+            {error && (
+              <div style={{
+                textAlign: "center", padding: "30px 0", color: "#fca5a5",
+                background: "rgba(239,68,68,0.08)", borderRadius: 8, margin: "16px 0"
+              }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>⚠️</div>
+                <div style={{ fontSize: 13 }}>{error}</div>
+              </div>
+            )}
 
-              {!loading && !error && groupedJobRows.length === 0 && (
-                <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
-                  <div style={{ fontSize: 13 }}>No jobs found</div>
-                </div>
-              )}
+            {!loading && !error && groupedJobRows.length === 0 && (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
+                <div style={{ fontSize: 13 }}>No jobs found</div>
+              </div>
+            )}
 
-              {!loading && !error && groupedJobRows.length > 0 && (
-                <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 10, fontSize: 12 }}>
+            {!loading && !error && groupedJobRows.length > 0 && (
+              <>
+                {isAccumulatedView && (
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    margin: "8px 0 4px", padding: "6px 12px", borderRadius: 8,
+                    background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)"
+                  }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#a5b4fc" }}>
+                      🏢 Multi-floor breakdown active: {perPageBreakdown.map((p, i) => `Floor ${i + 1}`).join(" + ")} = Total {perPageBreakdown.length} floors
+                    </span>
+                    <button
+                      onClick={() => setIsAccumulatedView(false)}
+                      style={{
+                        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
+                        color: "#cbd5e1", borderRadius: 5, padding: "2px 8px", fontSize: 10, cursor: "pointer"
+                      }}
+                    >
+                      ✕ Normal View
+                    </button>
+                  </div>
+                )}
+
+                <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 6, fontSize: 12 }}>
                   <thead>
                     <tr style={{
                       background: "rgba(59,130,246,0.1)",
                       borderBottom: "2px solid rgba(59,130,246,0.2)"
                     }}>
-                      {["#", "Job Number", "Floor Type (The Wall Above)", "Wall Height (mm)", "Wall Length (mm)", "Action"].map(h => (
-                        <th key={h} style={thStyle}>{h}</th>
-                      ))}
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>JOB NUMBER</th>
+                      <th style={thStyle}>FLOOR TYPE (THE WALL ABOVE)</th>
+                      <th style={thStyle}>WALL HEIGHT (MM)</th>
+
+                      {isAccumulatedView ? (
+                        <>
+                          {perPageBreakdown.map((p, pIdx) => {
+                            const colors = [
+                              { main: "#60a5fa", border: "#3b82f6" },
+                              { main: "#c084fc", border: "#a855f7" },
+                              { main: "#38bdf8", border: "#0ea5e9" },
+                              { main: "#fbbf24", border: "#f59e0b" },
+                              { main: "#f472b6", border: "#ec4899" }
+                            ];
+                            const theme = colors[pIdx % colors.length];
+
+                            return (
+                              <th key={p.pageIndex} style={{ ...thStyle, color: theme.main, borderBottom: `2px solid ${theme.border}` }}>
+                                WALL LENGTH (MM)<br />
+                                <span style={{ fontSize: 9, color: theme.main }}>{p.pageName || `Floor ${pIdx + 1}`}</span>
+                              </th>
+                            );
+                          })}
+                          <th style={{ ...thStyle, color: "#4ade80", borderBottom: "2px solid #22c55e" }}>
+                            TOTAL WALL LENGTH (MM)<br />
+                            <span style={{ fontSize: 9, color: "#86efac" }}>Total {perPageBreakdown.length} floors</span>
+                          </th>
+                        </>
+                      ) : (
+                        <th style={thStyle}>WALL LENGTH (MM)</th>
+                      )}
+
+                      <th style={{ ...thStyle, textAlign: "right" }}>ACTION</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -813,14 +1044,14 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 onMouseEnter={(e) => e.currentTarget.style.background = bgHover}
                                 onMouseLeave={(e) => e.currentTarget.style.background = sIdx % 2 === 1 ? bgHover : "transparent"}
                               >
-                                {/* # Index - Rowspan hợp nhất cho nhóm Job */}
+                                {/* # Index */}
                                 {sIdx === 0 && (
                                   <td rowSpan={rowCount} style={{ padding: "8px 10px", color: "#64748b", fontSize: 11, verticalAlign: "middle", textAlign: "center" }}>
                                     {idx + 1}
                                   </td>
                                 )}
 
-                                {/* Job Number - Rowspan hợp nhất cho nhóm Job */}
+                                {/* Job Number */}
                                 {sIdx === 0 && (
                                   <td rowSpan={rowCount} style={{ padding: "8px 10px", verticalAlign: "middle" }}>
                                     <div style={{ color: "#60a5fa", fontWeight: 700, fontSize: 12 }}>
@@ -832,7 +1063,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                   </td>
                                 )}
 
-                                {/* Loại Sàn (Lưu vào [The Wall Above]) */}
+                                {/* Floor Type ([The Wall Above]) */}
                                 <td style={{ padding: "6px 10px" }}>
                                   <span style={{
                                     display: "inline-block", padding: "3px 10px",
@@ -850,44 +1081,114 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                   )}
                                 </td>
 
-                                {/* Chiều Cao Tường (Wall Height) */}
+                                {/* Wall Height */}
                                 <td style={{ padding: "4px 6px" }}>
-                                  <select
-                                    value={currentHeight}
-                                    onChange={(e) => handleHeightChange(row, e.target.value)}
-                                    style={{
-                                      background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)",
-                                      borderRadius: 5, color: "#c4b5fd", fontSize: 11, fontWeight: 700,
-                                      padding: "3px 6px", outline: "none", cursor: "pointer"
-                                    }}
-                                  >
-                                    {[2100, 2400, 2700, 3000, 3300, 3600].map(h => (
-                                      <option key={h} value={h} style={{ background: "#1a1d25", color: "#fff" }}>
-                                        {h} mm
-                                      </option>
-                                    ))}
-                                  </select>
+                                  {(() => {
+                                    const standardHeights = [2100, 2400, 2700, 3000, 3300, 3600];
+                                    const numH = Number(currentHeight);
+                                    const isCustomH = numH > 0 && !standardHeights.includes(numH);
+
+                                    return (
+                                      <select
+                                        value={currentHeight}
+                                        onChange={(e) => handleHeightChange(row, e.target.value)}
+                                        style={{
+                                          background: isCustomH ? "rgba(245,158,11,0.18)" : "rgba(139,92,246,0.12)",
+                                          border: isCustomH ? "1px solid rgba(245,158,11,0.5)" : "1px solid rgba(139,92,246,0.3)",
+                                          borderRadius: 5, color: isCustomH ? "#fde047" : "#c4b5fd",
+                                          fontSize: 11, fontWeight: 700,
+                                          padding: "3px 6px", outline: "none", cursor: "pointer"
+                                        }}
+                                      >
+                                        {standardHeights.map(h => (
+                                          <option key={h} value={h} style={{ background: "#1a1d25", color: "#fff" }}>
+                                            {h} mm ({(h / 1000).toFixed(1)} m)
+                                          </option>
+                                        ))}
+                                        {isCustomH && (
+                                          <option value={numH} style={{ background: "#1a1d25", color: "#fde047" }}>
+                                            {numH} mm ({(numH / 1000).toFixed(2)} m)
+                                          </option>
+                                        )}
+                                        <option value="CUSTOM" style={{ background: "#1a1d25", color: "#38bdf8", fontWeight: "bold" }}>
+                                          Custom...
+                                        </option>
+                                      </select>
+                                    );
+                                  })()}
                                 </td>
 
-                                {/* Chiều Dài Tường (Wall Length mm) */}
-                                <td style={{ padding: "4px 6px" }}>
-                                  <input
-                                    type="number"
-                                    value={getDisplayLength(row)}
-                                    onChange={(e) => handleLengthChange(row, e.target.value)}
-                                    placeholder="0"
-                                    style={{
-                                      width: 110, padding: "5px 8px", fontSize: 11, fontWeight: 700,
-                                      background: "rgba(255,255,255,0.06)",
-                                      border: `1px solid ${badgeColor}44`,
-                                      borderRadius: 6, color: badgeColor, outline: "none",
-                                      textAlign: "center"
-                                    }}
-                                  />
-                                </td>
+                                {/* DYNAMIC WALL LENGTH COLUMNS FOR ALL FLOORS */}
+                                {isAccumulatedView ? (
+                                  <>
+                                    {perPageBreakdown.map((p, pIdx) => {
+                                      const colors = [
+                                        { color: "#60a5fa", border: "rgba(59,130,246,0.4)", bg: "rgba(59,130,246,0.1)" },
+                                        { color: "#c084fc", border: "rgba(168,85,247,0.4)", bg: "rgba(168,85,247,0.1)" },
+                                        { color: "#38bdf8", border: "rgba(14,165,233,0.4)", bg: "rgba(14,165,233,0.1)" },
+                                        { color: "#fbbf24", border: "rgba(245,158,11,0.4)", bg: "rgba(245,158,11,0.1)" },
+                                        { color: "#f472b6", border: "rgba(236,72,153,0.4)", bg: "rgba(236,72,153,0.1)" }
+                                      ];
+                                      const theme = colors[pIdx % colors.length];
 
-                                {/* Nút Lưu Dòng */}
-                                <td style={{ padding: "4px 6px" }}>
+                                      const hKey = `${row.floorType === "Slab" ? "Slab" : "Timber"}_${currentHeight}`;
+                                      let floorMm = (p.groupsMap && p.groupsMap[hKey]) ? p.groupsMap[hKey] : 0;
+                                      if (pIdx === 0 && floorMm === 0 && row.dbLength != null && row.dbLength !== "" && row.dbLength !== 0) {
+                                        floorMm = parseFloat(row.dbLength) || 0;
+                                      }
+
+                                      return (
+                                        <td key={p.pageIndex} style={{ padding: "4px 6px" }}>
+                                          <div style={{
+                                            width: 95, padding: "5px 6px", fontSize: 11, fontWeight: 700,
+                                            background: theme.bg,
+                                            border: `1px solid ${theme.border}`,
+                                            borderRadius: 6, color: theme.color, textAlign: "center"
+                                          }}>
+                                            {floorMm > 0 ? floorMm : "—"}
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+
+                                    {/* Total Length Column Across All Floors */}
+                                    <td style={{ padding: "4px 6px" }}>
+                                      <input
+                                        type="number"
+                                        value={getDisplayLength(row)}
+                                        onChange={(e) => handleLengthChange(row, e.target.value)}
+                                        placeholder="0"
+                                        style={{
+                                          width: 100, padding: "5px 6px", fontSize: 11, fontWeight: 800,
+                                          background: "rgba(34,197,94,0.12)",
+                                          border: "1px solid rgba(34,197,94,0.5)",
+                                          borderRadius: 6, color: "#34d399", outline: "none",
+                                          textAlign: "center"
+                                        }}
+                                      />
+                                    </td>
+                                  </>
+                                ) : (
+                                  /* Standard Single Column */
+                                  <td style={{ padding: "4px 6px" }}>
+                                    <input
+                                      type="number"
+                                      value={getDisplayLength(row)}
+                                      onChange={(e) => handleLengthChange(row, e.target.value)}
+                                      placeholder="0"
+                                      style={{
+                                        width: 110, padding: "5px 8px", fontSize: 11, fontWeight: 700,
+                                        background: "rgba(255,255,255,0.06)",
+                                        border: `1px solid ${badgeColor}44`,
+                                        borderRadius: 6, color: badgeColor, outline: "none",
+                                        textAlign: "center"
+                                      }}
+                                    />
+                                  </td>
+                                )}
+
+                                {/* Row Save Button */}
+                                <td style={{ padding: "4px 6px", textAlign: "right" }}>
                                   <button
                                     onClick={() => saveSingleRow(row)}
                                     disabled={isSavingRow || !hasVal}
@@ -914,11 +1215,279 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     })}
                   </tbody>
                 </table>
-              )}
-            </div>
-          </>
+              </>
+            )}
+          </div>
         )}
       </div>
+
+      {/* ── MULTI-FLOOR PER-PAGE BREAKDOWN MODAL ── */}
+      {showMultiFloorModal && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 10000,
+          background: "rgba(0, 0, 0, 0.75)", backdropFilter: "blur(6px)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <div style={{
+            background: "#12151c", border: "1px solid rgba(139,92,246,0.3)",
+            borderRadius: 14, width: 960, maxWidth: "94vw", maxHeight: "90vh",
+            display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.8)",
+            overflow: "hidden"
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: "14px 24px", background: "rgba(139,92,246,0.12)",
+              borderBottom: "1px solid rgba(139,92,246,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "space-between"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 24 }}>🏢</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>
+                    Per-Floor Wall Takeoff Breakdown
+                  </h3>
+                  <span style={{ fontSize: 11, color: "#c4b5fd" }}>
+                    Independent per-floor wall takeoff breakdown ({grandTotalAllFloorsSummary.pageCount} Floors / Pages)
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/* View Mode Switcher */}
+                <div style={{
+                  display: "flex", background: "rgba(0,0,0,0.35)",
+                  borderRadius: 8, padding: 3, border: "1px solid rgba(255,255,255,0.1)"
+                }}>
+                  <button
+                    onClick={() => setMultiFloorViewMode("matrix")}
+                    style={{
+                      background: multiFloorViewMode === "matrix" ? "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)" : "transparent",
+                      border: "none", color: multiFloorViewMode === "matrix" ? "#fff" : "#94a3b8",
+                      borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    📊 Matrix View (By Height)
+                  </button>
+                  <button
+                    onClick={() => setMultiFloorViewMode("byFloor")}
+                    style={{
+                      background: multiFloorViewMode === "byFloor" ? "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)" : "transparent",
+                      border: "none", color: multiFloorViewMode === "byFloor" ? "#fff" : "#94a3b8",
+                      borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    🏢 Summary By Floor
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowMultiFloorModal(false)}
+                  style={{
+                    background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
+                    color: "#fff", borderRadius: 6, width: 30, height: 30, cursor: "pointer",
+                    fontWeight: 700
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Table Content */}
+            <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>
+              {multiFloorViewMode === "matrix" ? (
+                /* Matrix View */
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "rgba(139,92,246,0.12)", borderBottom: "2px solid rgba(139,92,246,0.3)" }}>
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>FLOOR TYPE & HEIGHT (GROUPED HEIGHT)</th>
+                      {perPageBreakdown.map((p, pIdx) => {
+                        const colors = [
+                          { main: "#60a5fa" }, { main: "#c084fc" },
+                          { main: "#38bdf8" }, { main: "#fbbf24" }, { main: "#f472b6" }
+                        ];
+                        const theme = colors[pIdx % colors.length];
+                        const floorHeaderTitle = p.pageName || `FLOOR ${pIdx + 1} (PAGE ${pIdx + 1})`;
+                        return (
+                          <th key={p.pageIndex} style={{ ...thStyle, textAlign: "right", color: theme.main }}>
+                            {floorHeaderTitle.toUpperCase()}<br />
+                            <span style={{ fontSize: 9, opacity: 0.85, fontWeight: 400 }}>
+                              {p.pageScale ? (p.pageScale < 0.5 ? `${(p.pageScale * 1000).toFixed(1)} mm/px` : `${p.pageScale} mm/px`) : "Default"}
+                            </span>
+                          </th>
+                        );
+                      })}
+                      <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>GRAND TOTAL (ALL FLOORS)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allHeightGroupRows.map((g, gIdx) => {
+                      const isSlab = g.floorType === "Slab";
+                      const badgeColor = isSlab ? "#0284c7" : "#eab308";
+                      const textColor = isSlab ? "#38bdf8" : "#fbbf24";
+
+                      return (
+                        <tr key={g.key} style={{
+                          borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          background: gIdx % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"
+                        }}>
+                          <td style={{ padding: "12px 10px", color: "#64748b", fontWeight: 700 }}>
+                            {gIdx + 1}
+                          </td>
+                          <td style={{ padding: "12px 10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{
+                                display: "inline-block", padding: "3px 10px",
+                                borderRadius: 5, fontSize: 11, fontWeight: 700,
+                                background: `${badgeColor}22`, color: badgeColor,
+                                border: `1px solid ${badgeColor}44`
+                              }}>
+                                {isSlab ? "🧱 Slab" : "🪵 Timber"}
+                              </span>
+                              <strong style={{ color: "#fff", fontSize: 13 }}>
+                                {g.height} mm
+                              </strong>
+                            </div>
+                          </td>
+
+                          {/* Render columns for each floor page */}
+                          {perPageBreakdown.map(p => {
+                            const mm = g.pageLengthsMm[p.pageIndex] || 0;
+                            return (
+                              <td key={p.pageIndex} style={{ padding: "12px 10px", textAlign: "right" }}>
+                                {mm > 0 ? (
+                                  <>
+                                    <span style={{ color: textColor, fontWeight: 700 }}>{(mm / 1000).toFixed(2)} m</span>
+                                    <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>({mm.toLocaleString()} mm)</span>
+                                  </>
+                                ) : (
+                                  <span style={{ color: "#475569" }}>—</span>
+                                )}
+                              </td>
+                            );
+                          })}
+
+                          {/* Grand Total column */}
+                          <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                            {g.totalMm > 0 ? (
+                              <>
+                                <span style={{ color: "#34d399", fontWeight: 800 }}>{(g.totalMm / 1000).toFixed(2)} m</span>
+                                <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>({g.totalMm.toLocaleString()} mm)</span>
+                              </>
+                            ) : (
+                              <span style={{ color: "#475569" }}>0.00 m</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                /* By Floor Summary View */
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "rgba(139,92,246,0.12)", borderBottom: "2px solid rgba(139,92,246,0.3)" }}>
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>FLOOR / PAGE NAME</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>AI WALL SEGMENTS</th>
+                      <th style={{ ...thStyle, color: "#fbbf24", textAlign: "right" }}>🪵 TIMBER FLOOR</th>
+                      <th style={{ ...thStyle, color: "#38bdf8", textAlign: "right" }}>🧱 CONCRETE SLAB</th>
+                      <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>📏 TOTAL LENGTH</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {perPageBreakdown.map((p, pIdx) => {
+                      const scaleText = p.pageScale
+                        ? (p.pageScale < 0.5 ? `${(p.pageScale * 1000).toFixed(2)} mm/px` : `${p.pageScale} mm/px`)
+                        : "Default Scale";
+
+                      return (
+                        <tr key={p.pageIndex} style={{
+                          borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          background: pIdx % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"
+                        }}>
+                          <td style={{ padding: "12px 10px", color: "#64748b", fontWeight: 700 }}>
+                            {pIdx + 1}
+                          </td>
+                          <td style={{ padding: "12px 10px" }}>
+                            <div style={{ color: "#a5b4fc", fontWeight: 700 }}>
+                              🏢 {p.pageName}
+                            </div>
+                            <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                              Scale Factor: {scaleText}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 10px", textAlign: "center", color: "#cbd5e1" }}>
+                            {p.wallsCount} segments
+                          </td>
+                          <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                            <span style={{ color: "#fbbf24", fontWeight: 700 }}>{(p.timberMm / 1000).toFixed(2)} m</span>
+                            <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>({p.timberMm.toLocaleString()} mm)</span>
+                          </td>
+                          <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                            <span style={{ color: "#38bdf8", fontWeight: 700 }}>{(p.slabMm / 1000).toFixed(2)} m</span>
+                            <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>({p.slabMm.toLocaleString()} mm)</span>
+                          </td>
+                          <td style={{ padding: "12px 10px", textAlign: "right" }}>
+                            <span style={{ color: "#34d399", fontWeight: 800 }}>{(p.totalMm / 1000).toFixed(2)} m</span>
+                            <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>({p.totalMm.toLocaleString()} mm)</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Bottom Summary & Actions */}
+            <div style={{
+              padding: "14px 24px", background: "rgba(255,255,255,0.03)",
+              borderTop: "1px solid rgba(255,255,255,0.08)",
+              display: "flex", alignItems: "center", justifyContent: "space-between"
+            }}>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div>
+                  <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>TOTAL TIMBER (ALL FLOORS):</span>
+                  <strong style={{ color: "#fbbf24", fontSize: 14 }}>{grandTotalAllFloorsSummary.timberMeters} m</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>TOTAL SLAB (ALL FLOORS):</span>
+                  <strong style={{ color: "#38bdf8", fontSize: 14 }}>{grandTotalAllFloorsSummary.slabMeters} m</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>GRAND TOTAL ALL ({grandTotalAllFloorsSummary.pageCount} FLOORS):</span>
+                  <strong style={{ color: "#34d399", fontSize: 15 }}>{grandTotalAllFloorsSummary.grandTotalMeters} m</strong>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={applyAllFloorsTotalToJob}
+                  style={{
+                    background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                    border: "none", color: "#fff", borderRadius: 8, padding: "8px 16px",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    boxShadow: "0 2px 10px rgba(99,102,241,0.3)"
+                  }}
+                >
+                  ⚡ Auto-Fill All Floors Total To Job
+                </button>
+                <button
+                  onClick={() => setShowMultiFloorModal(false)}
+                  style={btnStyle("#94a3b8")}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

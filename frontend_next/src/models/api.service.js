@@ -36,7 +36,7 @@ const handleResponse = async (res) => {
     window.location.href = "/login";
     return { detail: "Unauthorized" };
   }
-  
+
   if (!res.ok) {
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
@@ -430,7 +430,7 @@ export const ApiService = {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
-      
+
       buffer = lines.pop();
 
       for (const line of lines) {
@@ -598,6 +598,35 @@ export const ApiService = {
   async saveFrameworkWall(payload) {
     const res = await fetch(`${BASE_URL}/api/framework/save`, {
       method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveFrameworkJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/framework/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  // ── AreaSummary Jobs (MSSQL emsflow) ──
+  async fetchAreaSummaryJobs() {
+    const res = await fetch(`${BASE_URL}/api/area-summary/jobs`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveAreaSummaryJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/area-summary/save-jobs`, {
+      method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(payload),
       credentials: "include"
