@@ -323,7 +323,8 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
                 door_h_m = (door.height_mm or 0.0) / 1000.0
                 s_door += door_w_m * door_h_m
 
-            total_area_raked = max(0.0, s_wall - s_door)
+            # Total area raked default to 0.0 (không tự động tính công thức)
+            total_area_raked = 0.0
 
             key = (wall_type, height_mm)
             groups[key]["wall_length"] += length_m
