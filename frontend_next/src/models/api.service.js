@@ -632,5 +632,34 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  // ── Insulation Jobs (MSSQL emsflow) ──
+  async fetchInsulationJobs() {
+    const res = await fetch(`${BASE_URL}/api/insulation/jobs`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveInsulationJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/insulation/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async calculateInsulation(payload) {
+    const res = await fetch(`${BASE_URL}/api/insulation/calculate`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };

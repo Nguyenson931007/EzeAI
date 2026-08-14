@@ -1870,18 +1870,23 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
 }
 
 export function mapFloorName(name, index) {
-  if (!name) return `Floor ${index + 1}`;
+  if (!name) {
+    const labels = ["GF", "FF", "SF", "TF"];
+    return index < labels.length ? labels[index] : `${index}F`;
+  }
   const norm = name.toLowerCase().trim().replace(/[\s_]+/g, '_');
-  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 'Floor 1';
-  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 'Floor 2';
-  if (norm === 'third_floor' || norm === 'floor_2') return 'Floor 3';
-  if (norm === 'fourth_floor' || norm === 'floor_3') return 'Floor 4';
-  if (norm === 'fifth_floor' || norm === 'floor_4') return 'Floor 5';
+  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 'GF';
+  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 'FF';
+  if (norm === 'third_floor' || norm === 'floor_2') return 'SF';
+  if (norm === 'fourth_floor' || norm === 'floor_3') return 'TF';
+  if (norm === 'fifth_floor' || norm === 'floor_4') return '4F';
   if (norm === 'roof') return 'Roof';
 
   const match = norm.match(/^floor_(\d+)$/);
   if (match) {
-    return `Floor ${parseInt(match[1]) + 1}`;
+    const idx = parseInt(match[1]);
+    const labels = ["GF", "FF", "SF", "TF"];
+    return idx < labels.length ? labels[idx] : `${idx}F`;
   }
 
   return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -1890,19 +1895,19 @@ export function mapFloorName(name, index) {
 export function convertNameToClass(name, index) {
   if (!name) return `floor_${index}`;
   const norm = name.toLowerCase().trim().replace(/[\s_]+/g, ' ');
-  if (norm === 'tầng 1' || norm === 'tang 1' || norm === 'first floor' || norm === 'ground floor' || norm === 'trệt' || norm === 'tầng trệt') {
+  if (norm === 'tầng 1' || norm === 'tang 1' || norm === 'first floor' || norm === 'ground floor' || norm === 'trệt' || norm === 'tầng trệt' || norm === 'gf' || norm === 'ground') {
     return 'first_floor';
   }
-  if (norm === 'tầng 2' || norm === 'tang 2' || norm === 'upper floor' || norm === 'second floor') {
+  if (norm === 'tầng 2' || norm === 'tang 2' || norm === 'upper floor' || norm === 'second floor' || norm === 'ff' || norm === 'first floor') {
     return 'upper_floor';
   }
-  if (norm === 'tầng 3' || norm === 'tang 3' || norm === 'third floor') {
+  if (norm === 'tầng 3' || norm === 'tang 3' || norm === 'third floor' || norm === 'sf' || norm === 'second floor') {
     return 'third_floor';
   }
-  if (norm === 'tầng 4' || norm === 'tang 4' || norm === 'fourth floor') {
+  if (norm === 'tầng 4' || norm === 'tang 4' || norm === 'fourth floor' || norm === 'tf' || norm === 'third floor') {
     return 'fourth_floor';
   }
-  if (norm === 'tầng 5' || norm === 'tang 5' || norm === 'fifth floor') {
+  if (norm === 'tầng 5' || norm === 'tang 5' || norm === 'fifth floor' || norm === '4f' || norm === 'fourth floor') {
     return 'fifth_floor';
   }
   if (norm === 'mái' || norm === 'mai' || norm === 'roof') {

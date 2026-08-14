@@ -2562,24 +2562,28 @@ export default function RightPropertyPaneView({
                 }))
               }
             />
-            <AreaCard
-              label="Dry"
-              value={`${dry.toFixed(2)} m²`}
-              dotColor="#2196F3"
-              ratio={totalInternal > 0 ? dry / totalInternal : 0}
-              parentLabel="internal"
-              isActive={highlightType === "dry"}
-              onClick={() => toggleRoomHighlight("dry")}
-            />
-            <AreaCard
-              label="Wet"
-              value={`${wet.toFixed(2)} m²`}
-              dotColor="#ef4444"
-              ratio={totalInternal > 0 ? wet / totalInternal : 0}
-              parentLabel="internal"
-              isActive={highlightType === "wet"}
-              onClick={() => toggleRoomHighlight("wet")}
-            />
+            {dry > 0 && (
+              <AreaCard
+                label="Dry"
+                value={`${dry.toFixed(2)} m²`}
+                dotColor="#2196F3"
+                ratio={totalInternal > 0 ? dry / totalInternal : 0}
+                parentLabel="internal"
+                isActive={highlightType === "dry"}
+                onClick={() => toggleRoomHighlight("dry")}
+              />
+            )}
+            {wet > 0 && (
+              <AreaCard
+                label="Wet"
+                value={`${wet.toFixed(2)} m²`}
+                dotColor="#ef4444"
+                ratio={totalInternal > 0 ? wet / totalInternal : 0}
+                parentLabel="internal"
+                isActive={highlightType === "wet"}
+                onClick={() => toggleRoomHighlight("wet")}
+              />
+            )}
 
             {/* External */}
             <SubheadingRow
@@ -2593,24 +2597,28 @@ export default function RightPropertyPaneView({
                 }))
               }
             />
-            <AreaCard
-              label="Timber Deck"
-              value={`${timber.toFixed(2)} m²`}
-              dotColor="#8B5E3C"
-              ratio={totalExternal > 0 ? timber / totalExternal : 0}
-              parentLabel="external"
-              isActive={highlightType === "timber_deck"}
-              onClick={() => toggleRoomHighlight("timber_deck")}
-            />
-            <AreaCard
-              label="Tile Deck"
-              value={`${tile.toFixed(2)} m²`}
-              dotColor="#4CAF50"
-              ratio={totalExternal > 0 ? tile / totalExternal : 0}
-              parentLabel="external"
-              isActive={highlightType === "tile_deck"}
-              onClick={() => toggleRoomHighlight("tile_deck")}
-            />
+            {timber > 0 && (
+              <AreaCard
+                label="Timber Deck"
+                value={`${timber.toFixed(2)} m²`}
+                dotColor="#8B5E3C"
+                ratio={totalExternal > 0 ? timber / totalExternal : 0}
+                parentLabel="external"
+                isActive={highlightType === "timber_deck"}
+                onClick={() => toggleRoomHighlight("timber_deck")}
+              />
+            )}
+            {tile > 0 && (
+              <AreaCard
+                label="Tile Deck"
+                value={`${tile.toFixed(2)} m²`}
+                dotColor="#4CAF50"
+                ratio={totalExternal > 0 ? tile / totalExternal : 0}
+                parentLabel="external"
+                isActive={highlightType === "tile_deck"}
+                onClick={() => toggleRoomHighlight("tile_deck")}
+              />
+            )}
 
             {/* Green Totals Card */}
             <div className="rp-totals-card">
