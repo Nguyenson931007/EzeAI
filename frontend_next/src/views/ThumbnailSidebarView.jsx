@@ -137,12 +137,12 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
                   fontFamily: "Inter, sans-serif"
                 }}
               >
-                <option value="first_floor">Tầng 1</option>
-                <option value="upper_floor">Tầng 2</option>
-                <option value="third_floor">Tầng 3</option>
-                <option value="fourth_floor">Tầng 4</option>
-                <option value="fifth_floor">Tầng 5</option>
-                <option value="roof">Mái (Roof)</option>
+                <option value="first_floor">GF (Ground)</option>
+                <option value="upper_floor">FF (First Floor)</option>
+                <option value="third_floor">SF (Second Floor)</option>
+                <option value="fourth_floor">TF (Third Floor)</option>
+                <option value="fifth_floor">4F (Fourth Floor)</option>
+                <option value="roof">Roof</option>
                 {p.floor_name && !["first_floor", "upper_floor", "third_floor", "fourth_floor", "fifth_floor", "roof"].includes(p.floor_name) && (
                   <option value={p.floor_name}>{floorDisplayName}</option>
                 )}

@@ -3,6 +3,9 @@ import TrainButton from "@/components/TrainButton";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import WallThicknessDialog from "@/components/WallThicknessDialog";
+import FrameworkJobsModal from "@/components/FrameworkJobsModal";
+import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
+import InsulationJobsModal from "@/components/InsulationJobsModal";
 
 export default function RibbonView({
   // State from App.jsx not in context yet
@@ -24,6 +27,7 @@ export default function RibbonView({
   isAddingPoint, setIsAddingPoint,
   interactionMode, setInteractionMode,
   scaleValue,
+  walls = [],
   rooms,
   isDetecting,
   roiProgress,
@@ -83,6 +87,9 @@ export default function RibbonView({
   } = useAppModel();
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
   const [showWallConfig, setShowWallConfig] = useState(false);
+  const [showFrameworkModal, setShowFrameworkModal] = useState(false);
+  const [showAreaSummaryModal, setShowAreaSummaryModal] = useState(false);
+  const [showInsulationModal, setShowInsulationModal] = useState(false);
 
   return (
     <div className="cad-header">
@@ -364,6 +371,27 @@ export default function RibbonView({
                   title="Draw manual Lintel by clicking and dragging along a wall"
                 >
                   <span className="icon">🪵</span><span className="label">Lintel</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${showFrameworkModal ? "active" : ""}`}
+                  onClick={() => setShowFrameworkModal(true)}
+                  title="Hiển thị danh sách FrameWork Jobs từ MSSQL"
+                >
+                  <span className="icon">🏗️</span><span className="label">FrameWork</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${showAreaSummaryModal ? "active" : ""}`}
+                  onClick={() => setShowAreaSummaryModal(true)}
+                  title="Hiển thị danh sách Area Summary từ MSSQL"
+                >
+                  <span className="icon">📐</span><span className="label">Area Summary</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${showInsulationModal ? "active" : ""}`}
+                  onClick={() => setShowInsulationModal(true)}
+                  title="Hiển thị danh sách Insulation từ MSSQL"
+                >
+                  <span className="icon">🧱</span><span className="label">Insulation</span>
                 </button>
                 {/* <button
                   className="ribbon-btn"
@@ -1066,6 +1094,33 @@ export default function RibbonView({
           detectWallFromFloorAI(config, roiRect);
         }}
         onClose={() => setShowWallConfig(false)}
+      />
+      <FrameworkJobsModal
+        visible={showFrameworkModal}
+        onClose={() => setShowFrameworkModal(false)}
+        walls={(wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : walls}
+        scaleValue={scaleValue}
+        realScale={realScale}
+      />
+      <AreaSummaryJobsModal
+        visible={showAreaSummaryModal}
+        onClose={() => setShowAreaSummaryModal(false)}
+        rooms={(roomsByPage && roomsByPage[currentPage]) ? roomsByPage[currentPage] : rooms}
+        scaleValue={scaleValue}
+        realScale={realScale}
+      />
+      <InsulationJobsModal
+        visible={showInsulationModal}
+        onClose={() => setShowInsulationModal(false)}
+        rooms={(roomsByPage && roomsByPage[currentPage]) ? roomsByPage[currentPage] : rooms}
+        walls={(wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : walls}
+        doors={(doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : []}
+        scaleValue={scaleValue}
+        realScale={realScale}
+        pages={pages}
+        currentPage={currentPage}
+        wallsByPage={wallsByPage}
+        doorsByPage={doorsByPage}
       />
     </div >
   );

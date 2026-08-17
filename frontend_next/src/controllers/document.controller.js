@@ -64,7 +64,18 @@ export function useDocumentController({
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 9.7222 }); // 700 DPI (700/72)
+
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      const MAX_DIMENSION = 8192; // Giới hạn cạnh dài nhất là 8K pixel để tránh crash RAM
+      
+      let scale = 9.7222; // 700 DPI (700/72)
+      const maxOriginalDim = Math.max(unscaledViewport.width, unscaledViewport.height);
+      
+      if (maxOriginalDim * scale > MAX_DIMENSION) {
+        scale = MAX_DIMENSION / maxOriginalDim;
+      }
+      
+      const viewport = page.getViewport({ scale: scale });
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       canvas.height = viewport.height;

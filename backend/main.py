@@ -31,6 +31,9 @@ from api.routes import router as api_router
 from api.auth import router as auth_router
 from api.admin import router as admin_router
 from api.jobs import router as jobs_router
+from api.framework_routes import router as framework_router
+from api.area_summary_routes import router as area_summary_router
+from api.insulation_routes import router as insulation_router
 from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
 from app.limiter import limiter
 
@@ -105,8 +108,8 @@ async def lifespan(app: FastAPI):
             logger.warning(f"EasyOCR pre-warm failed (non-fatal): {e}")
         try:
             logger.info("Pre-warming Door YOLO model...")
-            from services.door_segment_service import _get_model
-            _get_model()
+            from services.door_segment_service import _get_models
+            _get_models()
             logger.info("Door YOLO model pre-warmed successfully.")
         except Exception as e:
             logger.warning(f"Door model pre-warm failed (non-fatal): {e}")
@@ -160,3 +163,6 @@ app.include_router(api_router)
 app.include_router(auth_router, tags=["auth"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(jobs_router, tags=["jobs"])
+app.include_router(framework_router, tags=["framework"])
+app.include_router(area_summary_router, tags=["area_summary"])
+app.include_router(insulation_router, tags=["insulation"])
