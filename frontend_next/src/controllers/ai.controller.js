@@ -1476,6 +1476,8 @@ export const useAIController = (
       // Prepare canvas image Base64 — downscaled to max 3000px for fast OCR
       let imageBase64 = null;
       const OCR_MAX_DIM = 3000;
+      let naturalWidth = null;
+      let naturalHeight = null;
       if (image) {
         try {
           const img = new window.Image();
@@ -1485,6 +1487,9 @@ export const useAIController = (
             img.onerror = reject;
             img.src = image;
           });
+
+          naturalWidth = img.naturalWidth;
+          naturalHeight = img.naturalHeight;
 
           let w = img.naturalWidth;
           let h = img.naturalHeight;
@@ -1500,14 +1505,14 @@ export const useAIController = (
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, w, h);
           imageBase64 = canvas.toDataURL("image/jpeg", 0.85);
-          console.log(`[generateRoomsFromWalls] Image downscaled to ${w}x${h} for OCR (payload ~${Math.round(imageBase64.length / 1024)}KB)`);
+          console.log(`[generateRoomsFromWalls] Image downscaled to ${w}x${h} for OCR (natural=${naturalWidth}x${naturalHeight}, payload ~${Math.round(imageBase64.length / 1024)}KB)`);
         } catch (imgErr) {
           console.warn("[generateRoomsFromWalls] Could not prepare imageBase64 for per-room OCR:", imgErr);
         }
       }
 
       console.log("[generateRoomsFromWalls] Request sent. currentWalls:", currentWalls.length, "currentDoors:", currentDoors.length, "hasImageBase64:", !!imageBase64);
-      const res = await ApiService.generateRoomsFromWalls(currentWalls, currentDoors, [], gapThreshold, imageBase64);
+      const res = await ApiService.generateRoomsFromWalls(currentWalls, currentDoors, [], gapThreshold, imageBase64, naturalWidth, naturalHeight);
       console.log("[generateRoomsFromWalls] Response received:", res);
 
       if (res && res.success && res.rooms) {

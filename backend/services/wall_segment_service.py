@@ -330,7 +330,7 @@ def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
     return None, 0.0
 
 
-def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 250.0) -> List[dict]:
+def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 80.0) -> List[dict]:
     current_walls = [dict(w) for w in walls]
     merged_any = True
     
@@ -961,7 +961,7 @@ class WallSegmentService:
         # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
+        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=80.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)
@@ -1255,7 +1255,7 @@ class WallSegmentService:
         processed_walls = detected_walls
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
+        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=80.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)

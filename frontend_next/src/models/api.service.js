@@ -553,7 +553,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async generateRoomsFromWalls(walls, doors = [], texts = [], gapThreshold = 120, imageBase64 = null) {
+  async generateRoomsFromWalls(walls, doors = [], texts = [], gapThreshold = 120, imageBase64 = null, naturalWidth = null, naturalHeight = null) {
     const res = await fetch(`${BASE_URL}/api/generate-rooms-from-walls`, {
       method: "POST",
       headers: getHeaders(),
@@ -562,7 +562,9 @@ export const ApiService = {
         doors,
         texts,
         gap_threshold: gapThreshold,
-        image_base64: imageBase64
+        image_base64: imageBase64,
+        natural_width: naturalWidth,
+        natural_height: naturalHeight
       }),
       credentials: "include"
     });

@@ -53,8 +53,9 @@ _roof_model = None
 
 # Title Block & Floor Plan Annotation Filter Regex
 TITLE_ANNOTATION_RE = re.compile(
-    r"\b(UPPER|LOWER|GROUND|FIRST|SECOND|THIRD|SITE|ROOF|KEY|DEVELOPMENT)\s+(FLOOR|LEVEL|PLAN|AREAS?|MAP|LAYOUT|SPACE)\b"
+    r"\b(UPPER|LOWER|GROUND|FIRST|SECOND|THIRD|SITE|ROOF|KEY|DEVELOPMENT)\s+(FLOOR|LEVEL|PLAN|AREAS?|MAP|LAYOUT|SPACE|LIVING|BEDROOMS?)\b"
     r"|\b(FLOOR|TOTAL|COVERED|GROSS|NET)\s+(AREAS?|SPACE|FOOTPRINT|SCHEDULE)\b"
+    r"|\b(UPPER|LOWER|GROUND|FIRST)\s+(FLO|LIV)\b"
     r"|\b(SCALE|DRAWING|JOB|CLIENT|SHEET|REVISION)\s*:\s*|\bSTAGE\s+\d+\b",
     re.I
 )
@@ -72,32 +73,54 @@ def map_ocr_bbox_to_global(
 ) -> dict:
     """
     Transforms local OCR bbox in a (possibly rotated and scaled) crop image back to global image coordinates.
-    local_bbox: {"x": float, "y": float, "w": float, "h": float}
+    Correctly accounts for dimension axis swaps during 90° and 270° rotations.
     """
-    rx = float(local_bbox.get("x", 0.0)) / scale_x
-    ry = float(local_bbox.get("y", 0.0)) / scale_y
-    rw = float(local_bbox.get("w", 0.0)) / scale_x
-    rh = float(local_bbox.get("h", 0.0)) / scale_y
+    lx = float(local_bbox.get("x", 0.0))
+    ly = float(local_bbox.get("y", 0.0))
+    lw = float(local_bbox.get("w", 0.0))
+    lh = float(local_bbox.get("h", 0.0))
 
     if angle == 0:
-        ox, oy, ow, oh = rx, ry, rw, rh
+        ox = lx / scale_x
+        oy = ly / scale_y
+        ow = lw / scale_x
+        oh = lh / scale_y
     elif angle == 90:  # 90° Clockwise
-        ox = ry
-        oy = float(crop_h) - (rx + rw)
-        ow = rh
-        oh = rw
+        # Rotated X-axis is unscaled Y-axis (scale_y); Rotated Y-axis is unscaled X-axis (scale_x)
+        unscaled_rx = lx / scale_y
+        unscaled_ry = ly / scale_x
+        unscaled_rw = lw / scale_y
+        unscaled_rh = lh / scale_x
+
+        ox = unscaled_ry
+        oy = float(crop_h) - (unscaled_rx + unscaled_rw)
+        ow = unscaled_rh
+        oh = unscaled_rw
     elif angle == 180:  # 180° Clockwise
-        ox = float(crop_w) - (rx + rw)
-        oy = float(crop_h) - (ry + rh)
-        ow = rw
-        oh = rh
+        unscaled_rx = lx / scale_x
+        unscaled_ry = ly / scale_y
+        unscaled_rw = lw / scale_x
+        unscaled_rh = lh / scale_y
+
+        ox = float(crop_w) - (unscaled_rx + unscaled_rw)
+        oy = float(crop_h) - (unscaled_ry + unscaled_rh)
+        ow = unscaled_rw
+        oh = unscaled_rh
     elif angle == 270:  # 270° Clockwise / 90° CCW
-        ox = float(crop_w) - (ry + rh)
-        oy = rx
-        ow = rh
-        oh = rw
+        unscaled_rx = lx / scale_y
+        unscaled_ry = ly / scale_x
+        unscaled_rw = lw / scale_y
+        unscaled_rh = lh / scale_x
+
+        ox = float(crop_w) - (unscaled_ry + unscaled_rh)
+        oy = unscaled_rx
+        ow = unscaled_rh
+        oh = unscaled_rw
     else:
-        ox, oy, ow, oh = rx, ry, rw, rh
+        ox = lx / scale_x
+        oy = ly / scale_y
+        ow = lw / scale_x
+        oh = lh / scale_y
 
     return {
         "x": float(crop_x1 + ox),
@@ -136,14 +159,277 @@ def classify_text_category(text: str) -> str:
     return "OTHER"
 
 
+def _create_safe_room_polygon(
+    poly: Polygon, 
+    img_w: float = 2000.0, 
+    img_h: float = 2000.0
+) -> Tuple[Polygon, float]:
+    """
+    YÊU CẦU 2: Creates a scale-aware safe polygon by buffering room_polygon inward:
+    safe_polygon = room_polygon.buffer(-margin)
+    Margin scales proportionally to room polygon area/perimeter (8-24px).
+    """
+    if not poly or not poly.is_valid or poly.is_empty:
+        return poly, 0.0
+
+    area = poly.area
+    margin = max(6.0, min(24.0, math.sqrt(area) * 0.03))
+    
+    safe_poly = poly.buffer(-margin)
+    if safe_poly.is_empty or not safe_poly.is_valid or safe_poly.area < 10.0:
+        safe_poly = poly.buffer(-margin * 0.5)
+        if safe_poly.is_empty or not safe_poly.is_valid:
+            safe_poly = poly
+            margin = 0.0
+
+    return safe_poly, margin
+
+
+def is_dimension_or_technical_annotation(text: str) -> bool:
+    """
+    YÊU CẦU 5 & 9: Strict Dimension & Architectural Annotation Filter.
+    Returns True if text is a dimension, door/window code, or title annotation.
+    """
+    if not text:
+        return True
+    t = text.strip().upper()
+    
+    # 1. Pure numbers (e.g. 7200, 820, 600, 1515, 1827, 1521, 90, 1200)
+    if t.isdigit() and len(t) >= 2:
+        return True
+
+    # 2. Dimensions & Sizes (3000 x 4500, 1200X1500, 2100x1800)
+    if re.search(r"^\d+\s*[xX×]\s*\d+$", t) or re.search(r"^\d{3,5}\s*(MM|CM|M)?$", t):
+        return True
+
+    # 3. Hardware codes & Door/Window tags (720CS, 770CS, 820CSD, W-31, W-28, D-01, sliders, R DB)
+    if re.search(r"^\d{2,5}\s*(CS|CSD|S|SD|C5|L|H|MM)?$", t) or re.search(r"^(W|D|WALL|DOOR|WIN|WINDOW|R)[-\s]?\d{1,4}[A-Z]?$", t):
+        return True
+        
+    if re.search(r"\b(SLIDERS?|SLIDING|SD|CSD|AW|FW|SILL|REBATED|JAMD|EAVES|NICHE|SHELVES|METER|RAIL|FALL|FLUSH|PANEL|DB)\b", t):
+        return True
+
+    # 4. Title block / Plan headers (UPPER LIVING, GROUND FLOOR, LOWER FLOOR)
+    if TITLE_ANNOTATION_RE.search(t):
+        return True
+
+    return False
+
+
+def group_ocr_text_fragments(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    YÊU CẦU 4: Text Grouping module.
+    Groups fragmented OCR character boxes (e.g., 'B', 'E', 'D', '4') into cohesive tokens ('BED 4').
+    """
+    if not candidates or len(candidates) <= 1:
+        return candidates
+
+    by_angle = {}
+    for c in candidates:
+        ang = c.get("angle", 0)
+        by_angle.setdefault(ang, []).append(c)
+
+    grouped_results = []
+
+    for ang, item_list in by_angle.items():
+        sorted_items = sorted(item_list, key=lambda i: (i["global_bbox"]["y"], i["global_bbox"]["x"]))
+        clusters = []
+
+        for item in sorted_items:
+            b = item["global_bbox"]
+            cx = b["x"] + b["w"] / 2.0
+            cy = b["y"] + b["h"] / 2.0
+
+            merged = False
+            for cluster in clusters:
+                ref_b = cluster[-1]["global_bbox"]
+                ref_cy = ref_b["y"] + ref_b["h"] / 2.0
+                avg_h = (b["h"] + ref_b["h"]) / 2.0
+
+                if abs(cy - ref_cy) <= 0.60 * avg_h:
+                    gap_x = b["x"] - (ref_b["x"] + ref_b["w"])
+                    if -0.30 * avg_h <= gap_x <= 1.50 * max(b["w"], ref_b["w"], avg_h):
+                        cluster.append(item)
+                        merged = True
+                        break
+
+            if not merged:
+                clusters.append([item])
+
+        for cluster in clusters:
+            if len(cluster) == 1:
+                grouped_results.append(cluster[0])
+            else:
+                combined_text = " ".join([i["text"] for i in cluster]).strip()
+                combined_text = re.sub(r"(?<=\b[A-Za-z])\s+(?=[A-Za-z]\b)", "", combined_text)
+                
+                min_x = min(i["global_bbox"]["x"] for i in cluster)
+                min_y = min(i["global_bbox"]["y"] for i in cluster)
+                max_x = max(i["global_bbox"]["x"] + i["global_bbox"]["w"] for i in cluster)
+                max_y = max(i["global_bbox"]["y"] + i["global_bbox"]["h"] for i in cluster)
+                avg_conf = sum(i.get("conf", 0.8) for i in cluster) / len(cluster)
+
+                grouped_results.append({
+                    "text": combined_text,
+                    "conf": avg_conf,
+                    "angle": ang,
+                    "global_bbox": {
+                        "x": min_x,
+                        "y": min_y,
+                        "w": max_x - min_x,
+                        "h": max_y - min_y
+                    },
+                    "source": "fragment_grouped"
+                })
+
+    return grouped_results
+
+
+def compute_explicit_room_label_score(
+    candidate_text: str,
+    ocr_conf: float,
+    global_bbox: dict,
+    room_poly: Polygon,
+    safe_poly: Polygon,
+    doors: list = None,
+    windows: list = None,
+    angle: int = 0
+) -> Dict[str, Any]:
+    """
+    YÊU CẦU 6: Multi-Signal Room Label Score Calculation.
+    room_label_score = 0.25*ocr_confidence + 0.20*vocabulary_score + 0.20*spatial_score
+                     + 0.10*center_score + 0.10*text_size_score + 0.05*orientation_score
+                     + 0.05*wall_distance_score + 0.05*character_validity_score
+    """
+    text_clean = candidate_text.strip().upper()
+    
+    # 1. OCR Confidence Score
+    conf_score = max(0.0, min(1.0, float(ocr_conf)))
+
+    # 2. Vocabulary Score
+    norm_txt = _clean_text(text_clean)
+    parsed = parse_and_normalize_room_text(text_clean)
+    if parsed["is_valid_room"] and not parsed["is_cad_noise"]:
+        vocab_score = 1.0
+    elif norm_txt in VALID_ROOM_WORDS or any(w in norm_txt for w in VALID_ROOM_WORDS):
+        vocab_score = 0.90
+    elif _score_room_name(text_clean) > 0:
+        vocab_score = 0.75
+    else:
+        vocab_score = 0.0
+
+    # 3. Spatial Containment Score (1.0 in safe_polygon, 0.70 in room_polygon, 0.0 outside)
+    bx1, by1 = global_bbox["x"], global_bbox["y"]
+    bx2, by2 = bx1 + global_bbox["w"], by1 + global_bbox["h"]
+    text_poly = Polygon([(bx1, by1), (bx2, by1), (bx2, by2), (bx1, by2)])
+    center_pt = Point((bx1 + bx2) / 2.0, (by1 + by2) / 2.0)
+
+    if safe_poly.contains(center_pt):
+        spatial_score = 1.0
+    elif room_poly.contains(center_pt):
+        spatial_score = 0.70
+    else:
+        spatial_score = 0.0
+
+    # 4. Center Distance Score
+    centroid = room_poly.centroid
+    dist_cent = centroid.distance(center_pt)
+    max_radius = max(1.0, room_poly.length / 3.0)
+    center_score = max(0.0, 1.0 - (dist_cent / max_radius))
+
+    # 5. Text Size Score
+    area_ratio = text_poly.area / max(1.0, room_poly.area)
+    if 0.0005 <= area_ratio <= 0.08:
+        text_size_score = 1.0
+    elif area_ratio < 0.0005:
+        text_size_score = 0.50
+    else:
+        text_size_score = 0.20
+
+    # 6. Orientation Score
+    orientation_score = 1.0 if angle in [0, 90, 180, 270] else 0.50
+
+    # 7. Wall Distance Score
+    dist_to_wall = room_poly.exterior.distance(center_pt)
+    wall_distance_score = min(1.0, dist_to_wall / 20.0)
+
+    # 8. Character Validity Score
+    if re.search(r"^[A-ZÀ-Ỹ\s\d]+$", text_clean) and len(text_clean) >= 2:
+        char_validity_score = 1.0
+    else:
+        char_validity_score = 0.30
+
+    # YÊU CẦU 8: Door / Window Proximity Check Penalty
+    near_door_or_window = False
+    if doors or windows:
+        for dw in (doors or []) + (windows or []):
+            dw_pts = dw.get("polygon") or dw.get("bbox")
+            if dw_pts:
+                try:
+                    if isinstance(dw_pts, list):
+                        dw_poly = Polygon([(p["x"], p["y"]) for p in dw_pts])
+                    else:
+                        dw_poly = Polygon([
+                            (dw_pts["x"], dw_pts["y"]),
+                            (dw_pts["x"] + dw_pts["w"], dw_pts["y"]),
+                            (dw_pts["x"] + dw_pts["w"], dw_pts["y"] + dw_pts["h"]),
+                            (dw_pts["x"], dw_pts["y"] + dw_pts["h"])
+                        ])
+                    if dw_poly.distance(center_pt) <= 15.0:
+                        near_door_or_window = True
+                        break
+                except Exception:
+                    pass
+
+    # Category Hierarchy Boost: Primary living rooms (BED, MASTER BEDROOM, LIVING, FAMILY, KITCHEN, BATH, ENS)
+    # take precedence over auxiliary fixtures (ROBE, LINEN, STORE, PANTRY) inside shared polygons
+    category = parsed.get("category", "")
+    is_primary_room = category in ["BED", "MASTER BEDROOM", "LIVING", "FAMILY", "KITCHEN", "DINING", "BATH", "ENS", "THEATRE", "STUDY"]
+    is_auxiliary_fixture = category in ["ROBE", "LINEN", "STORE", "PANTRY", "VOID"]
+
+    hierarchy_boost = 0.0
+    if is_primary_room:
+        hierarchy_boost += 0.10
+        if parsed.get("number") is not None:
+            hierarchy_boost += 0.05  # Extra boost for numbered rooms like BED 5, BED 4
+    elif is_auxiliary_fixture:
+        hierarchy_boost -= 0.05
+
+    # Final Weighted Formula
+    label_score = (
+        0.25 * conf_score +
+        0.20 * vocab_score +
+        0.20 * spatial_score +
+        0.10 * center_score +
+        0.10 * text_size_score +
+        0.05 * orientation_score +
+        0.05 * wall_distance_score +
+        0.05 * char_validity_score +
+        hierarchy_boost
+    )
+
+    if near_door_or_window and vocab_score < 0.80:
+        label_score *= 0.50
+
+    return {
+        "label_score": round(label_score, 3),
+        "vocab_score": vocab_score,
+        "spatial_score": spatial_score,
+        "center_score": center_score,
+        "near_door_or_window": near_door_or_window,
+        "parsed_normalized_text": parsed.get("normalized_text", text_clean)
+    }
+
+
 def is_text_spatially_in_room(
     global_bbox: dict,
     room_polygon_pts: list,
-    min_overlap_ratio: float = 0.20
+    min_overlap_ratio: float = 0.50,
+    safe_poly: Polygon = None
 ) -> Tuple[bool, float, float]:
     """
-    Verifies if a text object (by global_bbox) is spatially located inside a room polygon.
-    Returns: (is_inside: bool, overlap_ratio: float, dist_to_centroid: float)
+    YÊU CẦU 1: Verifies if a text object (by global_bbox) is strictly spatially located inside a room polygon.
+    Requires: intersection_ratio >= min_overlap_ratio (>= 0.50) AND center_pt strictly inside room polygon.
     """
     if not global_bbox or not room_polygon_pts or len(room_polygon_pts) < 3:
         return False, 0.0, 9999.0
@@ -163,15 +449,16 @@ def is_text_spatially_in_room(
 
         overlap_area = poly.intersection(text_poly).area if poly.intersects(text_poly) else 0.0
         text_area = max(1.0, text_poly.area)
-        overlap_ratio = overlap_area / text_area
+        intersection_ratio = overlap_area / text_area
 
-        center_inside = poly.contains(center_pt) or poly.distance(center_pt) <= 3.0
+        # Text center MUST be strictly inside the room polygon AND have >= 50% bbox area inside
+        center_inside = poly.contains(center_pt)
         dist_to_centroid = poly.centroid.distance(center_pt)
 
-        # Spatially inside if text center is inside polygon OR overlap ratio >= min_overlap_ratio
-        is_inside = center_inside or (overlap_ratio >= min_overlap_ratio)
+        # Strictly inside ONLY if center is inside AND intersection_ratio >= min_overlap_ratio
+        is_inside = center_inside and (intersection_ratio >= min_overlap_ratio)
 
-        return is_inside, overlap_ratio, dist_to_centroid
+        return is_inside, intersection_ratio, dist_to_centroid
     except Exception as err:
         print(f"[is_text_spatially_in_room error] {err}")
         return False, 0.0, 9999.0
@@ -919,6 +1206,7 @@ except ImportError:
     fuzz = _FuzzFallback()
 
 VALID_ROOM_WORDS = [
+    "MASTER BEDROOM", "MASTER", "MBED",
     "BED", "BEDROOM", "BATH", "ENS", "ENSUITE", "HALLWAY", 
     "WIR", "PWDR", "KITCHEN", "DINING", "LIVING", "GARAGE", 
     "LAUNDRY", "VOID", "STAIRS", "WC", "ROBE", "STUDY", "MEDIA", 
@@ -1376,8 +1664,6 @@ def _detect_rooms_text_roi(
             shifted_polygon = np.array([[[int(p["x"]) - x1, int(p["y"]) - y1]] for p in pts], dtype=np.int32)
             
             cv2.fillPoly(mask, [shifted_polygon], 255)
-            kernel = np.ones((pad*2, pad*2), np.uint8)
-            mask = cv2.dilate(mask, kernel, iterations=1)
             
             # Fill the outside of the mask with the ambient background color to avoid harsh edges
             roi_masked = roi.copy()
@@ -1557,7 +1843,8 @@ def _visual_classify_rooms(img_np: np.ndarray, rooms: list) -> list:
     - Open space with minimal fixtures → LIVING
     """
     for room in rooms:
-        if room["room_name"].upper() != "ROOM":
+        current_name = (room.get("room_name") or "ROOM").upper()
+        if current_name != "ROOM" and current_name != "UNKNOWN":
             continue
         
         pts = room.get("polygon", [])
@@ -2672,7 +2959,7 @@ def _detect_and_match_room_texts_per_room(img_np: np.ndarray, rooms: list) -> li
     import time as _time
     t_start = _time.time()
     TOTAL_TIMEOUT = 60.0  # Max 60s for all rooms combined
-    PER_ROOM_MAX_DIM = 800  # Max crop dimension for OCR
+    PER_ROOM_MAX_DIM = 1800  # High resolution crop for crisp OCR
 
     img_h, img_w = img_np.shape[:2]
     unnamed_rooms = []
@@ -2700,42 +2987,51 @@ def _detect_and_match_room_texts_per_room(img_np: np.ndarray, rooms: list) -> li
         if not current_name.startswith("ROOM"):
             continue
 
+        # YÊU CẦU 1 & 2: Construct Shapely Polygon and Scale-Aware Safe Polygon
+        poly = Polygon([(p["x"], p["y"]) for p in pts])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+
+        safe_poly, margin = _create_safe_room_polygon(poly, img_w, img_h)
+
         xs = [p["x"] for p in pts]
         ys = [p["y"] for p in pts]
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
 
-        crop_w = max_x - min_x
-        crop_h = max_y - min_y
-
-        if crop_w < 15 or crop_h < 15:
-            unnamed_rooms.append(room)
-            continue
-
-        # Pad bounding box by 15px
-        cx1 = max(0, int(min_x) - 15)
-        cy1 = max(0, int(min_y) - 15)
-        cx2 = min(img_w, int(max_x) + 15)
-        cy2 = min(img_h, int(max_y) + 15)
+        # Pad bounding box slightly (4px) for boundary tolerance
+        cx1 = max(0, int(min_x) - 4)
+        cy1 = max(0, int(min_y) - 4)
+        cx2 = min(img_w, int(max_x) + 4)
+        cy2 = min(img_h, int(max_y) + 4)
 
         crop_np = img_np[cy1:cy2, cx1:cx2]
         if crop_np.size == 0:
             unnamed_rooms.append(room)
             continue
 
+        # Strict Safe Polygon Mask: Fill everything OUTSIDE safe_polygon with white (255) to prevent adjacent room text leakage
+        try:
+            import cv2
+            mask = np.zeros((cy2 - cy1, cx2 - cx1), dtype=np.uint8)
+            safe_poly_pts = list(safe_poly.exterior.coords) if hasattr(safe_poly, "exterior") else [(p["x"], p["y"]) for p in pts]
+            shifted_pts = np.array([[[int(p[0]) - cx1, int(p[1]) - cy1]] for p in safe_poly_pts], dtype=np.int32)
+            cv2.fillPoly(mask, [shifted_pts], 255)
+            crop_masked = crop_np.copy()
+            crop_masked[mask == 0] = 255
+            crop_np = crop_masked
+        except Exception as mask_err:
+            print(f"[per_room_ocr] Polygon mask warning: {mask_err}")
+
         # Downscale large crops for fast OCR
         ch, cw = crop_np.shape[:2]
         if max(ch, cw) > PER_ROOM_MAX_DIM:
             scale = PER_ROOM_MAX_DIM / max(ch, cw)
-            import cv2
             crop_np = cv2.resize(crop_np, (int(cw * scale), int(ch * scale)), interpolation=cv2.INTER_AREA)
 
         pil_crop = Image.fromarray(crop_np)
 
-        # Extract ALL text candidates across orientations (0°, 90°, 270°)
-        all_candidates = []
-        seen_texts = set()
-
+        raw_candidates = []
         uncropped_cw = cx2 - cx1
         uncropped_ch = cy2 - cy1
         scale_x = cw / float(uncropped_cw) if uncropped_cw > 0 else 1.0
@@ -2743,7 +3039,7 @@ def _detect_and_match_room_texts_per_room(img_np: np.ndarray, rooms: list) -> li
 
         if reader is not None:
             t_room = _time.time()
-            for angle in [0, 90, 270]:
+            for angle in [0, 90, 270, 180]:
                 rot_img = rotate_image(pil_crop, angle)
                 if rot_img.mode != "RGB":
                     rot_img = rot_img.convert("RGB")
@@ -2753,81 +3049,129 @@ def _detect_and_match_room_texts_per_room(img_np: np.ndarray, rooms: list) -> li
                         raw_res = reader.readtext(img_arr, detail=1, paragraph=False)
                     for (bbox, text_str, conf) in raw_res:
                         txt = str(text_str).strip()
-                        if txt and float(conf) > 0.15 and len(txt) >= 2:
-                            t_upper = txt.upper()
-
-                            # Compute local bbox in rotated/scaled crop image
+                        if txt and float(conf) > 0.08:
                             xs_loc = [p[0] for p in bbox]
                             ys_loc = [p[1] for p in bbox]
                             min_lx, max_lx = min(xs_loc), max(xs_loc)
                             min_ly, max_ly = min(ys_loc), max(ys_loc)
                             local_bbox = {"x": float(min_lx), "y": float(min_ly), "w": float(max_lx - min_lx), "h": float(max_ly - min_ly)}
 
-                            # Transform local OCR bbox back to global image coordinates
                             global_bbox = map_ocr_bbox_to_global(
                                 local_bbox, uncropped_cw, uncropped_ch, angle, scale_x, scale_y, cx1, cy1
                             )
 
-                            # Verify strict spatial polygon containment
-                            is_inside, overlap_ratio, dist_cent = is_text_spatially_in_room(global_bbox, pts)
-                            cat = classify_text_category(txt)
-
-                            # Structured debug log for coordinate audit
-                            log_ocr_coordinate_debug(
-                                text=txt,
-                                room_id=room.get("id", "room"),
-                                crop_bbox={"cx1": cx1, "cy1": cy1, "cx2": cx2, "cy2": cy2},
-                                ocr_local_bbox=local_bbox,
-                                ocr_global_bbox=global_bbox,
-                                room_polygon=pts
-                            )
-
-                            # ONLY include candidate if text center/bbox is spatially inside this room polygon and category is ROOM_NAME
-                            if is_inside and cat == "ROOM_NAME":
-                                cand_key = (t_upper, round(global_bbox["x"], 1), round(global_bbox["y"], 1))
-                                if cand_key not in seen_texts:
-                                    seen_texts.add(cand_key)
-                                    all_candidates.append({
-                                        "text": txt,
-                                        "conf": float(conf),
-                                        "angle": angle,
-                                        "global_bbox": global_bbox,
-                                        "dist_to_centroid": dist_cent
-                                    })
+                            raw_candidates.append({
+                                "text": txt,
+                                "conf": float(conf),
+                                "angle": angle,
+                                "global_bbox": global_bbox
+                            })
                 except Exception as err:
                     print(f"[per_room_ocr] Readtext error at angle {angle}: {err}")
 
             ocr_count += 1
-            print(f"[per_room_ocr] Room OCR #{ocr_count}: {len(all_candidates)} valid spatial candidates extracted in {_time.time()-t_room:.2f}s: {[c['text'] for c in all_candidates]}")
 
-        matched_name = None
+        # YÊU CẦU 4: Fragment Text Grouping (e.g. ['B', 'E', 'D', '4'] -> 'BED 4')
+        grouped_candidates = group_ocr_text_fragments(raw_candidates)
+
+        rejected_outside_count = 0
+        rejected_dimension_count = 0
+        rejected_annotation_count = 0
+
+        valid_evaluated_candidates = []
+
+        for c in grouped_candidates:
+            txt = c.get("text", "").strip()
+            if not txt:
+                continue
+
+            # YÊU CẦU 5 & 9: Dimension Protection & Technical Annotation Shield
+            if is_dimension_or_technical_annotation(txt):
+                rejected_dimension_count += 1
+                continue
+
+            # YÊU CẦU 1: Strict Spatial Containment (center inside polygon & overlap >= 0.35)
+            is_inside, inter_ratio, dist_cent = is_text_spatially_in_room(
+                c["global_bbox"], pts, min_overlap_ratio=0.35, safe_poly=safe_poly
+            )
+            if not is_inside:
+                rejected_outside_count += 1
+                continue
+
+            # YÊU CẦU 6: Multi-Signal Room Label Score Calculation
+            score_meta = compute_explicit_room_label_score(
+                candidate_text=txt,
+                ocr_conf=c["conf"],
+                global_bbox=c["global_bbox"],
+                room_poly=poly,
+                safe_poly=safe_poly,
+                angle=c.get("angle", 0)
+            )
+
+            c["score_meta"] = score_meta
+            c["label_score"] = score_meta["label_score"]
+            c["parsed_text"] = score_meta["parsed_normalized_text"]
+            valid_evaluated_candidates.append(c)
+
+        # Primary Living Room Hierarchy Filter:
+        # Separate primary living rooms (BED, MASTER BEDROOM, LIVING, FAMILY, KITCHEN, BATH, ENS, etc.)
+        # from auxiliary fixtures (ROBE, LINEN, STORE, PANTRY, VOID).
+        primary_candidates = []
+        auxiliary_candidates = []
+
+        PRIMARY_CATEGORIES = {
+            "BED", "MASTER BEDROOM", "LIVING", "FAMILY", "KITCHEN", "DINING",
+            "BATH", "ENS", "THEATRE", "STUDY", "BALCONY", "STAIRS", "ENTRY",
+            "HALLWAY", "OFFICE", "GUEST", "MEALS", "RUMPUS", "ALFRESCO",
+            "PHÒNG NGỦ", "PHÒNG KHÁCH", "PHÒNG BẾP", "NHÀ VỆ SINH"
+        }
+
+        for c in valid_evaluated_candidates:
+            if c["label_score"] >= 0.35:
+                parsed_cat = parse_and_normalize_room_text(c["text"]).get("category", "")
+                if parsed_cat in PRIMARY_CATEGORIES:
+                    primary_candidates.append(c)
+                else:
+                    auxiliary_candidates.append(c)
+
+        # If primary room candidates exist, ONLY choose from primary candidates!
+        # This completely guarantees BED 5, BED 3, BED 2 will NEVER be overwritten by ROBE or LINEN.
+        eligible_pool = primary_candidates if primary_candidates else auxiliary_candidates
+
+        best_candidate = None
         best_score = -999.0
 
-        for c in all_candidates:
-            raw_t = c.get("text", "").strip()
-            if not raw_t:
-                continue
-            corrected_t = _fuzzy_correct_room_name(raw_t)
-            clean_tok = _clean_text(corrected_t)
+        for c in eligible_pool:
+            if c["label_score"] > best_score:
+                best_score = c["label_score"]
+                best_candidate = c
 
-            score = _score_room_name(corrected_t)
-
-            if corrected_t in VALID_ROOM_WORDS or clean_tok in VALID_ROOM_WORDS or score >= 10000:
-                matched_name = corrected_t
-                break
-            elif re.match(r"^(BED|BATH|ENS|ROOM)\s+\d+$", corrected_t, re.IGNORECASE):
-                matched_name = corrected_t
-                break
-            elif score > best_score and score > 0:
-                best_score = score
-                matched_name = corrected_t
-
-        if matched_name:
-            room["room_name"] = matched_name.upper()
+        # YÊU CẦU 10: Standardized Output Selection
+        if best_candidate:
+            room["room_name"] = best_candidate["parsed_text"].upper()
+            room["label_confidence"] = best_candidate["conf"]
+            room["label_score"] = best_score
+            room["inside_safe_polygon"] = best_candidate["score_meta"]["spatial_score"] == 1.0
             room["room_name_source"] = "per_room_ocr"
-            print(f"[per_room_ocr] Room matched: '{matched_name.upper()}'")
+            print(f"[per_room_ocr] Room matched: '{room['room_name']}' (score={best_score:.3f})")
         else:
+            room["room_name"] = None  # Do NOT force nearest text when no candidate is valid
             unnamed_rooms.append(room)
+
+        # YÊU CẦU 11: Structured Debug Metadata
+        room["_room_label_debug"] = {
+            "room_polygon_area": round(poly.area, 1),
+            "safe_polygon_area": round(safe_poly.area, 1),
+            "margin_used": round(margin, 1),
+            "ocr_candidates_total": len(raw_candidates),
+            "grouped_candidates": len(grouped_candidates),
+            "candidates_inside_polygon": len(valid_evaluated_candidates),
+            "candidates_rejected_outside": rejected_outside_count,
+            "candidates_rejected_dimension": rejected_dimension_count,
+            "candidates_rejected_annotation": rejected_annotation_count,
+            "selected_label": room.get("room_name"),
+            "selected_score": round(best_score, 3) if best_candidate else None
+        }
 
     print(f"[per_room_ocr] OCR completed: {ocr_count} rooms processed in {_time.time()-t_start:.1f}s")
 
@@ -2838,6 +3182,131 @@ def _detect_and_match_room_texts_per_room(img_np: np.ndarray, rooms: list) -> li
             _visual_classify_rooms(img_np, unnamed_rooms)
         except Exception as vis_err:
             print(f"[per_room_ocr] Visual classify warning: {vis_err}")
+
+    return rooms
+
+
+def _match_text_to_rooms(rooms: list, texts: list) -> list:
+    """
+    Global spatial text matcher for assigning OCR text detections to room polygons.
+    Implements Yêu cầu 1 -> 11:
+    - Safe Polygon scale-aware buffering.
+    - Fragment grouping.
+    - Dimension protection & technical annotation shield.
+    - Strict spatial containment (intersection_ratio >= 0.80 & center inside polygon).
+    - Multi-signal Room Label Scoring.
+    """
+    if not rooms or not texts:
+        return rooms
+
+    # YÊU CẦU 4: Fragment text grouping across global text candidates
+    grouped_texts = group_ocr_text_fragments(texts)
+
+    for room in rooms:
+        pts = room.get("polygon", [])
+        if len(pts) < 3:
+            continue
+
+        try:
+            poly = Polygon([(p["x"], p["y"]) for p in pts])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+
+            safe_poly, margin = _create_safe_room_polygon(poly)
+
+            valid_candidates = []
+            rejected_outside = 0
+            rejected_dim = 0
+
+            for t in grouped_texts:
+                raw_txt = t.get("text", "").strip()
+                if not raw_txt:
+                    continue
+
+                # YÊU CẦU 5 & 9: Dimension Protection & Technical Annotation Shield
+                if is_dimension_or_technical_annotation(raw_txt):
+                    rejected_dim += 1
+                    continue
+
+                bbox = t.get("bbox", t.get("global_bbox", {}))
+                if not bbox:
+                    continue
+
+                # YÊU CẦU 1: Strict Spatial Containment (center inside polygon & overlap >= 0.35)
+                is_inside, inter_ratio, dist_cent = is_text_spatially_in_room(
+                    bbox, pts, min_overlap_ratio=0.35, safe_poly=safe_poly
+                )
+                if not is_inside:
+                    rejected_outside += 1
+                    continue
+
+                # YÊU CẦU 6: Multi-Signal Room Label Scoring
+                score_meta = compute_explicit_room_label_score(
+                    candidate_text=raw_txt,
+                    ocr_conf=t.get("conf", 0.5),
+                    global_bbox=bbox,
+                    room_poly=poly,
+                    safe_poly=safe_poly,
+                    angle=t.get("angle", 0)
+                )
+
+                valid_candidates.append({
+                    "text": score_meta["parsed_normalized_text"],
+                    "conf": t.get("conf", 0.5),
+                    "label_score": score_meta["label_score"],
+                    "score_meta": score_meta
+                })
+
+            # Primary Living Room Hierarchy Filter
+            primary_candidates = []
+            auxiliary_candidates = []
+
+            PRIMARY_CATEGORIES = {
+                "BED", "MASTER BEDROOM", "LIVING", "FAMILY", "KITCHEN", "DINING",
+                "BATH", "ENS", "THEATRE", "STUDY", "BALCONY", "STAIRS", "ENTRY",
+                "HALLWAY", "OFFICE", "GUEST", "MEALS", "RUMPUS", "ALFRESCO",
+                "PHÒNG NGỦ", "PHÒNG KHÁCH", "PHÒNG BẾP", "NHÀ VỆ SINH"
+            }
+
+            for c in valid_candidates:
+                if c["label_score"] >= 0.35:
+                    parsed_cat = parse_and_normalize_room_text(c["text"]).get("category", "")
+                    if parsed_cat in PRIMARY_CATEGORIES:
+                        primary_candidates.append(c)
+                    else:
+                        auxiliary_candidates.append(c)
+
+            eligible_pool = primary_candidates if primary_candidates else auxiliary_candidates
+
+            best_cand = None
+            best_score = -999.0
+            for c in eligible_pool:
+                if c["label_score"] > best_score:
+                    best_score = c["label_score"]
+                    best_cand = c
+
+            if best_cand:
+                room["room_name"] = best_cand["text"].upper()
+                room["label_confidence"] = best_cand["conf"]
+                room["label_score"] = best_score
+                room["room_name_source"] = "global_text_matched"
+                print(f"[YOLO Text Match] Room matched: '{room['room_name']}' (score={best_score:.3f})")
+
+            # Attach debug metadata
+            room["_room_label_debug"] = {
+                "room_polygon_area": round(poly.area, 1),
+                "safe_polygon_area": round(safe_poly.area, 1),
+                "margin_used": round(margin, 1),
+                "ocr_candidates_total": len(texts),
+                "grouped_candidates": len(grouped_texts),
+                "candidates_inside_polygon": len(valid_candidates),
+                "candidates_rejected_outside": rejected_outside,
+                "candidates_rejected_dimension": rejected_dim,
+                "selected_label": room.get("room_name"),
+                "selected_score": round(best_score, 3) if best_cand else None
+            }
+        except Exception as e:
+            print(f"[YOLO Text Match Error] {e}")
 
     return rooms
 
@@ -3605,7 +4074,7 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                 
                 best_txt_match = None
                 best_in_polygon = False
-                min_txt_dist = 450.0 if is_window else 150.0
+                min_txt_dist = 450.0 if is_window else 280.0
                 
                 for tb in detected_text_boxes:
                     txt = str(tb.get("text", "")).strip()
@@ -3647,7 +4116,7 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
             # ── 2. Fallback Multi-Orientation Crop Scan (if YOLO Text Match missed) ──
             if width_source != "ocr":
                 try:
-                    pad = 350 if is_window else 120
+                    pad = 350 if is_window else 200
                     ix1, iy1, ix2, iy2 = int(x1)-pad, int(y1)-pad, int(x2)+pad, int(y2)+pad
                     ix1, iy1 = max(0, ix1), max(0, iy1)
                     ix2, iy2 = min(img_w, ix2), min(img_h, iy2)

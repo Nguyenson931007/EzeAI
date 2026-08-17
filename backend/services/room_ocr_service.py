@@ -48,6 +48,7 @@ except ImportError:
 
 # Centralized Room Category Definitions & Synonyms
 ROOM_CATEGORIES: Dict[str, List[str]] = {
+    "MASTER BEDROOM": ["MASTER BEDROOM", "MASTER BED", "MASTER", "MBED", "M.BED", "MAST BED", "MAST BEDROOM"],
     "BED": ["BED", "BEDROOM", "8ED", "8EDROOM", "BEO", "BE0", "BFD", "BBD", "BEU", "BEDD", "BEDS"],
     "BATH": ["BATH", "BATHROOM", "8ATH", "BTAH", "BATHR0OM", "BATHRO0M"],
     "ENS": ["ENS", "ENSUITE", "EMS", "EINS", "FNS", "EN5", "ENZ", "EH5", "EIS", "EHI5", "ENSH", "ENSUlTE"],
@@ -75,7 +76,7 @@ ROOM_CATEGORIES: Dict[str, List[str]] = {
     "ALFRESCO": ["ALFRESCO"],
     "PORCH": ["PORCH"],
     "VOID": ["VOID"],
-    "STAIRS": ["STAIRS"],
+    "STAIRS": ["STAIRS", "STAIR", "DN", "DN.", "UP", "UP."],
     "OFFICE": ["OFFICE", "0FFICE"],
     "GUEST": ["GUEST", "GUE5T"],
     # Vietnamese Room Words
@@ -113,19 +114,20 @@ DIGIT_SUBSTITUTIONS = {
 
 # CAD & Dimension Noise Filter Regexes
 CAD_NOISE_RE = re.compile(
-    r"^(W|D|WALL|DOOR|WIN|WINDOW)[-\s]?\d{1,4}[A-Z]?$"  # Wall/Door/Window IDs: W-17, W-25, W-38, D-1, W17, D1
-    r"|^\d{3,4}\s*(CS|S|C5|SD|L|H|MM)?$"                 # Dimensions & door sizes: 720CS, 770CS, 820, 1212, 0906, 1518, 2406L
-    r"|^\d+\s*[X×x]\s*\d+$"                              # Size dimensions: 1200x1500
-    r"|^\d{4,}$"                                         # Pure large numbers: 2400, 9060, 8190
-    r"|^\b(SLIDERS?|SLIDING|SD|CSD|AW|FW|SILL|REBATED|JAMD|EAVES|NICHE|SHELVES|METER|RAIL|FALL|FLUSH|PANEL)\b$"  # Annotations
+    r"^(W|D|WALL|DOOR|WIN|WINDOW|R)[-\s]?\d{1,4}[A-Z]?$"  # Wall/Door/Window IDs: W-17, W-25, W-31, W-38, D-1, W17, R DB
+    r"|^\d{2,5}\s*(CS|S|C5|SD|CSD|L|H|MM|CM|M)?$"          # Dimensions & door sizes: 720CS, 770CS, 820, 1212, 0906, 1518, 2406L
+    r"|^\d+\s*[X×x]\s*\d+$"                              # Size dimensions: 1200x1500, 3000 x 4500
+    r"|^\d{3,}$"                                         # Pure numbers: 820, 7200, 2400, 9060
+    r"|^\b(SLIDERS?|SLIDING|SD|CSD|AW|FW|SILL|REBATED|JAMD|EAVES|NICHE|SHELVES|METER|RAIL|FALL|FLUSH|PANEL|DB)\b$"  # Annotations
     r"|^\b(VINYL|TILES?|CARPET|TIMBER|CONCRETE|POLISHED)\b$",  # Flooring finishes
     re.I
 )
 
 # Title Block & Floor Plan Annotation Filter Regex
 TITLE_ANNOTATION_RE = re.compile(
-    r"\b(UPPER|LOWER|GROUND|FIRST|SECOND|THIRD|SITE|ROOF|KEY|DEVELOPMENT)\s+(FLOOR|LEVEL|PLAN|AREAS?|MAP|LAYOUT|SPACE)\b"
+    r"\b(UPPER|LOWER|GROUND|FIRST|SECOND|THIRD|SITE|ROOF|KEY|DEVELOPMENT)\s+(FLOOR|LEVEL|PLAN|AREAS?|MAP|LAYOUT|SPACE|LIVING|BEDROOMS?)\b"
     r"|\b(FLOOR|TOTAL|COVERED|GROSS|NET)\s+(AREAS?|SPACE|FOOTPRINT|SCHEDULE)\b"
+    r"|\b(UPPER|LOWER|GROUND|FIRST)\s+(FLO|LIV)\b"
     r"|\b(SCALE|DRAWING|JOB|CLIENT|SHEET|REVISION)\s*:\s*|\bSTAGE\s+\d+\b",
     re.I
 )
@@ -145,8 +147,8 @@ def is_cad_noise(text: str) -> bool:
     t = text.strip().upper()
     if CAD_NOISE_RE.search(t) or TITLE_ANNOTATION_RE.search(t):
         return True
-    # Check if purely digits (e.g. "820", "770")
-    if t.isdigit() and len(t) >= 3:
+    # Check if purely digits (e.g. "820", "770", "7200")
+    if t.isdigit() and len(t) >= 2:
         return True
     return False
 
@@ -213,6 +215,20 @@ def parse_and_normalize_room_text(raw_text: str) -> Dict[str, Any]:
     cleaned_word = re.sub(r"\bFAMlLY\b", "FAMILY", cleaned_word)
     cleaned_word = re.sub(r"\bL1NEN\b", "LINEN", cleaned_word)
 
+    # 2.5 Check exact synonym match on full cleaned_word first (e.g. "ENS", "WIR", "WC", "MASTER BEDROOM")
+    tok_clean_full = re.sub(r"[^A-ZÀ-Ỹ0-9\s]", "", cleaned_word).strip()
+    if tok_clean_full in SYNONYM_TO_CATEGORY:
+        cat_found = SYNONYM_TO_CATEGORY[tok_clean_full]
+        return {
+            "category": cat_found,
+            "number": None,
+            "raw_text": raw,
+            "normalized_text": cat_found,
+            "semantic_confidence": 0.98,
+            "is_valid_room": True,
+            "is_cad_noise": False
+        }
+
     # Split into words/tokens
     tokens = [tok for tok in re.split(r"[\s\-_]+", cleaned_word) if tok]
     
@@ -220,8 +236,8 @@ def parse_and_normalize_room_text(raw_text: str) -> Dict[str, Any]:
     num_found = None
     semantic_conf = 0.0
 
-    # 3. Check for unspaced combination like "BED5" or "ENS2"
-    unspaced_match = re.match(r"^([A-Za-zÀ-ỹ]+)(\d+|[SZIlOBG])$", cleaned_word, re.I)
+    # 3. Check for unspaced combination like "BED5" or "BEDS" (only if >= 3 letters in category prefix)
+    unspaced_match = re.match(r"^([A-Za-zÀ-ỹ]{3,})(\d+|[ZIlOBG])$", cleaned_word, re.I)
     if unspaced_match:
         alpha_part, num_part = unspaced_match.groups()
         tokens = [alpha_part, num_part]
@@ -258,16 +274,22 @@ def parse_and_normalize_room_text(raw_text: str) -> Dict[str, Any]:
         digit_m = re.search(r"\d+", tok)
         if digit_m:
             try:
-                num_found = int(digit_m.group(0))
-                break
+                candidate_num = int(digit_m.group(0))
+                # Valid room numbers are typically 1 to 20 (e.g. BED 1, BED 4, BED 5)
+                # Numbers >= 50 (like 720, 820, 1200) are CAD door/wall dimensions, NOT room numbers
+                if 1 <= candidate_num <= 20:
+                    num_found = candidate_num
+                    break
             except ValueError:
                 pass
         # Single char substitution match (e.g. "BED S" -> 5)
         if len(tok) == 1 and tok in DIGIT_SUBSTITUTIONS:
             sub_digit = DIGIT_SUBSTITUTIONS[tok]
             if sub_digit.isdigit():
-                num_found = int(sub_digit)
-                break
+                candidate_num = int(sub_digit)
+                if 1 <= candidate_num <= 20:
+                    num_found = candidate_num
+                    break
 
     if cat_found:
         norm_str = f"{cat_found} {num_found}" if num_found is not None else cat_found

@@ -344,7 +344,7 @@ class DoorSegmentService:
             try:
                 from services.door_width_ocr_service import enrich_doors_with_ocr_width
                 img_np = np.array(img_original)  # PIL RGB → numpy
-                enriched_all = enrich_doors_with_ocr_width(img_np, all_openings, buffer_px=120)
+                enriched_all = enrich_doors_with_ocr_width(img_np, all_openings, buffer_px=260)
                 for item in enriched_all:
                     txt = str(item.get("ocr_text") or item.get("text") or "").lower()
                     if item.get("type") == "window" and ("internal" in txt or "door" in txt or "slider" in txt or "cs" in txt):
@@ -363,7 +363,7 @@ class DoorSegmentService:
             "filename": filename,
             "width": original_width,
             "height": original_height,
-            "doors": doors_list + windows_list,
+            "doors": doors_list,
             "windows": windows_list
         }
 

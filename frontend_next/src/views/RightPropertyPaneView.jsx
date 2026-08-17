@@ -1,6 +1,6 @@
 import React from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { BASE_URL } from "@/models/api.service";
@@ -1993,22 +1993,54 @@ export default function RightPropertyPaneView({
                   </select>
                 </div>
 
-                <div className="panel-field">
+                  <div className="panel-field">
                   <span className="panel-label">Xoay & Lật Cửa (Rotate & Flip)</span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
                     <button
                       className="rp-action-btn"
                       style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
                       onClick={() => {
-                        const currentHinge = selectedDoor.hinge_side || selectedDoor.hingeSide || "left";
-                        const nextHinge = currentHinge === "left" ? "right" : "left";
-                        updateDoor && updateDoor({
-                          ...selectedDoor,
-                          hinge_side: nextHinge,
-                          hingeSide: nextHinge
-                        });
+                        let p1 = null, p2 = null;
+                        if (selectedDoor.points && selectedDoor.points.length >= 2) {
+                          p1 = Array.isArray(selectedDoor.points[0]) ? {x: selectedDoor.points[0][0], y: selectedDoor.points[0][1]} : selectedDoor.points[0];
+                          p2 = Array.isArray(selectedDoor.points[1]) ? {x: selectedDoor.points[1][0], y: selectedDoor.points[1][1]} : selectedDoor.points[1];
+                        }
+                        const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
+                        const maskPoly = selectedDoor.polygon || selectedDoor.mask_polygon || [];
+
+                        if (isVertical) {
+                          // For vertical door, Left/Right is across the wall line
+                          const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
+                          const nextSwing = currentSwing === "inward" ? "outward" : "inward";
+                          let newPoly = maskPoly;
+                          if (p1 && p2 && maskPoly.length > 0) {
+                            newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+                          }
+                          updateDoor && updateDoor({
+                            ...selectedDoor,
+                            swing_direction: nextSwing,
+                            swing: nextSwing,
+                            polygon: newPoly,
+                            mask_polygon: newPoly
+                          });
+                        } else {
+                          // For horizontal door, Left/Right is along the wall line (hinge flip)
+                          const currentHinge = selectedDoor.hing_side || selectedDoor.hingeSide || selectedDoor.hinge_side || "left";
+                          const nextHinge = currentHinge === "left" ? "right" : "left";
+                          let newPoly = maskPoly;
+                          if (p1 && p2 && maskPoly.length > 0) {
+                            newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+                          }
+                          updateDoor && updateDoor({
+                            ...selectedDoor,
+                            hinge_side: nextHinge,
+                            hingeSide: nextHinge,
+                            polygon: newPoly,
+                            mask_polygon: newPoly
+                          });
+                        }
                       }}
-                      title="Lật lề cửa Trái ↔ Phải"
+                      title="Lật cửa Trái ↔ Phải"
                     >
                       ↔️ Lật Trái/Phải
                     </button>
@@ -2016,17 +2048,49 @@ export default function RightPropertyPaneView({
                       className="rp-action-btn"
                       style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
                       onClick={() => {
-                        const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
-                        const nextSwing = currentSwing === "inward" ? "outward" : "inward";
-                        updateDoor && updateDoor({
-                          ...selectedDoor,
-                          swing_direction: nextSwing,
-                          swing: nextSwing
-                        });
+                        let p1 = null, p2 = null;
+                        if (selectedDoor.points && selectedDoor.points.length >= 2) {
+                          p1 = Array.isArray(selectedDoor.points[0]) ? {x: selectedDoor.points[0][0], y: selectedDoor.points[0][1]} : selectedDoor.points[0];
+                          p2 = Array.isArray(selectedDoor.points[1]) ? {x: selectedDoor.points[1][0], y: selectedDoor.points[1][1]} : selectedDoor.points[1];
+                        }
+                        const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
+                        const maskPoly = selectedDoor.polygon || selectedDoor.mask_polygon || [];
+
+                        if (isVertical) {
+                          // For vertical door, Up/Down is along the wall line (hinge flip)
+                          const currentHinge = selectedDoor.hing_side || selectedDoor.hingeSide || selectedDoor.hinge_side || "left";
+                          const nextHinge = currentHinge === "left" ? "right" : "left";
+                          let newPoly = maskPoly;
+                          if (p1 && p2 && maskPoly.length > 0) {
+                            newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+                          }
+                          updateDoor && updateDoor({
+                            ...selectedDoor,
+                            hinge_side: nextHinge,
+                            hingeSide: nextHinge,
+                            polygon: newPoly,
+                            mask_polygon: newPoly
+                          });
+                        } else {
+                          // For horizontal door, Up/Down is across the wall line (swing flip)
+                          const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
+                          const nextSwing = currentSwing === "inward" ? "outward" : "inward";
+                          let newPoly = maskPoly;
+                          if (p1 && p2 && maskPoly.length > 0) {
+                            newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+                          }
+                          updateDoor && updateDoor({
+                            ...selectedDoor,
+                            swing_direction: nextSwing,
+                            swing: nextSwing,
+                            polygon: newPoly,
+                            mask_polygon: newPoly
+                          });
+                        }
                       }}
-                      title="Lật chiều mở Trong ↔ Ngoài"
+                      title="Lật cửa Trên ↕ Dưới"
                     >
-                      ↕️ Lật Trong/Ngoài
+                      ↕️ Lật Trên/Dưới
                     </button>
                     <button
                       className="rp-action-btn"

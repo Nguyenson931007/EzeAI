@@ -100,6 +100,24 @@ def save_ocr_correction(req: OCRCorrectionRequest, username: str = Depends(valid
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.post("/api/pdf-ocr-pipeline")
+async def run_pdf_ocr_pipeline_endpoint(
+    file: UploadFile = File(...)
+):
+    """
+    Endpoint thực thi quy trình OCR & Khôi phục văn bản PDF đa tầng (PDF OCR Pipeline):
+    PyMuPDF Native -> Render Image 300DPI -> OpenCV (Deskew, Line Removal, Binarization) -> Tesseract / PaddleOCR Ensemble -> RapidFuzz & Semantic Matcher.
+    """
+    from services.pdf_ocr_pipeline import execute_pdf_ocr_pipeline
+    try:
+        content = await file.read()
+        res = await run_in_threadpool(execute_pdf_ocr_pipeline, pdf_bytes=content)
+        return res
+    except Exception as e:
+        logger.error(f"Lỗi quy trình PDF OCR Pipeline: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ═══════════════════════════════════════════════════════════
 # ROI-Based Detection Endpoints (Các API xử lý suy luận cục bộ ROI)
 # ═══════════════════════════════════════════════════════════
@@ -1359,6 +1377,8 @@ class GenerateRoomsRequest(BaseModel):
     gap_threshold: Optional[float] = 120.0
     expand_to_exterior_walls: Optional[bool] = False
     image_base64: Optional[str] = None
+    natural_width: Optional[float] = None
+    natural_height: Optional[float] = None
 
 
 @router.post("/api/generate-rooms-from-walls")
@@ -1627,33 +1647,28 @@ def api_generate_rooms_from_walls(
                     canvas_to_use = floor_canvas
                     img_h, img_w = floor_canvas.shape[:2]
                     
-                    # Auto-detect scale factor: compare polygon coordinate range vs actual image size
-                    # (Frontend may have already downscaled the image, so polygon coords are in original space)
-                    all_poly_xs = []
-                    all_poly_ys = []
-                    for room in rooms_detected:
-                        for pt in room.get("polygon", []):
-                            all_poly_xs.append(pt["x"])
-                            all_poly_ys.append(pt["y"])
-                    
-                    scale_factor = 1.0
-                    if all_poly_xs and all_poly_ys:
-                        poly_max_x = max(all_poly_xs)
-                        poly_max_y = max(all_poly_ys)
-                        
-                        # If polygon coords extend beyond image bounds, image was downscaled by frontend
-                        if poly_max_x > img_w * 1.1 or poly_max_y > img_h * 1.1:
-                            scale_x = img_w / poly_max_x if poly_max_x > 0 else 1.0
-                            scale_y = img_h / poly_max_y if poly_max_y > 0 else 1.0
-                            scale_factor = min(scale_x, scale_y)  # Exact scale factor matching image canvas
-                            print(f"[api_generate_rooms_from_walls] Coordinate mismatch detected: polygons max=({poly_max_x:.0f},{poly_max_y:.0f}) vs image=({img_w},{img_h}). Scale factor={scale_factor:.4f}")
-                            
-                            # Rescale polygon coordinates to match the actual image
-                            for room in rooms_detected:
-                                room["_orig_polygon"] = room["polygon"]
-                                room["polygon"] = [{"x": pt["x"] * scale_factor, "y": pt["y"] * scale_factor} for pt in room["polygon"]]
-                        else:
-                            print(f"[api_generate_rooms_from_walls] Coordinates match image ({img_w}x{img_h}). No rescaling needed.")
+                    # Auto-detect exact scale factor from natural dimensions or polygon extent
+                    if req.natural_width and req.natural_height and req.natural_width > 0 and req.natural_height > 0:
+                        scale_x = img_w / float(req.natural_width)
+                        scale_y = img_h / float(req.natural_height)
+                        print(f"[api_generate_rooms_from_walls] Exact natural scaling: ({req.natural_width}x{req.natural_height}) -> ({img_w}x{img_h}). scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+                        for room in rooms_detected:
+                            room["_orig_polygon"] = room["polygon"]
+                            room["polygon"] = [{"x": pt["x"] * scale_x, "y": pt["y"] * scale_y} for pt in room["polygon"]]
+                    else:
+                        all_poly_xs = [pt["x"] for room in rooms_detected for pt in room.get("polygon", [])]
+                        all_poly_ys = [pt["y"] for room in rooms_detected for pt in room.get("polygon", [])]
+                        if all_poly_xs and all_poly_ys:
+                            poly_max_x = max(all_poly_xs)
+                            poly_max_y = max(all_poly_ys)
+                            if poly_max_x > img_w * 1.05 or poly_max_y > img_h * 1.05:
+                                scale_x = img_w / poly_max_x if poly_max_x > 0 else 1.0
+                                scale_y = img_h / poly_max_y if poly_max_y > 0 else 1.0
+                                scale_factor = min(scale_x, scale_y)
+                                print(f"[api_generate_rooms_from_walls] Coordinate mismatch detected: max=({poly_max_x:.0f},{poly_max_y:.0f}) vs image=({img_w},{img_h}). Scale factor={scale_factor:.4f}")
+                                for room in rooms_detected:
+                                    room["_orig_polygon"] = room["polygon"]
+                                    room["polygon"] = [{"x": pt["x"] * scale_factor, "y": pt["y"] * scale_factor} for pt in room["polygon"]]
                     
                     # Additional downscale if image is still too large
                     OCR_MAX_DIM = 3000
