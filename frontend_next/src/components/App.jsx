@@ -321,6 +321,121 @@ export default function App() {
       }
     }
   }, []);
+  // ── TASK_LIST_WEB3_SSO Listener ──
+  useEffect(() => {
+    let handled = false;
+
+    const allowedOrigins = new Set([
+      "https://103.77.167.69:8081",
+      "http://103.77.167.69:8081",
+      "http://14.241.197.188:7749",
+      "https://14.241.197.188:7749",
+      "http://14.241.197.188",
+      "https://14.241.197.188",
+    ]);
+
+    try {
+      if (document.referrer) {
+        allowedOrigins.add(new URL(document.referrer).origin);
+      }
+    } catch (_) {}
+
+    const receiveSSO = async (event) => {
+      if (!allowedOrigins.has(event.origin)) return;
+      if (event.data?.type !== "TASK_LIST_WEB3_SSO") return;
+      if (!event.data?.token) return;
+      if (handled) return;
+
+      handled = true;
+
+      try {
+        const response = await ApiService.tasklistSSO(event.data.token);
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn("[SSO] TaskList SSO failed with status:", response.status, errText);
+          handled = false;
+          return;
+        }
+
+        const data = await response.json();
+
+        if (data.status !== "success") {
+          console.error("[SSO] invalid response:", data);
+          handled = false;
+          return;
+        }
+
+        const userData = {
+          username: data.username,
+          role: data.role,
+          session_token: data.session_token,
+        };
+
+        setIsLoggedIn(true);
+        setUser(userData);
+
+        localStorage.setItem("isLoggedIn", "true");
+        localStorage.setItem("user", JSON.stringify(userData));
+
+        const idJobEms = new URLSearchParams(
+          window.location.search
+        ).get("job");
+
+        if (idJobEms) {
+          // Fetch HW job info client-side thay vì redirect (tránh 404)
+          try {
+            const emsResult = await ApiService.getJobByEmsId(idJobEms);
+            if (emsResult?.status === "success" && emsResult.data) {
+              console.log("[SSO] Loaded EMS job:", emsResult.data);
+              // Lưu thông tin EMS job vào sessionStorage để các modal HW có thể sử dụng
+              sessionStorage.setItem("pendingEmsJob", JSON.stringify(emsResult.data));
+            }
+          } catch (emsErr) {
+            console.warn("[SSO] Could not load EMS job:", emsErr);
+          }
+          // Xóa query param ?job= khỏi URL để tránh lặp lại
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+        }
+      } catch (err) {
+        console.error("[SSO] Error:", err);
+        handled = false;
+      }
+    };
+
+    window.addEventListener("message", receiveSSO);
+
+    const notifyReady = () => {
+      if (!window.opener || window.opener.closed) return;
+
+      console.log("[SSO] sending TASK_LIST_WEB3_READY");
+
+      for (const origin of allowedOrigins) {
+        try {
+          window.opener.postMessage(
+            {
+              type: "TASK_LIST_WEB3_READY",
+            },
+            origin
+          );
+        } catch (_) {}
+      }
+    };
+
+    notifyReady();
+
+    const readyTimers = [500, 1500, 3000].map((delay) =>
+      window.setTimeout(notifyReady, delay)
+    );
+
+    return () => {
+      window.removeEventListener("message", receiveSSO);
+
+      readyTimers.forEach((timer) =>
+        window.clearTimeout(timer)
+      );
+    };
+  }, [setIsLoggedIn, setUser]);
 
   const loadSharedProject = async (token) => {
     try {
@@ -1219,3 +1334,4 @@ export default function App() {
     </div>
   );
 }
+

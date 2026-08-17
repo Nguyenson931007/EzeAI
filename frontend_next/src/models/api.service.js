@@ -87,6 +87,24 @@ export const ApiService = {
     return res;
   },
 
+  async tasklistSSO(token) {
+    const res = await fetch(`${BASE_URL}/api/auth/tasklist-sso`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ token }),
+    });
+    return res;
+  },
+
+  async getJobByEmsId(emsId) {
+    const res = await fetch(`${BASE_URL}/jobs/open-by-ems/${encodeURIComponent(emsId)}`, {
+      headers: getHeaders(),
+      credentials: "include",
+    });
+    return handleResponse(res);
+  },
+
   // --- User Management (Admin) ---
   async getUsers() {
     const res = await fetch(`${BASE_URL}/users`, {

@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timedelta
 import logging
 from app.database import get_db_connection
+from app.config import TASKLIST_AUTH_URL
 
 # Khởi tạo APIRouter cho các API liên quan đến xác thực
 router = APIRouter()
@@ -552,3 +553,105 @@ def validate_session(
         return auth_username
     finally:
         conn.close()
+
+@router.post("/api/auth/tasklist-sso")
+@router.post("/tasklist-sso")
+async def tasklist_sso(payload: dict, response: Response):
+    """
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
+    Gửi token xác thực tới máy chủ TaskList (https://103.77.167.69:8081/api/auth/me),
+    đồng bộ tài khoản và tạo phiên làm việc (session) cho Web AI EzeFloor.
+    """
+    token = payload.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Tasklist token is required")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+            result = await client.get(
+                TASKLIST_AUTH_URL,
+                headers={"Authorization": f"Bearer {token}"}
+            )
+    except Exception as e:
+        logger.error(f"[SSO] Lỗi kết nối tới Tasklist API ({TASKLIST_AUTH_URL}): {e}")
+        raise HTTPException(status_code=502, detail=f"Không thể kết nối máy chủ xác thực Tasklist: {e}")
+
+    if result.status_code != 200:
+        logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code}, url={TASKLIST_AUTH_URL}, body={result.text[:200]})")
+        raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
+
+    res_json = result.json()
+    user_data = res_json.get("data") or res_json
+
+    # Trích xuất thông tin user từ Tasklist
+    manv = str(user_data.get("ma_nv") or user_data.get("MaNV") or user_data.get("manv") or "").strip()
+    username_fallback = str(user_data.get("UserID") or user_data.get("username") or user_data.get("name") or manv or "sso_user").strip()
+
+    mssql_user = get_mssql_account_user(manv) if manv else None
+    if mssql_user:
+        username = str(mssql_user.get("UserID") or username_fallback).strip()
+        manv = str(mssql_user.get("MaNV") or manv).strip()
+    else:
+        username = username_fallback
+
+    raw_role = user_data.get("RoleName") or user_data.get("role") or (mssql_user.get("RoleName") if mssql_user else "User")
+    is_mgmt = user_data.get("IsManagement") == 1 or (mssql_user and mssql_user.get("IsManagement") == 1)
+    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or is_mgmt) else str(raw_role).lower()
+
+    new_token = str(uuid.uuid4())
+
+    # Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
+    local_conn = get_db_connection()
+    local_cursor = local_conn.cursor()
+    try:
+        local_cursor.execute(
+            "SELECT id, is_active, status, is_locked FROM users WHERE username = ?",
+            (username,)
+        )
+        local_row = local_cursor.fetchone()
+
+        if local_row:
+            if local_row["is_locked"] == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Tài khoản đã bị khóa. Vui lòng liên hệ Admin để mở khóa."
+                )
+            if local_row["is_active"] == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tài khoản của bạn đã bị tạm dừng hoạt động."
+                )
+
+            local_cursor.execute(
+                "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
+                (role, new_token, datetime.now().isoformat(), username)
+            )
+        else:
+            dummy_email = user_data.get("email") or f"{username.lower()}@ezefloor.ai"
+            local_cursor.execute(
+                "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
+                (username, dummy_email, "sso_managed", role, new_token, datetime.now().isoformat())
+            )
+        local_conn.commit()
+    finally:
+        local_conn.close()
+
+    # Thiết lập HTTP-Only Cookie
+    response.set_cookie(
+        key="session_token",
+        value=new_token,
+        httponly=True,
+        max_age=18000,
+        samesite="lax",
+        secure=False
+    )
+
+    return {
+        "status": "success",
+        "username": username,
+        "manv": manv,
+        "role": role,
+        "session_token": new_token,
+        "data": user_data
+    }

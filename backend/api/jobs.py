@@ -9,11 +9,14 @@ Xem lịch sử chỉnh sửa chéo, và Chia sẻ dự án công khai qua Token
 
 from fastapi import APIRouter, HTTPException, Depends, Response, Header
 import secrets
+import logging
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db_connection
 from api.auth import validate_session
 import json
+
+logger = logging.getLogger("ezefloor.jobs")
 
 # Khởi tạo APIRouter cho các API liên quan đến quản lý dự án
 router = APIRouter()
@@ -458,3 +461,79 @@ def get_shared_job(token: str):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ══════════════════════════════════════════════════════
+# LOOKUP JOB BY EMS ID (SSO deep-link từ TaskList Web3)
+# ══════════════════════════════════════════════════════
+
+@router.get("/jobs/open-by-ems/{ems_id}")
+async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_session)):
+    """
+    Tra cứu thông tin HW Job từ MSSQL theo id_job_ems (UUID từ TaskList).
+    Sử dụng khi người dùng SSO từ TaskList Web3 với tham số ?job=<ems_uuid>.
+    Trả về thông tin task_group_hw + job_number từ ListJobs.
+    """
+    from app.mssql_db import get_mssql_connection
+
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+
+        sql = """
+            SELECT
+                tghw.id AS hw_id,
+                tghw.id_job_ems,
+                tghw.id_assign_ems,
+                lj.JobNumber AS job_number,
+                lj.Client AS client,
+                lj.Builder AS builder,
+                aj.MaNV AS ma_nv
+            FROM [emsflow].[dbo].[task_group_hw] tghw
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
+                ON tghw.id_job_ems = lj.IDJob
+                AND ISNULL(lj.IsDelete, 0) = 0
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
+                ON tghw.id_assign_ems = aj.ID
+                AND ISNULL(aj.IsDelete, 0) = 0
+            WHERE
+                tghw.id_job_ems = %s
+                AND ISNULL(tghw.is_delete, 0) = 0
+        """
+
+        cursor.execute(sql, (ems_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            logger.warning(f"[open-by-ems] Không tìm thấy HW Job với id_job_ems={ems_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Không tìm thấy Job EMS với ID: {ems_id}"
+            )
+
+        # Serialize kết quả
+        result = {}
+        for key, val in row.items():
+            if val is None:
+                result[key] = None
+            elif isinstance(val, (int, float, str, bool)):
+                result[key] = val
+            else:
+                result[key] = str(val)
+
+        logger.info(f"[open-by-ems] Tìm thấy HW Job: hw_id={result.get('hw_id')}, job_number={result.get('job_number')}")
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[open-by-ems] Lỗi truy vấn MSSQL: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn MSSQL: {str(e)}")
+    finally:
+        if conn:
+            conn.close()

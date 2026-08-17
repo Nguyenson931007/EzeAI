@@ -1,4 +1,4 @@
-"""
+﻿"""
 main.py – Điểm khởi đầu của hệ thống EzeFloor Backend
 ======================================================
 Khởi tạo ứng dụng FastAPI, cấu hình chính sách CORS, đăng ký các router nghiệp vụ
@@ -127,6 +127,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
 # Đăng ký slowapi
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -166,3 +167,5 @@ app.include_router(jobs_router, tags=["jobs"])
 app.include_router(framework_router, tags=["framework"])
 app.include_router(area_summary_router, tags=["area_summary"])
 app.include_router(insulation_router, tags=["insulation"])
+
+
