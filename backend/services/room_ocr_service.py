@@ -122,13 +122,28 @@ CAD_NOISE_RE = re.compile(
     re.I
 )
 
+# Title Block & Floor Plan Annotation Filter Regex
+TITLE_ANNOTATION_RE = re.compile(
+    r"\b(UPPER|LOWER|GROUND|FIRST|SECOND|THIRD|SITE|ROOF|KEY|DEVELOPMENT)\s+(FLOOR|LEVEL|PLAN|AREAS?|MAP|LAYOUT|SPACE)\b"
+    r"|\b(FLOOR|TOTAL|COVERED|GROSS|NET)\s+(AREAS?|SPACE|FOOTPRINT|SCHEDULE)\b"
+    r"|\b(SCALE|DRAWING|JOB|CLIENT|SHEET|REVISION)\s*:\s*|\bSTAGE\s+\d+\b",
+    re.I
+)
+
+
+def is_title_annotation(text: str) -> bool:
+    """Checks if text is a plan title, drawing header, or area annotation rather than a room name."""
+    if not text:
+        return False
+    return bool(TITLE_ANNOTATION_RE.search(text.strip()))
+
 
 def is_cad_noise(text: str) -> bool:
     """Checks if text is CAD dimension, wall ID, or hardware annotation noise."""
     if not text:
         return True
     t = text.strip().upper()
-    if CAD_NOISE_RE.search(t):
+    if CAD_NOISE_RE.search(t) or TITLE_ANNOTATION_RE.search(t):
         return True
     # Check if purely digits (e.g. "820", "770")
     if t.isdigit() and len(t) >= 3:

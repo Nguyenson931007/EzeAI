@@ -82,11 +82,24 @@ export default function AIDoor({
       }
     }
   }
-  const widthLabel = displayWidthMm ? `${displayWidthMm}mm` : null;
-  const widthSource = d.width_source || "geometry";
 
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door" || d.type === "sliding" || (d.doorTypeId && d.doorTypeId.includes("sliding"));
   const isWindow = (d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'))) && !isSliding;
+
+  // Smart Architectural Dimension Snapping (CHỈ ÁP DỤNG CHO WINDOWS)
+  if (isWindow && displayWidthMm) {
+    const STANDARD_DIMENSIONS = [600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000];
+    for (const stdW of STANDARD_DIMENSIONS) {
+      const snapTol = Math.max(120, stdW * 0.10);
+      if (Math.abs(displayWidthMm - stdW) <= snapTol) {
+        displayWidthMm = stdW;
+        break;
+      }
+    }
+  }
+
+  const widthLabel = displayWidthMm ? `${Math.round(displayWidthMm)}mm` : null;
+  const widthSource = d.width_source || "geometry";
 
   // Sliding Door Box Calculations
   let slidingWidth = 0;

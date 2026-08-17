@@ -135,7 +135,15 @@ export const DialogProvider = ({ children }) => {
     >
       {children}
       {dialogState.isOpen && (
-        <div className="custom-dialog-overlay" onClick={handleCancel}>
+        <div 
+          className="custom-dialog-overlay" 
+          onClick={handleCancel}
+          style={{
+            backgroundColor: 'transparent',
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
+          }}
+        >
           <div
             className={`custom-dialog-box hud-box ${dialogState.type === 'scale' ? 'scale-dialog-box' : ''}`}
             style={

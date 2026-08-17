@@ -2436,8 +2436,9 @@ svg {
 .custom-dialog-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(10, 15, 25, 0.7);
-  backdrop-filter: blur(4px);
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   z-index: 9999;
   display: flex;
   align-items: center;

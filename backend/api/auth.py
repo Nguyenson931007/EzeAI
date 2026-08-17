@@ -383,8 +383,8 @@ def validate_session(
     """
     session_token = session_token_cookie or session_token_header
     
-    print(f"[AUTH] Đang xác thực phiên cho người dùng: {auth_username}")
-    print(f"[AUTH] Có cookie token: {bool(session_token_cookie)}, Có header token: {bool(session_token_header)}")
+    print(f"[AUTH] Validating session for user: {auth_username}")
+    print(f"[AUTH] Cookie token present: {bool(session_token_cookie)}, Header token present: {bool(session_token_header)}")
     
     if not session_token:
         logger.warning(f"[AUTH] Thiếu session token cho người dùng {auth_username}")

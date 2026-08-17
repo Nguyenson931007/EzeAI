@@ -287,7 +287,13 @@ export default function ThreeDView({
 
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
+    let length = Math.sqrt(dx * dx + dy * dy);
+
+    const effWidthMm = door.width_mm || door.width;
+    if (effWidthMm && realScale && realScale > 0) {
+      length = effWidthMm / realScale;
+    }
+
     const angle = Math.atan2(dy, dx);
     const cx = (p1.x + p2.x) / 2;
     const cy = (p1.y + p2.y) / 2;

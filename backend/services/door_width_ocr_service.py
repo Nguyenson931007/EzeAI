@@ -462,8 +462,22 @@ def _parse_dimension_text(text: str) -> Optional[Tuple[int, Optional[int]]]:
         if _MIN_WIDTH_MM <= w <= _MAX_WIDTH_MM:
             return (w, None)
 
+    # Rotated OCR digit misread mappings for doors & windows (e.g. 820 rotated 180° read as 078, 028, 082)
+    ROTATED_MISREADS = {
+        "078": 820,
+        "028": 820,
+        "082": 820,
+        "077": 770,
+        "087": 780,
+        "027": 720,
+        "072": 720,
+    }
+
     # Try standalone number — strip non-digit noise
     cleaned = re.sub(r"[^\d]", "", text)
+    if cleaned in ROTATED_MISREADS:
+        return (ROTATED_MISREADS[cleaned], None)
+
     if cleaned and len(cleaned) in (3, 4):
         m = _DIM_STANDALONE.match(cleaned)
         if m:

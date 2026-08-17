@@ -21,12 +21,16 @@ import io
 import time
 import base64
 import cv2
+import json
 import numpy as np
 import hashlib
 import threading
+from typing import Tuple, List, Dict, Any, Optional
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 from ultralytics import YOLO
 from shapely.geometry import Polygon as ShapelyPolygon, Point as ShapelyPoint, MultiPolygon as SMP, GeometryCollection, Polygon, Point, MultiPolygon
 from shapely.ops import unary_union
@@ -46,6 +50,214 @@ _door_model = None
 _text_model = None
 _template_model = None
 _roof_model = None
+
+# Title Block & Floor Plan Annotation Filter Regex
+TITLE_ANNOTATION_RE = re.compile(
+    r"\b(UPPER|LOWER|GROUND|FIRST|SECOND|THIRD|SITE|ROOF|KEY|DEVELOPMENT)\s+(FLOOR|LEVEL|PLAN|AREAS?|MAP|LAYOUT|SPACE)\b"
+    r"|\b(FLOOR|TOTAL|COVERED|GROSS|NET)\s+(AREAS?|SPACE|FOOTPRINT|SCHEDULE)\b"
+    r"|\b(SCALE|DRAWING|JOB|CLIENT|SHEET|REVISION)\s*:\s*|\bSTAGE\s+\d+\b",
+    re.I
+)
+
+
+def map_ocr_bbox_to_global(
+    local_bbox: dict,
+    crop_w: float,
+    crop_h: float,
+    angle: int = 0,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
+    crop_x1: float = 0.0,
+    crop_y1: float = 0.0
+) -> dict:
+    """
+    Transforms local OCR bbox in a (possibly rotated and scaled) crop image back to global image coordinates.
+    local_bbox: {"x": float, "y": float, "w": float, "h": float}
+    """
+    rx = float(local_bbox.get("x", 0.0)) / scale_x
+    ry = float(local_bbox.get("y", 0.0)) / scale_y
+    rw = float(local_bbox.get("w", 0.0)) / scale_x
+    rh = float(local_bbox.get("h", 0.0)) / scale_y
+
+    if angle == 0:
+        ox, oy, ow, oh = rx, ry, rw, rh
+    elif angle == 90:  # 90° Clockwise
+        ox = ry
+        oy = float(crop_h) - (rx + rw)
+        ow = rh
+        oh = rw
+    elif angle == 180:  # 180° Clockwise
+        ox = float(crop_w) - (rx + rw)
+        oy = float(crop_h) - (ry + rh)
+        ow = rw
+        oh = rh
+    elif angle == 270:  # 270° Clockwise / 90° CCW
+        ox = float(crop_w) - (ry + rh)
+        oy = rx
+        ow = rh
+        oh = rw
+    else:
+        ox, oy, ow, oh = rx, ry, rw, rh
+
+    return {
+        "x": float(crop_x1 + ox),
+        "y": float(crop_y1 + oy),
+        "w": float(ow),
+        "h": float(oh)
+    }
+
+
+def classify_text_category(text: str) -> str:
+    """
+    Classifies text into hierarchy:
+    - TITLE_ANNOTATION
+    - DIMENSION
+    - ROOM_NAME
+    - ANNOTATION
+    - OTHER
+    """
+    if not text or not text.strip():
+        return "OTHER"
+    t = text.strip().upper()
+
+    if TITLE_ANNOTATION_RE.search(t):
+        return "TITLE_ANNOTATION"
+
+    if _JUNK_CODE_RE.search(t) or re.search(r"^\d{3,5}$", t) or re.search(r"^\d+\s*[xX×]\s*\d+$", t):
+        return "DIMENSION"
+
+    score = _score_room_name(t)
+    if score > 0:
+        return "ROOM_NAME"
+
+    if re.search(r"[A-Za-zÀ-ỹ]", t):
+        return "ANNOTATION"
+
+    return "OTHER"
+
+
+def is_text_spatially_in_room(
+    global_bbox: dict,
+    room_polygon_pts: list,
+    min_overlap_ratio: float = 0.20
+) -> Tuple[bool, float, float]:
+    """
+    Verifies if a text object (by global_bbox) is spatially located inside a room polygon.
+    Returns: (is_inside: bool, overlap_ratio: float, dist_to_centroid: float)
+    """
+    if not global_bbox or not room_polygon_pts or len(room_polygon_pts) < 3:
+        return False, 0.0, 9999.0
+
+    try:
+        poly = Polygon([(p["x"], p["y"]) for p in room_polygon_pts])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+
+        tx = global_bbox["x"] + global_bbox["w"] / 2.0
+        ty = global_bbox["y"] + global_bbox["h"] / 2.0
+        center_pt = Point(tx, ty)
+
+        bx1, by1 = global_bbox["x"], global_bbox["y"]
+        bx2, by2 = bx1 + global_bbox["w"], by1 + global_bbox["h"]
+        text_poly = Polygon([(bx1, by1), (bx2, by1), (bx2, by2), (bx1, by2)])
+
+        overlap_area = poly.intersection(text_poly).area if poly.intersects(text_poly) else 0.0
+        text_area = max(1.0, text_poly.area)
+        overlap_ratio = overlap_area / text_area
+
+        center_inside = poly.contains(center_pt) or poly.distance(center_pt) <= 3.0
+        dist_to_centroid = poly.centroid.distance(center_pt)
+
+        # Spatially inside if text center is inside polygon OR overlap ratio >= min_overlap_ratio
+        is_inside = center_inside or (overlap_ratio >= min_overlap_ratio)
+
+        return is_inside, overlap_ratio, dist_to_centroid
+    except Exception as err:
+        print(f"[is_text_spatially_in_room error] {err}")
+        return False, 0.0, 9999.0
+
+
+def log_ocr_coordinate_debug(
+    text: str,
+    room_id: str,
+    pdf_bbox: dict = None,
+    render_bbox: dict = None,
+    yolo_bbox: dict = None,
+    crop_bbox: dict = None,
+    ocr_local_bbox: dict = None,
+    ocr_global_bbox: dict = None,
+    room_polygon: list = None
+) -> dict:
+    """Creates structured debug log for text coordinate mapping audit."""
+    log_entry = {
+        "text": text,
+        "room_id": str(room_id),
+        "pdf_bbox": pdf_bbox or {},
+        "render_bbox": render_bbox or {},
+        "yolo_bbox": yolo_bbox or {},
+        "crop_bbox": crop_bbox or {},
+        "ocr_local_bbox": ocr_local_bbox or {},
+        "ocr_global_bbox": ocr_global_bbox or {},
+        "room_polygon": room_polygon or []
+    }
+    print(f"[OCR COORD DEBUG] {json.dumps(log_entry)}")
+    return log_entry
+
+
+def create_visual_debug_overlay(
+    img_np: np.ndarray,
+    rooms: list,
+    ocr_texts: list = None,
+    output_path: str = None
+) -> np.ndarray:
+    """
+    Draws Room polygons, OCR bboxes, OCR texts, and OCR centroids on image for visual verification.
+    """
+    if img_np is None:
+        return None
+    overlay = img_np.copy()
+    if len(overlay.shape) == 2:
+        overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2BGR)
+
+    for room in rooms:
+        pts = room.get("polygon", [])
+        if len(pts) >= 3:
+            pts_np = np.array([[int(p["x"]), int(p["y"])] for p in pts], dtype=np.int32)
+            cv2.polylines(overlay, [pts_np], isClosed=True, color=(255, 0, 0), thickness=2)
+            r_name = str(room.get("room_name", ""))
+            if pts_np.size > 0:
+                cx, cy = int(np.mean(pts_np[:, 0])), int(np.mean(pts_np[:, 1]))
+                cv2.putText(overlay, r_name, (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+    if ocr_texts:
+        for t in ocr_texts:
+            bbox = t.get("bbox", {})
+            raw_t = t.get("text", "")
+            cat = classify_text_category(raw_t)
+            is_matched = t.get("is_matched", False)
+
+            x1, y1 = int(bbox.get("x", 0)), int(bbox.get("y", 0))
+            w, h = int(bbox.get("w", 0)), int(bbox.get("h", 0))
+            x2, y2 = x1 + w, y1 + h
+
+            color = (0, 255, 0) if is_matched else ((0, 0, 255) if cat == "TITLE_ANNOTATION" else (0, 165, 255))
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 1)
+
+            cx, cy = x1 + w // 2, y1 + h // 2
+            cv2.circle(overlay, (cx, cy), 3, (0, 255, 255), -1)
+            cv2.putText(overlay, f"{raw_t} [{cat}]", (x1, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+    if output_path:
+        try:
+            import os
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            cv2.imwrite(output_path, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+            print(f"[Visual Debug Overlay] Saved overlay to {output_path}")
+        except Exception as e:
+            print(f"[Visual Debug Overlay Error] {e}")
+
+    return overlay
+
 
 _model_lock = threading.Lock()
 
@@ -228,6 +440,8 @@ _OUTDOOR_RE = re.compile(
 
 def _score_room_name(text: str) -> int:
     """Score text as a room name. Returns >0 for room names, -1 for junk, 0 for unknown."""
+    if not text:
+        return -1
     t = text.upper().strip()
 
     GENERIC_TEXTS = {
@@ -239,6 +453,10 @@ def _score_room_name(text: str) -> int:
 
     if t in GENERIC_TEXTS:
         return 10 # Give low positive score instead of -1 so it can be assigned if nothing else matches
+
+    # Check title block & area annotation filter (e.g. UPPER FLOOR AREAS)
+    if TITLE_ANNOTATION_RE.search(t):
+        return -1
     
     # Check junk regex patterns (door codes, dimensions, etc.)
     if _JUNK_CODE_RE.search(t):
@@ -253,9 +471,9 @@ def _score_room_name(text: str) -> int:
     if re.search(r"^\d{3,}$", t) or re.search(r"^\d+\s*[Xx×]\s*\d+$", t):
         return -1
 
-    # Check room keywords — positive score
+    # Check room keywords with whole word boundary matching — positive score
     for i, k in enumerate(ROOM_KEYWORDS):
-        if k in t:
+        if re.search(r"\b" + re.escape(k) + r"\b", t):
             priority_boost = 10000
             number_bonus = 5 if re.search(r'\d', t) else 0
             return 100 - i + priority_boost + number_bonus
@@ -270,6 +488,7 @@ def _score_room_name(text: str) -> int:
         return 50
 
     return 0
+
 
 
 # ──────────────────────────────────────────────────────────
@@ -463,6 +682,8 @@ def _fuzzy_correct_room_name(text: str) -> str:
         return ""
         
     s = text.upper().strip()
+    # Strip leading 3-4 digit CAD dimension numbers (e.g. "3210 BED 5" -> "BED 5", "3095 ENS" -> "ENS")
+    s = re.sub(r"^\d{3,4}\s+", "", s).strip()
     clean_s = re.sub(r"[^A-Z0-9]", "", s)
     
     # Check exact dictionary match
@@ -1024,10 +1245,20 @@ def _extract_valid_room_token(text: str) -> str:
     return None
 
 def _score_semantic_text(text, conf, bbox, room_polygon, rooms_context, current_idx, cx1=0, cy1=0, actual_upscale=1.0, existing_rooms=None):
+    # 0. Text Classification & Spatial Check
+    cat = classify_text_category(text)
+    if cat in ["TITLE_ANNOTATION", "DIMENSION"]:
+        return -9999, "UNKNOWN", "UNKNOWN"
+
+    is_inside, overlap_ratio, _ = is_text_spatially_in_room(bbox, room_polygon)
+    if not is_inside:
+        return -9999, "UNKNOWN", "UNKNOWN"
+
     # 1. Structured Room Parsing & CAD noise check
     parsed = parse_and_normalize_room_text(text)
     if not parsed["is_valid_room"] or parsed["is_cad_noise"]:
         return -9999, "UNKNOWN", "UNKNOWN"
+
 
     norm_text = parsed["normalized_text"]
     text_type = "ROOM_NAME"
@@ -2264,6 +2495,10 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
                 if not raw_txt:
                     continue
 
+                cat = classify_text_category(raw_txt)
+                if cat in ["TITLE_ANNOTATION", "DIMENSION"]:
+                    continue
+
                 # Apply OCR typo correction first (e.g. 2C -> WC, 8 3 -> BED 3)
                 corrected_txt = _fuzzy_correct_room_name(raw_txt)
 
@@ -2272,28 +2507,31 @@ def _match_text_to_rooms(rooms: list, texts: list) -> list:
                     continue
 
                 bbox = t.get("bbox", {})
+                is_inside, overlap_ratio, dist_cent = is_text_spatially_in_room(bbox, pts)
+                if not is_inside:
+                    continue
+
                 tx = bbox.get("x", 0) + bbox.get("w", 0) / 2
                 ty = bbox.get("y", 0) + bbox.get("h", 0) / 2
                 pt = Point(tx, ty)
-                
-                # Check if text falls STRICTLY inside the room polygon (or tiny 3px edge tolerance)
-                if poly.contains(pt) or poly.distance(pt) <= 3.0:
-                    fuzzy_name = _fuzzy_correct_room_name(corrected_txt)
-                    if _score_room_name(fuzzy_name) >= 10000 or fuzzy_name in VALID_ROOM_WORDS or re.match(r"^(BED|BATH|ENS)\s+\d+$", fuzzy_name):
-                        matched_name = fuzzy_name
-                        room_token = fuzzy_name
-                    else:
-                        norm_text = _clean_text(corrected_txt)
-                        room_token = _extract_valid_room_token(norm_text) or _extract_valid_room_token(corrected_txt)
-                        if not room_token and re.search(r"[A-Za-zÀ-ỹ]", corrected_txt) and _score_room_name(corrected_txt) >= 0:
-                            room_token = corrected_txt.upper()
-                        matched_name = room_token
-                        if room_token and not re.search(r"\d+", room_token):
-                            digit_match = re.search(r"\d+", norm_text) or re.search(r"\d+", raw_txt)
-                            if digit_match and raw_txt not in GLOBAL_OCR_CORRECTIONS:
-                                matched_name = f"{room_token} {digit_match.group(0)}"
-                                
-                    if room_token and room_token != "UNKNOWN" and _score_room_name(matched_name) >= 0:
+
+                fuzzy_name = _fuzzy_correct_room_name(corrected_txt)
+                if _score_room_name(fuzzy_name) >= 10000 or fuzzy_name in VALID_ROOM_WORDS or re.match(r"^(BED|BATH|ENS)\s+\d+$", fuzzy_name):
+                    matched_name = fuzzy_name
+                    room_token = fuzzy_name
+                else:
+                    norm_text = _clean_text(corrected_txt)
+                    room_token = _extract_valid_room_token(norm_text) or _extract_valid_room_token(corrected_txt)
+                    if not room_token and re.search(r"[A-Za-zÀ-ỹ]", corrected_txt) and _score_room_name(corrected_txt) >= 0:
+                        room_token = corrected_txt.upper()
+                    matched_name = room_token
+                    if room_token and not re.search(r"\d+", room_token):
+                        digit_match = re.search(r"\d+", norm_text) or re.search(r"\d+", raw_txt)
+                        if digit_match and raw_txt not in GLOBAL_OCR_CORRECTIONS:
+                            matched_name = f"{room_token} {digit_match.group(0)}"
+                            
+                if room_token and room_token != "UNKNOWN" and _score_room_name(matched_name) >= 0:
+
                             
                         dist = poly.centroid.distance(pt)
                         max_dist = max(1, poly.length / 2)
@@ -2418,6 +2656,191 @@ def predict_rooms_from_bytes(image_bytes: bytes,
                     "conf": float(conf_arr[i]),
                     "source_model": "unified"
                 })
+
+def _detect_and_match_room_texts_per_room(img_np: np.ndarray, rooms: list) -> list:
+    """
+    Room-First Per-Room Crop OCR Pipeline.
+    For each room polygon:
+    1. Crops ONLY that room's region from the floor plan image canvas.
+    2. Runs direct EasyOCR across orientations (0°, 90°, 270°) to collect ALL text candidates in crop.
+    3. Matches text candidates against VALID_ROOM_WORDS, ROOM_KEYWORDS, and room name scoring rules.
+    4. Assigns matched text as room["room_name"].
+    """
+    if img_np is None or img_np.size == 0 or not rooms:
+        return rooms
+
+    import time as _time
+    t_start = _time.time()
+    TOTAL_TIMEOUT = 60.0  # Max 60s for all rooms combined
+    PER_ROOM_MAX_DIM = 800  # Max crop dimension for OCR
+
+    img_h, img_w = img_np.shape[:2]
+    unnamed_rooms = []
+    ocr_count = 0
+
+    from services.ocr_ensemble import _get_easy_ocr, _ocr_ensemble_lock
+    from services.ocr_orientation import rotate_image
+
+    reader = _get_easy_ocr()
+
+    for room in rooms:
+        # Total timeout check
+        if _time.time() - t_start > TOTAL_TIMEOUT:
+            print(f"[per_room_ocr] Total timeout {TOTAL_TIMEOUT}s reached after {ocr_count} rooms. Skipping remaining.")
+            unnamed_rooms.append(room)
+            continue
+
+        pts = room.get("polygon", [])
+        if len(pts) < 3:
+            unnamed_rooms.append(room)
+            continue
+
+        # Skip rooms that already have a real name (not starting with ROOM)
+        current_name = (room.get("room_name") or "ROOM").upper()
+        if not current_name.startswith("ROOM"):
+            continue
+
+        xs = [p["x"] for p in pts]
+        ys = [p["y"] for p in pts]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        crop_w = max_x - min_x
+        crop_h = max_y - min_y
+
+        if crop_w < 15 or crop_h < 15:
+            unnamed_rooms.append(room)
+            continue
+
+        # Pad bounding box by 15px
+        cx1 = max(0, int(min_x) - 15)
+        cy1 = max(0, int(min_y) - 15)
+        cx2 = min(img_w, int(max_x) + 15)
+        cy2 = min(img_h, int(max_y) + 15)
+
+        crop_np = img_np[cy1:cy2, cx1:cx2]
+        if crop_np.size == 0:
+            unnamed_rooms.append(room)
+            continue
+
+        # Downscale large crops for fast OCR
+        ch, cw = crop_np.shape[:2]
+        if max(ch, cw) > PER_ROOM_MAX_DIM:
+            scale = PER_ROOM_MAX_DIM / max(ch, cw)
+            import cv2
+            crop_np = cv2.resize(crop_np, (int(cw * scale), int(ch * scale)), interpolation=cv2.INTER_AREA)
+
+        pil_crop = Image.fromarray(crop_np)
+
+        # Extract ALL text candidates across orientations (0°, 90°, 270°)
+        all_candidates = []
+        seen_texts = set()
+
+        uncropped_cw = cx2 - cx1
+        uncropped_ch = cy2 - cy1
+        scale_x = cw / float(uncropped_cw) if uncropped_cw > 0 else 1.0
+        scale_y = ch / float(uncropped_ch) if uncropped_ch > 0 else 1.0
+
+        if reader is not None:
+            t_room = _time.time()
+            for angle in [0, 90, 270]:
+                rot_img = rotate_image(pil_crop, angle)
+                if rot_img.mode != "RGB":
+                    rot_img = rot_img.convert("RGB")
+                img_arr = np.array(rot_img)
+                try:
+                    with _ocr_ensemble_lock:
+                        raw_res = reader.readtext(img_arr, detail=1, paragraph=False)
+                    for (bbox, text_str, conf) in raw_res:
+                        txt = str(text_str).strip()
+                        if txt and float(conf) > 0.15 and len(txt) >= 2:
+                            t_upper = txt.upper()
+
+                            # Compute local bbox in rotated/scaled crop image
+                            xs_loc = [p[0] for p in bbox]
+                            ys_loc = [p[1] for p in bbox]
+                            min_lx, max_lx = min(xs_loc), max(xs_loc)
+                            min_ly, max_ly = min(ys_loc), max(ys_loc)
+                            local_bbox = {"x": float(min_lx), "y": float(min_ly), "w": float(max_lx - min_lx), "h": float(max_ly - min_ly)}
+
+                            # Transform local OCR bbox back to global image coordinates
+                            global_bbox = map_ocr_bbox_to_global(
+                                local_bbox, uncropped_cw, uncropped_ch, angle, scale_x, scale_y, cx1, cy1
+                            )
+
+                            # Verify strict spatial polygon containment
+                            is_inside, overlap_ratio, dist_cent = is_text_spatially_in_room(global_bbox, pts)
+                            cat = classify_text_category(txt)
+
+                            # Structured debug log for coordinate audit
+                            log_ocr_coordinate_debug(
+                                text=txt,
+                                room_id=room.get("id", "room"),
+                                crop_bbox={"cx1": cx1, "cy1": cy1, "cx2": cx2, "cy2": cy2},
+                                ocr_local_bbox=local_bbox,
+                                ocr_global_bbox=global_bbox,
+                                room_polygon=pts
+                            )
+
+                            # ONLY include candidate if text center/bbox is spatially inside this room polygon and category is ROOM_NAME
+                            if is_inside and cat == "ROOM_NAME":
+                                cand_key = (t_upper, round(global_bbox["x"], 1), round(global_bbox["y"], 1))
+                                if cand_key not in seen_texts:
+                                    seen_texts.add(cand_key)
+                                    all_candidates.append({
+                                        "text": txt,
+                                        "conf": float(conf),
+                                        "angle": angle,
+                                        "global_bbox": global_bbox,
+                                        "dist_to_centroid": dist_cent
+                                    })
+                except Exception as err:
+                    print(f"[per_room_ocr] Readtext error at angle {angle}: {err}")
+
+            ocr_count += 1
+            print(f"[per_room_ocr] Room OCR #{ocr_count}: {len(all_candidates)} valid spatial candidates extracted in {_time.time()-t_room:.2f}s: {[c['text'] for c in all_candidates]}")
+
+        matched_name = None
+        best_score = -999.0
+
+        for c in all_candidates:
+            raw_t = c.get("text", "").strip()
+            if not raw_t:
+                continue
+            corrected_t = _fuzzy_correct_room_name(raw_t)
+            clean_tok = _clean_text(corrected_t)
+
+            score = _score_room_name(corrected_t)
+
+            if corrected_t in VALID_ROOM_WORDS or clean_tok in VALID_ROOM_WORDS or score >= 10000:
+                matched_name = corrected_t
+                break
+            elif re.match(r"^(BED|BATH|ENS|ROOM)\s+\d+$", corrected_t, re.IGNORECASE):
+                matched_name = corrected_t
+                break
+            elif score > best_score and score > 0:
+                best_score = score
+                matched_name = corrected_t
+
+        if matched_name:
+            room["room_name"] = matched_name.upper()
+            room["room_name_source"] = "per_room_ocr"
+            print(f"[per_room_ocr] Room matched: '{matched_name.upper()}'")
+        else:
+            unnamed_rooms.append(room)
+
+    print(f"[per_room_ocr] OCR completed: {ocr_count} rooms processed in {_time.time()-t_start:.1f}s")
+
+    # Run Visual AI Classifier for remaining unnamed rooms
+    if unnamed_rooms:
+        print(f"[per_room_ocr] Running Visual AI Classifier for {len(unnamed_rooms)} unnamed rooms...")
+        try:
+            _visual_classify_rooms(img_np, unnamed_rooms)
+        except Exception as vis_err:
+            print(f"[per_room_ocr] Visual classify warning: {vis_err}")
+
+    return rooms
+
 
     print(f"[floor_ai_detect] YOLO detected {len(rooms)} room polygons in {time.time()-t_yolo:.1f}s (confidence={confidence})")
 
@@ -3102,8 +3525,6 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
         cname_lower = str(cname).lower()
         if "window" in cname_lower:
             DOOR_CLASS_MAP[cid] = {"type": "window", "label": cname}
-        elif "double" in cname_lower:
-            DOOR_CLASS_MAP[cid] = {"type": "double", "label": cname}
         elif "sliding" in cname_lower or "cavity" in cname_lower:
             DOOR_CLASS_MAP[cid] = {"type": "sliding", "label": cname}
         else:
@@ -3116,8 +3537,14 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
     if len(results) > 0:
         res = results[0]
         boxes = res.boxes
-        print(f"[floor_ai_detect] Raw detections count: {len(boxes)}")
-        
+        # Stage 0: Run YOLO Text Model to detect all text bounding boxes on the floor plan
+        detected_text_boxes = []
+        try:
+            detected_text_boxes = predict_text_from_bytes(image_bytes, confidence=0.001)
+            print(f"[floor_ai_detect] YOLO Text Model detected {len(detected_text_boxes)} text boxes for door/window matching.")
+        except Exception as txt_err:
+            print(f"[floor_ai_detect] YOLO Text Model error for doors/windows: {txt_err}")
+
         # Initialize OCR engine once to avoid repeated disk reads
         ocr_engine = None
         try:
@@ -3164,68 +3591,129 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
             # ── Initialize width/thickness with fallback scale values ──
             bbox_length = float(max(w, h))
             width_mm = bbox_length * real_scale
+            height_mm = 2100.0
             thickness_px = min(w, h)
             thickness_mm = thickness_px * real_scale
+            width_source = "geometry"
             
-            # ── OCR Width & Type Detection (optional override) ──
+            # ── 1. Match against YOLO Text Model Detections ──
             try:
-                # Reduce padding to 45 to avoid reading garbage from other rooms, making OCR much faster
-                pad = 45
-                ix1, iy1, ix2, iy2 = int(x1)-pad, int(y1)-pad, int(x2)+pad, int(y2)+pad
-                ix1, iy1 = max(0, ix1), max(0, iy1)
-                ix2, iy2 = min(img_w, ix2), min(img_h, iy2)
+                from services.door_width_ocr_service import _parse_dimension_text
+                import math
+                door_xc = (x1 + x2) / 2.0
+                door_yc = (y1 + y2) / 2.0
                 
-                if ix2 > ix1 and iy2 > iy1:
-                    crop_np = img_np[iy1:iy2, ix1:ix2]
-                    crop_pil = PILImage.fromarray(crop_np)
+                best_txt_match = None
+                best_in_polygon = False
+                min_txt_dist = 450.0 if is_window else 150.0
+                
+                for tb in detected_text_boxes:
+                    txt = str(tb.get("text", "")).strip()
+                    if not txt:
+                        continue
+                    tb_bbox = tb.get("bbox", {})
+                    tb_xc = float(tb_bbox.get("x", 0)) + float(tb_bbox.get("w", 0)) / 2.0
+                    tb_yc = float(tb_bbox.get("y", 0)) + float(tb_bbox.get("h", 0)) / 2.0
+                    dist = math.hypot(tb_xc - door_xc, tb_yc - door_yc)
                     
-                    if crop_pil.width > 0 and crop_pil.height > 0:
-                        orientations = [
-                            (0, crop_pil),
-                            (90, crop_pil.transpose(PILImage.ROTATE_270)),
-                            (270, crop_pil.transpose(PILImage.ROTATE_90))
-                        ]
+                    # Check if text box center is strictly INSIDE the door/window bounding box
+                    is_inside = (x1 <= tb_xc <= x2) and (y1 <= tb_yc <= y2)
                     
-                    for angle_rot, img_oriented in orientations:
-                        ocr_results = run_ocr(img_oriented)
-                        for ocr_res in ocr_results:
-                            txt = ocr_res.get("text", "")
-                            txt_upper = txt.upper()
-                            
-                            # Check if the OCR text indicates a sliding door
-                            if any(k in txt_upper for k in ["CSD", "MSD", "VSD", "SLIDING", "SLD"]):
-                                door_type = "sliding"
-                                door_label = "Sliding_door"
-                                print(f"[floor_ai_detect] Basic OCR door type override to sliding: {txt}")
-                            
-                            # Check prefix matches
-                            prefix_match = re.search(r"\b(CSD|CS|SD|MSD|VSD)\s*(\d{3,4})\b", txt_upper)
-                            if prefix_match:
-                                door_type = "sliding"
-                                door_label = "Sliding_door"
-                                print(f"[floor_ai_detect] Basic OCR prefix override to sliding: {txt}")
+                    parsed_dim = _parse_dimension_text(txt)
+                    if parsed_dim is not None and parsed_dim[0] and parsed_dim[0] > 0:
+                        # For doors: text inside polygon takes absolute priority over distance
+                        if is_inside and not is_window:
+                            best_txt_match = (txt, parsed_dim[0], parsed_dim[1], tb.get("conf", 0.9))
+                            best_in_polygon = True
+                            min_txt_dist = dist
+                            print(f"[floor_ai_detect] Polygon-Inside Door OCR Match for Door #{i}: '{txt}' -> {parsed_dim[0]}mm")
+                            break
+                        elif dist < min_txt_dist and not best_in_polygon:
+                            min_txt_dist = dist
+                            best_txt_match = (txt, parsed_dim[0], parsed_dim[1], tb.get("conf", 0.9))
+                
+                if best_txt_match is not None:
+                    txt, parsed_w, parsed_h, txt_conf = best_txt_match
+                    width_mm = float(parsed_w)
+                    width_source = "ocr"
+                    if parsed_h and parsed_h > 0:
+                        height_mm = float(parsed_h)
+                    ocr_confidence = float(txt_conf)
+                    door_label = f"{door_label} ({int(width_mm)})"
+                    print(f"[floor_ai_detect] YOLO Text Box Match ({door_label}): '{txt}' (dist={min_txt_dist:.1f}px) -> {width_mm}mm x {height_mm}mm")
+            except Exception as yolo_txt_err:
+                print(f"[floor_ai_detect] YOLO Text Box matching error: {yolo_txt_err}")
 
-                            match = re.search(r"\b([456789]\d[05]|1[01234]\d[05])\b", txt)
-                            if match:
-                                found_width = match.group(0)
-                                door_label = f"{door_label} ({found_width})"
-                                width_mm = float(found_width)
-                                print(f"[floor_ai_detect] OCR width override: {found_width}mm")
-                                break
-                        else:
-                            continue
+            # ── 2. Fallback Multi-Orientation Crop Scan (if YOLO Text Match missed) ──
+            if width_source != "ocr":
+                try:
+                    pad = 350 if is_window else 120
+                    ix1, iy1, ix2, iy2 = int(x1)-pad, int(y1)-pad, int(x2)+pad, int(y2)+pad
+                    ix1, iy1 = max(0, ix1), max(0, iy1)
+                    ix2, iy2 = min(img_w, ix2), min(img_h, iy2)
+                    
+                    if ix2 > ix1 and iy2 > iy1:
+                        crop_np = img_np[iy1:iy2, ix1:ix2]
+                        crop_pil = PILImage.fromarray(crop_np)
+                        
+                        if crop_pil.width > 0 and crop_pil.height > 0:
+                            orientations = [
+                                (0, crop_pil),
+                                (90, crop_pil.transpose(PILImage.ROTATE_270)),
+                                (180, crop_pil.transpose(PILImage.ROTATE_180)),
+                                (270, crop_pil.transpose(PILImage.ROTATE_90))
+                            ]
+                        
+                        for angle_rot, img_oriented in orientations:
+                            ocr_results = run_ocr(img_oriented, skip_tesseract=True)
+                            if not ocr_results:
+                                continue
+                            for ocr_res in ocr_results:
+                                txt = str(ocr_res.get("text", "")).strip()
+                                if not txt:
+                                    continue
+                                txt_upper = txt.upper()
+                                
+                                if any(k in txt_upper for k in ["CSD", "MSD", "VSD", "SLIDING", "SLD"]):
+                                    door_type = "sliding"
+                                    door_label = "Sliding_door"
+                                
+                                parsed_dim = _parse_dimension_text(txt)
+                                if parsed_dim is not None and parsed_dim[0] and parsed_dim[0] > 0:
+                                    width_mm = float(parsed_dim[0])
+                                    width_source = "ocr"
+                                    if parsed_dim[1] and parsed_dim[1] > 0:
+                                        height_mm = float(parsed_dim[1])
+                                    door_label = f"{door_label} ({int(width_mm)})"
+                                    print(f"[floor_ai_detect] Crop OCR width override ({angle_rot}°): text='{txt}' -> {width_mm}mm x {height_mm}mm")
+                                    break
+                            else:
+                                continue
+                            break
+                except Exception as ocr_err:
+                    print(f"[floor_ai_detect] Door/Window Crop OCR error: {ocr_err}")
+
+            # ── 3. Smart Architectural Dimension Snapping (CHỈ ÁP DỤNG CHO WINDOWS) ──
+            if is_window:
+                STANDARD_DIMENSIONS = [600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000]
+                for std_w in STANDARD_DIMENSIONS:
+                    snap_tol = max(120.0, std_w * 0.10)
+                    if abs(width_mm - std_w) <= snap_tol:
+                        print(f"[floor_ai_detect] Smart Window Dimension Snap #{i}: {width_mm:.1f}mm -> {std_w}mm")
+                        width_mm = float(std_w)
+                        width_source = "ocr"
+                        door_label = f"{door_label} ({int(std_w)})"
                         break
-            except Exception as ocr_err:
-                print(f"[floor_ai_detect] Door OCR error: {ocr_err}")
 
             # ── Enhanced OCR via DoorOCREngine (fallback if basic OCR missed) ──
             ocr_confidence = 0.0
-            if ocr_engine is not None:
+            if width_source != "ocr" and ocr_engine is not None:
                 try:
                     ocr_result = ocr_engine.extract_door_width(img_np, [x1, y1, x2, y2], real_scale)
                     if ocr_result and ocr_result.get("width_mm"):
                         if ocr_result["width_mm"] > 0:
-                            width_mm = ocr_result["width_mm"]
+                            width_mm = float(ocr_result["width_mm"])
+                            width_source = "ocr"
                             ocr_confidence = ocr_result.get("ocr_confidence", 0.0)
                             prefix = ocr_result.get("prefix", "")
                             
@@ -3269,8 +3757,11 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
                 "polygon": seg_poly_pts,
                 "mask_polygon": seg_poly_pts if mask_polygon is not None else None,
                 "width": float(width_mm),
+                "width_mm": float(width_mm),
+                "width_source": width_source,
+                "height": float(height_mm),
+                "height_mm": float(height_mm),
                 "thickness": float(thickness_mm),
-                "height": 2100,
                 "type": door_type,
                 "class_id": cls_id,
                 "class_name": door_label,
@@ -3390,74 +3881,139 @@ def predict_doors_from_bytes(image_bytes: bytes, filename: str, confidence: floa
         }]
     }
 
-def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> list:
+def extract_text_from_pdf_bytes(pdf_bytes: bytes,
+                                roi_x: float = None,
+                                roi_y: float = None,
+                                roi_w: float = None,
+                                roi_h: float = None) -> list:
     """
     Extracts vector text from a PDF using PyMuPDF.
-    Returns a list of {text, conf, bbox} formatted like the OCR output.
+    Normalizes PDF point coordinates to rendered pixel scale (150 DPI) to match Canvas & ROI coordinates.
+    Filters vector texts strictly within (roi_x, roi_y, roi_w, roi_h) if active.
     """
     import fitz
     import io
+    from services.file_loader import export_pdf_text_layers
     
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        export_pdf_text_layers("uploaded_plan.pdf", pdf_bytes)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        print(f"[pdf_text] Failed to open PDF stream: {e}")
+        return []
+
+    if len(doc) == 0:
+        return []
+
     all_texts = []
-    
-    # We assume we are processing the first page for this endpoint
-    # or the user would have sent a specific page crop.
-    if len(doc) > 0:
+    try:
         page = doc[0]
-        # get_text("dict") provides detailed coordinates
+        pix = page.get_pixmap(dpi=150)
+        pdf_w, pdf_h = page.rect.width, page.rect.height
+        img_w, img_h = pix.width, pix.height
+        scale_x = img_w / pdf_w if pdf_w > 0 else 1.0
+        scale_y = img_h / pdf_h if pdf_h > 0 else 1.0
+
         text_dict = page.get_text("dict")
         
-        for block in text_dict["blocks"]:
+        for block in text_dict.get("blocks", []):
             if "lines" in block:
                 for line in block["lines"]:
                     for span in line["spans"]:
                         text = span["text"].strip()
-                        if not text: continue
+                        if not text or len(text) < 2 and not text.isdigit():
+                            continue
                         
-                        # bbox is (x0, y0, x1, y1)
-                        x0, y0, x1, y1 = span["bbox"]
+                        # Scale PDF points to Rendered Image Canvas Pixels
+                        px0, py0, px1, py1 = span["bbox"]
+                        x0 = int(px0 * scale_x)
+                        y0 = int(py0 * scale_y)
+                        x1 = int(px1 * scale_x)
+                        y1 = int(py1 * scale_y)
+                        
+                        cx = (x0 + x1) / 2.0
+                        cy = (y0 + y1) / 2.0
+
+                        # Filter strictly by ROI bounds if active
+                        if roi_x is not None and roi_y is not None and roi_w is not None and roi_h is not None:
+                            if not (roi_x <= cx <= roi_x + roi_w and roi_y <= cy <= roi_y + roi_h):
+                                continue
+
                         all_texts.append({
                             "text": text,
-                            "conf": 1.0,  # Vector text is 100% certain
+                            "conf": 1.0,
                             "bbox": {
-                                "x": int(x0),
-                                "y": int(y0),
-                                "w": int(x1 - x0),
-                                "h": int(y1 - y0)
+                                "x": x0,
+                                "y": y0,
+                                "w": x1 - x0,
+                                "h": y1 - y0
                             }
                         })
+    except Exception as err:
+        print(f"[pdf_text] PyMuPDF extraction warning: {err}")
+
+    # Automatic fallback: if vector texts < 3, render PDF page to PNG and run YOLO+OCR pipeline
+    if len(all_texts) < 3 and len(doc) > 0:
+        print(f"[pdf_text] Vector texts count ({len(all_texts)}) < 3. Rendering PDF page to image for YOLO+OCR fallback...")
+        page = doc[0]
+        pix = page.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        doc.close()
+        return predict_text_from_bytes(img_bytes, confidence=0.01, roi_x=roi_x, roi_y=roi_y, roi_w=roi_w, roi_h=roi_h)
+
     doc.close()
+    print(f"[pdf_text] Returned {len(all_texts)} vector texts (ROI: {roi_w}x{roi_h}px)")
     return all_texts
 
-def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> list:
+def predict_text_from_bytes(image_bytes: bytes,
+                            confidence: float = 0.001,
+                            roi_x: float = None,
+                            roi_y: float = None,
+                            roi_w: float = None,
+                            roi_h: float = None) -> list:
     """
-    Exposes the 2-stage YOLO+OCR text detection pipeline.
-    Returns list of {text, conf, bbox: {x, y, w, h}} for frontend display.
+    Runs the YOLO Text Detection model (_get_model('text')) on the image to locate bounding boxes,
+    then runs OCR recognition on the detected text boxes.
+    Supports ROI cropping (roi_x, roi_y, roi_w, roi_h) to focus exclusively on selected regions.
     """
+    t0 = time.time()
     pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    orig_img_w, orig_img_h = pil_image.width, pil_image.height
+
+    # ── ROI Cropping ──
+    x_off, y_off = 0, 0
+    if roi_x is not None and roi_y is not None and roi_w is not None and roi_h is not None:
+        rx1 = max(0, int(roi_x))
+        ry1 = max(0, int(roi_y))
+        rx2 = min(orig_img_w, int(roi_x + roi_w))
+        ry2 = min(orig_img_h, int(roi_y + roi_h))
+        if rx2 > rx1 and ry2 > ry1:
+            pil_image = pil_image.crop((rx1, ry1, rx2, ry2))
+            x_off, y_off = rx1, ry1
+            print(f"[predict_text] Applied ROI crop: ({rx1},{ry1}) to ({rx2},{ry2}) -> {pil_image.width}x{pil_image.height}px")
+
     img_np = np.array(pil_image)
     img_h, img_w = img_np.shape[:2]
-    
-    # Stage 1: YOLO Text Detection
+
+    # Stage 1: Load YOLO Text Detection Model
     try:
         text_model = _get_model("text")
     except FileNotFoundError:
-        # Fallback to full-image OCR
-        pil_img = Image.fromarray(img_np)
-        return run_ocr(pil_img)
-    
+        print("[predict_text] YOLO text model not found, fallback to direct OCR...")
+        raw_res = run_ocr(pil_image)
+        for r in raw_res:
+            rb = r.get("bbox", {})
+            rb["x"] += x_off
+            rb["y"] += y_off
+        return raw_res
+
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    if device == "cpu" and torch.get_num_threads() > 4:
-        torch.set_num_threads(4)
-        
     inference_imgsz = 1824 if device == "cuda" else 1024
-    use_augment = True if device == "cuda" else False
-    
-    # Stage 1: Dual-Pass YOLO Text Detection (Pass 1: 0 deg, Pass 2: 90 deg rotated for vertical text)
-    yolo_results_0 = text_model(img_np, conf=confidence, device=device, imgsz=inference_imgsz, agnostic_nms=True, augment=use_augment)
+    effective_conf = max(confidence, 0.05)
+
+    # Pass 1: 0° YOLO Text Detection
+    yolo_results_0 = text_model(img_np, conf=effective_conf, device=device, imgsz=inference_imgsz, agnostic_nms=True)
     
     text_boxes = []
     for res in yolo_results_0:
@@ -3469,153 +4025,150 @@ def predict_text_from_bytes(image_bytes: bytes, confidence: float = 0.001) -> li
             x1, y1, x2, y2 = xyxy_arr[i]
             box_w = x2 - x1
             box_h = y2 - y1
-            conf = float(conf_arr[i])
-            if box_w < 8 or box_h < 8 or conf < 0.15:
+            conf_val = float(conf_arr[i])
+            if box_w < 6 or box_h < 6 or conf_val < effective_conf:
                 continue
             text_boxes.append({
                 "x1": int(x1), "y1": int(y1),
                 "x2": int(x2), "y2": int(y2),
-                "conf": conf,
-                "is_from_90": False
+                "conf": conf_val,
+                "is_90": False
             })
 
-    # Pass 2: Run YOLO on 90-degree rotated image to turn vertical text into horizontal text
-    img_np_90 = cv2.rotate(img_np, cv2.ROTATE_90_CLOCKWISE)
-    yolo_results_90 = text_model(img_np_90, conf=confidence, device=device, imgsz=inference_imgsz, agnostic_nms=True, augment=use_augment)
-    
-    for res in yolo_results_90:
-        if res.boxes is None:
-            continue
-        xyxy_arr = res.boxes.xyxy.cpu().numpy()
-        conf_arr = res.boxes.conf.cpu().numpy()
-        for i in range(len(xyxy_arr)):
-            xr1, yr1, xr2, yr2 = xyxy_arr[i]
-            box_w = xr2 - xr1
-            box_h = yr2 - yr1
-            conf = float(conf_arr[i])
-            if box_w < 8 or box_h < 8 or conf < 0.15:
+    # Pass 2: 90° Clockwise Rotation Pass for detecting vertical text labels
+    try:
+        img_np_90 = cv2.rotate(img_np, cv2.ROTATE_90_CLOCKWISE)
+        yolo_results_90 = text_model(img_np_90, conf=effective_conf, device=device, imgsz=inference_imgsz, agnostic_nms=True)
+        for res in yolo_results_90:
+            if res.boxes is None:
                 continue
-                
-            # Map coordinates back from 90 deg rotated image to 0 deg original image
-            # x_orig = y_rot; y_orig = H_orig - x_rot
-            x1_orig = int(yr1)
-            y1_orig = int(img_h - xr2)
-            x2_orig = int(yr2)
-            y2_orig = int(img_h - xr1)
-            
-            x1_final, x2_final = min(x1_orig, x2_orig), max(x1_orig, x2_orig)
-            y1_final, y2_final = min(y1_orig, y2_orig), max(y1_orig, y2_orig)
-            
-            text_boxes.append({
-                "x1": max(0, x1_final), "y1": max(0, y1_final),
-                "x2": min(img_w, x2_final), "y2": min(img_h, y2_final),
-                "conf": conf,
-                "is_from_90": True,
-                "crop_coords_90": (int(xr1), int(yr1), int(xr2), int(yr2))
-            })
-    
+            xyxy_arr = res.boxes.xyxy.cpu().numpy()
+            conf_arr = res.boxes.conf.cpu().numpy()
+            for i in range(len(xyxy_arr)):
+                rx1, ry1, rx2, ry2 = xyxy_arr[i]
+                box_w = rx2 - rx1
+                box_h = ry2 - ry1
+                conf_val = float(conf_arr[i])
+                if box_w < 6 or box_h < 6 or conf_val < effective_conf:
+                    continue
+                # Map 90° Clockwise bbox back to 0° original image coordinates
+                ox1 = int(ry1)
+                oy1 = int(img_h - 1 - rx2)
+                ox2 = int(ry2)
+                oy2 = int(img_h - 1 - rx1)
+                text_boxes.append({
+                    "x1": max(0, ox1), "y1": max(0, oy1),
+                    "x2": min(img_w, ox2), "y2": min(img_h, oy2),
+                    "conf": conf_val,
+                    "is_90": True
+                })
+    except Exception as rot_err:
+        print(f"[predict_text] 90° Rotation pass warning: {rot_err}")
+
     if not text_boxes:
-        return []
-        
-    # Deduplicate overlapping boxes between 0 deg and 90 deg passes, then merge adjacent boxes
+        print("[predict_text] No text boxes found by YOLO, fallback to direct OCR...")
+        return run_ocr(pil_image)
+
+    # Deduplicate overlapping boxes
     text_boxes = _suppress_overlapping_boxes(text_boxes, iou_threshold=0.45)
     text_boxes = _merge_nearby_text_boxes(text_boxes)
-    
-    # Stage 2: Crop + OCR with 4-angle rotation batching on GPU
+
+    # Stage 2: OCR Recognition on detected text boxes
     all_results = []
-    
-    batch_images = []
-    batch_map = []  # stores (box_idx, angle)
-    
-    for box_idx, box in enumerate(text_boxes):
-        pad = 15
-        if box.get("is_from_90") and "crop_coords_90" in box:
-            # Extract crop directly from the 90-degree rotated image where vertical text is horizontal
-            xr1, yr1, xr2, yr2 = box["crop_coords_90"]
-            cx1 = max(0, xr1 - pad)
-            cy1 = max(0, yr1 - pad)
-            cx2 = min(img_np_90.shape[1], xr2 + pad)
-            cy2 = min(img_np_90.shape[0], yr2 + pad)
-            crop_np = img_np_90[cy1:cy2, cx1:cx2]
-        else:
-            # Extract crop from original image
-            cx1 = max(0, box["x1"] - pad)
-            cy1 = max(0, box["y1"] - pad)
-            cx2 = min(img_w, box["x2"] + pad)
-            cy2 = min(img_h, box["y2"] + pad)
-            crop_np = img_np[cy1:cy2, cx1:cx2]
-            
+    pad = 12
+    for box in text_boxes:
+        cx1 = max(0, box["x1"] - pad)
+        cy1 = max(0, box["y1"] - pad)
+        cx2 = min(img_w, box["x2"] + pad)
+        cy2 = min(img_h, box["y2"] + pad)
+        crop_np = img_np[cy1:cy2, cx1:cx2]
         if crop_np.size == 0:
             continue
-            
-        pil_crop = _preprocess_crop_for_ocr(crop_np)
-        if pil_crop is None:
-            continue
-            
-        # Add all 4 rotations to the GPU batch
-        batch_images.append(pil_crop)
-        batch_map.append((box_idx, 0))
+        pil_crop = Image.fromarray(crop_np)
         
-        batch_images.append(pil_crop.transpose(Image.ROTATE_270))
-        batch_map.append((box_idx, 90))
-        
-        batch_images.append(pil_crop.transpose(Image.ROTATE_180))
-        batch_map.append((box_idx, 180))
-        
-        batch_images.append(pil_crop.transpose(Image.ROTATE_90))
-        batch_map.append((box_idx, 270))
+        ocr_candidates = []
+        # Pass 1: 0° standard crop
+        raw_res_0 = run_ocr(pil_crop)
+        for r in raw_res_0:
+            ocr_candidates.append(r)
 
-    # Run OCR on all crops from all 4 angles in ONE single batched GPU call
-    from services.ocr import run_ocr_batch
-    batch_results = run_ocr_batch(batch_images)
-    
-    # Process results and find the best text for each text_box
-    best_results_for_box = {}  # box_idx -> {text, conf, effective_conf}
-    
-    for (box_idx, angle), results in zip(batch_map, batch_results):
-        for r in results:
-            raw_text = r["text"].strip()
-            conf = r["conf"]
-            if not raw_text or conf < 0.1:
+        # Pass 2: 180° upside-down rotation (For upside-down text like 1518, 0906, 0618)
+        try:
+            rot_180 = pil_crop.transpose(Image.ROTATE_180)
+            for r in run_ocr(rot_180):
+                ocr_candidates.append(r)
+        except Exception:
+            pass
+
+        # Pass 3 & 4: Rotate 270° & 90° for vertical/square crops
+        crop_h, crop_w = cy2 - cy1, cx2 - cx1
+        if box.get("is_90") or crop_h > crop_w * 1.1 or crop_w > crop_h * 1.1:
+            try:
+                rot_270 = pil_crop.transpose(Image.ROTATE_270)
+                for r in run_ocr(rot_270):
+                    ocr_candidates.append(r)
+            except Exception:
+                pass
+            try:
+                rot_90 = pil_crop.transpose(Image.ROTATE_90)
+                for r in run_ocr(rot_90):
+                    ocr_candidates.append(r)
+            except Exception:
+                pass
+
+        # Evaluate best candidate using Effective Vocabulary & CAD Number Score
+        best_candidate = None
+        best_effective_score = -999.0
+
+        for r in ocr_candidates:
+            raw_text = r.get("text", "").strip()
+            if not raw_text:
                 continue
-                
-            processed_text = _collapse_spaces(raw_text)
-            processed_text = _fuzzy_correct_room_name(processed_text)
-            
-            # Confidence bonus if text matches known valid room word or CAD dimension
+
+            corrected = _fuzzy_correct_room_name(raw_text)
+            clean_token = _clean_text(corrected)
+            raw_conf = float(r.get("conf", 0.5))
+
+            # Vocabulary & CAD Dimension Number priority scoring
             score_bonus = 0.0
-            room_name_score = _score_room_name(processed_text)
-            if room_name_score > 0 or processed_text in VALID_ROOM_WORDS or processed_text in GLOBAL_OCR_CORRECTIONS.values():
-                score_bonus += 0.60
-            elif re.search(r"^\d{3,4}[A-Za-z]{0,3}$", processed_text):
-                score_bonus += 0.15
-                
-            effective_conf = conf + score_bonus
-            
-            if box_idx not in best_results_for_box or effective_conf > best_results_for_box[box_idx]["effective_conf"]:
-                best_results_for_box[box_idx] = {
-                    "text": processed_text,
-                    "conf": conf,
-                    "effective_conf": effective_conf
+            if corrected in VALID_ROOM_WORDS or clean_token in VALID_ROOM_WORDS or _score_room_name(corrected) >= 10000:
+                score_bonus = 5.0  # High priority bonus for valid room words (e.g. FAMILY, BEDROOM, BATH, ENS)
+            elif re.match(r"^(BED|BATH|ENS)\s+\d+$", corrected, re.IGNORECASE):
+                score_bonus = 5.0
+            elif re.match(r"^\d{3,5}[A-Za-z]{0,3}$", corrected) or re.match(r"^\d{3,4}\s*[xX×]\s*\d{3,4}$", corrected):
+                score_bonus = 5.0  # High priority bonus for valid CAD numbers (e.g. 1518, 0906, 0618, 1506A, 770cs)
+            elif _score_room_name(corrected) > 0:
+                score_bonus = 1.0
+            elif len(corrected) <= 2 and not corrected.isdigit():
+                score_bonus = -2.0  # Penalty for random 1-2 letter noise like "Li", "i", "x"
+
+            effective_score = raw_conf + score_bonus
+
+            if effective_score > best_effective_score:
+                best_effective_score = effective_score
+                loc_b = r.get("bbox")
+                if loc_b and isinstance(loc_b, dict) and loc_b.get("w", 0) > 0:
+                    g_b = map_ocr_bbox_to_global(loc_b, crop_w, crop_h, angle=0, scale_x=1.0, scale_y=1.0, crop_x1=cx1+x_off, crop_y1=cy1+y_off)
+                else:
+                    g_b = {
+                        "x": float(box["x1"] + x_off), "y": float(box["y1"] + y_off),
+                        "w": float(box["x2"] - box["x1"]), "h": float(box["y2"] - box["y1"])
+                    }
+                best_candidate = {
+                    "text": corrected,
+                    "conf": raw_conf,
+                    "bbox": g_b
                 }
-                    
-    for box_idx, res in best_results_for_box.items():
-        box = text_boxes[box_idx]
-        best_text = res["text"]
-        best_conf = res["conf"]
-        
-        if best_text and best_conf > 0.1:
-            bbox_w = box["x2"] - box["x1"]
-            bbox_h = box["y2"] - box["y1"]
+
+        if best_candidate and best_candidate["text"]:
             all_results.append({
-                "text": best_text,
-                "conf": best_conf,
-                "bbox": {
-                    "x": float(box["x1"]), "y": float(box["y1"]),
-                    "w": float(bbox_w), "h": float(bbox_h)
-                }
+                "text": best_candidate["text"],
+                "conf": float(best_candidate["conf"]),
+                "bbox": best_candidate["bbox"]
             })
-            
+
+
+    print(f"[predict_text] YOLO Text AI found {len(all_results)} text objects in {time.time()-t0:.2f}s")
     return all_results
 
 

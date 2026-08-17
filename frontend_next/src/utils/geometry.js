@@ -630,11 +630,25 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
       dp2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
     } else {
       const centerline = getDoorCenterline(door, walls);
-      dp1 = centerline.p1;
-      dp2 = centerline.p2;
+      dp1 = centerline ? centerline.p1 : null;
+      dp2 = centerline ? centerline.p2 : null;
     }
 
     if (!dp1 || !dp2) continue;
+
+    const effWidthMm = door.width_mm || door.width;
+    if (effWidthMm && realScale && realScale > 0) {
+      const curLenPx = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
+      const expectedPx = effWidthMm / realScale;
+      if (curLenPx > 0 && expectedPx > 0) {
+        const midX = (dp1.x + dp2.x) / 2;
+        const midY = (dp1.y + dp2.y) / 2;
+        const ux = (dp2.x - dp1.x) / curLenPx;
+        const uy = (dp2.y - dp1.y) / curLenPx;
+        dp1 = { x: midX - ux * (expectedPx / 2), y: midY - uy * (expectedPx / 2) };
+        dp2 = { x: midX + ux * (expectedPx / 2), y: midY + uy * (expectedPx / 2) };
+      }
+    }
 
     const nextWalls = [];
 

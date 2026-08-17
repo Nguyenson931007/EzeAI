@@ -2,9 +2,9 @@ import { create } from 'zustand';
 
 const DEFAULT_CONFIDENCE = {
   rooms: 0.01,
-  doors: 0.001,
+  doors: 0.2,
   windows: 0.01,
-  walls: 0.001,
+  walls: 0.01,
   ocr: 0.65,
   symbols: 0.60
 };

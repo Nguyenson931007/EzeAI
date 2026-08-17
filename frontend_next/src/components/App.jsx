@@ -776,7 +776,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
+  const { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -862,6 +862,9 @@ export default function App() {
         generateRoomsFromWalls={generateRoomsFromWalls}
         roiRect={roiRect} roiMode={roiMode} setRoiMode={setRoiMode} roiUpscale={roiUpscale} clearROI={clearROI}
         exportPDF={exportPDF}
+        currentPdfFile={currentPdfFile}
+        isExportingPdfText={isExportingPdfText}
+        exportPDFNativeText={exportPDFNativeText}
         addTrain={addTrain}
         addTrainPages={addTrainPages}
         exportWallLabels={exportWallLabels}

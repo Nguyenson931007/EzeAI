@@ -474,31 +474,76 @@ async def diagnose_predict_seg(
 async def predict_text(
     file: UploadFile = File(...),
     confidence: float = Form(0.001),
+    roi_x: Optional[float] = Form(None),
+    roi_y: Optional[float] = Form(None),
+    roi_w: Optional[float] = Form(None),
+    roi_h: Optional[float] = Form(None),
     username: str = Depends(validate_session)
 ):
     """
     Trích xuất và Nhận diện Kích thước chữ (OCR Pipeline).
-    - Nếu tệp gửi lên là bản vẽ PDF: Sử dụng thư viện `PyMuPDF` (Fitz) để quét trích xuất trực tiếp
-      văn bản dạng vector, mang lại độ chính xác 100% không bị méo chữ.
-      Tự động xử lý xoay văn bản chéo và dịch nghĩa đơn vị mm sang mét.
-    - Nếu là định dạng ảnh thông thường: Kích hoạt đường ống 2 giai đoạn (YOLO phát hiện vùng chữ + OCR đọc ký tự).
+    Hỗ trợ khoanh vùng ROI (roi_x, roi_y, roi_w, roi_h) để chỉ quét chữ trong vùng chỉ định.
     """
     content = await file.read()
     try:
-        # Nhận diện tự động nếu đầu vào là tệp PDF
         if file.content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
-            print(f"[routes] Sử dụng PyMuPDF trích xuất văn bản trực tiếp từ tệp PDF: {file.filename}")
+            print(f"[routes] Sử dụng PyMuPDF trích xuất văn bản trực tiếp từ tệp PDF: {file.filename} (ROI: {roi_w}x{roi_h}px)")
             from services.floor_ai_detect import extract_text_from_pdf_bytes
-            texts = await run_in_threadpool(extract_text_from_pdf_bytes, content)
+            texts = await run_in_threadpool(
+                extract_text_from_pdf_bytes,
+                content,
+                roi_x, roi_y, roi_w, roi_h
+            )
         else:
-            # Chạy qua luồng kết hợp YOLOv8 phát hiện văn bản + PaddleOCR để giải mã ký tự chữ
-            print(f"[routes] Chạy đường ống nhận diện YOLO+OCR cho ảnh vẽ: {file.filename}")
+            print(f"[routes] Chạy đường ống nhận diện YOLO+OCR cho ảnh vẽ: {file.filename} (ROI: {roi_w}x{roi_h}px)")
             from services.floor_ai_detect import predict_text_from_bytes
-            texts = await run_in_threadpool(predict_text_from_bytes, content, confidence)
+            texts = await run_in_threadpool(
+                predict_text_from_bytes,
+                content,
+                confidence,
+                roi_x, roi_y, roi_w, roi_h
+            )
             
         return texts
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/pdf/export-text")
+@router.post("/pdf/extract-text")
+@router.post("/pdf/extract-native-text")
+@router.post("/api/pdf/export-text")
+@router.post("/api/pdf/extract-text")
+@router.post("/api/pdf/extract-native-text")
+async def export_pdf_text_endpoint(
+    file: UploadFile = File(...),
+    format: Optional[str] = Form("json")
+):
+    """
+    Trích xuất toàn bộ native text layer và tọa độ native từ tệp PDF bằng PyMuPDF (fitz).
+    Endpoint độc lập, không sử dụng OCR, YOLO hay bất kỳ mô hình AI nào.
+    Trả về dữ liệu JSON hoặc file CSV tải về.
+    """
+    from services.pdf_export_service import extract_pdf_native_text_layers, generate_pdf_native_text_csv
+    from fastapi.responses import JSONResponse, Response
+    from urllib.parse import quote
+
+    content = await file.read()
+    filename = file.filename or "floorplan.pdf"
+    
+    result = extract_pdf_native_text_layers(filename, content)
+
+    if format and format.lower() == "csv":
+        csv_data = generate_pdf_native_text_csv(result)
+        stem = filename.rsplit(".", 1)[0]
+        csv_filename = f"{stem}_text.csv"
+        return Response(
+            content=csv_data,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(csv_filename)}"}
+        )
+
+    return JSONResponse(content=result)
 
 
 @router.post("/predict_door")
@@ -1313,6 +1358,7 @@ class GenerateRoomsRequest(BaseModel):
     texts: Optional[List[Dict[str, Any]]] = None
     gap_threshold: Optional[float] = 120.0
     expand_to_exterior_walls: Optional[bool] = False
+    image_base64: Optional[str] = None
 
 
 @router.post("/api/generate-rooms-from-walls")
@@ -1322,17 +1368,35 @@ def api_generate_rooms_from_walls(
 ):
     """
     Generate room polygons from wall centerlines using Shapely polygonization.
+    Performs Room-First Polygon Crop OCR on the floor plan image inside each room polygon.
     """
     try:
         from shapely.geometry import LineString, Point, Polygon
         from shapely.ops import polygonize, unary_union
         import numpy as np
         import time
+        import base64
+        from PIL import Image
+        import io
         
         walls = req.walls
         doors = req.doors or []
         texts = req.texts or []
         gap_threshold = req.gap_threshold or 120.0
+
+        # Decode floor plan canvas image for Room-First Per-Room Crop OCR
+        floor_canvas = None
+        if req.image_base64:
+            try:
+                img_str = req.image_base64
+                if "," in img_str:
+                    img_str = img_str.split(",", 1)[1]
+                img_bytes = base64.b64decode(img_str)
+                pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                floor_canvas = np.array(pil_img)
+                print(f"[api_generate_rooms_from_walls] Decoded floor_canvas shape: {floor_canvas.shape}")
+            except Exception as img_err:
+                print(f"[api_generate_rooms_from_walls] Failed to decode image_base64: {img_err}")
         
         # 1. Gather all line segments from wall centerlines
         lines = []
@@ -1527,12 +1591,10 @@ def api_generate_rooms_from_walls(
                 "source": "generated_from_walls"
             })
         
-        # Apply Auto AI's _match_text_to_rooms: filters dimensions, junk, applies
-        # fuzzy matching, OCR corrections, and validates against VALID_ROOM_WORDS
+        # Apply Auto AI's _match_text_to_rooms or Room-First Per-Room Crop OCR
         if texts:
             try:
                 from services.floor_ai_detect import _match_text_to_rooms
-                # Convert texts to the bbox format expected by _match_text_to_rooms
                 formatted_texts = []
                 for t in texts:
                     bbox = t.get("bbox")
@@ -1543,7 +1605,6 @@ def api_generate_rooms_from_walls(
                             "bbox": bbox
                         })
                     else:
-                        # Fallback: create a small synthetic bbox from centroid
                         tx = t.get("x", 0)
                         ty = t.get("y", 0)
                         formatted_texts.append({
@@ -1555,7 +1616,76 @@ def api_generate_rooms_from_walls(
                 rooms_detected = _match_text_to_rooms(rooms_detected, formatted_texts)
                 print(f"[api_generate_rooms_from_walls] _match_text_to_rooms applied with {len(formatted_texts)} texts")
             except Exception as match_err:
-                print(f"[api_generate_rooms_from_walls] _match_text_to_rooms failed: {match_err}, using fallback")
+                print(f"[api_generate_rooms_from_walls] _match_text_to_rooms failed: {match_err}")
+
+        # Execute Room-First Per-Room Crop OCR on actual floor plan image canvas inside room polygons
+        unnamed_rooms = [r for r in rooms_detected if (r.get("room_name") or "ROOM").upper().startswith("ROOM")]
+        if unnamed_rooms:
+            try:
+                from services.floor_ai_detect import _detect_and_match_room_texts_per_room
+                if floor_canvas is not None and floor_canvas.size > 0:
+                    canvas_to_use = floor_canvas
+                    img_h, img_w = floor_canvas.shape[:2]
+                    
+                    # Auto-detect scale factor: compare polygon coordinate range vs actual image size
+                    # (Frontend may have already downscaled the image, so polygon coords are in original space)
+                    all_poly_xs = []
+                    all_poly_ys = []
+                    for room in rooms_detected:
+                        for pt in room.get("polygon", []):
+                            all_poly_xs.append(pt["x"])
+                            all_poly_ys.append(pt["y"])
+                    
+                    scale_factor = 1.0
+                    if all_poly_xs and all_poly_ys:
+                        poly_max_x = max(all_poly_xs)
+                        poly_max_y = max(all_poly_ys)
+                        
+                        # If polygon coords extend beyond image bounds, image was downscaled by frontend
+                        if poly_max_x > img_w * 1.1 or poly_max_y > img_h * 1.1:
+                            scale_x = img_w / poly_max_x if poly_max_x > 0 else 1.0
+                            scale_y = img_h / poly_max_y if poly_max_y > 0 else 1.0
+                            scale_factor = min(scale_x, scale_y)  # Exact scale factor matching image canvas
+                            print(f"[api_generate_rooms_from_walls] Coordinate mismatch detected: polygons max=({poly_max_x:.0f},{poly_max_y:.0f}) vs image=({img_w},{img_h}). Scale factor={scale_factor:.4f}")
+                            
+                            # Rescale polygon coordinates to match the actual image
+                            for room in rooms_detected:
+                                room["_orig_polygon"] = room["polygon"]
+                                room["polygon"] = [{"x": pt["x"] * scale_factor, "y": pt["y"] * scale_factor} for pt in room["polygon"]]
+                        else:
+                            print(f"[api_generate_rooms_from_walls] Coordinates match image ({img_w}x{img_h}). No rescaling needed.")
+                    
+                    # Additional downscale if image is still too large
+                    OCR_MAX_DIM = 3000
+                    if max(img_h, img_w) > OCR_MAX_DIM:
+                        ds = OCR_MAX_DIM / max(img_h, img_w)
+                        new_w = int(img_w * ds)
+                        new_h = int(img_h * ds)
+                        import cv2
+                        canvas_to_use = cv2.resize(floor_canvas, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        # Also rescale polygons further
+                        for room in rooms_detected:
+                            if "_orig_polygon" not in room:
+                                room["_orig_polygon"] = room["polygon"]
+                            room["polygon"] = [{"x": pt["x"] * ds, "y": pt["y"] * ds} for pt in room["polygon"]]
+                        scale_factor *= ds
+                        print(f"[api_generate_rooms_from_walls] Further downscaled canvas to {new_w}x{new_h}")
+                    
+                    t_ocr = time.time()
+                    rooms_detected = _detect_and_match_room_texts_per_room(canvas_to_use, rooms_detected)
+                    print(f"[api_generate_rooms_from_walls] Per-room OCR completed in {time.time()-t_ocr:.1f}s for {len(unnamed_rooms)} unnamed rooms!")
+                    
+                    # Restore original polygon coordinates after OCR
+                    for room in rooms_detected:
+                        if "_orig_polygon" in room:
+                            room["polygon"] = room.pop("_orig_polygon")
+                else:
+                    max_x = max([max([pt["x"] for pt in r["polygon"]]) for r in rooms_detected] + [2000])
+                    max_y = max([max([pt["y"] for pt in r["polygon"]]) for r in rooms_detected] + [2000])
+                    canvas_to_use = np.ones((int(max_y + 100), int(max_x + 100), 3), dtype=np.uint8) * 255
+                    rooms_detected = _detect_and_match_room_texts_per_room(canvas_to_use, rooms_detected)
+            except Exception as pf_err:
+                print(f"[api_generate_rooms_from_walls] Per-room OCR error: {pf_err}")
                 import traceback
                 traceback.print_exc()
 
