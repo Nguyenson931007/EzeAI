@@ -8,7 +8,6 @@ Sử dụng thư viện pymssql để kết nối TCP/IP đến SQL Server.
 """
 
 import logging
-import pymssql
 from app.config import MSSQL_HOST, MSSQL_PORT, MSSQL_USER, MSSQL_PASSWORD, MSSQL_DB
 
 logger = logging.getLogger("ezefloor.mssql")
@@ -20,6 +19,12 @@ def get_mssql_connection():
     Trả về đối tượng pymssql.Connection.
     Caller chịu trách nhiệm đóng kết nối sau khi dùng xong.
     """
+    try:
+        import pymssql
+    except ImportError as e:
+        logger.error("Thư viện 'pymssql' chưa được cài đặt. Hãy chạy: pip install pymssql")
+        raise RuntimeError("Thư viện 'pymssql' chưa được cài đặt trên máy chủ.") from e
+
     try:
         conn = pymssql.connect(
             server=MSSQL_HOST,

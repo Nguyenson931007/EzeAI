@@ -50,7 +50,11 @@ export default function RibbonView({
   // Smart AI pipeline
   smartDetect, cancelSmartDetect, isSmartDetecting, smartProgress,
   roiRect, roiMode, setRoiMode, roiUpscale, clearROI,
-  exportPDF, addTrain,
+  exportPDF,
+  currentPdfFile,
+  isExportingPdfText,
+  exportPDFNativeText,
+  addTrain,
   addTrainPages,
   exportWallLabels,
   exportDoorWindowLabels,
@@ -638,6 +642,23 @@ export default function RibbonView({
                 </button>
                 <button className="ribbon-btn" onClick={exportPDF}>
                   <span className="icon">📄</span><span className="label">PDF</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${(!currentPdfFile || isExportingPdfText) ? "disabled" : ""}`}
+                  disabled={!currentPdfFile || isExportingPdfText}
+                  onClick={() => exportPDFNativeText("js")}
+                  title={
+                    currentPdfFile
+                      ? `Trích xuất native text layer & tọa độ PDF từ file '${currentPdfFile.name}' (${currentPdfFile.name.replace(/\.[^/.]+$/, "")}_text.js)`
+                      : "Mở tệp PDF để kích hoạt nút Export PDF Text"
+                  }
+                  style={{
+                    opacity: (currentPdfFile && !isExportingPdfText) ? 1 : 0.45,
+                    cursor: (currentPdfFile && !isExportingPdfText) ? "pointer" : "not-allowed"
+                  }}
+                >
+                  <span className="icon">{isExportingPdfText ? "⏳" : "🔍"}</span>
+                  <span className="label">{isExportingPdfText ? "Exporting..." : "Export PDF Text"}</span>
                 </button>
                 {/* <button className="ribbon-btn">
                   <span className="icon">📝</span><span className="label">Word</span>

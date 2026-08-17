@@ -75,7 +75,24 @@ def get_password_hash(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Xác minh mật khẩu thô nhận được từ client với mật khẩu đã mã hóa trong cơ sở dữ liệu."""
+    """
+    Xác minh mật khẩu thô nhận được từ client.
+    Hỗ trợ cả mã băm BCrypt ($2a$, $2b$, $2y$) từ MSSQL dbo.Account
+    và mã băm SHA-256 từ cơ sở dữ liệu cục bộ SQLite/MySQL.
+    """
+    if not hashed_password or not plain_password:
+        return False
+
+    # 1. Mã hóa BCrypt ($2a$, $2b$, $2y$) dùng cho MSSQL dbo.Account
+    if hashed_password.startswith("$2a$") or hashed_password.startswith("$2b$") or hashed_password.startswith("$2y$"):
+        try:
+            import bcrypt
+            return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+        except Exception as e:
+            logger.error(f"Lỗi kiểm tra BCrypt password: {e}")
+            return False
+
+    # 2. Mã hóa SHA-256 cục bộ
     return get_password_hash(plain_password) == hashed_password
 
 
@@ -210,17 +227,123 @@ def signup(user: UserCreate):
         conn.close()
 
 
+def get_mssql_account_user(username_or_manv: str):
+    """
+    Truy vấn thông tin tài khoản từ MSSQL Server (dbo.Account JOIN dbo.roles).
+    Lấy 4 cột: MaNV, UserID, Password, IsManagement kèm tên nhãn Role (từ dbo.roles).
+    """
+    try:
+        from app.mssql_db import get_mssql_connection
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+        query = """
+            SELECT TOP 1 
+                a.MaNV, 
+                a.UserID, 
+                a.Password, 
+                a.IsManagement, 
+                r.name AS RoleName 
+            FROM dbo.Account a 
+            LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
+            WHERE a.UserID = %s OR a.MaNV = %s
+        """
+        cursor.execute(query, (username_or_manv, username_or_manv))
+        row = cursor.fetchone()
+        conn.close()
+        return row
+    except Exception as e:
+        logger.warning(f"Không thể truy vấn MSSQL dbo.Account: {e}")
+        return None
+
+
 @router.post("/login")
 def login(user: UserLogin, response: Response):
     """
     Đăng nhập hệ thống.
-    - Thực hiện kiểm tra cơ chế Brute Force (khóa tài khoản nếu nhập sai mật khẩu quá 5 lần).
-    - Tạo session_token ngẫu nhiên duy nhất (UUID), lưu trữ vào DB và thiết lập HTTP-Only Cookie.
+    - Ưu tiên xác thực qua CSDL MSSQL (dbo.Account hợp nhất dbo.roles).
+    - Hỗ trợ mã hóa BCrypt ($2b$, $2a$) và tự động đồng bộ tài khoản về CSDL cục bộ.
+    - Dự phòng xác thực qua CSDL cục bộ (SQLite/MySQL) nếu tài khoản không tồn tại trên MSSQL.
     """
+    # ── 1. Thử xác thực qua MSSQL Server (dbo.Account & dbo.roles) ──
+    mssql_user = get_mssql_account_user(user.username)
+    if mssql_user:
+        if not verify_password(user.password, mssql_user["Password"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Tên đăng nhập hoặc mật khẩu không chính xác."
+            )
+
+        # Chuẩn hóa tên quyền (Role)
+        raw_role_name = (mssql_user.get("RoleName") or "User").strip()
+        role_lower = raw_role_name.lower()
+        if mssql_user.get("IsManagement") == 1 or role_lower in ["admin", "adminsteel"]:
+            role = "admin"
+        else:
+            role = role_lower
+
+        username = mssql_user["UserID"]
+        manv = mssql_user["MaNV"]
+        new_token = str(uuid.uuid4())
+
+        # Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
+        local_conn = get_db_connection()
+        local_cursor = local_conn.cursor()
+        try:
+            local_cursor.execute(
+                "SELECT id, is_active, status, failed_attempts, is_locked FROM users WHERE username = ?",
+                (username,)
+            )
+            local_row = local_cursor.fetchone()
+
+            if local_row:
+                if local_row["is_locked"] == 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="Tài khoản đã bị khóa. Vui lòng liên hệ Admin để mở khóa."
+                    )
+                if local_row["is_active"] == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Tài khoản của bạn đã bị tạm dừng hoạt động."
+                    )
+
+                local_cursor.execute(
+                    "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
+                    (role, new_token, datetime.now().isoformat(), username)
+                )
+            else:
+                dummy_email = f"{username.lower()}@ezefloor.ai"
+                local_cursor.execute(
+                    "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
+                    (username, dummy_email, mssql_user["Password"], role, new_token, datetime.now().isoformat())
+                )
+            local_conn.commit()
+        finally:
+            local_conn.close()
+
+        # Thiết lập HTTP-Only Cookie
+        response.set_cookie(
+            key="session_token",
+            value=new_token,
+            httponly=True,
+            max_age=18000,
+            samesite="lax",
+            secure=False
+        )
+
+        return {
+            "status": "success",
+            "username": username,
+            "manv": manv,
+            "role": role,
+            "is_management": mssql_user["IsManagement"],
+            "session_token": new_token
+        }
+
+    # ── 2. Dự phòng: Xác thực qua CSDL cục bộ (SQLite / MySQL) ──
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Tìm thông tin người dùng trong DB
         cursor.execute(
             "SELECT id, username, hashed_password, role, is_active, status, failed_attempts, is_locked FROM users WHERE username = ?", 
             (user.username,)
@@ -233,18 +356,15 @@ def login(user: UserLogin, response: Response):
                 detail="Tên đăng nhập hoặc mật khẩu không chính xác."
             )
 
-        # 1. Kiểm tra trạng thái Khóa (Anti-Brute Force)
         if row["is_locked"] == 1 or row["failed_attempts"] >= 5:
-            if row["is_locked"] == 0:  # Chuyển trạng thái sang Khóa nếu đây là lần đầu tiên vượt ngưỡng
+            if row["is_locked"] == 0:
                 cursor.execute("UPDATE users SET is_locked = 1 WHERE id = ?", (row["id"],))
                 conn.commit()
-            print(f"🚨 [SECURITY ALERT] Tài khoản '{user.username}' bị khóa do nhập sai mật khẩu quá 5 lần!")
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS, 
-                detail="Tài khoản đã bị khóa do nhập sai mật khẩu quá số lần quy định. Vui lòng liên hệ Admin để mở khóa."
+                detail="Tài khoản đã bị khóa do nhập sai mật khẩu quá số lần quy định."
             )
 
-        # 2. Kiểm tra mật khẩu hợp lệ
         if not verify_password(user.password, row["hashed_password"]):
             new_attempts = row["failed_attempts"] + 1
             if new_attempts >= 5:
@@ -257,7 +377,6 @@ def login(user: UserLogin, response: Response):
                 detail="Tên đăng nhập hoặc mật khẩu không chính xác."
             )
         
-        # 3. Kiểm tra trạng thái phê duyệt và hoạt động
         if row["status"] == "pending":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, 
@@ -270,7 +389,6 @@ def login(user: UserLogin, response: Response):
                 detail="Tài khoản của bạn đã bị tạm dừng hoạt động."
             )
         
-        # 4. Thành công: Khởi tạo Session mới (Đăng xuất tự động các phiên cũ ở thiết bị khác)
         new_token = str(uuid.uuid4())
         cursor.execute(
             "UPDATE users SET is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE id = ?", 
@@ -278,14 +396,13 @@ def login(user: UserLogin, response: Response):
         )
         conn.commit()
         
-        # Thiết lập HTTP-Only Cookie để chống tấn công XSS
         response.set_cookie(
             key="session_token",
             value=new_token,
             httponly=True,
-            max_age=18000,  # Thời gian sống phiên: 5 giờ (18000s)
+            max_age=18000,
             samesite="lax",
-            secure=False   # Thiết lập bằng True nếu triển khai HTTPS trên production
+            secure=False
         )
         
         return {
@@ -383,8 +500,8 @@ def validate_session(
     """
     session_token = session_token_cookie or session_token_header
     
-    print(f"[AUTH] Đang xác thực phiên cho người dùng: {auth_username}")
-    print(f"[AUTH] Có cookie token: {bool(session_token_cookie)}, Có header token: {bool(session_token_header)}")
+    print(f"[AUTH] Validating session for user: {auth_username}")
+    print(f"[AUTH] Cookie token present: {bool(session_token_cookie)}, Header token present: {bool(session_token_header)}")
     
     if not session_token:
         logger.warning(f"[AUTH] Thiếu session token cho người dùng {auth_username}")

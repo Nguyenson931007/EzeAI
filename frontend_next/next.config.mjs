@@ -38,6 +38,7 @@ const nextConfig = {
       { source: "/predict-room", destination: `${backendUrl}/predict-room` },
       { source: "/predict-room-6class", destination: `${backendUrl}/predict-room-6class` },
       { source: "/predict_template", destination: `${backendUrl}/predict_template` },
+      { source: "/pdf/:path*", destination: `${backendUrl}/pdf/:path*` },
 
       // OCR & classification endpoints
       { source: "/ocr-corrections", destination: `${backendUrl}/ocr-corrections` },

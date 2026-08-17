@@ -361,10 +361,16 @@ export const ApiService = {
     }
   },
 
-  async autoDetectText(imageBlob, confidence = "0.001") {
+  async autoDetectText(imageBlob, confidence = "0.001", roi = null) {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
+    if (roi && roi.w > 0 && roi.h > 0) {
+      fd.append("roi_x", roi.x);
+      fd.append("roi_y", roi.y);
+      fd.append("roi_w", roi.w);
+      fd.append("roi_h", roi.h);
+    }
     const res = await fetch(`${BASE_URL}/predict_text`, {
       method: "POST",
       headers: getHeaders(null),
@@ -547,7 +553,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async generateRoomsFromWalls(walls, doors = [], texts = [], gapThreshold = 120) {
+  async generateRoomsFromWalls(walls, doors = [], texts = [], gapThreshold = 120, imageBase64 = null, naturalWidth = null, naturalHeight = null) {
     const res = await fetch(`${BASE_URL}/api/generate-rooms-from-walls`, {
       method: "POST",
       headers: getHeaders(),
@@ -555,7 +561,10 @@ export const ApiService = {
         walls,
         doors,
         texts,
-        gap_threshold: gapThreshold
+        gap_threshold: gapThreshold,
+        image_base64: imageBase64,
+        natural_width: naturalWidth,
+        natural_height: naturalHeight
       }),
       credentials: "include"
     });

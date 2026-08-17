@@ -74,8 +74,8 @@ import time
 def enrich_doors_with_ocr_width(
     image_np: np.ndarray,
     doors: List[Dict[str, Any]],
-    buffer_px: int = 120,
-    max_time_sec: float = 6.0,
+    buffer_px: int = 220,
+    max_time_sec: float = 30.0,
 ) -> List[Dict[str, Any]]:
     """Enriches each door dict with OCR-derived width dimensions.
 
@@ -275,28 +275,17 @@ def _transform_bbox_back(
     if angle == 0:
         return bbox
     elif angle == 90:
-        # In 90° CW rotated image: rotated_w = orig_h, rotated_h = orig_w
-        # (rx, ry) in rotated → (ry, rotated_w - rx - rw) in original
-        # Actually: (rx, ry) → (orig_w - ry - bh, rx) ... let me think carefully
-        # 90° CW: (x,y) → (orig_h - 1 - y, x)  in pixel coords
-        # For bbox: top-left (bx, by) in rotated → in original:
-        #   new_x = by
-        #   new_y = orig_w - bx - bw  ... no
-        # Let's use: rotated(90CW) means columns become rows reversed
-        # original point (ox, oy) → rotated point (oy, orig_w - 1 - ox)
-        # inverse: rotated (rx, ry) → original (orig_w - 1 - ry, rx)
-        # But for bbox region (not pixel):
         new_x = by
-        new_y = orig_w - bx - bw
-        return {"x": new_x, "y": max(0, new_y), "w": bh, "h": bw}
+        new_y = orig_h - bx - bw
+        return {"x": max(0, new_x), "y": max(0, new_y), "w": bh, "h": bw}
     elif angle == 180:
         new_x = orig_w - bx - bw
         new_y = orig_h - by - bh
         return {"x": max(0, new_x), "y": max(0, new_y), "w": bw, "h": bh}
     elif angle == 270:
-        new_x = orig_h - by - bh
+        new_x = orig_w - by - bh
         new_y = bx
-        return {"x": max(0, new_x), "y": new_y, "w": bh, "h": bw}
+        return {"x": max(0, new_x), "y": max(0, new_y), "w": bh, "h": bw}
     return bbox
 
 
@@ -305,26 +294,41 @@ def _transform_bbox_back(
 # ─────────────────────────────────────────────────────────────
 
 def _run_ocr_on_region(crop_np: np.ndarray) -> List[Dict[str, Any]]:
-    """Runs EasyOCR on a single crop orientation.
-
-    Returns list of {text, conf, bbox} where bbox is {x, y, w, h}
-    in local crop coordinates.
-    """
+    """Runs EasyOCR directly on a single crop orientation."""
     try:
-        from services.ocr import run_ocr
+        from services.ocr_ensemble import _get_easy_ocr, _ocr_ensemble_lock
+
+        reader = _get_easy_ocr()
+        if reader is None:
+            return []
 
         if len(crop_np.shape) == 2:
             rgb = cv2.cvtColor(crop_np, cv2.COLOR_GRAY2RGB)
         else:
             rgb = crop_np
 
-        pil_img = Image.fromarray(rgb)
-        results = run_ocr(pil_img)
-        return results if results else []
+        with _ocr_ensemble_lock:
+            raw_res = reader.readtext(rgb, detail=1, paragraph=False)
 
-    except ImportError:
-        logger.warning("Cannot import services.ocr.run_ocr")
-        return []
+        results = []
+        for (bbox, text_str, conf) in raw_res:
+            txt = str(text_str).strip()
+            if txt and float(conf) > 0.10:
+                xs = [p[0] for p in bbox]
+                ys = [p[1] for p in bbox]
+                min_x, max_x = min(xs), max(xs)
+                min_y, max_y = min(ys), max(ys)
+                results.append({
+                    "text": txt,
+                    "conf": float(conf),
+                    "bbox": {
+                        "x": float(min_x),
+                        "y": float(min_y),
+                        "w": float(max_x - min_x),
+                        "h": float(max_y - min_y)
+                    }
+                })
+        return results
     except Exception as e:
         logger.error("OCR execution error: %s", e)
         return []
@@ -360,7 +364,9 @@ def _filter_dimension_candidates(
         if parsed is None:
             continue
 
-        width_mm, height_mm = parsed
+        width_mm = parsed[0]
+        height_mm = parsed[1]
+        multi_total = parsed[2] if len(parsed) > 2 else None
 
         if width_mm < _MIN_WIDTH_MM or width_mm > _MAX_WIDTH_MM:
             continue
@@ -372,6 +378,7 @@ def _filter_dimension_candidates(
         candidates.append({
             "width_mm": width_mm,
             "height_mm": height_mm,
+            "multi_total": multi_total,
             "text": text,
             "conf": conf,
             "global_bbox": global_bbox,
@@ -403,7 +410,21 @@ def _find_closest_candidate(
 
 def _assign_ocr_result(door: Dict[str, Any], best: Dict[str, Any]) -> None:
     """Assigns OCR result fields to the door dict."""
-    door["width_mm"] = int(best["width_mm"])
+    is_double = (
+        door.get("class") == "double_door" or
+        door.get("type") == "double" or
+        "double" in str(door.get("doorTypeId", "")).lower() or
+        "double" in str(door.get("class_name", "")).lower() or
+        "double" in str(door.get("label", "")).lower()
+    )
+
+    if is_double and best.get("multi_total"):
+        w_val = int(best["multi_total"])
+    else:
+        w_val = int(best["width_mm"])
+
+    door["width_mm"] = w_val
+    door["width"] = w_val
     door["width_source"] = "ocr"
     door["ocr_text"] = str(best["text"])
     door["ocr_confidence"] = float(round(best["conf"], 3))
@@ -412,6 +433,11 @@ def _assign_ocr_result(door: Dict[str, Any], best: Dict[str, Any]) -> None:
     door["ocr_orientation"] = int(best.get("orientation", 0))
     if best.get("height_mm") is not None:
         door["height_mm"] = int(best["height_mm"])
+        door["height"] = int(best["height_mm"])
+    current_label = door.get("label") or door.get("class_name") or "Door"
+    if "(" not in current_label:
+        door["label"] = f"{current_label} ({w_val})"
+        door["class_name"] = f"{current_label} ({w_val})"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -433,6 +459,14 @@ def _parse_dimension_text(text: str) -> Optional[Tuple[int, Optional[int]]]:
 
     # Remove common unit suffixes
     text = re.sub(r"\s*(MM|CM|M)\s*$", "", text)
+
+    # Multi-panel doors e.g. 2x820FD, 2x620FD, 3x820, 2X720
+    multi_match = re.search(r"\b(\d+)\s*[xX×]\s*(\d{3,4})\s*(?:FD|SD|CS|CSD|D)?\b", text)
+    if multi_match:
+        panel_count = int(multi_match.group(1))
+        w_single = int(multi_match.group(2))
+        if _MIN_WIDTH_MM <= w_single <= _MAX_WIDTH_MM:
+            return (w_single, None, panel_count * w_single)
 
     # Try sliding door pattern first (most specific)
     m = _DIM_SLIDING.search(text)
@@ -462,8 +496,36 @@ def _parse_dimension_text(text: str) -> Optional[Tuple[int, Optional[int]]]:
         if _MIN_WIDTH_MM <= w <= _MAX_WIDTH_MM:
             return (w, None)
 
+    # Rotated OCR digit misread mappings for doors & windows (e.g. 820/720 rotated 180° read as 078, 020, 070, 028, 082)
+    ROTATED_MISREADS = {
+        "078": 820,
+        "028": 820,
+        "082": 820,
+        "020": 820,
+        "070": 720,
+        "077": 770,
+        "087": 780,
+        "027": 720,
+        "072": 720,
+        "008": 800,
+        "026": 620,
+        "029": 920,
+        "006": 600,
+        "009": 900,
+    }
+
+    # Try hardware code patterns like 720CS, 820CSD, 770CS, 820C/S
+    hw_match = re.search(r"\b(\d{3,4})\s*(CS|CSD|SD|S|C/S|MM)?\b", text)
+    if hw_match:
+        val = int(hw_match.group(1))
+        if _MIN_WIDTH_MM <= val <= _MAX_WIDTH_MM:
+            return (val, None)
+
     # Try standalone number — strip non-digit noise
     cleaned = re.sub(r"[^\d]", "", text)
+    if cleaned in ROTATED_MISREADS:
+        return (ROTATED_MISREADS[cleaned], None)
+
     if cleaned and len(cleaned) in (3, 4):
         m = _DIM_STANDALONE.match(cleaned)
         if m:

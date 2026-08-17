@@ -9,6 +9,7 @@
  *   - addTrainPages: Export nhiều page ra training dataset
  *   - exportPDF:     Xuất plan + rooms ra PDF
  */
+import { useState } from "react";
 import { jsPDF } from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
 import { centroid, polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
@@ -46,8 +47,12 @@ export function useDocumentController({
   const { showAlert } = useDialog();
   // --- LOAD PDF --- 
   const rooms = roomsByPage[currentPage] || [];
+  const [currentPdfFile, setCurrentPdfFile] = useState(null);
 
   async function loadPDF(file, isAppend = false) {
+    if (file) {
+      setCurrentPdfFile(file);
+    }
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
@@ -91,6 +96,106 @@ export function useDocumentController({
     setImportSelectedPages(pagesData.map((_, i) => i)); // Select all by default
     if (setIsAddingPagesMode) setIsAddingPagesMode(isAppend);
     setShowImportPageSelector(true);
+  }
+
+  const [isExportingPdfText, setIsExportingPdfText] = useState(false);
+
+  async function exportPDFNativeText(format = "js") {
+    if (!currentPdfFile) {
+      showAlert({
+        title: "No PDF Loaded",
+        message: "Please open a PDF document first."
+      });
+      return;
+    }
+
+    if (isExportingPdfText) return;
+
+    try {
+      setIsExportingPdfText(true);
+      const formData = new FormData();
+      formData.append("file", currentPdfFile);
+      formData.append("format", format === "csv" ? "csv" : "json");
+
+      const res = await fetch("/api/pdf/extract-native-text", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || "Failed to extract native text layer from PDF.");
+      }
+
+      const stem = currentPdfFile.name ? currentPdfFile.name.replace(/\.[^/.]+$/, "") : "floorplan";
+
+      if (format === "csv") {
+        const blob = await res.blob();
+        const downloadName = `${stem}_text.csv`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else if (format === "json") {
+        const data = await res.json();
+        const count = data.totalTextObjects || 0;
+        console.log(`[PDF_NATIVE_TEXT] ${count} native text objects exported`);
+
+        if (!data.totalTextObjects || data.totalTextObjects === 0) {
+          showAlert({
+            title: "No Native Text Found",
+            message: "PDF không có native text layer.\nCó thể đây là PDF scan hoặc text đã được convert thành vector/path."
+          });
+        }
+
+        const downloadName = `${stem}_text.json`;
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        // Default format: "js" -> Exports <stem>_text.js ES Module file
+        const data = await res.json();
+        const count = data.totalTextObjects || 0;
+        console.log(`[PDF_NATIVE_TEXT] Exported ${count} text objects`);
+
+        if (!data.totalTextObjects || data.totalTextObjects === 0) {
+          showAlert({
+            title: "No Native Text Found",
+            message: "PDF không có native text layer.\nCó thể đây là PDF scan hoặc text đã được convert thành vector/path."
+          });
+        }
+
+        const jsContent = `const pdfTextData = ${JSON.stringify(data, null, 2)};\n\nexport default pdfTextData;\n`;
+        const downloadName = `${stem}_text.js`;
+        const blob = new Blob([jsContent], { type: "application/javascript;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error("[PDF_NATIVE_TEXT] Error:", err);
+      showAlert({
+        title: "Export PDF Text Failed",
+        message: err.message || "Failed to export native text layer."
+      });
+    } finally {
+      setIsExportingPdfText(false);
+    }
   }
 
   async function rotatePlan90() {
@@ -710,5 +815,5 @@ export function useDocumentController({
     }
   }
 
-  return { loadPDF, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels };
+  return { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels };
 }

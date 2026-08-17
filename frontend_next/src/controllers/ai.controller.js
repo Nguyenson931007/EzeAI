@@ -1471,41 +1471,48 @@ export const useAIController = (
       const currentWalls = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
       const currentDoors = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
 
-      let texts = [];
-      try {
-        setCacheStatus("Detecting room labels...");
-        const blob = await fetch(image).then(r => r.blob());
-        const detectedTexts = await ApiService.autoDetectText(blob, String(OCR_CONF));
-        if (Array.isArray(detectedTexts)) {
-          texts = detectedTexts.map(t => ({
-            text: t.text,
-            conf: t.conf || 0.5,
-            bbox: t.bbox,
-            x: t.bbox.x + t.bbox.w / 2,
-            y: t.bbox.y + t.bbox.h / 2
-          }));
+      setCacheStatus("Generating room polygons & performing per-room crop OCR...");
+
+      // Prepare canvas image Base64 — downscaled to max 3000px for fast OCR
+      let imageBase64 = null;
+      const OCR_MAX_DIM = 3000;
+      let naturalWidth = null;
+      let naturalHeight = null;
+      if (image) {
+        try {
+          const img = new window.Image();
+          img.crossOrigin = "anonymous";
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = image;
+          });
+
+          naturalWidth = img.naturalWidth;
+          naturalHeight = img.naturalHeight;
+
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (Math.max(w, h) > OCR_MAX_DIM) {
+            const scale = OCR_MAX_DIM / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          imageBase64 = canvas.toDataURL("image/jpeg", 0.85);
+          console.log(`[generateRoomsFromWalls] Image downscaled to ${w}x${h} for OCR (natural=${naturalWidth}x${naturalHeight}, payload ~${Math.round(imageBase64.length / 1024)}KB)`);
+        } catch (imgErr) {
+          console.warn("[generateRoomsFromWalls] Could not prepare imageBase64 for per-room OCR:", imgErr);
         }
-      } catch (ocrErr) {
-        console.error("[generateRoomsFromWalls] OCR text detection failed, falling back to existing room names:", ocrErr);
       }
 
-      if (texts.length === 0) {
-        const currentRoomsForGen = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
-        texts = currentRoomsForGen.map(r => {
-          const pts = r.polygon || [];
-          if (pts.length === 0) return null;
-          const xs = pts.map(p => p.x);
-          const ys = pts.map(p => p.y);
-          return {
-            text: r.room_name,
-            x: (Math.min(...xs) + Math.max(...xs)) / 2,
-            y: (Math.min(...ys) + Math.max(...ys)) / 2
-          };
-        }).filter(Boolean);
-      }
-
-      console.log("[generateRoomsFromWalls] Request sent. currentWalls:", currentWalls.length, "currentDoors:", currentDoors.length, "texts:", texts.length);
-      const res = await ApiService.generateRoomsFromWalls(currentWalls, currentDoors, texts, gapThreshold);
+      console.log("[generateRoomsFromWalls] Request sent. currentWalls:", currentWalls.length, "currentDoors:", currentDoors.length, "hasImageBase64:", !!imageBase64);
+      const res = await ApiService.generateRoomsFromWalls(currentWalls, currentDoors, [], gapThreshold, imageBase64, naturalWidth, naturalHeight);
       console.log("[generateRoomsFromWalls] Response received:", res);
 
       if (res && res.success && res.rooms) {

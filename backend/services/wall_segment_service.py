@@ -12,6 +12,7 @@ import logging
 import threading
 from typing import Any, Dict, List
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 import numpy as np
 import torch
 from ultralytics import YOLO
@@ -165,20 +166,20 @@ def _run_yolo_inference(
 
                     # Aspect Ratio and Length Filtering
                     if real_scale and real_scale != 1.0:
-                        min_len_mm = 120.0 if confidence < 0.01 else 350.0
+                        min_len_mm = 60.0 if confidence <= 0.02 else 350.0
                         min_len_thresh = float(min_len_mm) / real_scale
                     else:
-                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
+                        min_len_thresh = 6.0 if confidence <= 0.02 else 35.0
 
                     if length < min_len_thresh:
                         continue
 
-                    ratio_thresh = 1.0 if confidence < 0.01 else 2.0
+                    ratio_thresh = 0.5 if confidence <= 0.02 else 2.0
                     if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
                         continue
 
                     # OpenCV parallel edge validation (filters out furniture, text, etc.)
-                    if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
+                    if confidence > 0.02 and not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
                         continue
 
                     wall_obj = {
@@ -329,7 +330,7 @@ def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
     return None, 0.0
 
 
-def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 250.0) -> List[dict]:
+def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 80.0) -> List[dict]:
     current_walls = [dict(w) for w in walls]
     merged_any = True
     
@@ -915,8 +916,10 @@ class WallSegmentService:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cpu" and torch.get_num_threads() > 4:
             torch.set_num_threads(4)
-        if device == "cpu" and imgsz > 1280:
-            imgsz = 1280
+        if device == "cpu" and imgsz > 2048:
+            imgsz = 2048
+        elif imgsz < 2048:
+            imgsz = 2048
             
         # Scale confidence down by 0.5 to increase sensitivity for wall detection
         confidence = float(confidence * 0.5)
@@ -958,7 +961,7 @@ class WallSegmentService:
         # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
+        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=80.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)
@@ -1252,7 +1255,7 @@ class WallSegmentService:
         processed_walls = detected_walls
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
+        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=80.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)
@@ -1815,9 +1818,11 @@ def _validate_wall_by_edges(img_np, p1, p2, thickness_px, confidence: float = 0.
         # 1. Solid Fill Check:
         # Inner zone: |t| <= half_t
         inner_indices = [t + 25 for t in t_values if abs(t) <= half_t]
-        # Outer zone: |t| >= half_t + 5
         outer_indices = [t + 25 for t in t_values if abs(t) >= half_t + 5]
         
+        if not inner_indices or not outer_indices:
+            continue
+
         avg_inner = np.mean([profile[idx] for idx in inner_indices])
         avg_outer = np.mean([profile[idx] for idx in outer_indices])
         

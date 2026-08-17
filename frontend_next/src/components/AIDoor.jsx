@@ -82,11 +82,24 @@ export default function AIDoor({
       }
     }
   }
-  const widthLabel = displayWidthMm ? `${displayWidthMm}mm` : null;
-  const widthSource = d.width_source || "geometry";
 
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door" || d.type === "sliding" || (d.doorTypeId && d.doorTypeId.includes("sliding"));
   const isWindow = (d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'))) && !isSliding;
+
+  // Smart Architectural Dimension Snapping (CHỈ ÁP DỤNG CHO WINDOWS)
+  if (isWindow && displayWidthMm) {
+    const STANDARD_DIMENSIONS = [600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000];
+    for (const stdW of STANDARD_DIMENSIONS) {
+      const snapTol = Math.max(120, stdW * 0.10);
+      if (Math.abs(displayWidthMm - stdW) <= snapTol) {
+        displayWidthMm = stdW;
+        break;
+      }
+    }
+  }
+
+  const widthLabel = displayWidthMm ? `${Math.round(displayWidthMm)}mm` : null;
+  const widthSource = d.width_source || "geometry";
 
   // Sliding Door Box Calculations
   let slidingWidth = 0;
@@ -1418,87 +1431,134 @@ export default function AIDoor({
       )}
 
       {/* Flip Buttons when selected (hidden during drag) */}
-      {isSelected && !dragging && updateDoor && (
-        <g style={{ pointerEvents: 'auto' }}>
-          {/* Horizontal Flip Button */}
-          <g 
-            transform={`translate(${cxAvg - 15}, ${cyAvg + 15})`} 
-            style={{ cursor: 'pointer' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              let p1 = null, p2 = null;
-              if (topEdges && topEdges[frameEdgeIndex]) {
-                p1 = topEdges[frameEdgeIndex].p1;
-                p2 = topEdges[frameEdgeIndex].p2;
-              } else if (d.points && d.points.length >= 2) {
-                p1 = Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0];
-                p2 = Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1];
-              }
+      {isSelected && !dragging && updateDoor && (() => {
+        let p1 = null, p2 = null;
+        if (topEdges && topEdges[frameEdgeIndex]) {
+          p1 = topEdges[frameEdgeIndex].p1;
+          p2 = topEdges[frameEdgeIndex].p2;
+        } else if (d.points && d.points.length >= 2) {
+          p1 = Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0];
+          p2 = Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1];
+        }
 
-              const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
-              let newPoly = maskPoly;
-              if (p1 && p2 && maskPoly && maskPoly.length > 0) {
-                newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-              } else {
-                newPoly = maskPoly.map(p => {
-                  const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                  const nx = cxAvg - (pt.x - cxAvg);
-                  return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
-                });
-              }
-              updateDoor({
-                ...d,
-                hingeSide: newHinge,
-                hinge_side: newHinge,
-                polygon: newPoly,
-                mask_polygon: newPoly
-              });
-            }}
-          >
-            <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
-            <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↔</text>
-          </g>
-          
-          {/* Vertical Flip Button */}
-          <g 
-            transform={`translate(${cxAvg + 15}, ${cyAvg + 15})`} 
-            style={{ cursor: 'pointer' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              let p1 = null, p2 = null;
-              if (topEdges && topEdges[frameEdgeIndex]) {
-                p1 = topEdges[frameEdgeIndex].p1;
-                p2 = topEdges[frameEdgeIndex].p2;
-              } else if (d.points && d.points.length >= 2) {
-                p1 = Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0];
-                p2 = Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1];
-              }
+        const isVerticalDoor = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
 
-              const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
-              let newPoly = maskPoly;
-              if (p1 && p2 && maskPoly && maskPoly.length > 0) {
-                newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-              } else {
-                newPoly = maskPoly.map(p => {
-                  const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                  const ny = cyAvg - (pt.y - cyAvg);
-                  return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
-                });
-              }
-              updateDoor({
-                ...d,
-                swing: newSwing,
-                swing_direction: newSwing,
-                polygon: newPoly,
-                mask_polygon: newPoly
+        const handleHorizontalFlip = (e) => {
+          e.stopPropagation();
+          if (isVerticalDoor) {
+            // For vertical door, Horizontal Flip (Left ↔ Right) is across the wall line (Swing flip)
+            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+            let newPoly = maskPoly;
+            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
+              newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+            } else {
+              newPoly = maskPoly.map(p => {
+                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
+                const nx = cxAvg - (pt.x - cxAvg);
+                return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
               });
-            }}
-          >
-            <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
-            <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↕</text>
+            }
+            updateDoor({
+              ...d,
+              swing: newSwing,
+              swing_direction: newSwing,
+              swingDirection: newSwing,
+              polygon: newPoly,
+              mask_polygon: newPoly
+            });
+          } else {
+            // For horizontal door, Horizontal Flip (Left ↔ Right) is along the wall (Hinge flip)
+            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+            let newPoly = maskPoly;
+            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
+              newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+            } else {
+              newPoly = maskPoly.map(p => {
+                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
+                const nx = cxAvg - (pt.x - cxAvg);
+                return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
+              });
+            }
+            updateDoor({
+              ...d,
+              hingeSide: newHinge,
+              hinge_side: newHinge,
+              polygon: newPoly,
+              mask_polygon: newPoly
+            });
+          }
+        };
+
+        const handleVerticalFlip = (e) => {
+          e.stopPropagation();
+          if (isVerticalDoor) {
+            // For vertical door, Vertical Flip (Up ↕ Down) is along the wall (Hinge flip)
+            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+            let newPoly = maskPoly;
+            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
+              newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+            } else {
+              newPoly = maskPoly.map(p => {
+                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
+                const ny = cyAvg - (pt.y - cyAvg);
+                return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
+              });
+            }
+            updateDoor({
+              ...d,
+              hingeSide: newHinge,
+              hinge_side: newHinge,
+              polygon: newPoly,
+              mask_polygon: newPoly
+            });
+          } else {
+            // For horizontal door, Vertical Flip (Up ↕ Down) is across the wall line (Swing flip)
+            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+            let newPoly = maskPoly;
+            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
+              newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+            } else {
+              newPoly = maskPoly.map(p => {
+                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
+                const ny = cyAvg - (pt.y - cyAvg);
+                return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
+              });
+            }
+            updateDoor({
+              ...d,
+              swing: newSwing,
+              swing_direction: newSwing,
+              swingDirection: newSwing,
+              polygon: newPoly,
+              mask_polygon: newPoly
+            });
+          }
+        };
+
+        return (
+          <g style={{ pointerEvents: 'auto' }}>
+            {/* Horizontal Flip Button (Left ↔ Right on Screen) */}
+            <g 
+              transform={isVerticalDoor ? `translate(${cxAvg + 15}, ${cyAvg - 12})` : `translate(${cxAvg - 15}, ${cyAvg + 15})`} 
+              style={{ cursor: 'pointer' }}
+              onClick={handleHorizontalFlip}
+            >
+              <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
+              <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↔</text>
+            </g>
+            
+            {/* Vertical Flip Button (Up ↕ Down on Screen) */}
+            <g 
+              transform={isVerticalDoor ? `translate(${cxAvg + 15}, ${cyAvg + 12})` : `translate(${cxAvg + 15}, ${cyAvg + 15})`} 
+              style={{ cursor: 'pointer' }}
+              onClick={handleVerticalFlip}
+            >
+              <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
+              <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↕</text>
+            </g>
           </g>
-        </g>
-      )}
+        );
+      })()}
     </g>
   );
 }
