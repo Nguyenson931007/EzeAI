@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // CAD/BIM client-side application — all rendering is client-side
-
+  allowedDevOrigins: ['14.241.197.188'],
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8090";
@@ -84,5 +84,6 @@ const nextConfig = {
   // Dev server configuration
   devIndicators: false
 };
+
 
 export default nextConfig;
