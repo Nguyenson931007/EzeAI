@@ -105,6 +105,20 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async getTaskListJobs(maNv = null, search = null, limit = 150, forceRefresh = false) {
+    const params = new URLSearchParams();
+    if (maNv) params.append("ma_nv", maNv);
+    if (search) params.append("search", search);
+    if (limit) params.append("limit", limit);
+    if (forceRefresh) params.append("force_refresh", "true");
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${BASE_URL}/jobs/tasklist-jobs${qs}`, {
+      headers: getHeaders(),
+      credentials: "include",
+    });
+    return handleResponse(res);
+  },
+
   // --- User Management (Admin) ---
   async getUsers() {
     const res = await fetch(`${BASE_URL}/users`, {

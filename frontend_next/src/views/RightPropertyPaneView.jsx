@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
-import { BASE_URL } from "@/models/api.service";
+import { ApiService, BASE_URL } from "@/models/api.service";
 import {
   DOOR_TYPE_REGISTRY,
   getDoorTypeOptions,
@@ -341,10 +341,102 @@ export default function RightPropertyPaneView({
   updateRoofPitch,
   deleteRoof,
   lintelController,
-  selectedId
+  selectedId,
+  onLoadJob
 }) {
   const { showConfirm } = useDialog();
-  const { wasteByPage, setWasteByPage, roofsByPage, setRoofsByPage, currentPage, currentProjectName, user, lintelsByPage } = useAppModel();
+  const {
+    wasteByPage, setWasteByPage,
+    roofsByPage, setRoofsByPage,
+    currentPage,
+    currentProjectName, setCurrentProjectName,
+    currentJobId, setCurrentJobId,
+    setActiveTab,
+    user,
+    lintelsByPage
+  } = useAppModel();
+
+  // ── PANE TAB STATE ("properties" | "job_task") ──
+  const [activePaneTab, setActivePaneTab] = React.useState("properties");
+  const [taskListJobs, setTaskListJobs] = React.useState([]);
+  const [taskLoading, setTaskLoading] = React.useState(false);
+  const [taskError, setTaskError] = React.useState(null);
+  const [taskSearch, setTaskSearch] = React.useState("");
+  const [taskFilter, setTaskFilter] = React.useState("all"); // "all" | "completed" | "pending"
+  const [staffScope, setStaffScope] = React.useState("all"); // "all" | "my"
+  const [taskDisplayLimit, setTaskDisplayLimit] = React.useState(30);
+  const [loadingJobId, setLoadingJobId] = React.useState(null);
+
+  // Mã nhân viên của người dùng hiện tại (e.g. EZE0098)
+  const myStaffCode = React.useMemo(() => {
+    if (user?.username && user.username.toUpperCase().startsWith("EZE")) {
+      return user.username.toUpperCase();
+    }
+    return "EZE0098";
+  }, [user]);
+
+  const hasFetchedTasksRef = React.useRef(false);
+
+  // Tải danh sách Task Groups HW từ TaskList Web3 / Local DB
+  const fetchTasks = React.useCallback(async (force = false) => {
+    try {
+      setTaskLoading(true);
+      setTaskError(null);
+      const res = await ApiService.getTaskListJobs(null, null, 150, force);
+      if (res && res.status === "success" && Array.isArray(res.data)) {
+        setTaskListJobs(res.data);
+      } else {
+        setTaskListJobs([]);
+      }
+    } catch (err) {
+      console.error("Error fetching Task Groups HW:", err);
+      setTaskError(err.message || "Không thể tải danh sách Task Groups HW");
+    } finally {
+      setTaskLoading(false);
+    }
+  }, []);
+
+  // Tự động tải ngầm danh sách Task Groups HW 1 lần duy nhất khi khởi tạo
+  React.useEffect(() => {
+    if (!hasFetchedTasksRef.current) {
+      hasFetchedTasksRef.current = true;
+      fetchTasks(false);
+    }
+  }, [fetchTasks]);
+
+  // Xử lý mở/chọn 1 Job Task
+  const handleOpenJobTask = async (task) => {
+    if (!task) return;
+    const targetName = task.job_number || "Project";
+
+    // 1. Nếu Job đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor
+    if (task.has_local_job && task.local_job?.id) {
+      try {
+        setLoadingJobId(task.hw_id);
+        const res = await ApiService.getJobData(task.local_job.id);
+        if (res && res.status === "success" && res.data) {
+          const parsed = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+          if (onLoadJob) {
+            onLoadJob(parsed, task.local_job.project_name || targetName, task.local_job.id);
+          }
+          if (setActiveTab) setActiveTab("Home");
+        }
+      } catch (err) {
+        console.error("Error loading job:", err);
+      } finally {
+        setLoadingJobId(null);
+      }
+    } else {
+      // 2. Nếu chưa có bản vẽ, đặt tên dự án và chuyển sang tab Home/Editor để bắt đầu
+      if (setCurrentProjectName) setCurrentProjectName(targetName);
+      if (setCurrentJobId) setCurrentJobId(null);
+      if (setActiveTab) setActiveTab("Home");
+    }
+
+    // Lưu thông tin pendingEmsJob vào sessionStorage
+    sessionStorage.setItem("pendingEmsJob", JSON.stringify(task));
+  };
+
   const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
   const lastSingleWallIdRef = React.useRef(null);
 
@@ -816,8 +908,440 @@ export default function RightPropertyPaneView({
     return () => window.removeEventListener('open-takeoff-modal', handleOpenTakeoff);
   }, []);
 
+  // Danh sách các Task Groups HW sau khi lọc theo nhân viên, từ khóa và trạng thái
+  const filteredTasks = React.useMemo(() => {
+    let list = taskListJobs || [];
+    if (staffScope === "my" && myStaffCode) {
+      list = list.filter(t => t.ma_nv && t.ma_nv.toUpperCase() === myStaffCode.toUpperCase());
+    }
+    if (taskFilter === "completed") {
+      list = list.filter(t => t.has_local_job);
+    } else if (taskFilter === "pending") {
+      list = list.filter(t => !t.has_local_job);
+    }
+    if (taskSearch.trim()) {
+      const q = taskSearch.trim().toLowerCase();
+      list = list.filter(t =>
+        (t.job_number && t.job_number.toLowerCase().includes(q)) ||
+        (t.client && t.client.toLowerCase().includes(q)) ||
+        (t.builder && t.builder.toLowerCase().includes(q)) ||
+        (t.ma_nv && t.ma_nv.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [taskListJobs, staffScope, myStaffCode, taskFilter, taskSearch]);
+
   return (
-    <div className="cad-panel">
+    <div className="cad-panel" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {/* ── TOP MENU BAR: Properties / Job Task ── */}
+      <div style={{
+        display: "flex",
+        borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+        background: "rgba(15, 23, 42, 0.95)",
+        padding: "6px 8px",
+        gap: "6px",
+        position: "sticky",
+        top: 0,
+        zIndex: 30,
+        flexShrink: 0
+      }}>
+        <button
+          onClick={() => setActivePaneTab("properties")}
+          style={{
+            flex: 1,
+            padding: "7px 10px",
+            fontSize: "12px",
+            fontWeight: activePaneTab === "properties" ? 700 : 500,
+            color: activePaneTab === "properties" ? "#ffffff" : "#94a3b8",
+            background: activePaneTab === "properties" ? "linear-gradient(135deg, #2563eb, #1d4ed8)" : "rgba(255,255,255,0.03)",
+            border: activePaneTab === "properties" ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.06)",
+            borderRadius: "6px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M14 9h5"/><path d="M14 15h5"/></svg>
+          Properties
+        </button>
+        <button
+          onClick={() => setActivePaneTab("job_task")}
+          style={{
+            flex: 1,
+            padding: "7px 10px",
+            fontSize: "12px",
+            fontWeight: activePaneTab === "job_task" ? 700 : 500,
+            color: activePaneTab === "job_task" ? "#ffffff" : "#94a3b8",
+            background: activePaneTab === "job_task" ? "linear-gradient(135deg, #2563eb, #1d4ed8)" : "rgba(255,255,255,0.03)",
+            border: activePaneTab === "job_task" ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.06)",
+            borderRadius: "6px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Task Groups HW
+          {taskListJobs.filter(t => t.has_local_job).length > 0 && (
+            <span style={{
+              background: "#10b981",
+              color: "#fff",
+              fontSize: "10px",
+              padding: "1px 5px",
+              borderRadius: "10px",
+              fontWeight: 800
+            }}>
+              {taskListJobs.filter(t => t.has_local_job).length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activePaneTab === "job_task" ? (
+        /* ══════════════════════════════════════════════════════
+           TAB: TASK GROUPS HW (TaskList Web3 + Tích xanh hoàn thành)
+           ══════════════════════════════════════════════════════ */
+        <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "10px", overflowY: "auto", flex: 1 }}>
+          {/* Header & Refresh */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ color: "#38bdf8" }}>📋 Task Groups HW</span>
+              <span style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 500 }}>
+                ({Math.min(taskDisplayLimit, filteredTasks.length)}/{filteredTasks.length})
+              </span>
+            </div>
+            <button
+              onClick={() => fetchTasks(true)}
+              disabled={taskLoading}
+              title="Làm mới danh sách từ TaskList"
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                color: "#e2e8f0",
+                padding: "4px 8px",
+                borderRadius: "5px",
+                cursor: taskLoading ? "not-allowed" : "pointer",
+                fontSize: "11px",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              {taskLoading ? "Đang tải..." : "Refresh"}
+            </button>
+          </div>
+
+          {/* Search Box */}
+          <div style={{ position: "relative" }}>
+            <input
+              type="text"
+              placeholder="🔍 Tìm mã Job HW, khách hàng, staff..."
+              value={taskSearch}
+              onChange={(e) => {
+                setTaskSearch(e.target.value);
+                setTaskDisplayLimit(30);
+              }}
+              style={{
+                width: "100%",
+                padding: "7px 26px 7px 9px",
+                background: "rgba(15, 23, 42, 0.8)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: "6px",
+                color: "#fff",
+                fontSize: "12px",
+                outline: "none",
+                boxSizing: "border-box"
+              }}
+            />
+            {taskSearch && (
+              <button
+                onClick={() => setTaskSearch("")}
+                style={{
+                  position: "absolute",
+                  right: "6px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontSize: "13px"
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Scope Toggle: Task Của Tôi vs Tất Cả */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px" }}>
+            <button
+              onClick={() => { setStaffScope("my"); setTaskDisplayLimit(30); }}
+              style={{
+                padding: "6px 4px",
+                fontSize: "11px",
+                fontWeight: staffScope === "my" ? 700 : 500,
+                color: staffScope === "my" ? "#ffffff" : "#94a3b8",
+                background: staffScope === "my" ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "rgba(255,255,255,0.03)",
+                border: staffScope === "my" ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "6px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "4px"
+              }}
+            >
+              <span>👤 Của tôi ({myStaffCode})</span>
+            </button>
+            <button
+              onClick={() => { setStaffScope("all"); setTaskDisplayLimit(30); }}
+              style={{
+                padding: "6px 4px",
+                fontSize: "11px",
+                fontWeight: staffScope === "all" ? 700 : 500,
+                color: staffScope === "all" ? "#ffffff" : "#94a3b8",
+                background: staffScope === "all" ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "rgba(255,255,255,0.03)",
+                border: staffScope === "all" ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "6px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "4px"
+              }}
+            >
+              <span>🌐 Toàn bộ Task HW</span>
+            </button>
+          </div>
+
+          {/* Filter Pills */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px" }}>
+            <button
+              onClick={() => { setTaskFilter("all"); setTaskDisplayLimit(30); }}
+              style={{
+                padding: "5px 2px",
+                fontSize: "11px",
+                fontWeight: taskFilter === "all" ? 700 : 500,
+                color: taskFilter === "all" ? "#fff" : "#94a3b8",
+                background: taskFilter === "all" ? "rgba(59, 130, 246, 0.3)" : "rgba(255,255,255,0.03)",
+                border: taskFilter === "all" ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "5px",
+                cursor: "pointer"
+              }}
+            >
+              Tất cả ({filteredTasks.length})
+            </button>
+            <button
+              onClick={() => { setTaskFilter("completed"); setTaskDisplayLimit(30); }}
+              style={{
+                padding: "5px 2px",
+                fontSize: "11px",
+                fontWeight: taskFilter === "completed" ? 700 : 500,
+                color: taskFilter === "completed" ? "#10b981" : "#94a3b8",
+                background: taskFilter === "completed" ? "rgba(16, 185, 129, 0.2)" : "rgba(255,255,255,0.03)",
+                border: taskFilter === "completed" ? "1px solid #10b981" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "5px",
+                cursor: "pointer"
+              }}
+            >
+              ✅ Có sẵn ({filteredTasks.filter(t => t.has_local_job).length})
+            </button>
+            <button
+              onClick={() => { setTaskFilter("pending"); setTaskDisplayLimit(30); }}
+              style={{
+                padding: "5px 2px",
+                fontSize: "11px",
+                fontWeight: taskFilter === "pending" ? 700 : 500,
+                color: taskFilter === "pending" ? "#f59e0b" : "#94a3b8",
+                background: taskFilter === "pending" ? "rgba(245, 158, 11, 0.2)" : "rgba(255,255,255,0.03)",
+                border: taskFilter === "pending" ? "1px solid #f59e0b" : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "5px",
+                cursor: "pointer"
+              }}
+            >
+              ⏳ Chưa có ({filteredTasks.filter(t => !t.has_local_job).length})
+            </button>
+          </div>
+
+          {/* Job Task List */}
+          {taskLoading ? (
+            <div style={{ textAlign: "center", padding: "40px 10px", color: "#94a3b8", fontSize: "13px" }}>
+              <div style={{ marginBottom: "8px" }}>⏳ Đang nạp danh sách Task Groups HW...</div>
+            </div>
+          ) : taskError ? (
+            <div style={{ padding: "12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "6px", color: "#f87171", fontSize: "12px" }}>
+              ⚠️ {taskError}
+              <button onClick={() => fetchTasks(true)} style={{ marginTop: "6px", display: "block", color: "#38bdf8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Thử lại</button>
+            </div>
+          ) : filteredTasks.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 10px", color: "#64748b", fontSize: "13px" }}>
+              Không tìm thấy Job Task nào phù hợp.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {filteredTasks.slice(0, taskDisplayLimit).map((task) => {
+                const isActiveJob = currentProjectName && task.job_number && currentProjectName.toLowerCase().trim() === task.job_number.toLowerCase().trim();
+                const isLoadingThis = loadingJobId === task.hw_id;
+
+                return (
+                  <div
+                    key={task.hw_id || task.id_job_ems || Math.random()}
+                    style={{
+                      background: isActiveJob ? "rgba(59, 130, 246, 0.15)" : "rgba(30, 41, 59, 0.6)",
+                      border: isActiveJob ? "1.5px solid #3b82f6" : (task.has_local_job ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(255,255,255,0.08)"),
+                      borderRadius: "8px",
+                      padding: "10px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      transition: "all 0.15s ease"
+                    }}
+                  >
+                    {/* Header Row: Job Number & Checkmark Status */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
+                      <div style={{ fontWeight: 800, fontSize: "13px", color: isActiveJob ? "#60a5fa" : "#ffffff", display: "flex", alignItems: "center", gap: "6px" }}>
+                        {task.job_number || "No Job Number"}
+                        {isActiveJob && (
+                          <span style={{ fontSize: "9px", background: "#3b82f6", color: "#fff", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
+                            ĐANG MỞ
+                          </span>
+                        )}
+                      </div>
+
+                      {/* ✅ TÍCH XANH NẾU ĐÃ CÓ TRONG LOCAL DB */}
+                      {task.has_local_job ? (
+                        <div
+                          title="Task HW đã có bản vẽ bóc tách trong EzeFloor"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            background: "rgba(16, 185, 129, 0.18)",
+                            color: "#10b981",
+                            border: "1px solid rgba(16, 185, 129, 0.4)",
+                            borderRadius: "4px",
+                            padding: "2px 6px",
+                            fontSize: "11px",
+                            fontWeight: 700
+                          }}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                          <span>Đã có</span>
+                        </div>
+                      ) : (
+                        <div
+                          title="Task HW chưa có bản vẽ bóc tách trong EzeFloor"
+                          style={{
+                            background: "rgba(148, 163, 184, 0.1)",
+                            color: "#64748b",
+                            border: "1px solid rgba(148, 163, 184, 0.2)",
+                            borderRadius: "4px",
+                            padding: "2px 6px",
+                            fontSize: "10px",
+                            fontWeight: 500
+                          }}
+                        >
+                          Chưa có
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Metadata */}
+                    <div style={{ fontSize: "11px", color: "#94a3b8", display: "flex", flexDirection: "column", gap: "2px" }}>
+                      {task.client && (
+                        <div><strong style={{ color: "#cbd5e1" }}>Client:</strong> {task.client}</div>
+                      )}
+                      {task.builder && (
+                        <div><strong style={{ color: "#cbd5e1" }}>Builder:</strong> {task.builder}</div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "2px", color: "#64748b", fontSize: "10px" }}>
+                        {task.ma_nv && <span>Staff: <strong style={{ color: "#94a3b8" }}>{task.ma_nv}</strong></span>}
+                        {task.local_job?.room_count !== undefined && (
+                          <span style={{ color: "#10b981", fontWeight: 600 }}>{task.local_job.room_count} phòng ({(task.local_job.total_area || 0).toFixed(1)} m²)</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Action Button */}
+                    <button
+                      onClick={() => handleOpenJobTask(task)}
+                      disabled={isLoadingThis}
+                      style={{
+                        marginTop: "4px",
+                        padding: "6px 10px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        borderRadius: "5px",
+                        border: "none",
+                        cursor: isLoadingThis ? "not-allowed" : "pointer",
+                        background: task.has_local_job
+                          ? "linear-gradient(135deg, #059669, #10b981)"
+                          : "linear-gradient(135deg, #2563eb, #3b82f6)",
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease"
+                      }}
+                    >
+                      {isLoadingThis ? (
+                        "⏳ Đang nạp..."
+                      ) : task.has_local_job ? (
+                        <>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                          Mở bản vẽ
+                        </>
+                      ) : (
+                        <>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          Bắt đầu bóc tách
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+
+              {/* Load More Button */}
+              {filteredTasks.length > taskDisplayLimit && (
+                <button
+                  onClick={() => setTaskDisplayLimit(prev => prev + 30)}
+                  style={{
+                    padding: "8px 12px",
+                    background: "rgba(59, 130, 246, 0.15)",
+                    border: "1px dashed rgba(59, 130, 246, 0.4)",
+                    borderRadius: "6px",
+                    color: "#60a5fa",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    marginTop: "4px"
+                  }}
+                >
+                  ⬇️ Xem thêm (+30 Task HW nữa)...
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ══════════════════════════════════════════════════════
+           TAB: PROPERTIES (Thuộc tính đối tượng hiện tại)
+           ══════════════════════════════════════════════════════ */
+        <div style={{ overflowY: "auto", flex: 1, paddingBottom: "20px" }}>
       {/* ── PROPERTIES ── */}
       <div className="panel-section">
         <div className="panel-title">Properties</div>
@@ -2945,6 +3469,8 @@ export default function RightPropertyPaneView({
           <div className="panel-hint" style={{ padding: "8px 0" }}>No windows drawn yet. Click 'Window' in the top Ribbon to draw.</div>
         )}
       </CollapsibleSection>
+        </div>
+      )}
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
       {showTakeoffModal && (

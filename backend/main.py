@@ -1,4 +1,4 @@
-﻿"""
+"""
 main.py – Điểm khởi đầu của hệ thống EzeFloor Backend
 ======================================================
 Khởi tạo ứng dụng FastAPI, cấu hình chính sách CORS, đăng ký các router nghiệp vụ
@@ -96,9 +96,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"Lỗi xảy ra khi dọn dẹp phiên đăng nhập khởi động: {e}")
     finally:
         conn.close()
-    # ── Pre-warm AI models in a background thread to avoid cold-start timeouts ──
+    # ── Pre-warm AI models & Background Task Sync in background thread ──
     import threading
-    def _prewarm_models():
+    def _background_startup_tasks():
         try:
             logger.info("Pre-warming EasyOCR reader...")
             from services.ocr import _init_easyocr
@@ -113,8 +113,13 @@ async def lifespan(app: FastAPI):
             logger.info("Door YOLO model pre-warmed successfully.")
         except Exception as e:
             logger.warning(f"Door model pre-warm failed (non-fatal): {e}")
+        try:
+            from api.jobs import sync_task_groups_hw_to_local_db
+            sync_task_groups_hw_to_local_db(400)
+        except Exception as e:
+            logger.warning(f"Background task sync failed (non-fatal): {e}")
 
-    threading.Thread(target=_prewarm_models, daemon=True).start()
+    threading.Thread(target=_background_startup_tasks, daemon=True).start()
     yield
     logger.info("EzeFloor Backend đang dừng hoạt động...")
 

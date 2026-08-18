@@ -586,14 +586,20 @@ async def tasklist_sso(payload: dict, response: Response):
 
     # Trích xuất thông tin user từ Tasklist
     manv = str(user_data.get("ma_nv") or user_data.get("MaNV") or user_data.get("manv") or "").strip()
-    username_fallback = str(user_data.get("UserID") or user_data.get("username") or user_data.get("name") or manv or "sso_user").strip()
+    direct_username = str(user_data.get("UserID") or user_data.get("username") or user_data.get("name") or "").strip()
+    
+    # Chỉ truy vấn MSSQL nếu Tasklist không trả về Username trực tiếp
+    mssql_user = None
+    if not direct_username and manv:
+        mssql_user = get_mssql_account_user(manv)
 
-    mssql_user = get_mssql_account_user(manv) if manv else None
-    if mssql_user:
-        username = str(mssql_user.get("UserID") or username_fallback).strip()
+    if direct_username:
+        username = direct_username
+    elif mssql_user:
+        username = str(mssql_user.get("UserID") or manv or "sso_user").strip()
         manv = str(mssql_user.get("MaNV") or manv).strip()
     else:
-        username = username_fallback
+        username = manv or "sso_user"
 
     raw_role = user_data.get("RoleName") or user_data.get("role") or (mssql_user.get("RoleName") if mssql_user else "User")
     is_mgmt = user_data.get("IsManagement") == 1 or (mssql_user and mssql_user.get("IsManagement") == 1)
