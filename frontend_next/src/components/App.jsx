@@ -197,6 +197,8 @@ export default function App() {
   // === LOCAL UI STATE (View-specific) ===
   const [image, setImage] = useState(null);
   const [showPDF, setShowPDF] = useState(true);
+  const [ssoLoading, setSsoLoading] = useState(false);
+  const [ssoStatusText, setSsoStatusText] = useState("Đang đồng bộ đăng nhập SSO & Tải dự án...");
 
   // === SEARCH STATE (Smart Search & Auto Count) ===
   const [searchResults, setSearchResults] = useState([]);
@@ -312,32 +314,6 @@ export default function App() {
     setRealScale(scalesByPage[currentPage] || null);
   }, [currentPage, scalesByPage, setRealScale]);
 
-  useEffect(() => {
-    const path = window.location.pathname;
-    if (path.includes("/share/")) {
-      const token = path.split("/share/")[1];
-      if (token) {
-        loadSharedProject(token);
-      }
-    }
-  }, []);
-
-  const loadSharedProject = async (token) => {
-    try {
-      const res = await ApiService.getSharedJob(token);
-      if (res.status === 'success') {
-        const parsedData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-        handleLoadJob(parsedData, res.project_name);
-        setIsLoggedIn(true);
-        setUser({ username: "Guest Viewer", role: "viewer" });
-        setActiveTab("Editor");
-      }
-    } catch (err) {
-      console.error("Shared load error:", err);
-      alert("Link chia sẻ không hợp lệ hoặc đã hết hạn.");
-      window.location.href = "/";
-    }
-  };
   // Tự động reset selectedId/selectedType khi layer tương ứng bị tắt
   useEffect(() => {
     if (!layerVisibility.wall) {
@@ -461,6 +437,175 @@ export default function App() {
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage
   );
+
+  const loadSharedProject = async (token) => {
+    try {
+      const res = await ApiService.getSharedJob(token);
+      if (res.status === "success") {
+        const parsedData = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+        handleLoadJob(parsedData, res.project_name);
+        setIsLoggedIn(true);
+        setUser({ username: "Guest Viewer", role: "viewer" });
+        setActiveTab("Home");
+      }
+    } catch (err) {
+      console.error("Shared load error:", err);
+      alert("Link chia sẻ không hợp lệ hoặc đã hết hạn.");
+      window.location.href = "/";
+    }
+  };
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path.includes("/share/")) {
+      const token = path.split("/share/")[1];
+      if (token) {
+        loadSharedProject(token);
+      }
+    }
+  }, []);
+
+  // ── TASK_LIST_WEB3_SSO & Job Deep-Linking Listener ──
+  useEffect(() => {
+    let isMounted = true;
+    let ssoProcessing = false;
+
+    // Helper: Nạp trực tiếp dữ liệu dự án vào Canvas
+    const loadTargetJob = async (jobIdentifier) => {
+      if (!jobIdentifier) return;
+      try {
+        setSsoLoading(true);
+        setSsoStatusText(`Đang mở dự án [${jobIdentifier}]...`);
+        console.log(`[SSO/DeepLink] Đang tìm kiếm và nạp dự án: ${jobIdentifier}`);
+
+        const res = await ApiService.findJob(jobIdentifier);
+        if (!isMounted) return;
+
+        if (res && res.status === "success" && res.found && res.data) {
+          const parsedData = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+          handleLoadJob(parsedData, res.project_name, res.job_id);
+          console.log(`[SSO/DeepLink] Đã nạp thành công dự án [${res.project_name}] (ID: ${res.job_id})`);
+        } else {
+          // Dự án chưa có dữ liệu vẽ trước đó -> Chuẩn bị dự án mới với tên này
+          console.log(`[SSO/DeepLink] Dự án [${jobIdentifier}] chưa có bản vẽ cũ. Sẵn sàng tạo mới.`);
+          setCurrentProjectName(jobIdentifier);
+          setCurrentJobId(null);
+          setActiveTab("Home");
+        }
+      } catch (err) {
+        console.error(`[SSO/DeepLink] Lỗi khi nạp dự án [${jobIdentifier}]:`, err);
+        setCurrentProjectName(jobIdentifier);
+        setActiveTab("Home");
+      } finally {
+        if (isMounted) {
+          setSsoLoading(false);
+        }
+      }
+    };
+
+    // Helper: Thực hiện xác thực SSO và điều hướng Job
+    const performSSO = async (token, targetJob) => {
+      if (ssoProcessing) return;
+      ssoProcessing = true;
+      setSsoLoading(true);
+      setSsoStatusText("Đang đồng bộ xác thực SSO...");
+
+      try {
+        console.log("[SSO] Bắt đầu xác thực token SSO...");
+        const response = await ApiService.tasklistSSO(token);
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn("[SSO] TaskList SSO failed:", response.status, errText);
+          ssoProcessing = false;
+          if (isMounted) setSsoLoading(false);
+          return;
+        }
+
+        const data = await response.json();
+        if (data.status === "success" && isMounted) {
+          const userData = {
+            username: data.username,
+            role: data.role,
+            session_token: data.session_token
+          };
+          setIsLoggedIn(true);
+          setUser(userData);
+          localStorage.setItem("isLoggedIn", "true");
+          localStorage.setItem("user", JSON.stringify(userData));
+          console.log(`[SSO] Đăng nhập SSO thành công với user: ${data.username}`);
+
+          if (targetJob) {
+            await loadTargetJob(targetJob);
+          } else {
+            setActiveTab("Home");
+            setSsoLoading(false);
+          }
+        }
+      } catch (err) {
+        console.error("[SSO] Lỗi trong quá trình xác thực SSO:", err);
+        ssoProcessing = false;
+        if (isMounted) setSsoLoading(false);
+      }
+    };
+
+    // 1. Kiểm tra ngay URL search params khi khởi động ứng dụng
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get("token") || params.get("sso_token") || params.get("auth_token");
+      const urlJob = params.get("job") || params.get("job_number") || params.get("id_job_ems") || params.get("job_id") || params.get("project_name");
+
+      if (urlToken) {
+        performSSO(urlToken, urlJob);
+      } else if (urlJob && isLoggedIn) {
+        loadTargetJob(urlJob);
+      }
+
+      // Gửi handshake READY tới parent TaskList (iframe hoặc window.opener)
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
+          // Lặp lại nhẹ sau 300ms để đảm bảo parent nhận được nếu mount hơi muộn
+          setTimeout(() => {
+            try {
+              window.parent.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
+            } catch (_) {}
+          }, 300);
+        } catch (e) {
+          console.warn("[SSO] Could not postMessage to parent:", e);
+        }
+      }
+    }
+
+    // 2. Lắng nghe thông điệp postMessage từ TaskList Web3
+    const receiveSSO = async (event) => {
+      const allowedOrigins = [
+        "https://103.77.167.69:8081",
+        "http://14.241.197.188:7749",
+        "http://14.241.197.188"
+      ];
+      if (allowedOrigins.length > 0 && !allowedOrigins.includes(event.origin)) return;
+
+      const eventData = event.data || {};
+      const targetJob = eventData.job_number || eventData.id_job_ems || eventData.job || eventData.job_id || eventData.project_name || new URLSearchParams(window.location.search).get("job");
+      const token = eventData.token || eventData.data?.token;
+
+      if (token) {
+        await performSSO(token, targetJob);
+      } else if (targetJob) {
+        if (isLoggedIn) {
+          await loadTargetJob(targetJob);
+        } else {
+          setCurrentProjectName(targetJob);
+        }
+      }
+    };
+
+    window.addEventListener("message", receiveSSO);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("message", receiveSSO);
+    };
+  }, [handleLoadJob, isLoggedIn, setIsLoggedIn, setUser, setCurrentProjectName, setCurrentJobId, setActiveTab]);
 
   // Pass down context for global access
   const contextValue = {
@@ -815,6 +960,8 @@ export default function App() {
         setShowPassword={setShowPassword}
         isLocked={isLocked}
         handleLogin={handleLogin}
+        ssoLoading={ssoLoading}
+        ssoStatusText={ssoStatusText}
       />
     );
   }

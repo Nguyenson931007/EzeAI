@@ -27,7 +27,6 @@ MODEL_CANDIDATES = {
 
     "wall_seg": [
         BASE_DIR / "backend" / "models" / "Walls" / "best.pt",
-
     ],
     "text": [
         BASE_DIR / "backend" / "models" / "Text" / "weights" / "best.pt",

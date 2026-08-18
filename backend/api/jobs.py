@@ -326,6 +326,70 @@ def get_job_data(job_id: int, username: str = Depends(validate_session)):
         conn.close()
 
 
+@router.get("/jobs/find")
+@router.get("/api/jobs/find")
+def find_job(query: str):
+    """
+    Tìm kiếm và nạp dữ liệu dự án theo:
+    - ID số nguyên (ví dụ: 123)
+    - Hoặc Tên dự án / Mã Job Number (ví dụ: 'JOB-2024-001', 'P-101', ...)
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="Query is required")
+    
+    clean_query = query.strip()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        row = None
+        # 1. Thử tìm theo ID số nguyên
+        if clean_query.isdigit():
+            cursor.execute(
+                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE id = ?",
+                (int(clean_query),)
+            )
+            row = cursor.fetchone()
+
+        # 2. Nếu không thấy, tìm chính xác theo project_name (không phân biệt hoa thường)
+        if not row:
+            cursor.execute(
+                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(project_name) = LOWER(?) ORDER BY created_at DESC LIMIT 1",
+                (clean_query,)
+            )
+            row = cursor.fetchone()
+
+        # 3. Nếu vẫn không thấy, thử tìm LIKE '%query%'
+        if not row:
+            cursor.execute(
+                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(project_name) LIKE LOWER(?) ORDER BY created_at DESC LIMIT 1",
+                (f"%{clean_query}%",)
+            )
+            row = cursor.fetchone()
+
+        if row:
+            return {
+                "status": "success",
+                "found": True,
+                "job_id": row["id"],
+                "project_name": row["project_name"],
+                "room_count": row.get("room_count", 0),
+                "total_area": row.get("total_area", 0.0),
+                "data": row["data"]
+            }
+        else:
+            return {
+                "status": "success",
+                "found": False,
+                "job_id": None,
+                "project_name": clean_query,
+                "data": None
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 class RenameJobRequest(BaseModel):
     """Mô hình dữ liệu để đổi tên dự án."""
     new_name: str

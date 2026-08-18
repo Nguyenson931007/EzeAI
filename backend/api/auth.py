@@ -441,14 +441,15 @@ def logout(user: UserLogout):
 
 
 @router.get("/validate-session")
+@router.get("/api/auth/validate-session")
 def validate_session_endpoint(
-    auth_username: str = Header(..., alias="X-Username"),
+    auth_username: Optional[str] = Header(None, alias="X-Username"),
     session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
     session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
 ):
     """
-    Kiểm tra tính hợp lệ của phiên đăng nhập hiện tại (lightweight, không cập nhật last_active).
-    Frontend gọi endpoint này khi app load để xác minh session còn hiệu lực hay không.
+    Kiểm tra tính hợp lệ của phiên đăng nhập hiện tại (lightweight, trả về 200 OK nếu hợp lệ).
+    Hỗ trợ xác thực qua Cookie session_token hoặc Header X-Session-Token và Header X-Username.
     """
     session_token = session_token_cookie or session_token_header
 
@@ -461,7 +462,11 @@ def validate_session_endpoint(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        if auth_username:
+            cursor.execute("SELECT username, role, session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        else:
+            cursor.execute("SELECT username, role, session_token, last_active FROM users WHERE session_token = ?", (session_token,))
+        
         row = cursor.fetchone()
 
         if not row or row["session_token"] != session_token:
@@ -471,16 +476,25 @@ def validate_session_endpoint(
             )
 
         # Check 5-hour inactivity timeout
-        last_active = datetime.fromisoformat(row["last_active"])
-        if datetime.now() - last_active > timedelta(hours=5):
-            cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (auth_username,))
-            conn.commit()
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Phiên đăng nhập đã hết hạn."
-            )
+        if row.get("last_active"):
+            try:
+                last_active = datetime.fromisoformat(row["last_active"])
+                if datetime.now() - last_active > timedelta(hours=5):
+                    cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (row["username"],))
+                    conn.commit()
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Phiên đăng nhập đã hết hạn."
+                    )
+            except Exception:
+                pass
 
-        return {"status": "valid", "username": auth_username}
+        return {
+            "status": "valid",
+            "username": row["username"],
+            "role": row.get("role", "user"),
+            "session_token": session_token
+        }
     finally:
         conn.close()
 
@@ -552,3 +566,130 @@ def validate_session(
         return auth_username
     finally:
         conn.close()
+
+
+import httpx
+import time
+
+_sso_client = None
+_sso_token_cache = {}  # token -> {"user_data": ..., "expires_at": ...}
+
+def _get_sso_client():
+    global _sso_client
+    if _sso_client is None or _sso_client.is_closed:
+        _sso_client = httpx.AsyncClient(
+            verify=False,
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60)
+        )
+    return _sso_client
+
+
+@router.post("/api/auth/tasklist-sso")
+@router.post("/tasklist-sso")
+async def tasklist_sso(payload: dict, response: Response):
+    """
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
+    Gửi token xác thực tới máy chủ TaskList (https://103.77.167.69:8081/api/auth/me),
+    đồng bộ tài khoản và tạo phiên làm việc (session) cho Web AI EzeFloor.
+    Tối ưu hóa: Sử dụng connection pool và cache in-memory để đăng nhập tức thì (<1ms đối với token hợp lệ).
+    """
+    token = payload.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Tasklist token is required")
+
+    user_data = None
+    now = time.time()
+
+    # Kiểm tra cache bộ nhớ đệm
+    cached = _sso_token_cache.get(token)
+    if cached and cached.get("expires_at", 0) > now:
+        user_data = cached.get("user_data")
+
+    if not user_data:
+        client = _get_sso_client()
+        try:
+            result = await client.get(
+                "https://103.77.167.69:8081/api/auth/me",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+        except Exception as e:
+            logger.error(f"[SSO] Lỗi kết nối tới Tasklist API: {e}")
+            raise HTTPException(status_code=502, detail=f"Không thể kết nối máy chủ xác thực Tasklist: {e}")
+
+        if result.status_code != 200:
+            logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code})")
+            raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
+
+        res_json = result.json()
+        user_data = res_json.get("data") or res_json
+        
+        # Lưu cache trong 10 phút (600 giây)
+        _sso_token_cache[token] = {
+            "user_data": user_data,
+            "expires_at": now + 600
+        }
+
+    # Trích xuất thông tin user từ Tasklist
+    username = user_data.get("UserID") or user_data.get("username") or user_data.get("MaNV") or user_data.get("name") or "sso_user"
+    manv = user_data.get("MaNV") or ""
+    raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
+    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or user_data.get("IsManagement") == 1) else str(raw_role).lower()
+
+    new_token = str(uuid.uuid4())
+
+    # Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
+    local_conn = get_db_connection()
+    local_cursor = local_conn.cursor()
+    try:
+        local_cursor.execute(
+            "SELECT id, is_active, status, is_locked FROM users WHERE username = ?",
+            (username,)
+        )
+        local_row = local_cursor.fetchone()
+
+        if local_row:
+            if local_row["is_locked"] == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Tài khoản đã bị khóa. Vui lòng liên hệ Admin để mở khóa."
+                )
+            if local_row["is_active"] == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tài khoản của bạn đã bị tạm dừng hoạt động."
+                )
+
+            local_cursor.execute(
+                "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
+                (role, new_token, datetime.now().isoformat(), username)
+            )
+        else:
+            dummy_email = user_data.get("email") or f"{username.lower()}@ezefloor.ai"
+            local_cursor.execute(
+                "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
+                (username, dummy_email, "sso_managed", role, new_token, datetime.now().isoformat())
+            )
+        local_conn.commit()
+    finally:
+        local_conn.close()
+
+    # Thiết lập HTTP-Only Cookie
+    response.set_cookie(
+        key="session_token",
+        value=new_token,
+        httponly=True,
+        max_age=18000,
+        samesite="lax",
+        secure=False
+    )
+
+    return {
+        "status": "success",
+        "username": username,
+        "manv": manv,
+        "role": role,
+        "session_token": new_token,
+        "data": user_data
+    }
+

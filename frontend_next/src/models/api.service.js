@@ -87,6 +87,16 @@ export const ApiService = {
     return res;
   },
 
+  async tasklistSSO(token) {
+    const res = await fetch(`${BASE_URL}/api/auth/tasklist-sso`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ token }),
+    });
+    return res;
+  },
+
   // --- User Management (Admin) ---
   async getUsers() {
     const res = await fetch(`${BASE_URL}/users`, {
@@ -170,6 +180,14 @@ export const ApiService = {
 
   async getJobData(jobId) {
     const res = await fetch(`${BASE_URL}/jobs/data/${jobId}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async findJob(query) {
+    const res = await fetch(`${BASE_URL}/jobs/find?query=${encodeURIComponent(query)}`, {
       headers: getHeaders(),
       credentials: "include"
     });

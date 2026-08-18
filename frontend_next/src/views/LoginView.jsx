@@ -5,7 +5,9 @@ export default function LoginView({
   isSignup, setIsSignup,
   showPassword, setShowPassword,
   isLocked,
-  handleLogin
+  handleLogin,
+  ssoLoading = false,
+  ssoStatusText = "Đang đồng bộ đăng nhập SSO & Tải dự án..."
 }) {
   return (
     <div className="login-root">
@@ -71,6 +73,17 @@ export default function LoginView({
           </p>
         </div>
 
+        {ssoLoading ? (
+          <div style={{ padding: "30px 20px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px", textAlign: "center" }}>
+            <div className="spinner" style={{ width: "38px", height: "38px", borderWidth: "3px", borderColor: "#38bdf8", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}></div>
+            <div style={{ color: "#38bdf8", fontSize: "14px", fontWeight: "600", letterSpacing: "0.5px" }}>
+              {ssoStatusText}
+            </div>
+            <div style={{ color: "#94a3b8", fontSize: "12px" }}>
+              Vui lòng chờ trong giây lát...
+            </div>
+          </div>
+        ) : (
         <form className="login-form" onSubmit={handleLogin}>
           {isLocked && (
             <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.25)', padding: '14px 18px', borderRadius: '14px', marginBottom: '8px', color: '#fca5a5', fontSize: '13.5px', display: 'flex', gap: '10px', alignItems: 'center', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.1)' }}>
@@ -172,6 +185,7 @@ export default function LoginView({
             {isSignup ? "Initialize Account" : "Access Workspace"}
           </button>
         </form>
+        )}
 
         <div className="login-footer">
           <span>{isSignup ? "Already have an account?" : "Need an enterprise account?"}</span>

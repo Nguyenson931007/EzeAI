@@ -4,7 +4,7 @@ const DEFAULT_CONFIDENCE = {
   rooms: 0.01,
   doors: 0.2,
   windows: 0.01,
-  walls: 0.005,
+  walls: 0.01,
   ocr: 0.65,
   symbols: 0.60
 };
