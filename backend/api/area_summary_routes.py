@@ -91,8 +91,7 @@ async def get_area_summary_jobs(office: Optional[str] = Query(None, description=
             WHERE
                 ISNULL(tghw.is_delete, 0) = 0
                 AND aj.MaNV = 'EZE0098'
-                AND aj.TrangThaiCongViec <> N'Cancel'
-                AND ISNULL(aj.IsComp, 0) = 0
+            
 
             ORDER BY tghw.id DESC, ars.ID DESC;
         """

@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/insulation")
 class InsulationItemSchema(BaseModel):
     wall_type: Optional[str] = Field("Ext wall", description="Loại tường: Ext wall, Int Wall, Partial wall...")
     wall_height: Optional[Union[float, int]] = Field(2400.0, description="Chiều cao tường (mm)")
-    wall_length: Optional[Union[float, int]] = Field(0.0, description="Chiều dài tường (m)")
+    wall_length: Optional[Union[float, int]] = Field(0.0, description="Chiều dài tường (mm)")
     total_area_raked: Optional[Union[float, int]] = Field(0.0, description="Tổng diện tích tường vát (m²)")
     total_area_door: Optional[Union[float, int]] = Field(0.0, description="Tổng diện tích cửa (m²)")
 
@@ -54,6 +54,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
     """
     Truy vấn danh sách Insulation jobs từ MSSQL [emsflow].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(ins.IsOldData, 0) = 0.
+    Trả về wall_length theo đơn vị mm.
     """
     conn = None
     try:
@@ -96,8 +97,6 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
             WHERE
                 ISNULL(tghw.is_delete, 0) = 0
                 AND aj.MaNV = 'EZE0098'
-                AND aj.TrangThaiCongViec <> N'Cancel'
-                AND ISNULL(aj.IsComp, 0) = 0
 
             ORDER BY tghw.id DESC, ins.id DESC;
         """
@@ -107,6 +106,10 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 
         formatted_rows = []
         for r in rows:
+            raw_len = float(r["wall_length"]) if r.get("wall_length") is not None else 0.0
+            # Tự động chuyển đổi nếu bản ghi cũ lưu theo mét (< 1000m) sang mm
+            wall_len_mm = raw_len * 1000.0 if 0 < raw_len < 1000.0 else raw_len
+
             formatted_rows.append({
                 "insulation_id": r.get("insulation_id"),
                 "IdJob_HW": r.get("IdJob_HW"),
@@ -114,7 +117,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
                 "job_number": r.get("job_number"),
                 "wall_type": r.get("wall_type"),
                 "wall_height": float(r["wall_height"]) if r.get("wall_height") is not None else 0.0,
-                "wall_length": float(r["wall_length"]) if r.get("wall_length") is not None else 0.0,
+                "wall_length": round(wall_len_mm, 4),
                 "total_area_raked": float(r["total_area_raked"]) if r.get("total_area_raked") is not None else 0.0,
                 "total_area_door": float(r["total_area_door"]) if r.get("total_area_door") is not None else 0.0,
                 "user_update": r.get("user_update"),
@@ -145,6 +148,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
     """
     Lưu danh sách bóc tách Insulation của nhiều Jobs vào MSSQL CSDL [emsflow].[dbo].[Insulation].
+    Lưu WallLength dưới dạng mm.
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
     conn = None
@@ -259,7 +263,8 @@ class DoorOnWallSchema(BaseModel):
 class WallForCalcSchema(BaseModel):
     id: Optional[str] = Field(None, description="Wall ID (tùy chọn)")
     class_name: Optional[str] = Field("exterior_wall", description="Loại tường: exterior_wall, interior_wall, partition_wall")
-    length_m: float = Field(0.0, description="Chiều dài tường (m)")
+    length_m: Optional[float] = Field(0.0, description="Chiều dài tường (m)")
+    length_mm: Optional[float] = Field(None, description="Chiều dài tường (mm)")
     height_mm: float = Field(2400.0, description="Chiều cao tường (mm)")
     page_name: Optional[str] = Field("Tầng 1", description="Tên trang / tầng (e.g. Tầng 1, Tầng 2)")
     doors: List[DoorOnWallSchema] = Field(default_factory=list, description="Danh sách cửa trên tường này")
@@ -284,14 +289,15 @@ def _map_class_to_wall_type(class_name: str) -> str:
 async def calculate_insulation(payload: CalculateInsulationPayload):
     """
     Tính toán diện tích Insulation cho từng tường, sau đó gộp theo (WallType, WallHeight).
+    WallLength được trả về dưới dạng mm.
 
     Công thức (tính 1 MẶT duy nhất):
-      - S_wall  = (wall_height_mm / 1000) × wall_length_m   [m²]
+      - S_wall  = (wall_height_mm / 1000) × (wall_length_mm / 1000)   [m²]
       - S_door  = Σ (door_width_mm / 1000) × (door_height_mm / 1000) cho tất cả cửa trên tường đó  [m²]
-      - total_area_raked = max(0, S_wall - S_door)           [m²]  (diện tích tường sau khi trừ cửa)
+      - total_area_raked = 0.0 (mặc định)
       - total_area_door  = S_door                            [m²]
 
-    Kết quả được gộp theo cặp (wall_type, wall_height) → cộng dồn wall_length, total_area_raked, total_area_door.
+    Kết quả được gộp theo cặp (wall_type, wall_height) → cộng dồn wall_length (mm), total_area_raked, total_area_door.
     Mỗi hàng bao gồm danh sách chi tiết chi tiết chia theo từng tầng (page_breakdown).
     """
     try:
@@ -310,7 +316,14 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
         for w in payload.walls:
             wall_type = _map_class_to_wall_type(w.class_name)
             height_mm = w.height_mm or 2400.0
-            length_m = w.length_m or 0.0
+
+            if w.length_mm is not None and w.length_mm > 0:
+                length_mm = w.length_mm
+                length_m = length_mm / 1000.0
+            else:
+                length_m = w.length_m or 0.0
+                length_mm = length_m * 1000.0
+
             page_name = w.page_name or "Tầng 1"
 
             # S_wall = 1 mặt: (height mm → m) × length m
@@ -327,13 +340,13 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
             total_area_raked = 0.0
 
             key = (wall_type, height_mm)
-            groups[key]["wall_length"] += length_m
+            groups[key]["wall_length"] += length_mm
             groups[key]["total_area_raked"] += total_area_raked
             groups[key]["total_area_door"] += s_door
 
             # Track page/floor breakdown
             pg = groups[key]["page_groups"][page_name]
-            pg["wall_length"] += length_m
+            pg["wall_length"] += length_mm
             pg["total_area_raked"] += total_area_raked
             pg["total_area_door"] += s_door
 

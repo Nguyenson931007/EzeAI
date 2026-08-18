@@ -47,6 +47,7 @@ logs/
 *.pth.cache
 backend.zip
 .archive_cleanup/
+frontend/venv/
 
 # Temp files
 cookies.txt

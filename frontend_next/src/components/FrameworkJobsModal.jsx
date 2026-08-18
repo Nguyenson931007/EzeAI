@@ -5,9 +5,10 @@ import { useAppModel } from "@/models/app.context";
 /**
  * FrameworkJobsModal – Modal bóc tách khối lượng tường & phân loại sàn theo FrameWork Jobs (MSSQL emsflow)
  */
-export default function FrameworkJobsModal({ visible, onClose, walls = [], scaleValue, realScale }) {
+export default function FrameworkJobsModal({ visible, onClose, walls = [], scaleValue, realScale, activeJobNumber }) {
   // Lấy thông tin tài khoản đang đăng nhập và dữ liệu các trang từ AppContext (backend/api/auth.py)
   const { user, pages = [], wallsByPage = {}, scalesByPage = {} } = useAppModel();
+  const isAdmin = user?.role === "admin";
   const currentUserUpdate = user?.username || user?.name || "Katherine";
 
   // ══════════════════════════════════════════════════════
@@ -61,9 +62,38 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   useEffect(() => {
     if (visible) {
       loadJobsList();
-      setCurrentStep(1); // Mặc định về Bước 1 (Danh sách Jobs) khi mở modal
     }
   }, [visible]);
+
+  // Tự động chuyển thẳng sang Step 2 nếu đang mở một Saved Job cụ thể
+  useEffect(() => {
+    if (visible && activeJobNumber) {
+      const targetStr = String(activeJobNumber).trim().toLowerCase();
+      const matchedJob = jobsData.find(j => {
+        const jn = String(j.job_number || "").toLowerCase();
+        const hwId = String(j.hw_id || j.IDJob_HW || "").toLowerCase();
+        return jn === targetStr || jn.includes(targetStr) || hwId === targetStr;
+      });
+
+      if (matchedJob && matchedJob.job_number) {
+        setSelectedJobNumber(matchedJob.job_number);
+        setCurrentStep(2);
+      } else {
+        setSelectedJobNumber(activeJobNumber);
+        setCurrentStep(2);
+      }
+    } else if (visible && !activeJobNumber) {
+      setSelectedJobNumber("ALL");
+      setCurrentStep(1);
+    }
+  }, [visible, jobsData, activeJobNumber]);
+
+  // Tự động tính toán & điền bảng ngay lập tức khi mở modal cho Job hiện tại
+  useEffect(() => {
+    if (visible && activeJobNumber && currentStep === 2) {
+      applyAILengthsToAll();
+    }
+  }, [visible, activeJobNumber, currentStep, jobsData.length]);
 
   // ══════════════════════════════════════════════════════
   // 3. TÍNH TOÁN KHỐI LƯỢNG TƯỜNG AI TỪ CANVAS TÁCH THEO (FLOOR TYPE, HEIGHT)
@@ -731,13 +761,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>
                 FrameWork Jobs — Floor Takeoff
               </h3>
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>
-                MSSQL emsflow — {currentStep === 1 ? "Jobs List" : `Job: ${selectedJobNumber}`}
+              <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>
+                📌 Active Job: {currentStep === 1 ? "Jobs List" : (selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs")}
               </span>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {currentStep === 2 && (
+            {currentStep === 2 && isAdmin && (
               <button onClick={() => setCurrentStep(1)} style={btnStyle("#94a3b8")}>← Back to Jobs</button>
             )}
             {currentStep === 2 && (
@@ -777,52 +807,55 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           </div>
         </div>
 
-        <div style={{
-          padding: "12px 24px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          background: "rgba(255,255,255,0.02)",
-          display: "flex", gap: 16, alignItems: "center"
-        }}>
-          <div style={{ flex: currentStep === 1 ? 0.8 : 1, minWidth: 200 }}>
-            <select
-              value={selectedJobNumber}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSelectedJobNumber(val);
-                if (val !== "ALL") setCurrentStep(2);
-              }}
-              style={{
-                width: "100%", padding: "8px 12px", fontSize: 13, fontWeight: 700,
-                background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.4)",
-                borderRadius: 8, color: "#93c5fd", outline: "none", cursor: "pointer"
-              }}
-            >
-              <option value="ALL" style={{ background: "#1a1d25", color: "#fff" }}>
-                📂 All Jobs ({uniqueJobsList.length})
-              </option>
-              {uniqueJobsList.map(j => (
-                <option key={j.job_number} value={j.job_number} style={{ background: "#1a1d25", color: "#fff" }}>
-                  📌 {j.job_number}
+        {/* Sub-Header Toolbar (Chỉ Admin mới có quyền thấy và chọn/tìm kiếm Job khác) */}
+        {isAdmin && (
+          <div style={{
+            padding: "12px 24px",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            background: "rgba(255,255,255,0.02)",
+            display: "flex", gap: 16, alignItems: "center"
+          }}>
+            <div style={{ flex: currentStep === 1 ? 0.8 : 1, minWidth: 200 }}>
+              <select
+                value={selectedJobNumber}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedJobNumber(val);
+                  if (val !== "ALL") setCurrentStep(2);
+                }}
+                style={{
+                  width: "100%", padding: "8px 12px", fontSize: 13, fontWeight: 700,
+                  background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.4)",
+                  borderRadius: 8, color: "#93c5fd", outline: "none", cursor: "pointer"
+                }}
+              >
+                <option value="ALL" style={{ background: "#1a1d25", color: "#fff" }}>
+                  📂 All Jobs ({uniqueJobsList.length})
                 </option>
-              ))}
-            </select>
+                {uniqueJobsList.map(j => (
+                  <option key={j.job_number} value={j.job_number} style={{ background: "#1a1d25", color: "#fff" }}>
+                    📌 {j.job_number}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1.5, minWidth: 260 }}>
+              <input
+                type="text"
+                placeholder="🔍 Search Job Number..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  width: "100%", padding: "8px 12px", fontSize: 13,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 8, color: "#e2e8f0", outline: "none",
+                  boxSizing: "border-box"
+                }}
+              />
+            </div>
           </div>
-          <div style={{ flex: 1.5, minWidth: 260 }}>
-            <input
-              type="text"
-              placeholder="🔍 Search Job Number..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                width: "100%", padding: "8px 12px", fontSize: 13,
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: 8, color: "#e2e8f0", outline: "none",
-                boxSizing: "border-box"
-              }}
-            />
-          </div>
-        </div>
+        )}
 
         {currentStep === 1 && (
           <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
@@ -983,6 +1016,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                       borderBottom: "2px solid rgba(59,130,246,0.2)"
                     }}>
                       <th style={thStyle}>#</th>
+                      <th style={thStyle}>SOURCE</th>
                       <th style={thStyle}>JOB NUMBER</th>
                       <th style={thStyle}>FLOOR TYPE (THE WALL ABOVE)</th>
                       <th style={thStyle}>WALL HEIGHT (MM)</th>
@@ -1015,7 +1049,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                         <th style={thStyle}>WALL LENGTH (MM)</th>
                       )}
 
-                      <th style={{ ...thStyle, textAlign: "right" }}>ACTION</th>
+
                     </tr>
                   </thead>
                   <tbody>
@@ -1050,6 +1084,41 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                     {idx + 1}
                                   </td>
                                 )}
+
+                                {/* SOURCE Status Badge */}
+                                <td style={{ padding: "6px 10px", verticalAlign: "middle" }}>
+                                  {row.framework_id ? (
+                                    <span style={{
+                                      background: "rgba(59,130,246,0.15)",
+                                      border: "1px solid rgba(59,130,246,0.4)",
+                                      color: "#60a5fa",
+                                      padding: "3px 8px",
+                                      borderRadius: 6,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4
+                                    }}>
+                                      📦 Saved
+                                    </span>
+                                  ) : (
+                                    <span style={{
+                                      background: "rgba(234,179,8,0.15)",
+                                      border: "1px solid rgba(234,179,8,0.4)",
+                                      color: "#facc15",
+                                      padding: "3px 8px",
+                                      borderRadius: 6,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4
+                                    }}>
+                                      ⚡ New
+                                    </span>
+                                  )}
+                                </td>
 
                                 {/* Job Number */}
                                 {sIdx === 0 && (
@@ -1187,26 +1256,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                   </td>
                                 )}
 
-                                {/* Row Save Button */}
-                                <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                                  <button
-                                    onClick={() => saveSingleRow(row)}
-                                    disabled={isSavingRow || !hasVal}
-                                    style={{
-                                      padding: "5px 12px", fontSize: 10, fontWeight: 700,
-                                      borderRadius: 5, border: "none",
-                                      cursor: isSavingRow || !hasVal ? "not-allowed" : "pointer",
-                                      opacity: !hasVal ? 0.35 : 1,
-                                      background: isSavedRow
-                                        ? "rgba(34,197,94,0.25)"
-                                        : `linear-gradient(135deg, ${badgeColor}44, ${badgeColor}66)`,
-                                      color: isSavedRow ? "#4ade80" : "#fff",
-                                      transition: "all 0.2s", whiteSpace: "nowrap"
-                                    }}
-                                  >
-                                    {isSavingRow ? "⏳" : isSavedRow ? "✅ Saved" : "💾 Save"}
-                                  </button>
-                                </td>
+
                               </tr>
                             );
                           })}

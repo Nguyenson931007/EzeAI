@@ -353,7 +353,10 @@ export default function RightPropertyPaneView({
     currentJobId, setCurrentJobId,
     setActiveTab,
     user,
-    lintelsByPage
+    lintelsByPage,
+    setShowFrameworkModal,
+    setShowAreaSummaryModal,
+    setShowInsulationModal
   } = useAppModel();
 
   // ── PANE TAB STATE ("properties" | "job_task") ──
@@ -2851,6 +2854,63 @@ export default function RightPropertyPaneView({
               <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
                 📊 Export Takeoff Form (.xlsx)
               </ExportButton>
+
+              {/* 3 Modals Quick Access (FrameWork, Area Summary, Insulation) */}
+              <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowFrameworkModal(true)}
+                  style={{
+                    flex: 1,
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: "3px", padding: "8px 4px", background: "rgba(255, 255, 255, 0.04)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "8px",
+                    color: "#f8fafc", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                    transition: "all 0.15s ease"
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.18)"; e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"; }}
+                >
+                  <span style={{ fontSize: "16px" }}>🏗️</span>
+                  <span>FrameWork</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAreaSummaryModal(true)}
+                  style={{
+                    flex: 1,
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: "3px", padding: "8px 4px", background: "rgba(255, 255, 255, 0.04)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "8px",
+                    color: "#f8fafc", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                    transition: "all 0.15s ease"
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.18)"; e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"; }}
+                >
+                  <span style={{ fontSize: "16px" }}>📐</span>
+                  <span>Area Summary</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowInsulationModal(true)}
+                  style={{
+                    flex: 1,
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: "3px", padding: "8px 4px", background: "rgba(255, 255, 255, 0.04)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "8px",
+                    color: "#f8fafc", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                    transition: "all 0.15s ease"
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.18)"; e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"; }}
+                >
+                  <span style={{ fontSize: "16px" }}>🧱</span>
+                  <span>Insulation</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : (

@@ -63,6 +63,10 @@ export const AppProvider = ({ children }) => {
     checkSession();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [showFrameworkModal, setShowFrameworkModal] = useState(false);
+  const [showAreaSummaryModal, setShowAreaSummaryModal] = useState(false);
+  const [showInsulationModal, setShowInsulationModal] = useState(false);
+
   const value = {
     pages, setPages,
     currentPage, setCurrentPage,
@@ -80,7 +84,11 @@ export const AppProvider = ({ children }) => {
     lintelsByPage, setLintelsByPage,
 
     activeTab, setActiveTab,
-    currentJobId, setCurrentJobId
+    currentJobId, setCurrentJobId,
+
+    showFrameworkModal, setShowFrameworkModal,
+    showAreaSummaryModal, setShowAreaSummaryModal,
+    showInsulationModal, setShowInsulationModal
   };
 
   return (
