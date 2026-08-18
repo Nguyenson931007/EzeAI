@@ -668,7 +668,12 @@ export default function AIDoor({
           const rawDy2 = o2.y - hingeY;
           const dot1 = rawDx2 * n1.x + rawDy2 * n1.y;
           const dot2 = rawDx2 * n2.x + rawDy2 * n2.y;
-          const norm = dot1 >= dot2 ? n1 : n2;
+          let norm = dot1 >= dot2 ? n1 : n2;
+
+          const currentSwing = d.swing || d.swing_direction;
+          if (currentSwing === "outward") {
+            norm = (norm === n1) ? n2 : n1;
+          }
 
           const o2_proj = {
             x: hingeX + r * norm.x,

@@ -1040,11 +1040,11 @@ export default function RightPropertyPaneView({
             </button>
           </div>
 
-          {/* Search Box */}
+            {/* Search Box */}
           <div style={{ position: "relative" }}>
             <input
               type="text"
-              placeholder="🔍 Tìm mã Job HW, khách hàng, staff..."
+              placeholder="🔍 Search Job HW, client, staff..."
               value={taskSearch}
               onChange={(e) => {
                 setTaskSearch(e.target.value);
@@ -1101,7 +1101,7 @@ export default function RightPropertyPaneView({
                 gap: "4px"
               }}
             >
-              <span>👤 Của tôi ({myStaffCode})</span>
+              <span>👤 My Tasks ({myStaffCode})</span>
             </button>
             <button
               onClick={() => { setStaffScope("all"); setTaskDisplayLimit(30); }}
@@ -1120,7 +1120,7 @@ export default function RightPropertyPaneView({
                 gap: "4px"
               }}
             >
-              <span>🌐 Toàn bộ Task HW</span>
+              <span>🌐 All HW Tasks</span>
             </button>
           </div>
 
@@ -1139,7 +1139,7 @@ export default function RightPropertyPaneView({
                 cursor: "pointer"
               }}
             >
-              Tất cả ({filteredTasks.length})
+              All ({filteredTasks.length})
             </button>
             <button
               onClick={() => { setTaskFilter("completed"); setTaskDisplayLimit(30); }}
@@ -1154,7 +1154,7 @@ export default function RightPropertyPaneView({
                 cursor: "pointer"
               }}
             >
-              ✅ Có sẵn ({filteredTasks.filter(t => t.has_local_job).length})
+              ✅ Available ({filteredTasks.filter(t => t.has_local_job).length})
             </button>
             <button
               onClick={() => { setTaskFilter("pending"); setTaskDisplayLimit(30); }}
@@ -1169,23 +1169,23 @@ export default function RightPropertyPaneView({
                 cursor: "pointer"
               }}
             >
-              ⏳ Chưa có ({filteredTasks.filter(t => !t.has_local_job).length})
+              ⏳ Pending ({filteredTasks.filter(t => !t.has_local_job).length})
             </button>
           </div>
 
           {/* Job Task List */}
           {taskLoading ? (
             <div style={{ textAlign: "center", padding: "40px 10px", color: "#94a3b8", fontSize: "13px" }}>
-              <div style={{ marginBottom: "8px" }}>⏳ Đang nạp danh sách Task Groups HW...</div>
+              <div style={{ marginBottom: "8px" }}>⏳ Loading Task Groups HW...</div>
             </div>
           ) : taskError ? (
             <div style={{ padding: "12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "6px", color: "#f87171", fontSize: "12px" }}>
               ⚠️ {taskError}
-              <button onClick={() => fetchTasks(true)} style={{ marginTop: "6px", display: "block", color: "#38bdf8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Thử lại</button>
+              <button onClick={() => fetchTasks(true)} style={{ marginTop: "6px", display: "block", color: "#38bdf8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Retry</button>
             </div>
           ) : filteredTasks.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 10px", color: "#64748b", fontSize: "13px" }}>
-              Không tìm thấy Job Task nào phù hợp.
+              No matching Job Tasks found.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -1213,7 +1213,7 @@ export default function RightPropertyPaneView({
                         {task.job_number || "No Job Number"}
                         {isActiveJob && (
                           <span style={{ fontSize: "9px", background: "#3b82f6", color: "#fff", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
-                            ĐANG MỞ
+                            ACTIVE
                           </span>
                         )}
                       </div>
@@ -1221,7 +1221,7 @@ export default function RightPropertyPaneView({
                       {/* ✅ TÍCH XANH NẾU ĐÃ CÓ TRONG LOCAL DB */}
                       {task.has_local_job ? (
                         <div
-                          title="Task HW đã có bản vẽ bóc tách trong EzeFloor"
+                          title="Task HW has takeoff drawing in EzeFloor"
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -1238,11 +1238,11 @@ export default function RightPropertyPaneView({
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="20 6 9 17 4 12"/>
                           </svg>
-                          <span>Đã có</span>
+                          <span>Available</span>
                         </div>
                       ) : (
                         <div
-                          title="Task HW chưa có bản vẽ bóc tách trong EzeFloor"
+                          title="Task HW does not have takeoff drawing in EzeFloor yet"
                           style={{
                             background: "rgba(148, 163, 184, 0.1)",
                             color: "#64748b",
@@ -1253,7 +1253,7 @@ export default function RightPropertyPaneView({
                             fontWeight: 500
                           }}
                         >
-                          Chưa có
+                          Pending
                         </div>
                       )}
                     </div>
@@ -1269,7 +1269,7 @@ export default function RightPropertyPaneView({
                       <div style={{ display: "flex", justifyContent: "space-between", marginTop: "2px", color: "#64748b", fontSize: "10px" }}>
                         {task.ma_nv && <span>Staff: <strong style={{ color: "#94a3b8" }}>{task.ma_nv}</strong></span>}
                         {task.local_job?.room_count !== undefined && (
-                          <span style={{ color: "#10b981", fontWeight: 600 }}>{task.local_job.room_count} phòng ({(task.local_job.total_area || 0).toFixed(1)} m²)</span>
+                          <span style={{ color: "#10b981", fontWeight: 600 }}>{task.local_job.room_count} rooms ({(task.local_job.total_area || 0).toFixed(1)} m²)</span>
                         )}
                       </div>
                     </div>
@@ -1298,16 +1298,16 @@ export default function RightPropertyPaneView({
                       }}
                     >
                       {isLoadingThis ? (
-                        "⏳ Đang nạp..."
+                        "⏳ Loading..."
                       ) : task.has_local_job ? (
                         <>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                          Mở bản vẽ
+                          Open Drawing
                         </>
                       ) : (
                         <>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                          Bắt đầu bóc tách
+                          + Start Takeoff
                         </>
                       )}
                     </button>
@@ -1331,7 +1331,7 @@ export default function RightPropertyPaneView({
                     marginTop: "4px"
                   }}
                 >
-                  ⬇️ Xem thêm (+30 Task HW nữa)...
+                  ⬇️ Load more (+30 HW Tasks)...
                 </button>
               )}
             </div>
@@ -2039,60 +2039,7 @@ export default function RightPropertyPaneView({
               )}
             </div>
 
-            {selectedWallIds.length === 1 && selectedWall && (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  className="rp-action-btn"
-                  style={{
-                    background: interactionMode === "cut-wall" ? "#dc2626" : "#3b82f6",
-                  }}
-                  onClick={() => {
-                    setInteractionMode && setInteractionMode((prev) => (prev === "cut-wall" ? "select" : "cut-wall"));
-                  }}
-                >
-                  {interactionMode === "cut-wall" ? "Cancel Cut Mode" : "Cut/Split Wall"}
-                </button>
-              </div>
-            )}
 
-            <div style={{ marginTop: 8 }}>
-              <button
-                className="rp-action-btn"
-                style={{
-                  background: interactionMode === "draw-wall" ? "#dc2626" : "#8b5cf6",
-                }}
-                onClick={() => {
-                  setInteractionMode && setInteractionMode((prev) => (prev === "draw-wall" ? "select" : "draw-wall"));
-                }}
-              >
-                {interactionMode === "draw-wall" ? "Hủy Chế Độ Vẽ Tường" : "🧱 Vẽ Tường Mới"}
-              </button>
-            </div>
-
-            <div style={{ marginTop: 4 }}>
-              <button
-                className="rp-action-btn"
-                style={{ background: "#10b981" }}
-                onClick={() => {
-                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
-                  autoMergeCollinearWalls && autoMergeCollinearWalls(targetIds);
-                }}
-              >
-                Merge Aligned Walls
-              </button>
-            </div>
-
-            <div style={{ marginTop: 4 }}>
-              <button
-                className="rp-action-btn rp-action-btn--danger"
-                onClick={() => {
-                  const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                  deleteWalls && deleteWalls(targetIds);
-                }}
-              >
-                Delete Selected Wall(s)
-              </button>
-            </div>
           </>
         ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
           (() => {
@@ -2517,220 +2464,7 @@ export default function RightPropertyPaneView({
                   </select>
                 </div>
 
-                  <div className="panel-field">
-                  <span className="panel-label">Xoay & Lật Cửa (Rotate & Flip)</span>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                    <button
-                      className="rp-action-btn"
-                      style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                      onClick={() => {
-                        let p1 = null, p2 = null;
-                        if (selectedDoor.points && selectedDoor.points.length >= 2) {
-                          p1 = Array.isArray(selectedDoor.points[0]) ? {x: selectedDoor.points[0][0], y: selectedDoor.points[0][1]} : selectedDoor.points[0];
-                          p2 = Array.isArray(selectedDoor.points[1]) ? {x: selectedDoor.points[1][0], y: selectedDoor.points[1][1]} : selectedDoor.points[1];
-                        }
-                        const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
-                        const maskPoly = selectedDoor.polygon || selectedDoor.mask_polygon || [];
 
-                        if (isVertical) {
-                          // For vertical door, Left/Right is across the wall line
-                          const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
-                          const nextSwing = currentSwing === "inward" ? "outward" : "inward";
-                          let newPoly = maskPoly;
-                          if (p1 && p2 && maskPoly.length > 0) {
-                            newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-                          }
-                          updateDoor && updateDoor({
-                            ...selectedDoor,
-                            swing_direction: nextSwing,
-                            swing: nextSwing,
-                            polygon: newPoly,
-                            mask_polygon: newPoly
-                          });
-                        } else {
-                          // For horizontal door, Left/Right is along the wall line (hinge flip)
-                          const currentHinge = selectedDoor.hing_side || selectedDoor.hingeSide || selectedDoor.hinge_side || "left";
-                          const nextHinge = currentHinge === "left" ? "right" : "left";
-                          let newPoly = maskPoly;
-                          if (p1 && p2 && maskPoly.length > 0) {
-                            newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-                          }
-                          updateDoor && updateDoor({
-                            ...selectedDoor,
-                            hinge_side: nextHinge,
-                            hingeSide: nextHinge,
-                            polygon: newPoly,
-                            mask_polygon: newPoly
-                          });
-                        }
-                      }}
-                      title="Lật cửa Trái ↔ Phải"
-                    >
-                      ↔️ Lật Trái/Phải
-                    </button>
-                    <button
-                      className="rp-action-btn"
-                      style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                      onClick={() => {
-                        let p1 = null, p2 = null;
-                        if (selectedDoor.points && selectedDoor.points.length >= 2) {
-                          p1 = Array.isArray(selectedDoor.points[0]) ? {x: selectedDoor.points[0][0], y: selectedDoor.points[0][1]} : selectedDoor.points[0];
-                          p2 = Array.isArray(selectedDoor.points[1]) ? {x: selectedDoor.points[1][0], y: selectedDoor.points[1][1]} : selectedDoor.points[1];
-                        }
-                        const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
-                        const maskPoly = selectedDoor.polygon || selectedDoor.mask_polygon || [];
-
-                        if (isVertical) {
-                          // For vertical door, Up/Down is along the wall line (hinge flip)
-                          const currentHinge = selectedDoor.hing_side || selectedDoor.hingeSide || selectedDoor.hinge_side || "left";
-                          const nextHinge = currentHinge === "left" ? "right" : "left";
-                          let newPoly = maskPoly;
-                          if (p1 && p2 && maskPoly.length > 0) {
-                            newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-                          }
-                          updateDoor && updateDoor({
-                            ...selectedDoor,
-                            hinge_side: nextHinge,
-                            hingeSide: nextHinge,
-                            polygon: newPoly,
-                            mask_polygon: newPoly
-                          });
-                        } else {
-                          // For horizontal door, Up/Down is across the wall line (swing flip)
-                          const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
-                          const nextSwing = currentSwing === "inward" ? "outward" : "inward";
-                          let newPoly = maskPoly;
-                          if (p1 && p2 && maskPoly.length > 0) {
-                            newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-                          }
-                          updateDoor && updateDoor({
-                            ...selectedDoor,
-                            swing_direction: nextSwing,
-                            swing: nextSwing,
-                            polygon: newPoly,
-                            mask_polygon: newPoly
-                          });
-                        }
-                      }}
-                      title="Lật cửa Trên ↕ Dưới"
-                    >
-                      ↕️ Lật Trên/Dưới
-                    </button>
-                    <button
-                      className="rp-action-btn"
-                      style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                      onClick={() => {
-                        if (selectedDoor.points && selectedDoor.points.length === 2) {
-                          const newPoints = [selectedDoor.points[1], selectedDoor.points[0]];
-                          updateDoor && updateDoor({
-                            ...selectedDoor,
-                            points: newPoints
-                          });
-                        }
-                      }}
-                      title="Xoay cửa 180 độ bằng cách đảo ngược hai điểm đầu cuối"
-                    >
-                      🔄 Đảo Đầu (180°)
-                    </button>
-                    <button
-                      className="rp-action-btn"
-                      style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
-                      onClick={() => {
-                        if (selectedDoor.points && selectedDoor.points.length === 2) {
-                          const pts = selectedDoor.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
-                          const rawP1 = pts[0];
-                          const rawP2 = pts[1];
-
-                          const poly = selectedDoor.polygon || selectedDoor.mask_polygon;
-                          let hinge = rawP1;
-                          let frameEnd = rawP2;
-                          let determinedSwing = selectedDoor.swing || selectedDoor.swing_direction || selectedDoor.swingDirection || 'inward';
-
-                          if (poly && poly.length >= 3) {
-                            // 1. Find the apex point in poly furthest from the frame line rawP1 -> rawP2
-                            const lineDx = rawP2.x - rawP1.x;
-                            const lineDy = rawP2.y - rawP1.y;
-                            const lineLen = Math.hypot(lineDx, lineDy);
-                            let maxPerpDist = -1;
-                            let apex = null;
-
-                            if (lineLen > 1e-3) {
-                              for (const pt of poly) {
-                                const px = Array.isArray(pt) ? pt[0] : pt.x;
-                                const py = Array.isArray(pt) ? pt[1] : pt.y;
-                                const dist = Math.abs(lineDx * (py - rawP1.y) - lineDy * (px - rawP1.x)) / lineLen;
-                                if (dist > maxPerpDist) {
-                                  maxPerpDist = dist;
-                                  apex = { x: px, y: py };
-                                }
-                              }
-                            }
-
-                            if (apex && maxPerpDist > 5) {
-                              // 2. Identify hinge point: distance(apex, Hinge) is smaller than distance(apex, FrameEnd)
-                              const distToP1 = Math.hypot(apex.x - rawP1.x, apex.y - rawP1.y);
-                              const distToP2 = Math.hypot(apex.x - rawP2.x, apex.y - rawP2.y);
-                              if (distToP1 <= distToP2) {
-                                hinge = rawP1;
-                                frameEnd = rawP2;
-                              } else {
-                                hinge = rawP2;
-                                frameEnd = rawP1;
-                              }
-
-                              // 3. Compute swing direction relative to hinge -> frameEnd vector in 2D SVG space (+Y down)
-                              const vFrame = { x: frameEnd.x - hinge.x, y: frameEnd.y - hinge.y };
-                              const vLeaf = { x: apex.x - hinge.x, y: apex.y - hinge.y };
-                              const vInward = { x: -vFrame.y, y: vFrame.x };
-                              const dotInward = vLeaf.x * vInward.x + vLeaf.y * vInward.y;
-                              determinedSwing = dotInward > 0 ? 'inward' : 'outward';
-                            }
-                          }
-
-                          // Snap frameEnd to nearest 90-degree axis relative to hinge, preserving original width_mm
-                          const dx = frameEnd.x - hinge.x;
-                          const dy = frameEnd.y - hinge.y;
-                          const angle = Math.atan2(dy, dx);
-                          const step = Math.PI / 2;
-                          const snappedAngle = Math.round(angle / step) * step;
-                          const dist = (selectedDoor.width_mm && realScale) ? (selectedDoor.width_mm / realScale) : Math.hypot(dx, dy);
-                          const snappedFrameEnd = {
-                            x: hinge.x + dist * Math.cos(snappedAngle),
-                            y: hinge.y + dist * Math.sin(snappedAngle)
-                          };
-
-                          updateDoor && updateDoor({
-                            ...selectedDoor,
-                            points: [hinge, snappedFrameEnd],
-                            width_mm: selectedDoor.width_mm || (realScale ? Math.round(dist * realScale) : undefined),
-                            hingeSide: 'left',
-                            hinge_side: 'left',
-                            swing: determinedSwing,
-                            swingDirection: determinedSwing,
-                            swing_direction: determinedSwing,
-                            polygon: null,
-                            mask_polygon: null
-                          });
-                        }
-                      }}
-                      title="Làm thẳng cửa theo trục 90 độ gần nhất"
-                    >
-                      📐 Làm Thẳng 90°
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 12 }}>
-                  <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
-                    e.stopPropagation();
-                    if (await showConfirm("Are you sure you want to delete this door?")) {
-                      deleteDoor && deleteDoor(selectedDoor.id);
-                    }
-                  }}
-                  >
-                    Delete Selected Door
-                  </button>
-                </div>
               </>
             );
           })()

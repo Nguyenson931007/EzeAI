@@ -93,6 +93,8 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
               className="page-thumb-img"
               alt={floorDisplayName}
               draggable={false}
+              loading="eager"
+              decoding="async"
             />
              <div className="page-thumb-info" style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", padding: "4px 8px", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>

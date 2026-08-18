@@ -79,17 +79,6 @@ ROOM_CATEGORIES: Dict[str, List[str]] = {
     "STAIRS": ["STAIRS", "STAIR", "DN", "DN.", "UP", "UP."],
     "OFFICE": ["OFFICE", "0FFICE"],
     "GUEST": ["GUEST", "GUE5T"],
-    # Vietnamese Room Words
-    "PHÒNG NGỦ": ["PHÒNG NGỦ", "P.NGỦ", "P.NGU", "PNGỦ", "PNGU", "PN"],
-    "PHÒNG KHÁCH": ["PHÒNG KHÁCH", "P.KHÁCH", "P.KHACH", "PKHÁCH", "PKHACH", "PK"],
-    "PHÒNG BẾP": ["PHÒNG BẾP", "P.BẾP", "P.BEP", "PBẾP", "PBEP", "BẾP", "BEP"],
-    "NHÀ VỆ SINH": ["PHÒNG TẮM", "PHÒNG VỆ SINH", "NHÀ VỆ SINH", "NHA VE SINH", "P.TẮM", "PTẮM"],
-    "PHÒNG THỜ": ["PHÒNG THỜ", "P.THỜ", "P.THO", "PTHỜ", "PTHO"],
-    "PHÒNG GIẶT": ["PHÒNG GIẶT", "P.GIẶT", "P.GIAT", "GIẶT", "GIAT"],
-    "BAN CÔNG": ["BAN CÔNG", "BANCONG"],
-    "SÂN THƯỢNG": ["SÂN THƯỢNG", "SAN THUONG", "SANTHUONG", "SÂN SAU", "SÂN TRƯỚC", "SÂN", "SAN"],
-    "HÀNH LANG": ["HÀNH LANG", "HANH LANG", "HANHLANG"],
-    "CẦU THANG": ["CẦU THANG", "CAU THANG", "CAUTHANG"]
 }
 
 # Reverse lookup mapping from synonym -> canonical category

@@ -6,6 +6,7 @@
  *   - handleLogout: Đăng xuất, xóa session, reload trang
  */
 import { ApiService } from "@/models/api.service";
+import { clearWorkspaceState } from "@/utils/workspaceStorage";
 
 export const useAuthController = (user, setUser, setIsLoggedIn) => {
   const handleLogin = async (authData, isSignup) => {
@@ -46,11 +47,16 @@ export const useAuthController = (user, setUser, setIsLoggedIn) => {
     } catch (err) {
       console.error("Logout error:", err);
     }
+    await clearWorkspaceState();
     setIsLoggedIn(false);
     setUser(null);
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("user");
     localStorage.removeItem("activeTab");
+    localStorage.removeItem("ezefloor_last_active_job_id");
+    localStorage.removeItem("ezefloor_last_active_project_name");
+    localStorage.removeItem("ezefloor_last_active_current_page");
+    sessionStorage.removeItem("pendingEmsJob");
     window.location.reload();
   };
 

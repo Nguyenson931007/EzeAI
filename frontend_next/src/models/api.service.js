@@ -256,6 +256,14 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async getJobHistory() {
+    const res = await fetch(`${BASE_URL}/jobs/history`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   // --- AI Detection ---
   /**
    * Gọi unified YOLO segmentation pipeline (predict_seg).

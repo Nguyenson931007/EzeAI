@@ -169,6 +169,7 @@ import { useProjectController } from "@/controllers/project.controller";
 import { useAuthController } from "@/controllers/auth.controller";
 import { useInteractionController } from "@/controllers/interaction.controller";
 import { useDocumentController } from "@/controllers/document.controller";
+import { saveWorkspaceState, loadWorkspaceState, clearWorkspaceState } from "@/utils/workspaceStorage";
 
 export default function App() {
   const svgRef = useRef(null);
@@ -512,6 +513,101 @@ export default function App() {
       window.history.replaceState({}, document.title, cleanUrl);
     }
   }, [isLoggedIn, loadEmsJob]);
+
+  // ── 2.5. Tự động lưu & Khôi phục Workspace khi F5 (Reload) qua IndexedDB ──
+  const isRestoringSessionRef = useRef(false);
+  const saveTimeoutRef = useRef(null);
+
+  // 1. Tự động khôi phục toàn bộ Workspace khi load trang/F5
+  useEffect(() => {
+    if (!isLoggedIn || !user || pages.length > 0 || isRestoringSessionRef.current) return;
+
+    // Nếu URL có ?job= thì để loadEmsJob xử lý
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("job")) {
+      return;
+    }
+
+    const restoreWorkspace = async () => {
+      try {
+        isRestoringSessionRef.current = true;
+        const savedSession = await loadWorkspaceState("active_session");
+
+        if (savedSession && savedSession.pages && savedSession.pages.length > 0) {
+          console.log("[Restore] Khôi phục toàn bộ bản vẽ từ IndexedDB:", savedSession.currentProjectName, savedSession.pages.length, "trang");
+          setPages(savedSession.pages);
+          if (savedSession.roomsByPage) setRoomsByPage(savedSession.roomsByPage);
+          if (savedSession.wallsByPage) setWallsByPage(savedSession.wallsByPage);
+          if (savedSession.doorsByPage) setDoorsByPage(savedSession.doorsByPage);
+          if (savedSession.scalesByPage) setScalesByPage(savedSession.scalesByPage);
+          if (savedSession.roofsByPage) setRoofsByPage(savedSession.roofsByPage);
+          if (savedSession.lintelsByPage) setLintelsByPage(savedSession.lintelsByPage);
+          if (savedSession.currentProjectName) setCurrentProjectName(savedSession.currentProjectName);
+          if (savedSession.currentJobId) setCurrentJobId(savedSession.currentJobId);
+          if (savedSession.realScale) setRealScale(savedSession.realScale);
+
+          const targetPage = (savedSession.currentPage >= 0 && savedSession.currentPage < savedSession.pages.length)
+            ? savedSession.currentPage
+            : 0;
+          setCurrentPage(targetPage);
+
+          if (savedSession.pages[targetPage]) {
+            setImage(savedSession.pages[targetPage].image);
+            setImgSize({ w: savedSession.pages[targetPage].w, h: savedSession.pages[targetPage].h });
+          }
+
+          if (savedSession.activeTab) {
+            setActiveTab(savedSession.activeTab);
+          }
+          return;
+        }
+
+        // Fallback sang API nếu IndexedDB chưa có nhưng có savedJobId
+        const savedJobId = localStorage.getItem("ezefloor_last_active_job_id");
+        const savedProjectName = localStorage.getItem("ezefloor_last_active_project_name");
+        if (savedJobId) {
+          const res = await ApiService.getJobData(savedJobId);
+          if (res && res.status === "success" && res.data) {
+            const parsed = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+            handleLoadJob(parsed, res.project_name || savedProjectName || "Project", savedJobId);
+          }
+        }
+      } catch (err) {
+        console.warn("[Restore] Không thể khôi phục phiên làm việc:", err);
+      } finally {
+        isRestoringSessionRef.current = false;
+      }
+    };
+
+    restoreWorkspace();
+  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab]);
+
+  // 2. Tự động lưu Workspace vào IndexedDB khi có thay đổi (debounce 400ms)
+  useEffect(() => {
+    if (!isLoggedIn || pages.length === 0 || isRestoringSessionRef.current) return;
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveWorkspaceState("active_session", {
+        pages,
+        roomsByPage,
+        wallsByPage,
+        doorsByPage,
+        scalesByPage,
+        roofsByPage,
+        lintelsByPage,
+        currentPage,
+        currentProjectName,
+        currentJobId,
+        activeTab,
+        realScale,
+        savedAt: Date.now()
+      });
+    }, 400);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, isLoggedIn]);
 
   // ── 3. TASK_LIST_WEB3_SSO Listener tốc độ cao (Tức thì < 50ms) ──
   useEffect(() => {
@@ -866,6 +962,7 @@ export default function App() {
       setCurrentPage(0);
       setImage(null);
       setImgSize({ w: 0, h: 0 });
+      clearWorkspaceState("active_session");
       return;
     }
 
@@ -1245,6 +1342,7 @@ export default function App() {
               deleteDoor={deleteDoor}
               doorController={doorController}
               deleteWalls={deleteWalls}
+              autoMergeCollinearWalls={autoMergeCollinearWalls}
               updateWallsProperty={updateWallsProperty}
               pullStepPreview={pullStepPreview}
               setPullStepInfo={setPullStepInfo}

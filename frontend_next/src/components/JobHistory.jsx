@@ -46,16 +46,11 @@ const JobHistory = ({ username, onLoadJob }) => {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch(`${ApiService.BASE_URL || '/api'}/jobs/history`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setHistory(data);
-        } else if (data && Array.isArray(data.history)) {
-          setHistory(data.history);
-        } else {
-          setHistory([]);
-        }
+      const data = await ApiService.getJobHistory();
+      if (Array.isArray(data)) {
+        setHistory(data);
+      } else if (data && Array.isArray(data.history)) {
+        setHistory(data.history);
       } else {
         setHistory([]);
       }
@@ -210,7 +205,7 @@ const JobHistory = ({ username, onLoadJob }) => {
                   
                   <div className="job-thumbnail">
                     {job.thumbnail ? (
-                      <img src={job.thumbnail} alt={job.project_name} loading="lazy" />
+                      <img src={job.thumbnail} alt={job.project_name} loading="eager" decoding="async" />
                     ) : (
                       <div className="no-preview">No Preview</div>
                     )}

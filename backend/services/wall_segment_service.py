@@ -12,7 +12,6 @@ import logging
 import threading
 from typing import Any, Dict, List
 from PIL import Image
-Image.MAX_IMAGE_PIXELS = None
 import numpy as np
 import torch
 from ultralytics import YOLO
@@ -47,8 +46,19 @@ def _get_model() -> YOLO:
 
 
 def _get_last_model():
-    """Gets or loads the secondary model if available. Returns None to use single authoritative model."""
-    return None
+    """Gets or loads the secondary 'last.pt' model if it exists. Returns None if not found."""
+    global _wall_model_last
+    if _wall_model_last is None:
+        with _model_last_lock:
+            if _wall_model_last is None:
+                last_path = BASE_DIR / "backend" / "models" / "Walls" / "last.pt"
+                if last_path.exists():
+                    logger.info(f"[wall_segment_service] Loading secondary YOLO Wall model (last.pt) from {last_path}")
+                    _wall_model_last = YOLO(str(last_path))
+                else:
+                    logger.info("[wall_segment_service] No last.pt found, skipping ensemble")
+                    return None
+    return _wall_model_last
 
 
 def _run_yolo_inference(
@@ -102,14 +112,8 @@ def _run_yolo_inference(
                 # Normalize YOLO class names to canonical names used in frontend/backend
                 _CLASS_NAME_MAP = {
                     "ext_wall": "exterior_wall",
-                    "External_Wall": "exterior_wall",
-                    "exterior_wall": "exterior_wall",
                     "int_wall": "interior_wall",
-                    "Internal_Wall": "interior_wall",
-                    "interior_wall": "interior_wall",
                     "part_wall": "partition_wall",
-                    "Parternal_Wall": "partition_wall",
-                    "partition_wall": "partition_wall",
                 }
                 class_name = _CLASS_NAME_MAP.get(class_name, class_name)
 
@@ -161,20 +165,20 @@ def _run_yolo_inference(
 
                     # Aspect Ratio and Length Filtering
                     if real_scale and real_scale != 1.0:
-                        min_len_mm = 60.0 if confidence <= 0.02 else 350.0
+                        min_len_mm = 120.0 if confidence < 0.01 else 350.0
                         min_len_thresh = float(min_len_mm) / real_scale
                     else:
-                        min_len_thresh = 6.0 if confidence <= 0.02 else 35.0
+                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
 
                     if length < min_len_thresh:
                         continue
 
-                    ratio_thresh = 0.5 if confidence <= 0.02 else 2.0
+                    ratio_thresh = 1.0 if confidence < 0.01 else 2.0
                     if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
                         continue
 
                     # OpenCV parallel edge validation (filters out furniture, text, etc.)
-                    if confidence > 0.02 and not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
+                    if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
                         continue
 
                     wall_obj = {
@@ -325,7 +329,7 @@ def _compute_centerline_and_thickness(polygon_coords: List[List[float]]):
     return None, 0.0
 
 
-def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 80.0) -> List[dict]:
+def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0, angle_threshold: float = 0.98, gap_threshold: float = 250.0) -> List[dict]:
     current_walls = [dict(w) for w in walls]
     merged_any = True
     
@@ -386,12 +390,16 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0,
                     gap = min2 - max1 if min2 > max1 else min1 - max2
                     is_close = gap < gap_threshold
                 
-                # Only merge collinear walls of the SAME class
+                if not is_close:
+                    continue
+                
+                # Determine merged class based on which segment is longer
                 class_w1 = w1.get("class_name", "interior_wall")
                 class_w2 = w2.get("class_name", "interior_wall")
-                if class_w1 != class_w2:
-                    continue
-                merged_class = class_w1
+                if len1 >= len2:
+                    merged_class = class_w1
+                else:
+                    merged_class = class_w2
 
                 # Merge! Project all to L1
                 t_coords = [0.0, len1, t_p2, t_q2]
@@ -793,56 +801,97 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
         4. If we find closed polygons, use their union as the boundary.
         5. If no closed polygons are found (or area is tiny), fall back to the Convex Hull of exterior walls.
         6. Buffer the boundary by a small margin (e.g., 50px) to prevent borderline discards.
-def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
+        7. Filter out interior/partition walls whose midpoints lie outside this boundary.
     """
-    Safely keeps all walls that lie within the overall building bounding envelope.
-    Uses convex hull of all exterior wall endpoints with a generous buffer (300px)
-    to guarantee interior walls in open-layout/balcony floorplans are NEVER deleted.
-    """
-    from shapely.geometry import MultiPoint, Point
+    from shapely.geometry import LineString, MultiPoint, Point
+    from shapely.ops import polygonize, unary_union
 
-    if len(walls) < 4:
+    if len(walls) < 3:
         return walls
 
-    # Collect all wall points to form the full plan footprint
-    all_points = []
+    # 1. Get exterior walls and interior/partition walls
+    ext_lines = []
+    other_walls = []
+    
     for w in walls:
         c = w.get("centerline")
-        if c and len(c) == 2:
-            all_points.extend(c)
+        if not c or len(c) != 2:
+            continue
+        
+        class_name = w.get("class_name", "exterior_wall")
+        p1, p2 = c[0], c[1]
+        line = LineString([p1, p2])
+        
+        if class_name == "exterior_wall":
+            ext_lines.append(line)
+        else:
+            other_walls.append(w)
 
-    if len(all_points) < 3:
-        return walls
+    if not ext_lines:
+        return walls  # No exterior walls to define a boundary
 
+    # 2. Try polygonization
+    boundary_geom = None
     try:
-        hull = MultiPoint(all_points).convex_hull
-        if hull is None or hull.is_empty or hull.area < 1000.0:
-            return walls
-        # Generous buffer to prevent clipping valid interior walls
-        hull_buffered = hull.buffer(300.0)
+        polys = list(polygonize(ext_lines))
+        if polys:
+            # Union of all closed loops
+            boundary_geom = unary_union(polys)
     except Exception:
+        pass
+
+    # 3. Fallback to Convex Hull of exterior wall endpoints if no closed loops are found
+    if boundary_geom is None or boundary_geom.is_empty or boundary_geom.area < 1000.0:
+        ext_points = []
+        for line in ext_lines:
+            ext_points.extend(line.coords)
+        if len(ext_points) >= 3:
+            try:
+                boundary_geom = MultiPoint(ext_points).convex_hull
+            except Exception:
+                pass
+
+    if boundary_geom is None or boundary_geom.is_empty:
         return walls
 
+    # 4. Buffer the boundary polygon slightly (e.g. 150 pixels) to avoid cutting off walls touching the boundaries
+    try:
+        boundary_buffered = boundary_geom.buffer(150.0)
+    except Exception:
+        boundary_buffered = boundary_geom
+
+    # 5. Filter interior/partition walls
     keep_walls = []
+    # Always keep exterior walls
     for w in walls:
-        class_name = w.get("class_name", "interior_wall")
+        class_name = w.get("class_name", "exterior_wall")
         if class_name == "exterior_wall":
             keep_walls.append(w)
             continue
-
+            
         c = w.get("centerline")
         if not c or len(c) != 2:
             keep_walls.append(w)
             continue
-
+            
         p1, p2 = c[0], c[1]
         midpoint = Point([(p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0])
+        
+        # Check if the midpoint is inside the buffered boundary
         try:
-            if hull_buffered.contains(midpoint):
+            if boundary_buffered.contains(midpoint):
                 keep_walls.append(w)
+            else:
+                logger.info(
+                    f"[wall_segment_service] Option 1 Filter: Removed interior/partition wall at midpoint "
+                    f"({midpoint.x:.0f}, {midpoint.y:.0f}) — outside exterior boundary"
+                )
         except Exception:
-            keep_walls.append(w)
+            keep_walls.append(w)  # Safe default on geometry error
 
+    logger.info(
+        f"[wall_segment_service] Option 1 Boundary filter: kept {len(keep_walls)}/{len(walls)} walls"
+    )
     return keep_walls
 
 
@@ -866,6 +915,8 @@ class WallSegmentService:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cpu" and torch.get_num_threads() > 4:
             torch.set_num_threads(4)
+        if device == "cpu" and imgsz > 1280:
+            imgsz = 1280
             
         # Scale confidence down by 0.5 to increase sensitivity for wall detection
         confidence = float(confidence * 0.5)
@@ -907,7 +958,7 @@ class WallSegmentService:
         # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=80.0)
+        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)
@@ -1201,7 +1252,7 @@ class WallSegmentService:
         processed_walls = detected_walls
 
         # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=80.0)
+        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=15.0, gap_threshold=250.0)
 
         # Step 2: Snap perpendicular corners to meet cleanly at 90-degree intersection points
         snapped_walls = _snap_perpendicular_corners(merged_walls)
@@ -1764,11 +1815,9 @@ def _validate_wall_by_edges(img_np, p1, p2, thickness_px, confidence: float = 0.
         # 1. Solid Fill Check:
         # Inner zone: |t| <= half_t
         inner_indices = [t + 25 for t in t_values if abs(t) <= half_t]
+        # Outer zone: |t| >= half_t + 5
         outer_indices = [t + 25 for t in t_values if abs(t) >= half_t + 5]
         
-        if not inner_indices or not outer_indices:
-            continue
-
         avg_inner = np.mean([profile[idx] for idx in inner_indices])
         avg_outer = np.mean([profile[idx] for idx in outer_indices])
         

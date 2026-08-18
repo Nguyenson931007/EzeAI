@@ -19,6 +19,8 @@ export default function WallContextMenu({
   wall,
   onClose,
   onDrawWall,
+  onCutWall,
+  onMergeAligned,
   onDelete,
   onChangeClass,
   onAddPoint,
@@ -57,7 +59,7 @@ export default function WallContextMenu({
 
   // Clamp position to viewport
   const menuWidth = 220;
-  const menuHeight = 200;
+  const menuHeight = 250;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 10);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 10);
 
@@ -107,7 +109,39 @@ export default function WallContextMenu({
         Wall Options
       </div>
 
+      {/* Item: Cut / Split Wall */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onCutWall) onCutWall();
+          onClose();
+        }}
+        style={btnStyle(false)}
+        onMouseOver={(e) => { setShowTypeSubmenu(false); hoverIn(e); }}
+        onMouseOut={hoverOut}
+      >
+        <span style={lblStyle()}>
+          <span style={iconStyle()}>✂️</span>
+          <span>Cut / Split Wall</span>
+        </span>
+      </button>
 
+      {/* Item: Merge Aligned Walls */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onMergeAligned) onMergeAligned();
+          onClose();
+        }}
+        style={btnStyle(false)}
+        onMouseOver={(e) => { setShowTypeSubmenu(false); hoverIn(e); }}
+        onMouseOut={hoverOut}
+      >
+        <span style={lblStyle()}>
+          <span style={iconStyle()}>🔗</span>
+          <span>Merge Aligned Walls</span>
+        </span>
+      </button>
 
       {/* Item: Draw Wall */}
       <button

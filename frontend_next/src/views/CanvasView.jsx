@@ -33,7 +33,9 @@ import {
   getWallType,
   getWallSideOffsets,
   ADD_POINT_SNAP_DISTANCE,
-  findBestRoomInsertionPoint
+  findBestRoomInsertionPoint,
+  mirrorPolygonAcrossLine,
+  mirrorPolygonAcrossPerpendicular
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall } from "@/engines/DoorGeometryEngine";
@@ -2818,6 +2820,7 @@ export default function CanvasView({
   drawingWall,
   drawingWallEnd,
   deleteWalls,
+  autoMergeCollinearWalls,
   updateWallsProperty,
   setInteractionMode,
   pullStepPreview,
@@ -2896,8 +2899,21 @@ export default function CanvasView({
 
   const handleWallDelete = () => {
     const w = wallContextMenu.wall;
-    if (w && deleteWalls) {
-      deleteWalls([w.id]);
+    const targetIds = selectedWallIds && selectedWallIds.length > 0
+      ? selectedWallIds
+      : (w ? [w.id] : []);
+    if (targetIds.length > 0 && deleteWalls) {
+      deleteWalls(targetIds);
+    }
+  };
+
+  const handleWallMergeAligned = () => {
+    const w = wallContextMenu.wall;
+    const targetIds = selectedWallIds && selectedWallIds.length > 0
+      ? selectedWallIds
+      : (w ? [w.id] : []);
+    if (autoMergeCollinearWalls) {
+      autoMergeCollinearWalls(targetIds);
     }
   };
 
@@ -2934,6 +2950,183 @@ export default function CanvasView({
 
   const closeDoorContextMenu = () => {
     setDoorContextMenu({ visible: false, x: 0, y: 0, door: null });
+  };
+
+  const handleDoorFlipHorizontal = () => {
+    const d = doorContextMenu.door;
+    if (!d || !updateDoor) return;
+    let p1 = null, p2 = null;
+    if (d.points && d.points.length >= 2) {
+      p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+      p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+    }
+    const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
+    const maskPoly = d.polygon || d.mask_polygon || [];
+
+    if (isVertical) {
+      // For vertical door, Left/Right is across the wall line (swing flip)
+      const currentSwing = d.swing_direction || d.swing || "inward";
+      const nextSwing = currentSwing === "inward" ? "outward" : "inward";
+      let newPoly = maskPoly;
+      if (p1 && p2 && maskPoly.length > 0) {
+        newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+      }
+      updateDoor({
+        ...d,
+        swing_direction: nextSwing,
+        swing: nextSwing,
+        polygon: newPoly,
+        mask_polygon: newPoly
+      });
+    } else {
+      // For horizontal door, Left/Right is along the wall line (hinge flip)
+      const currentHinge = d.hinge_side || d.hingeSide || "left";
+      const nextHinge = currentHinge === "left" ? "right" : "left";
+      let newPoly = maskPoly;
+      if (p1 && p2 && maskPoly.length > 0) {
+        newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+      }
+      updateDoor({
+        ...d,
+        hinge_side: nextHinge,
+        hingeSide: nextHinge,
+        polygon: newPoly,
+        mask_polygon: newPoly
+      });
+    }
+  };
+
+  const handleDoorFlipVertical = () => {
+    const d = doorContextMenu.door;
+    if (!d || !updateDoor) return;
+    let p1 = null, p2 = null;
+    if (d.points && d.points.length >= 2) {
+      p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+      p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+    }
+    const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
+    const maskPoly = d.polygon || d.mask_polygon || [];
+
+    if (isVertical) {
+      // For vertical door, Up/Down is along the wall line (hinge flip)
+      const currentHinge = d.hinge_side || d.hingeSide || "left";
+      const nextHinge = currentHinge === "left" ? "right" : "left";
+      let newPoly = maskPoly;
+      if (p1 && p2 && maskPoly.length > 0) {
+        newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
+      }
+      updateDoor({
+        ...d,
+        hinge_side: nextHinge,
+        hingeSide: nextHinge,
+        polygon: newPoly,
+        mask_polygon: newPoly
+      });
+    } else {
+      // For horizontal door, Up/Down is across the wall line (swing flip)
+      const currentSwing = d.swing_direction || d.swing || "inward";
+      const nextSwing = currentSwing === "inward" ? "outward" : "inward";
+      let newPoly = maskPoly;
+      if (p1 && p2 && maskPoly.length > 0) {
+        newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
+      }
+      updateDoor({
+        ...d,
+        swing_direction: nextSwing,
+        swing: nextSwing,
+        polygon: newPoly,
+        mask_polygon: newPoly
+      });
+    }
+  };
+
+  const handleDoorReverseEndpoints = () => {
+    const d = doorContextMenu.door;
+    if (!d || !updateDoor) return;
+    if (d.points && d.points.length === 2) {
+      const newPoints = [d.points[1], d.points[0]];
+      updateDoor({
+        ...d,
+        points: newPoints
+      });
+    }
+  };
+
+  const handleDoorStraighten90 = () => {
+    const d = doorContextMenu.door;
+    if (!d || !updateDoor) return;
+    if (d.points && d.points.length === 2) {
+      const pts = d.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+      const rawP1 = pts[0];
+      const rawP2 = pts[1];
+
+      const poly = d.polygon || d.mask_polygon;
+      let hinge = rawP1;
+      let frameEnd = rawP2;
+      let determinedSwing = d.swing || d.swing_direction || d.swingDirection || 'inward';
+
+      if (poly && poly.length >= 3) {
+        const lineDx = rawP2.x - rawP1.x;
+        const lineDy = rawP2.y - rawP1.y;
+        const lineLen = Math.hypot(lineDx, lineDy);
+        let maxPerpDist = -1;
+        let apex = null;
+
+        if (lineLen > 1e-3) {
+          for (const pt of poly) {
+            const px = Array.isArray(pt) ? pt[0] : pt.x;
+            const py = Array.isArray(pt) ? pt[1] : pt.y;
+            const dist = Math.abs(lineDx * (py - rawP1.y) - lineDy * (px - rawP1.x)) / lineLen;
+            if (dist > maxPerpDist) {
+              maxPerpDist = dist;
+              apex = { x: px, y: py };
+            }
+          }
+        }
+
+        if (apex && maxPerpDist > 5) {
+          const distToP1 = Math.hypot(apex.x - rawP1.x, apex.y - rawP1.y);
+          const distToP2 = Math.hypot(apex.x - rawP2.x, apex.y - rawP2.y);
+          if (distToP1 <= distToP2) {
+            hinge = rawP1;
+            frameEnd = rawP2;
+          } else {
+            hinge = rawP2;
+            frameEnd = rawP1;
+          }
+
+          const vFrame = { x: frameEnd.x - hinge.x, y: frameEnd.y - hinge.y };
+          const vLeaf = { x: apex.x - hinge.x, y: apex.y - hinge.y };
+          const vInward = { x: -vFrame.y, y: vFrame.x };
+          const dotInward = vLeaf.x * vInward.x + vLeaf.y * vInward.y;
+          determinedSwing = dotInward > 0 ? 'inward' : 'outward';
+        }
+      }
+
+      const dx = frameEnd.x - hinge.x;
+      const dy = frameEnd.y - hinge.y;
+      const angle = Math.atan2(dy, dx);
+      const step = Math.PI / 2;
+      const snappedAngle = Math.round(angle / step) * step;
+      const dist = (d.width_mm && realScale) ? (d.width_mm / realScale) : Math.hypot(dx, dy);
+      const snappedFrameEnd = {
+        x: hinge.x + dist * Math.cos(snappedAngle),
+        y: hinge.y + dist * Math.sin(snappedAngle)
+      };
+
+      updateDoor({
+        ...d,
+        points: [hinge, snappedFrameEnd],
+        width_mm: d.width_mm || (realScale ? Math.round(dist * realScale) : undefined),
+        hingeSide: 'left',
+        hinge_side: 'left',
+        swing: determinedSwing,
+        swingDirection: determinedSwing,
+        swing_direction: determinedSwing,
+        polygon: null,
+        mask_polygon: null
+      });
+    }
   };
 
   const handleDoorRotateLeft = () => {
@@ -5057,6 +5250,10 @@ export default function CanvasView({
         y={doorContextMenu.y}
         door={doorContextMenu.door}
         onClose={closeDoorContextMenu}
+        onFlipHorizontal={handleDoorFlipHorizontal}
+        onFlipVertical={handleDoorFlipVertical}
+        onReverseEndpoints={handleDoorReverseEndpoints}
+        onStraighten90={handleDoorStraighten90}
         onRotateLeft={handleDoorRotateLeft}
         onRotateRight={handleDoorRotateRight}
         onFlipSwing={handleDoorFlipSwing}
@@ -5095,6 +5292,8 @@ export default function CanvasView({
             }
           }
         }}
+        onCutWall={handleWallStartCut}
+        onMergeAligned={handleWallMergeAligned}
         onDelete={handleWallDelete}
         onChangeClass={handleWallChangeClass}
         onAddPoint={handleWallStartCut}

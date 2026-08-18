@@ -476,24 +476,28 @@ def validate_session_endpoint(
                 detail="Phiên đăng nhập không hợp lệ hoặc đã bị thay thế."
             )
 
+        row_dict = dict(row)
+
         # Check 5-hour inactivity timeout
-        if row.get("last_active"):
+        if row_dict.get("last_active"):
             try:
-                last_active = datetime.fromisoformat(row["last_active"])
+                last_active = datetime.fromisoformat(row_dict["last_active"])
                 if datetime.now() - last_active > timedelta(hours=5):
-                    cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (row["username"],))
+                    cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (row_dict["username"],))
                     conn.commit()
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Phiên đăng nhập đã hết hạn."
                     )
+            except HTTPException:
+                raise
             except Exception:
                 pass
 
         return {
             "status": "valid",
-            "username": row["username"],
-            "role": row.get("role", "user"),
+            "username": row_dict["username"],
+            "role": row_dict.get("role", "user"),
             "session_token": session_token
         }
     finally:

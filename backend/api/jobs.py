@@ -604,14 +604,15 @@ def find_job(query: str):
             row = cursor.fetchone()
 
         if row:
+            row_dict = dict(row)
             return {
                 "status": "success",
                 "found": True,
-                "job_id": row["id"],
-                "project_name": row["project_name"],
-                "room_count": row.get("room_count", 0),
-                "total_area": row.get("total_area", 0.0),
-                "data": row["data"]
+                "job_id": row_dict["id"],
+                "project_name": row_dict["project_name"],
+                "room_count": row_dict.get("room_count", 0),
+                "total_area": row_dict.get("total_area", 0.0),
+                "data": row_dict["data"]
             }
         else:
             return {

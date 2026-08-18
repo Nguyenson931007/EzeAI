@@ -253,6 +253,28 @@ export default function RibbonView({
             {/* DRAW */}
             <div className="ribbon-group">
               <div className="ribbon-buttons">
+                <button
+                  className={`ribbon-btn ${interactionMode === "draw-wall" ? "active" : ""}`}
+                  onClick={() => {
+                    if (interactionMode === "draw-wall") {
+                      if (setInteractionMode) setInteractionMode("select");
+                    } else {
+                      // Deselect other states and reset tools
+                      setDrawing(false);
+                      setIsDrawingRoof(false);
+                      if (setSelectedRoofId) setSelectedRoofId(null);
+                      if (setSelectedId) setSelectedId(null);
+                      if (setSelectedType) setSelectedType(null);
+                      if (setCurrentPoly) setCurrentPoly([]);
+                      if (doorController) doorController.cancelDoorDraw();
+                      if (lintelController) lintelController.cancelLintelDraw();
+                      if (setInteractionMode) setInteractionMode("draw-wall");
+                    }
+                  }}
+                  title="Vẽ tường mới thủ công (Click và kéo trên bản vẽ)"
+                >
+                  <span className="icon">🧱</span><span className="label">Wall</span>
+                </button>
                 <button className={`ribbon-btn ${drawing ? "active" : ""}`} onClick={() => { setDrawing(d => !d); if (drawing) { setCurrentPoly([]); } setIsDrawingDoor(false); setIsDrawingRoof(false); if (doorController) doorController.setShowPenetrations(false); }}>
                   <span className="icon">✏️</span><span className="label">Room</span>
                 </button>
@@ -373,6 +395,13 @@ export default function RibbonView({
                   <span className="icon">🪵</span><span className="label">Lintel</span>
                 </button>
                 <button
+                  className={`ribbon-btn ${showAreaSummaryModal ? "active" : ""}`}
+                  onClick={() => setShowAreaSummaryModal(true)}
+                  title="Hiển thị danh sách Area Summary từ MSSQL"
+                >
+                  <span className="icon">📐</span><span className="label">Area Summary</span>
+                </button>
+                {/* <button
                   className={`ribbon-btn ${showFrameworkModal ? "active" : ""}`}
                   onClick={() => setShowFrameworkModal(true)}
                   title="Hiển thị danh sách FrameWork Jobs từ MSSQL"
@@ -380,19 +409,12 @@ export default function RibbonView({
                   <span className="icon">🏗️</span><span className="label">FrameWork</span>
                 </button>
                 <button
-                  className={`ribbon-btn ${showAreaSummaryModal ? "active" : ""}`}
-                  onClick={() => setShowAreaSummaryModal(true)}
-                  title="Hiển thị danh sách Area Summary từ MSSQL"
-                >
-                  <span className="icon">📐</span><span className="label">Area Summary</span>
-                </button>
-                <button
                   className={`ribbon-btn ${showInsulationModal ? "active" : ""}`}
                   onClick={() => setShowInsulationModal(true)}
                   title="Hiển thị danh sách Insulation từ MSSQL"
                 >
                   <span className="icon">🧱</span><span className="label">Insulation</span>
-                </button>
+                </button> */}
                 {/* <button
                   className="ribbon-btn"
                   onClick={() => lintelController?.roundAllLintels()}

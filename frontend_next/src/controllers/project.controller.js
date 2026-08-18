@@ -50,7 +50,11 @@ export const useProjectController = (
       if (res) {
         await showAlert("Project saved!");
         setCurrentProjectName(projectName);
-        if (res.job_id) setCurrentJobId(res.job_id);
+        if (res.job_id) {
+          setCurrentJobId(res.job_id);
+          localStorage.setItem("ezefloor_last_active_job_id", String(res.job_id));
+        }
+        localStorage.setItem("ezefloor_last_active_project_name", projectName || "");
       }
     } catch (err) {
       console.error("Save error:", err);
@@ -91,7 +95,13 @@ export const useProjectController = (
       setImgSize({ w: jobData.pages[0].w, h: jobData.pages[0].h });
     }
     setCurrentProjectName(name);
-    if (id) setCurrentJobId(id);
+    if (id) {
+      setCurrentJobId(id);
+      localStorage.setItem("ezefloor_last_active_job_id", String(id));
+    }
+    if (name) {
+      localStorage.setItem("ezefloor_last_active_project_name", String(name));
+    }
     setActiveTab("Home");
   };
 

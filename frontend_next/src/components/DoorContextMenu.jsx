@@ -24,6 +24,10 @@ export default function DoorContextMenu({
   y,
   door,
   onClose,
+  onFlipHorizontal,
+  onFlipVertical,
+  onReverseEndpoints,
+  onStraighten90,
   onRotateLeft,
   onRotateRight,
   onFlipSwing,
@@ -60,8 +64,8 @@ export default function DoorContextMenu({
   if (!visible || !door) return null;
 
   // Clamp position to viewport
-  const menuWidth = 220;
-  const menuHeight = 350;
+  const menuWidth = 230;
+  const menuHeight = 420;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 10);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 10);
 
@@ -73,17 +77,19 @@ export default function DoorContextMenu({
   const penetrationTypes = getPenetrationTypeOptions();
 
   const menuItems = [
-    { icon: '↩️', label: 'Rotate Left', action: onRotateLeft, shortcut: '' },
-    { icon: '↪️', label: 'Rotate Right', action: onRotateRight, shortcut: '' },
+    { icon: '↔️', label: 'Flip Horizontal', action: onFlipHorizontal, shortcut: '' },
+    { icon: '↕️', label: 'Flip Vertical', action: onFlipVertical, shortcut: '' },
+    { icon: '🔄', label: 'Reverse Direction (180°)', action: onReverseEndpoints, shortcut: '' },
+    { icon: '📐', label: 'Snap to 90° Axis', action: onStraighten90, shortcut: '' },
     { type: 'divider' },
-    { icon: '🔄', label: 'Swap Frame & Leaf', action: onSwapFrameLeaf, shortcut: '' },
-    { icon: '↔️', label: 'Flip Hinge Side', action: onFlipHinge, shortcut: '' },
-    { icon: '↕️', label: 'Flip Swing Direction', action: onFlipSwing, shortcut: '' },
+    { icon: '↩️', label: 'Rotate Left (-90°)', action: onRotateLeft, shortcut: '' },
+    { icon: '↪️', label: 'Rotate Right (+90°)', action: onRotateRight, shortcut: '' },
+    { icon: '🔀', label: 'Swap Frame & Leaf', action: onSwapFrameLeaf, shortcut: '' },
     { type: 'divider' },
     { icon: '🚪', label: 'Penetration Type', action: () => {}, hasSubmenu: true },
     { icon: '✏️', label: 'Edit Door...', action: onEdit, shortcut: '' },
     { type: 'divider' },
-    { icon: '🗑️', label: 'Delete', action: onDelete, danger: true, shortcut: 'Del' }
+    { icon: '🗑️', label: 'Delete Selected Door', action: onDelete, danger: true, shortcut: 'Del' }
   ];
 
   return (
