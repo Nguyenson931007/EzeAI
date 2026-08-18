@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
+import { useAppModel } from "@/models/app.context";
 
 /**
  * AreaSummaryJobsModal – Modal bóc tách diện tích phòng & khu vực sàn (MSSQL emsflow.dbo.AreaSummary)
  */
-export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], scaleValue = 1.0, realScale, pages = [], currentPage = 0 }) {
+export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], scaleValue = 1.0, realScale, pages = [], currentPage = 0, activeJobNumber }) {
+  const { user } = useAppModel();
+  const isAdmin = user?.role === "admin";
+
   const [currentStep, setCurrentStep] = useState(1);
   const [jobsData, setJobsData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -35,12 +39,33 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
   useEffect(() => {
     if (visible) {
       loadJobsList();
-      setCurrentStep(1);
       setSearchTerm("");
-      setSelectedJobNumber("ALL");
       setCustomRows([]);
     }
   }, [visible]);
+
+  // Tự động chuyển thẳng sang Step 2 nếu đang mở một Saved Job cụ thể
+  useEffect(() => {
+    if (visible && activeJobNumber) {
+      const targetStr = String(activeJobNumber).trim().toLowerCase();
+      const matchedJob = jobsData.find(j => {
+        const jn = String(j.job_number || "").toLowerCase();
+        const hwId = String(j.IDJob_HW || j.hw_id || "").toLowerCase();
+        return jn === targetStr || jn.includes(targetStr) || hwId === targetStr;
+      });
+
+      if (matchedJob && matchedJob.job_number) {
+        setSelectedJobNumber(matchedJob.job_number);
+        setCurrentStep(2);
+      } else {
+        setSelectedJobNumber(activeJobNumber);
+        setCurrentStep(2);
+      }
+    } else if (visible && !activeJobNumber) {
+      setSelectedJobNumber("ALL");
+      setCurrentStep(1);
+    }
+  }, [visible, jobsData, activeJobNumber]);
 
   const loadJobsList = async () => {
     setLoading(true);
@@ -397,11 +422,14 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: "0.5px" }}>
                 Area Summary Takeoff & Management
               </h2>
+              <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>
+                📌 Active Job: {selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs"}
+              </span>
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {currentStep === 2 && (
+            {currentStep === 2 && isAdmin && (
               <button onClick={() => setCurrentStep(1)} style={btnStyle("#60a5fa")}>
                 ← Back To Jobs List
               </button>
@@ -416,57 +444,44 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
           </div>
         </div>
 
-        {/* Sub-Header Toolbar */}
-        <div style={{
-          padding: "10px 24px", background: "rgba(255,255,255,0.02)",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
-          display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12
-        }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <StatCard color="#3b82f6">
-              <span style={{ fontSize: 16, fontWeight: 800, color: "#60a5fa" }}>{totalsSummary.dryM2} m²</span>
-              <span style={statLabel}>Dry Area</span>
-            </StatCard>
-            <StatCard color="#ef4444">
-              <span style={{ fontSize: 16, fontWeight: 800, color: "#f87171" }}>{totalsSummary.wetM2} m²</span>
-              <span style={statLabel}>Wet Area</span>
-            </StatCard>
-            <StatCard color="#22c55e">
-              <span style={{ fontSize: 16, fontWeight: 800, color: "#4ade80" }}>{totalsSummary.grandTotalM2} m²</span>
-              <span style={statLabel}>Grand Total Net Area</span>
-            </StatCard>
-          </div>
+        {/* Sub-Header Toolbar (Chỉ Admin mới có quyền thấy và chọn/tìm kiếm Job khác) */}
+        {isAdmin && (
+          <div style={{
+            padding: "10px 24px", background: "rgba(255,255,255,0.02)",
+            borderBottom: "1px solid rgba(255,255,255,0.05)",
+            display: "flex", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 12
+          }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <select
+                value={selectedJobNumber}
+                onChange={(e) => {
+                  setSelectedJobNumber(e.target.value);
+                  if (currentStep === 1) setCurrentStep(2);
+                }}
+                style={{
+                  background: "#1a1d25", border: "1px solid rgba(59,130,246,0.4)",
+                  borderRadius: 8, color: "#93c5fd", padding: "6px 12px", fontSize: 12, fontWeight: 700
+                }}
+              >
+                <option value="ALL">📂 All Jobs ({uniqueJobsList.length})</option>
+                {uniqueJobsList.map(j => (
+                  <option key={j.job_number} value={j.job_number}>📌 {j.job_number}</option>
+                ))}
+              </select>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <select
-              value={selectedJobNumber}
-              onChange={(e) => {
-                setSelectedJobNumber(e.target.value);
-                if (currentStep === 1) setCurrentStep(2);
-              }}
-              style={{
-                background: "#1a1d25", border: "1px solid rgba(59,130,246,0.4)",
-                borderRadius: 8, color: "#93c5fd", padding: "6px 12px", fontSize: 12, fontWeight: 700
-              }}
-            >
-              <option value="ALL">📂 All Jobs ({uniqueJobsList.length})</option>
-              {uniqueJobsList.map(j => (
-                <option key={j.job_number} value={j.job_number}>📌 {j.job_number}</option>
-              ))}
-            </select>
-
-            <input
-              type="text"
-              placeholder="🔍 Search Job / Room..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 8, color: "#e2e8f0", padding: "6px 12px", fontSize: 12, outline: "none"
-              }}
-            />
+              <input
+                type="text"
+                placeholder="🔍 Search Job / Room..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 8, color: "#e2e8f0", padding: "6px 12px", fontSize: 12, outline: "none"
+                }}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Content Body */}
         <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>

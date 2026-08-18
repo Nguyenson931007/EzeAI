@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
+import { useAppModel } from "@/models/app.context";
 
 /**
  * InsulationJobsModal – Modal bóc tách diện tích cách nhiệt tường Insulation (MSSQL emsflow.dbo.Insulation)
  */
-export default function InsulationJobsModal({ visible, onClose, rooms = [], walls = [], doors = [], scaleValue = 1.0, realScale, pages = [], currentPage = 0, wallsByPage, doorsByPage }) {
+export default function InsulationJobsModal({ visible, onClose, rooms = [], walls = [], doors = [], scaleValue = 1.0, realScale, pages = [], currentPage = 0, wallsByPage, doorsByPage, activeJobNumber }) {
+  const { user } = useAppModel();
+  const isAdmin = user?.role === "admin";
+
   const [currentStep, setCurrentStep] = useState(1);
   const [jobsData, setJobsData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -35,12 +39,40 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
   useEffect(() => {
     if (visible) {
       loadJobsList();
-      setCurrentStep(1);
       setSearchTerm("");
-      setSelectedJobNumber("ALL");
       setCustomRows([]);
     }
   }, [visible]);
+
+  // Tự động chuyển thẳng sang Step 2 nếu đang mở một Saved Job cụ thể
+  useEffect(() => {
+    if (visible && activeJobNumber) {
+      const targetStr = String(activeJobNumber).trim().toLowerCase();
+      const matchedJob = jobsData.find(j => {
+        const jn = String(j.job_number || "").toLowerCase();
+        const hwId = String(j.IdJob_HW || j.hw_id || "").toLowerCase();
+        return jn === targetStr || jn.includes(targetStr) || hwId === targetStr;
+      });
+
+      if (matchedJob && matchedJob.job_number) {
+        setSelectedJobNumber(matchedJob.job_number);
+        setCurrentStep(2);
+      } else {
+        setSelectedJobNumber(activeJobNumber);
+        setCurrentStep(2);
+      }
+    } else if (visible && !activeJobNumber) {
+      setSelectedJobNumber("ALL");
+      setCurrentStep(1);
+    }
+  }, [visible, jobsData, activeJobNumber]);
+
+  // Tự động tính toán & điền bảng ngay lập tức khi mở modal cho Job hiện tại
+  useEffect(() => {
+    if (visible && activeJobNumber && currentStep === 2) {
+      applyAIInsulationToAll();
+    }
+  }, [visible, activeJobNumber, currentStep, jobsData.length]);
 
   const loadJobsList = async () => {
     setLoading(true);
@@ -305,18 +337,21 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
 
   /** Calculate totals summary */
   const totalsSummary = useMemo(() => {
-    let totalLengthM = 0;
+    let totalLengthMm = 0;
     let totalRakedM2 = 0;
     let totalDoorM2 = 0;
 
     groupedJobRows.forEach(row => {
-      totalLengthM += parseFloat(getFieldValue(row, "wall_length")) || 0;
+      totalLengthMm += parseFloat(getFieldValue(row, "wall_length")) || 0;
       totalRakedM2 += parseFloat(getFieldValue(row, "total_area_raked")) || 0;
       totalDoorM2 += parseFloat(getFieldValue(row, "total_area_door")) || 0;
     });
 
+    const totalLengthM = Math.round((totalLengthMm / 1000.0) * 10000) / 10000;
+
     return {
-      totalLengthM: Math.round(totalLengthM * 10000) / 10000,
+      totalLengthMm: Math.round(totalLengthMm * 10000) / 10000,
+      totalLengthM,
       totalRakedM2: Math.round(totalRakedM2 * 100) / 100,
       totalDoorM2: Math.round(totalDoorM2 * 100) / 100,
       count: groupedJobRows.length
@@ -402,19 +437,24 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#f8fafc" }}>
                 Insulation Wall Measurements
               </h3>
+              <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>
+                📌 Active Job: {selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs"}
+              </span>
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {/* Step indicators */}
-            <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.3)", padding: 4, borderRadius: 8 }}>
-              <button
-                onClick={() => setCurrentStep(1)}
-                style={stepBtnStyle(currentStep === 1)}
-              >
-                1. Select Job ({uniqueJobsList.length})
-              </button>
-            </div>
+            {/* Step indicators (Chỉ Admin mới thấy và bấm chuyển chọn Job) */}
+            {isAdmin && (
+              <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.3)", padding: 4, borderRadius: 8 }}>
+                <button
+                  onClick={() => setCurrentStep(1)}
+                  style={stepBtnStyle(currentStep === 1)}
+                >
+                  1. Select Job ({uniqueJobsList.length})
+                </button>
+              </div>
+            )}
 
             <button onClick={onClose} style={closeBtnStyle}>✕</button>
           </div>
@@ -698,7 +738,7 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
               <thead>
                 <tr style={{ background: "rgba(59,130,246,0.15)", borderBottom: "2px solid rgba(59,130,246,0.3)" }}>
                   <th style={{ padding: "8px 12px", textAlign: "left", color: "#cbd5e1" }}>FLOOR / PAGE</th>
-                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#cbd5e1" }}>WALL LENGTH (m)</th>
+                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#cbd5e1" }}>WALL LENGTH (mm)</th>
                   <th style={{ padding: "8px 12px", textAlign: "right", color: "#cbd5e1" }}>RAKED AREA (m²)</th>
                   <th style={{ padding: "8px 12px", textAlign: "right", color: "#34d399" }}>DOOR AREA (m²)</th>
                 </tr>

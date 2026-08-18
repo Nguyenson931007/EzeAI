@@ -80,16 +80,16 @@ export default function RibbonView({
     user,
     pages, setPages,
     currentPage, setCurrentPage,
-    setCurrentProjectName,
+    currentProjectName, setCurrentProjectName,
     roomsByPage, setRoomsByPage,
     doorsByPage, wallsByPage,
-    realScale
+    realScale,
+    showFrameworkModal, setShowFrameworkModal,
+    showAreaSummaryModal, setShowAreaSummaryModal,
+    showInsulationModal, setShowInsulationModal
   } = useAppModel();
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
   const [showWallConfig, setShowWallConfig] = useState(false);
-  const [showFrameworkModal, setShowFrameworkModal] = useState(false);
-  const [showAreaSummaryModal, setShowAreaSummaryModal] = useState(false);
-  const [showInsulationModal, setShowInsulationModal] = useState(false);
 
   return (
     <div className="cad-header">
@@ -370,29 +370,9 @@ export default function RibbonView({
                   }}
                   title="Draw manual Lintel by clicking and dragging along a wall"
                 >
-                  <span className="icon">🪵</span><span className="label">Lintel</span>
+                  <span className="icon">🪵</span><span className="label">Beams</span>
                 </button>
-                <button
-                  className={`ribbon-btn ${showFrameworkModal ? "active" : ""}`}
-                  onClick={() => setShowFrameworkModal(true)}
-                  title="Hiển thị danh sách FrameWork Jobs từ MSSQL"
-                >
-                  <span className="icon">🏗️</span><span className="label">FrameWork</span>
-                </button>
-                <button
-                  className={`ribbon-btn ${showAreaSummaryModal ? "active" : ""}`}
-                  onClick={() => setShowAreaSummaryModal(true)}
-                  title="Hiển thị danh sách Area Summary từ MSSQL"
-                >
-                  <span className="icon">📐</span><span className="label">Area Summary</span>
-                </button>
-                <button
-                  className={`ribbon-btn ${showInsulationModal ? "active" : ""}`}
-                  onClick={() => setShowInsulationModal(true)}
-                  title="Hiển thị danh sách Insulation từ MSSQL"
-                >
-                  <span className="icon">🧱</span><span className="label">Insulation</span>
-                </button>
+
                 {/* <button
                   className="ribbon-btn"
                   onClick={() => lintelController?.roundAllLintels()}
@@ -1101,6 +1081,7 @@ export default function RibbonView({
         walls={(wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : walls}
         scaleValue={scaleValue}
         realScale={realScale}
+        activeJobNumber={currentProjectName}
       />
       <AreaSummaryJobsModal
         visible={showAreaSummaryModal}
@@ -1108,6 +1089,9 @@ export default function RibbonView({
         rooms={(roomsByPage && roomsByPage[currentPage]) ? roomsByPage[currentPage] : rooms}
         scaleValue={scaleValue}
         realScale={realScale}
+        pages={pages}
+        currentPage={currentPage}
+        activeJobNumber={currentProjectName}
       />
       <InsulationJobsModal
         visible={showInsulationModal}
@@ -1121,6 +1105,7 @@ export default function RibbonView({
         currentPage={currentPage}
         wallsByPage={wallsByPage}
         doorsByPage={doorsByPage}
+        activeJobNumber={currentProjectName}
       />
     </div >
   );

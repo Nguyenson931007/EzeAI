@@ -51,9 +51,123 @@ export const useProjectController = (
         await showAlert("Project saved!");
         setCurrentProjectName(projectName);
         if (res.job_id) setCurrentJobId(res.job_id);
+
+        // Tự động đồng bộ số liệu Bóc tách (Insulation, Framework, AreaSummary) trực tiếp vào MSSQL theo mã Job
+        autoSyncTakeoffs(projectName);
       }
     } catch (err) {
       console.error("Save error:", err);
+    }
+  };
+
+  /** Tự động đồng bộ số liệu Bóc tách vào MSSQL khi lưu Job */
+  const autoSyncTakeoffs = async (pName) => {
+    try {
+      const insRes = await ApiService.fetchInsulationJobs();
+      if (!insRes || !insRes.data) return;
+      const targetStr = String(pName).trim().toLowerCase();
+      const matchedJob = insRes.data.find(j => {
+        const jn = String(j.job_number || "").toLowerCase();
+        const hwId = String(j.hw_id || j.IdJob_HW || "").toLowerCase();
+        return jn === targetStr || jn.includes(targetStr) || hwId === targetStr;
+      });
+
+      if (!matchedJob) return;
+      const activeHwId = matchedJob.hw_id || matchedJob.IdJob_HW;
+
+      // 1. Đồng bộ Insulation
+      const payloadWalls = [];
+      const getBaseId = (id) => id ? String(id).split('-A-')[0].split('-B-')[0] : '';
+      
+      const processWalls = (wallList, doorList, pageName, pScale) => {
+        const effScale = pScale || realScale || 1.0;
+        (wallList || []).forEach(w => {
+          let lengthM = 0;
+          if (w.length_m) {
+            lengthM = w.length_m;
+          } else if (w.centerline && w.centerline.length === 2) {
+            const dx = w.centerline[1][0] - w.centerline[0][0];
+            const dy = w.centerline[1][1] - w.centerline[0][1];
+            const pxLen = Math.hypot(dx, dy);
+            lengthM = (pxLen * effScale) / 1000;
+          }
+          let className = w.class_name || "interior_wall";
+          const rawType = (w.wall_type || w.type || w.classification || "").toLowerCase();
+          if (rawType.includes("ext")) className = "exterior_wall";
+          else if (rawType.includes("part")) className = "partition_wall";
+          else if (rawType.includes("int")) className = "interior_wall";
+
+          const heightMm = w.height_mm || w.height || 2400;
+          const wallBaseId = getBaseId(w.id);
+          const wallDoors = (doorList || []).filter(d => {
+            const dBaseId = getBaseId(d.parentWallId);
+            return dBaseId === wallBaseId || d.parentWallId === w.id;
+          }).map(d => ({
+            width_mm: d.width_mm || (d.width_px ? d.width_px * effScale : 820),
+            height_mm: d.height_mm || 2040
+          }));
+
+          payloadWalls.push({
+            id: w.id,
+            class_name: className,
+            length_m: Math.round(lengthM * 10000) / 10000,
+            height_mm: heightMm,
+            page_name: pageName,
+            doors: wallDoors
+          });
+        });
+      };
+
+      if (wallsByPage && Object.keys(wallsByPage).length > 0) {
+        Object.keys(wallsByPage).forEach(pIdxStr => {
+          const pIdx = parseInt(pIdxStr, 10);
+          const pWalls = wallsByPage[pIdx] || [];
+          const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
+          const pageName = pages && pages[pIdx] ? (pages[pIdx].name || `Tầng ${pIdx + 1}`) : `Tầng ${pIdx + 1}`;
+          const pScale = scalesByPage ? scalesByPage[pIdx] : null;
+          processWalls(pWalls, pDoors, pageName, pScale);
+        });
+      }
+
+      if (payloadWalls.length > 0) {
+        // Tự động tính toán & lưu Insulation vào MSSQL
+        const calcRes = await ApiService.calculateInsulation({ walls: payloadWalls });
+        if (calcRes && calcRes.success && calcRes.rows && calcRes.rows.length > 0) {
+          const items = calcRes.rows.map(r => ({
+            wall_type: r.wall_type,
+            wall_height: r.wall_height,
+            wall_length: r.wall_length,
+            total_area_raked: r.total_area_raked,
+            total_area_door: r.total_area_door
+          }));
+          await ApiService.saveInsulationJobs({
+            user_update: user.username || "EZE0098",
+            jobs: [{ id_job_hw: activeHwId, items }]
+          });
+        }
+
+        // 2. Đồng bộ Framework
+        const frameworkWallsMap = {};
+        payloadWalls.forEach(w => {
+          const isSlab = (w.class_name || "").includes("slab");
+          const floorType = isSlab ? "Slab" : "Timber";
+          const hMm = Number(w.height_mm || 2400);
+          const key = `${floorType}_${hMm}`;
+          if (!frameworkWallsMap[key]) {
+            frameworkWallsMap[key] = { floor_type: floorType, wall_height: hMm, wall_length: 0 };
+          }
+          frameworkWallsMap[key].wall_length += Math.round((w.length_m || 0) * 1000);
+        });
+        const fwWallsList = Object.values(frameworkWallsMap);
+        if (fwWallsList.length > 0) {
+          await ApiService.saveFrameworkJobs({
+            user_update: user.username || "EZE0098",
+            jobs: [{ id_job_hw: activeHwId, walls: fwWallsList }]
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Auto-sync takeoffs background notice:", e);
     }
   };
 
