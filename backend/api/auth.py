@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timedelta
 import logging
 from app.database import get_db_connection
+from app.config import TASKLIST_AUTH_URL
 
 # Khởi tạo APIRouter cho các API liên quan đến xác thực
 router = APIRouter()
@@ -567,24 +568,6 @@ def validate_session(
     finally:
         conn.close()
 
-
-import httpx
-import time
-
-_sso_client = None
-_sso_token_cache = {}  # token -> {"user_data": ..., "expires_at": ...}
-
-def _get_sso_client():
-    global _sso_client
-    if _sso_client is None or _sso_client.is_closed:
-        _sso_client = httpx.AsyncClient(
-            verify=False,
-            timeout=httpx.Timeout(5.0, connect=3.0),
-            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60)
-        )
-    return _sso_client
-
-
 @router.post("/api/auth/tasklist-sso")
 @router.post("/tasklist-sso")
 async def tasklist_sso(payload: dict, response: Response):
@@ -592,49 +575,49 @@ async def tasklist_sso(payload: dict, response: Response):
     Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
     Gửi token xác thực tới máy chủ TaskList (https://103.77.167.69:8081/api/auth/me),
     đồng bộ tài khoản và tạo phiên làm việc (session) cho Web AI EzeFloor.
-    Tối ưu hóa: Sử dụng connection pool và cache in-memory để đăng nhập tức thì (<1ms đối với token hợp lệ).
     """
     token = payload.get("token")
     if not token:
         raise HTTPException(status_code=400, detail="Tasklist token is required")
 
-    user_data = None
-    now = time.time()
-
-    # Kiểm tra cache bộ nhớ đệm
-    cached = _sso_token_cache.get(token)
-    if cached and cached.get("expires_at", 0) > now:
-        user_data = cached.get("user_data")
-
-    if not user_data:
-        client = _get_sso_client()
-        try:
+    import httpx
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
             result = await client.get(
-                "https://103.77.167.69:8081/api/auth/me",
+                TASKLIST_AUTH_URL,
                 headers={"Authorization": f"Bearer {token}"}
             )
-        except Exception as e:
-            logger.error(f"[SSO] Lỗi kết nối tới Tasklist API: {e}")
-            raise HTTPException(status_code=502, detail=f"Không thể kết nối máy chủ xác thực Tasklist: {e}")
+    except Exception as e:
+        logger.error(f"[SSO] Lỗi kết nối tới Tasklist API ({TASKLIST_AUTH_URL}): {e}")
+        raise HTTPException(status_code=502, detail=f"Không thể kết nối máy chủ xác thực Tasklist: {e}")
 
-        if result.status_code != 200:
-            logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code})")
-            raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
+    if result.status_code != 200:
+        logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code}, url={TASKLIST_AUTH_URL}, body={result.text[:200]})")
+        raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
 
-        res_json = result.json()
-        user_data = res_json.get("data") or res_json
-        
-        # Lưu cache trong 10 phút (600 giây)
-        _sso_token_cache[token] = {
-            "user_data": user_data,
-            "expires_at": now + 600
-        }
+    res_json = result.json()
+    user_data = res_json.get("data") or res_json
 
     # Trích xuất thông tin user từ Tasklist
-    username = user_data.get("UserID") or user_data.get("username") or user_data.get("MaNV") or user_data.get("name") or "sso_user"
-    manv = user_data.get("MaNV") or ""
-    raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
-    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or user_data.get("IsManagement") == 1) else str(raw_role).lower()
+    manv = str(user_data.get("ma_nv") or user_data.get("MaNV") or user_data.get("manv") or "").strip()
+    direct_username = str(user_data.get("UserID") or user_data.get("username") or user_data.get("name") or "").strip()
+    
+    # Chỉ truy vấn MSSQL nếu Tasklist không trả về Username trực tiếp
+    mssql_user = None
+    if not direct_username and manv:
+        mssql_user = get_mssql_account_user(manv)
+
+    if direct_username:
+        username = direct_username
+    elif mssql_user:
+        username = str(mssql_user.get("UserID") or manv or "sso_user").strip()
+        manv = str(mssql_user.get("MaNV") or manv).strip()
+    else:
+        username = manv or "sso_user"
+
+    raw_role = user_data.get("RoleName") or user_data.get("role") or (mssql_user.get("RoleName") if mssql_user else "User")
+    is_mgmt = user_data.get("IsManagement") == 1 or (mssql_user and mssql_user.get("IsManagement") == 1)
+    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or is_mgmt) else str(raw_role).lower()
 
     new_token = str(uuid.uuid4())
 
@@ -692,4 +675,3 @@ async def tasklist_sso(payload: dict, response: Response):
         "session_token": new_token,
         "data": user_data
     }
-

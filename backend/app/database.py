@@ -193,6 +193,24 @@ def init_db():
                 FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_group_hw_cache (
+                hw_id VARCHAR(100) PRIMARY KEY,
+                id_job_ems VARCHAR(100),
+                id_assign_ems INT,
+                job_number VARCHAR(100),
+                client VARCHAR(255),
+                builder VARCHAR(255),
+                ma_nv VARCHAR(50),
+                progress DECIMAL(10,2) DEFAULT 0,
+                is_done TINYINT DEFAULT 0,
+                created_at DATETIME NULL,
+                synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_hw_job_number (job_number),
+                INDEX idx_hw_ma_nv (ma_nv),
+                INDEX idx_hw_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
     else:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -252,6 +270,23 @@ def init_db():
                 FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_group_hw_cache (
+                hw_id TEXT PRIMARY KEY,
+                id_job_ems TEXT,
+                id_assign_ems INTEGER,
+                job_number TEXT,
+                client TEXT,
+                builder TEXT,
+                ma_nv TEXT,
+                progress REAL DEFAULT 0,
+                is_done INTEGER DEFAULT 0,
+                created_at TEXT,
+                synced_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_hw_job_number ON task_group_hw_cache (job_number)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_hw_ma_nv ON task_group_hw_cache (ma_nv)')
 
         # Check if thumbnail column exists
         cursor.execute("PRAGMA table_info(jobs)")

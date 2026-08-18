@@ -54,10 +54,14 @@ else:
         "http://localhost:8090",
         "http://117.2.106.202:3011",
         "http://117.2.106.202:8090",
+        "http://14.241.197.188:3011",
         "http://14.241.197.188:7749",
         "http://14.241.197.188",
         "https://103.77.167.69:8081",
     ]
+
+# ── Tasklist SSO Configuration ──
+TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "http://14.241.197.188:7749/api/auth/me")
 
 # ── Limit Configuration ──
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -77,3 +81,4 @@ SESSION_COOKIE_MAX_AGE = 1800  # 30 minutes in seconds
 # ── Security ──
 PASSWORD_SALT = "ezefloor_salt_123"
 MAX_FAILED_ATTEMPTS = 5
+

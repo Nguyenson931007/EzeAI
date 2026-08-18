@@ -7,13 +7,16 @@ Khôi phục, Đổi tên, Xóa dự án, Trích xuất & thu nhỏ ảnh thu nh
 Xem lịch sử chỉnh sửa chéo, và Chia sẻ dự án công khai qua Token bảo mật.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Response, Header
+from fastapi import APIRouter, HTTPException, Depends, Response, Header, Query
 import secrets
+import logging
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db_connection
 from api.auth import validate_session
 import json
+
+logger = logging.getLogger("ezefloor.jobs")
 
 # Khởi tạo APIRouter cho các API liên quan đến quản lý dự án
 router = APIRouter()
@@ -229,11 +232,245 @@ def get_job_history():
             LIMIT 100
         """)
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [{"project_name": r["project_name"], "old_user": r["old_user"], "new_user": r["new_user"], "changed_at": str(r["changed_at"])} for r in rows]
     except Exception as e:
+        logger.error(f"Lỗi khi đọc lịch sử bản vẽ: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ══════════════════════════════════════════════════════
+# TASK GROUPS HW (LOCAL CACHE TABLE READ - SUPER FAST)
+# ══════════════════════════════════════════════════════
+
+import threading
+_is_syncing_hw = False
+_last_hw_sync_time = 0
+
+def sync_task_groups_hw_to_local_db(limit_val: int = 400):
+    """
+    Hàm chạy ngầm đồng bộ danh sách Task Groups HW từ TaskList Web3 (MSSQL)
+    về bảng cục bộ `task_group_hw_cache` (MySQL / SQLite).
+    """
+    global _is_syncing_hw, _last_hw_sync_time
+    if _is_syncing_hw:
+        return
+    _is_syncing_hw = True
+
+    try:
+        import time
+        from app.mssql_db import get_mssql_connection
+        from app.database import DB_TYPE
+
+        logger.info(f"[task-sync] Bắt đầu đồng bộ ngầm {limit_val} Task HW từ MSSQL sang Local DB...")
+        t0 = time.time()
+
+        mconn = get_mssql_connection()
+        mcursor = mconn.cursor(as_dict=True)
+
+        sql = f"""
+            SELECT TOP {limit_val}
+                tghw.id AS hw_id,
+                tghw.id_job_ems,
+                tghw.id_assign_ems,
+                tghw.created_at,
+                tghw.progress,
+                tghw.is_done,
+                lj.JobNumber AS job_number,
+                lj.Client AS client,
+                lj.Builder AS builder,
+                aj.MaNV AS ma_nv
+            FROM [emsflow].[dbo].[task_group_hw] tghw WITH (NOLOCK)
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj WITH (NOLOCK)
+                ON tghw.id_job_ems = lj.IDJob
+                AND ISNULL(lj.IsDelete, 0) = 0
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj WITH (NOLOCK)
+                ON tghw.id_assign_ems = aj.ID
+                AND ISNULL(aj.IsDelete, 0) = 0
+            WHERE ISNULL(tghw.is_delete, 0) = 0 AND lj.JobNumber IS NOT NULL
+            ORDER BY tghw.created_at DESC
+        """
+
+        mcursor.execute(sql)
+        rows = mcursor.fetchall()
+        mconn.close()
+
+        if not rows:
+            logger.warning("[task-sync] Không tìm thấy bản ghi Task HW từ MSSQL.")
+            return
+
+        lconn = get_db_connection()
+        lcursor = lconn.cursor()
+
+        if DB_TYPE == "mysql":
+            insert_sql = """
+                INSERT INTO task_group_hw_cache (
+                    hw_id, id_job_ems, id_assign_ems, job_number, client, builder, ma_nv, progress, is_done, created_at, synced_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    id_job_ems = VALUES(id_job_ems),
+                    id_assign_ems = VALUES(id_assign_ems),
+                    job_number = VALUES(job_number),
+                    client = VALUES(client),
+                    builder = VALUES(builder),
+                    ma_nv = VALUES(ma_nv),
+                    progress = VALUES(progress),
+                    is_done = VALUES(is_done),
+                    created_at = VALUES(created_at),
+                    synced_at = NOW()
+            """
+            for r in rows:
+                lcursor.execute(insert_sql, (
+                    r['hw_id'], r['id_job_ems'], r['id_assign_ems'], r['job_number'],
+                    r['client'], r['builder'], r['ma_nv'], float(r['progress'] or 0),
+                    1 if r['is_done'] else 0, r['created_at']
+                ))
+        else:
+            insert_sql = """
+                INSERT OR REPLACE INTO task_group_hw_cache (
+                    hw_id, id_job_ems, id_assign_ems, job_number, client, builder, ma_nv, progress, is_done, created_at, synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """
+            for r in rows:
+                lcursor.execute(insert_sql, (
+                    r['hw_id'], r['id_job_ems'], r['id_assign_ems'], r['job_number'],
+                    r['client'], r['builder'], r['ma_nv'], float(r['progress'] or 0),
+                    1 if r['is_done'] else 0, str(r['created_at'])
+                ))
+
+        lconn.commit()
+        lconn.close()
+
+        _last_hw_sync_time = time.time()
+        logger.info(f"[task-sync] Đồng bộ thành công {len(rows)} Task HW vào Local DB trong {round((time.time()-t0)*1000)}ms")
+
+    except Exception as sync_err:
+        logger.error(f"[task-sync] Lỗi đồng bộ ngầm Task HW: {sync_err}")
+    finally:
+        _is_syncing_hw = False
+
+
+@router.get("/jobs/tasklist-jobs")
+async def get_tasklist_jobs(
+    ma_nv: Optional[str] = Query(None, description="Lọc theo mã nhân viên e.g. EZE0098"),
+    search: Optional[str] = Query(None, description="Tìm kiếm mã Job, Client, Builder"),
+    limit: int = Query(150, ge=1, le=1000, description="Số lượng job tối đa"),
+    force_refresh: bool = Query(False, description="Đồng bộ lại từ MSSQL")
+):
+    """
+    Lấy danh sách Task Groups HW trực tiếp từ CSDL Cục Bộ (MySQL / SQLite),
+    kết hợp đối chiếu tức thì với bảng `jobs` để gắn tích xanh ✅ (< 5ms).
+    """
+    import time
+    from app.database import DB_TYPE
+
+    global _last_hw_sync_time
+
+    # Nếu yêu cầu force_refresh, kích hoạt đồng bộ ngầm
+    if force_refresh:
+        threading.Thread(target=sync_task_groups_hw_to_local_db, args=(300,), daemon=True).start()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Kiểm tra nếu bảng cache chưa có dữ liệu hoặc đã quá 10 phút chưa đồng bộ
+    cursor.execute("SELECT COUNT(*) AS cnt FROM task_group_hw_cache")
+    cnt_row = cursor.fetchone()
+    cache_count = cnt_row["cnt"] if isinstance(cnt_row, dict) else (cnt_row[0] if cnt_row else 0)
+
+    if cache_count == 0 or (time.time() - _last_hw_sync_time > 600):
+        # Đồng bộ đồng bộ lần đầu nếu cache rỗng
+        if cache_count == 0:
+            sync_task_groups_hw_to_local_db(300)
+        else:
+            threading.Thread(target=sync_task_groups_hw_to_local_db, args=(300,), daemon=True).start()
+
+    # Xây dựng câu truy vấn đọc siêu tốc từ Local DB
+    where_clauses = []
+    params = []
+
+    clean_manv = ma_nv.strip() if isinstance(ma_nv, str) and ma_nv.strip() else None
+    if clean_manv:
+        where_clauses.append("t.ma_nv = ?")
+        params.append(clean_manv)
+
+    clean_search = search.strip() if isinstance(search, str) and search.strip() else None
+    if clean_search:
+        where_clauses.append("(t.job_number LIKE ? OR t.client LIKE ? OR t.builder LIKE ? OR t.ma_nv LIKE ?)")
+        sp = f"%{clean_search}%"
+        params.extend([sp, sp, sp, sp])
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    limit_val = int(limit) if isinstance(limit, (int, str)) and str(limit).isdigit() else 150
+
+    if DB_TYPE == "mysql":
+        where_sql = where_sql.replace("?", "%s")
+
+    sql = f"""
+        SELECT 
+            t.hw_id,
+            t.id_job_ems,
+            t.id_assign_ems,
+            t.created_at,
+            t.progress,
+            t.is_done,
+            t.job_number,
+            t.client,
+            t.builder,
+            t.ma_nv,
+            j.id AS local_job_id,
+            j.project_name AS local_project_name,
+            j.room_count,
+            j.total_area
+        FROM task_group_hw_cache t
+        LEFT JOIN jobs j ON LOWER(TRIM(t.job_number)) = LOWER(TRIM(j.project_name))
+        {where_sql}
+        ORDER BY t.created_at DESC
+        LIMIT {limit_val}
+    """
+
+    cursor.execute(sql, tuple(params) if params else None)
+    rows = cursor.fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        item = dict(r) if isinstance(r, dict) or hasattr(r, "keys") else {
+            "hw_id": r[0], "id_job_ems": r[1], "id_assign_ems": r[2], "created_at": str(r[3]),
+            "progress": float(r[4] or 0), "is_done": bool(r[5]), "job_number": r[6], "client": r[7],
+            "builder": r[8], "ma_nv": r[9], "local_job_id": r[10], "local_project_name": r[11],
+            "room_count": r[12], "total_area": r[13]
+        }
+
+        has_local = bool(item.get("local_job_id"))
+        results.append({
+            "hw_id": item.get("hw_id"),
+            "id_job_ems": item.get("id_job_ems"),
+            "id_assign_ems": item.get("id_assign_ems"),
+            "created_at": str(item.get("created_at") or ""),
+            "progress": item.get("progress"),
+            "is_done": item.get("is_done"),
+            "job_number": item.get("job_number"),
+            "client": item.get("client"),
+            "builder": item.get("builder"),
+            "ma_nv": item.get("ma_nv"),
+            "has_local_job": has_local,
+            "local_job": {
+                "id": item.get("local_job_id"),
+                "project_name": item.get("local_project_name") or item.get("job_number"),
+                "room_count": item.get("room_count"),
+                "total_area": item.get("total_area")
+            } if has_local else None
+        })
+
+    return {
+        "status": "success",
+        "total": len(results),
+        "completed_count": sum(1 for r in results if r["has_local_job"]),
+        "data": results,
+        "source": "local_database"
+    }
 
 
 @router.get("/jobs/{username}", response_model=List[JobResponse])
@@ -522,3 +759,106 @@ def get_shared_job(token: str):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ══════════════════════════════════════════════════════
+# LOOKUP JOB BY EMS ID (SSO deep-link từ TaskList Web3)
+# ══════════════════════════════════════════════════════
+
+@router.get("/jobs/open-by-ems/{ems_id}")
+async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_session)):
+    """
+    Tra cứu thông tin HW Job từ MSSQL theo id_job_ems (UUID từ TaskList).
+    Sử dụng khi người dùng SSO từ TaskList Web3 với tham số ?job=<ems_uuid>.
+    Trả về thông tin task_group_hw + job_number từ ListJobs.
+    """
+    from app.mssql_db import get_mssql_connection
+
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+
+        sql = """
+            SELECT
+                tghw.id AS hw_id,
+                tghw.id_job_ems,
+                tghw.id_assign_ems,
+                lj.JobNumber AS job_number,
+                lj.Client AS client,
+                lj.Builder AS builder,
+                aj.MaNV AS ma_nv
+            FROM [emsflow].[dbo].[task_group_hw] tghw
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
+                ON tghw.id_job_ems = lj.IDJob
+                AND ISNULL(lj.IsDelete, 0) = 0
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
+                ON tghw.id_assign_ems = aj.ID
+                AND ISNULL(aj.IsDelete, 0) = 0
+            WHERE
+                tghw.id_job_ems = %s
+                AND ISNULL(tghw.is_delete, 0) = 0
+        """
+
+        cursor.execute(sql, (ems_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            logger.warning(f"[open-by-ems] Không tìm thấy HW Job với id_job_ems={ems_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Không tìm thấy Job EMS với ID: {ems_id}"
+            )
+
+        # Serialize kết quả
+        result = {}
+        for key, val in row.items():
+            if val is None:
+                result[key] = None
+            elif isinstance(val, (int, float, str, bool)):
+                result[key] = val
+            else:
+                result[key] = str(val)
+
+        logger.info(f"[open-by-ems] Tìm thấy HW Job: hw_id={result.get('hw_id')}, job_number={result.get('job_number')}")
+
+        # Tra cứu xem trong CSDL bản vẽ nội bộ (SQLite/MySQL) đã có project nào lưu theo job_number chưa
+        local_job = None
+        job_number = result.get("job_number")
+        if job_number:
+            try:
+                local_conn = get_db_connection()
+                local_cursor = local_conn.cursor()
+                local_cursor.execute(
+                    "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE project_name = ? ORDER BY id DESC LIMIT 1",
+                    (job_number,)
+                )
+                local_row = local_cursor.fetchone()
+                if local_row:
+                    local_job = {
+                        "id": local_row["id"],
+                        "project_name": local_row["project_name"],
+                        "room_count": local_row["room_count"],
+                        "total_area": local_row["total_area"],
+                        "data": local_row["data"]
+                    }
+                local_conn.close()
+            except Exception as ex:
+                logger.warning(f"[open-by-ems] Không thể kiểm tra local jobs: {ex}")
+
+        result["local_job"] = local_job
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[open-by-ems] Lỗi truy vấn MSSQL: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn MSSQL: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+

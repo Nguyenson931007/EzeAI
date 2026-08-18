@@ -15,7 +15,7 @@
  *   5. Save/Load → ProjectController (saveJob, loadJob)
  *   6. BOQ/Export → DocumentController (exportPDF)
  */
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import dynamic from "next/dynamic";
 import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon, getBaseWallId, snapRoomPolygonToWalls } from "@/utils/geometry";
@@ -438,22 +438,23 @@ export default function App() {
     scalesByPage, setScalesByPage
   );
 
-  const loadSharedProject = async (token) => {
+  // ── 1. Tải project chia sẻ qua token bảo mật ──
+  const loadSharedProject = useCallback(async (token) => {
     try {
       const res = await ApiService.getSharedJob(token);
-      if (res.status === "success") {
-        const parsedData = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+      if (res.status === 'success') {
+        const parsedData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
         handleLoadJob(parsedData, res.project_name);
         setIsLoggedIn(true);
         setUser({ username: "Guest Viewer", role: "viewer" });
-        setActiveTab("Home");
+        setActiveTab("Editor");
       }
     } catch (err) {
       console.error("Shared load error:", err);
       alert("Link chia sẻ không hợp lệ hoặc đã hết hạn.");
       window.location.href = "/";
     }
-  };
+  }, [handleLoadJob, setIsLoggedIn, setUser, setActiveTab]);
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -463,149 +464,153 @@ export default function App() {
         loadSharedProject(token);
       }
     }
-  }, []);
+  }, [loadSharedProject]);
 
-  // ── TASK_LIST_WEB3_SSO & Job Deep-Linking Listener ──
-  useEffect(() => {
-    let isMounted = true;
-    let ssoProcessing = false;
+  // ── 2. Tự động mở đúng Job từ TaskList Web3 (deep-link theo EMS UUID) ──
+  const loadEmsJob = useCallback(async (idJobEms) => {
+    if (!idJobEms) return;
+    try {
+      console.log("[SSO] Đang nạp thông tin Job từ TaskList theo EMS ID:", idJobEms);
+      const emsResult = await ApiService.getJobByEmsId(idJobEms);
+      if (emsResult?.status === "success" && emsResult.data) {
+        const jobInfo = emsResult.data;
+        console.log("[SSO] Thông tin Job nhận được:", jobInfo);
 
-    // Helper: Nạp trực tiếp dữ liệu dự án vào Canvas
-    const loadTargetJob = async (jobIdentifier) => {
-      if (!jobIdentifier) return;
-      try {
-        setSsoLoading(true);
-        setSsoStatusText(`Đang mở dự án [${jobIdentifier}]...`);
-        console.log(`[SSO/DeepLink] Đang tìm kiếm và nạp dự án: ${jobIdentifier}`);
+        // Lưu thông tin EMS job vào sessionStorage để các modal (Framework / Insulation / AreaSummary) sử dụng
+        sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
 
-        const res = await ApiService.findJob(jobIdentifier);
-        if (!isMounted) return;
+        const targetProjectName = jobInfo.job_number || ("Project " + String(idJobEms).slice(0, 8));
 
-        if (res && res.status === "success" && res.found && res.data) {
-          const parsedData = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
-          handleLoadJob(parsedData, res.project_name, res.job_id);
-          console.log(`[SSO/DeepLink] Đã nạp thành công dự án [${res.project_name}] (ID: ${res.job_id})`);
+        // Nếu đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor (local_job)
+        if (jobInfo.local_job?.data) {
+          console.log("[SSO] Tìm thấy bản vẽ đã lưu cho Job:", targetProjectName, "Đang nạp lên canvas...");
+          const parsedData = typeof jobInfo.local_job.data === "string"
+            ? JSON.parse(jobInfo.local_job.data)
+            : jobInfo.local_job.data;
+          handleLoadJob(parsedData, jobInfo.local_job.project_name || targetProjectName, jobInfo.local_job.id);
         } else {
-          // Dự án chưa có dữ liệu vẽ trước đó -> Chuẩn bị dự án mới với tên này
-          console.log(`[SSO/DeepLink] Dự án [${jobIdentifier}] chưa có bản vẽ cũ. Sẵn sàng tạo mới.`);
-          setCurrentProjectName(jobIdentifier);
-          setCurrentJobId(null);
-          setActiveTab("Home");
+          // Nếu là job mới chưa có bản vẽ trên EzeFloor
+          console.log("[SSO] Job mới từ TaskList chưa có bản vẽ. Đặt tên dự án:", targetProjectName);
+          setCurrentProjectName(targetProjectName);
+          if (setCurrentJobId) setCurrentJobId(null);
         }
-      } catch (err) {
-        console.error(`[SSO/DeepLink] Lỗi khi nạp dự án [${jobIdentifier}]:`, err);
-        setCurrentProjectName(jobIdentifier);
-        setActiveTab("Home");
-      } finally {
-        if (isMounted) {
-          setSsoLoading(false);
-        }
-      }
-    };
 
-    // Helper: Thực hiện xác thực SSO và điều hướng Job
-    const performSSO = async (token, targetJob) => {
-      if (ssoProcessing) return;
-      ssoProcessing = true;
-      setSsoLoading(true);
-      setSsoStatusText("Đang đồng bộ xác thực SSO...");
+        setActiveTab("Home");
+      }
+    } catch (emsErr) {
+      console.warn("[SSO] Không thể nạp Job từ TaskList:", emsErr);
+    }
+  }, [handleLoadJob, setCurrentProjectName, setActiveTab, setCurrentJobId]);
+
+  // Kiểm tra tham số ?job= trên URL khi đã đăng nhập (hoặc refresh trang)
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const idJobEms = new URLSearchParams(window.location.search).get("job");
+    if (idJobEms) {
+      loadEmsJob(idJobEms);
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }, [isLoggedIn, loadEmsJob]);
+
+  // ── 3. TASK_LIST_WEB3_SSO Listener tốc độ cao (Tức thì < 50ms) ──
+  useEffect(() => {
+    let handled = false;
+
+    const allowedOrigins = new Set([
+      "https://103.77.167.69:8081",
+      "http://103.77.167.69:8081",
+      "http://14.241.197.188:7749",
+      "https://14.241.197.188:7749",
+      "http://14.241.197.188",
+      "https://14.241.197.188",
+      "http://localhost:7749",
+      "http://127.0.0.1:7749",
+      "http://localhost:3011",
+      "http://127.0.0.1:3011"
+    ]);
+
+    try {
+      if (document.referrer) {
+        allowedOrigins.add(new URL(document.referrer).origin);
+      }
+    } catch (_) {}
+
+    const receiveSSO = async (event) => {
+      if (!allowedOrigins.has(event.origin) && !event.origin?.includes("14.241.197.188") && !event.origin?.includes("103.77.167.69")) return;
+      if (event.data?.type !== "TASK_LIST_WEB3_SSO") return;
+      if (!event.data?.token) return;
+      if (handled) return;
+
+      handled = true;
 
       try {
-        console.log("[SSO] Bắt đầu xác thực token SSO...");
-        const response = await ApiService.tasklistSSO(token);
+        console.log("[SSO] Đang xác thực SSO token từ TaskList...");
+        const response = await ApiService.tasklistSSO(event.data.token);
         if (!response.ok) {
           const errText = await response.text();
-          console.warn("[SSO] TaskList SSO failed:", response.status, errText);
-          ssoProcessing = false;
-          if (isMounted) setSsoLoading(false);
+          console.warn("[SSO] TaskList SSO thất bại:", response.status, errText);
+          handled = false;
           return;
         }
 
         const data = await response.json();
-        if (data.status === "success" && isMounted) {
-          const userData = {
-            username: data.username,
-            role: data.role,
-            session_token: data.session_token
-          };
-          setIsLoggedIn(true);
-          setUser(userData);
-          localStorage.setItem("isLoggedIn", "true");
-          localStorage.setItem("user", JSON.stringify(userData));
-          console.log(`[SSO] Đăng nhập SSO thành công với user: ${data.username}`);
+        if (data.status !== "success") {
+          console.error("[SSO] Phản hồi SSO không hợp lệ:", data);
+          handled = false;
+          return;
+        }
 
-          if (targetJob) {
-            await loadTargetJob(targetJob);
-          } else {
-            setActiveTab("Home");
-            setSsoLoading(false);
-          }
+        const userData = {
+          username: data.username,
+          role: data.role,
+          session_token: data.session_token,
+        };
+
+        setIsLoggedIn(true);
+        setUser(userData);
+        localStorage.setItem("isLoggedIn", "true");
+        localStorage.setItem("user", JSON.stringify(userData));
+        console.log("[SSO] Đăng nhập thành công với tài khoản:", userData.username);
+
+        const idJobEms = new URLSearchParams(window.location.search).get("job");
+        if (idJobEms) {
+          loadEmsJob(idJobEms);
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
         }
       } catch (err) {
-        console.error("[SSO] Lỗi trong quá trình xác thực SSO:", err);
-        ssoProcessing = false;
-        if (isMounted) setSsoLoading(false);
-      }
-    };
-
-    // 1. Kiểm tra ngay URL search params khi khởi động ứng dụng
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const urlToken = params.get("token") || params.get("sso_token") || params.get("auth_token");
-      const urlJob = params.get("job") || params.get("job_number") || params.get("id_job_ems") || params.get("job_id") || params.get("project_name");
-
-      if (urlToken) {
-        performSSO(urlToken, urlJob);
-      } else if (urlJob && isLoggedIn) {
-        loadTargetJob(urlJob);
-      }
-
-      // Gửi handshake READY tới parent TaskList (iframe hoặc window.opener)
-      if (window.parent && window.parent !== window) {
-        try {
-          window.parent.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
-          // Lặp lại nhẹ sau 300ms để đảm bảo parent nhận được nếu mount hơi muộn
-          setTimeout(() => {
-            try {
-              window.parent.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
-            } catch (_) {}
-          }, 300);
-        } catch (e) {
-          console.warn("[SSO] Could not postMessage to parent:", e);
-        }
-      }
-    }
-
-    // 2. Lắng nghe thông điệp postMessage từ TaskList Web3
-    const receiveSSO = async (event) => {
-      const allowedOrigins = [
-        "https://103.77.167.69:8081",
-        "http://14.241.197.188:7749",
-        "http://14.241.197.188"
-      ];
-      if (allowedOrigins.length > 0 && !allowedOrigins.includes(event.origin)) return;
-
-      const eventData = event.data || {};
-      const targetJob = eventData.job_number || eventData.id_job_ems || eventData.job || eventData.job_id || eventData.project_name || new URLSearchParams(window.location.search).get("job");
-      const token = eventData.token || eventData.data?.token;
-
-      if (token) {
-        await performSSO(token, targetJob);
-      } else if (targetJob) {
-        if (isLoggedIn) {
-          await loadTargetJob(targetJob);
-        } else {
-          setCurrentProjectName(targetJob);
-        }
+        console.error("[SSO] Lỗi trong quá trình xử lý SSO:", err);
+        handled = false;
       }
     };
 
     window.addEventListener("message", receiveSSO);
-    return () => {
-      isMounted = false;
-      window.removeEventListener("message", receiveSSO);
+
+    // Gửi tín hiệu READY liên tục ở các mốc thời gian siêu ngắn (0ms, 30ms, 100ms, 250ms, 600ms, 1200ms)
+    // Tới cả window.opener (nếu là popup) và window.parent (nếu là iframe)
+    const notifyReady = () => {
+      const targets = [];
+      if (window.opener && !window.opener.closed) targets.push(window.opener);
+      if (window.parent && window.parent !== window) targets.push(window.parent);
+
+      for (const target of targets) {
+        try {
+          target.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
+        } catch (_) {}
+      }
     };
-  }, [handleLoadJob, isLoggedIn, setIsLoggedIn, setUser, setCurrentProjectName, setCurrentJobId, setActiveTab]);
+
+    notifyReady();
+    const readyTimers = [30, 100, 250, 600, 1200, 2500].map((delay) =>
+      window.setTimeout(notifyReady, delay)
+    );
+
+    return () => {
+      window.removeEventListener("message", receiveSSO);
+      readyTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [setIsLoggedIn, setUser, loadEmsJob]);
 
   // Pass down context for global access
   const contextValue = {
@@ -1333,6 +1338,7 @@ export default function App() {
                 deleteRoof={deleteRoof}
                 lintelController={lintelController}
                 selectedId={selectedId}
+                onLoadJob={handleLoadJob}
               />
             )
           )}
@@ -1366,3 +1372,4 @@ export default function App() {
     </div>
   );
 }
+
