@@ -717,5 +717,47 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  // ── Roof V3 Engine API Endpoints ──
+  async computeRoof2D(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/compute-roof`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async buildRoof3D(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/build-planes`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async trimRoofEave(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/trim-eave`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async optimizeRoofGraph(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/optimize-graph`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };
+

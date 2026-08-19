@@ -146,7 +146,7 @@ const LintelsLayer = React.memo(({
         if (!l.wallId && l.points && l.points.length === 2) {
           // Standalone or cross-wall lintel — uses absolute coordinates
           startPt = { x: l.points[0][0], y: l.points[0][1] };
-          endPt   = { x: l.points[1][0], y: l.points[1][1] };
+          endPt = { x: l.points[1][0], y: l.points[1][1] };
           wallThickness = 20; // default thickness for standalone
         } else {
           // Wall-attached lintel — resolve from wall centerline + parametric offsets
@@ -159,7 +159,7 @@ const LintelsLayer = React.memo(({
           const dy = p2.y - p1.y;
 
           startPt = { x: p1.x + l.startOffset * dx, y: p1.y + l.startOffset * dy };
-          endPt   = { x: p1.x + l.endOffset * dx,   y: p1.y + l.endOffset * dy };
+          endPt = { x: p1.x + l.endOffset * dx, y: p1.y + l.endOffset * dy };
           wallThickness = wall.thickness_px || 20;
         }
 
@@ -1308,7 +1308,7 @@ const WallHandlesLayer = React.memo(({
         const dx = p2[0] - p1[0];
         const dy = p2[1] - p1[1];
         const wallLen = Math.hypot(dx, dy);
-        
+
         let angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle > 90 || angle < -90) angle += 180;
 
@@ -2741,8 +2741,16 @@ export default function CanvasView({
   hoveredRoofTarget,
   updateRoofPitch,
   updateRoofType,
+  updateRoofEdgeAngle,
+  updateRoofEdgeOverhang,
+  computeSelectedRoof,
+  trimRoofEdge,
+  isComputingRoof,
   setRoofEaveEdge,
   deleteRoof,
+  deleteRoofVertex,
+  selectedRoofEdgeIndex,
+  setSelectedRoofEdgeIndex,
   currentPoly,
   currentDoor,
   currentMouse,
@@ -2865,7 +2873,7 @@ export default function CanvasView({
 
   // Wall context menu state
   const [wallContextMenu, setWallContextMenu] = useState({ visible: false, x: 0, y: 0, wall: null });
-  
+
   // Roof context menu state
   const [roofContextMenu, setRoofContextMenu] = useState({ visible: false, x: 0, y: 0, roof: null, edgeIndex: null });
 
@@ -3988,24 +3996,36 @@ export default function CanvasView({
                   strokeDasharray="6,3"
                 />
                 {currentPoly.map((p, i) => (
-                  <circle
-                    key={`roof-preview-${i}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={4}
-                    fill={i === 0 ? "#ef4444" : "#f59e0b"}
-                    stroke="#ffffff"
-                    strokeWidth={2}
-                  />
+                  <g key={`roof-preview-${i}`}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={8}
+                      fill={i === 0 ? "#ef4444" : "#f59e0b"}
+                      stroke="#ffffff"
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y}
+                      fill="#000000"
+                      fontSize={9}
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                    >
+                      {i + 1}
+                    </text>
+                  </g>
                 ))}
                 {/* Visual close indicator: larger ring on first point when mouse is near */}
                 {currentPoly.length >= 2 && currentMouse && Math.hypot(
                   currentMouse.x - currentPoly[0].x, currentMouse.y - currentPoly[0].y
-                ) < 15 && (
+                ) < 20 && (
                     <circle
                       cx={currentPoly[0].x}
                       cy={currentPoly[0].y}
-                      r={10}
+                      r={14}
                       fill="rgba(239,68,68,0.3)"
                       stroke="#ef4444"
                       strokeWidth={2}
@@ -4030,10 +4050,7 @@ export default function CanvasView({
               const c = centroid(roof.polygon);
               const isSelected = selectedRoofId === roof.id;
               const isHovered = hoveredRoofTarget?.roofId === roof.id;
-
               const areaM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
-              const pitchRad = (roof.pitchAngle || 0) * (Math.PI / 180);
-              const trueArea = pitchRad > 0 ? areaM2 / Math.cos(pitchRad) : areaM2;
 
               return (
                 <g key={roof.id}>
@@ -4051,16 +4068,177 @@ export default function CanvasView({
                       const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
                       return `${px},${py}`;
                     }).join(" ")}
-                    fill={isSelected ? "rgba(245,158,11,0.35)" : isHovered ? "rgba(245,158,11,0.25)" : "rgba(245,158,11,0.18)"}
+                    fill={isSelected ? "rgba(245,158,11,0.22)" : isHovered ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.10)"}
                     stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706"}
-                    strokeWidth={isSelected ? 3.5 : isHovered ? 3 : 2.5}
-                    strokeDasharray={isSelected ? "none" : "8,4"}
+                    strokeWidth={isSelected ? 2.5 : isHovered ? 2.0 : 1.5}
+                    strokeDasharray={isSelected ? "none" : "6,3"}
                     style={{ cursor: "pointer" }}
                   />
 
-                  {/* Priority 2: Edge Hover Highlight */}
-                  {isHovered && hoveredRoofTarget?.type === 'edge' && (() => {
-                    const eIdx = hoveredRoofTarget.edgeIndex;
+                  {/* 2D Straight Skeleton Face Fills (V3 Topology) */}
+                  {roof.v3Data?.topology2D?.faces && (() => {
+                    const topo = roof.v3Data.topology2D;
+                    const nodes = topo.nodes || [];
+                    const faces = topo.faces || [];
+                    const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                      ? realScale
+                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+                    const FACE_COLORS = [
+                      'rgba(245, 158, 11, 0.12)',
+                      'rgba(59, 130, 246, 0.12)',
+                      'rgba(16, 185, 129, 0.12)',
+                      'rgba(168, 85, 247, 0.12)',
+                      'rgba(236, 72, 153, 0.12)',
+                      'rgba(6, 182, 212, 0.12)',
+                      'rgba(234, 179, 8, 0.12)',
+                      'rgba(99, 102, 241, 0.12)'
+                    ];
+
+                    const getNodeCoord = (ref) => {
+                      if (ref == null) return null;
+                      let node = null;
+                      if (typeof ref === 'object' && ref !== null) {
+                        node = ref;
+                      } else if (Array.isArray(nodes)) {
+                        if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+                          node = nodes[ref];
+                        } else {
+                          node = nodes.find(n => n && n.id === ref);
+                        }
+                      }
+                      if (!node) return null;
+                      const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+                      const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+                      if (isNaN(rawX) || isNaN(rawY)) return null;
+                      return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+                    };
+
+                    return (
+                      <g pointerEvents="none">
+                        {faces.map((face, fIdx) => {
+                          const vertCoords = (face.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
+                          if (vertCoords.length < 3) return null;
+                          return (
+                            <polygon
+                              key={`roof-face-${roof.id}-${fIdx}`}
+                              points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
+                              fill={FACE_COLORS[fIdx % FACE_COLORS.length]}
+                              stroke="none"
+                            />
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
+
+                  {/* Base Building Wall Outline (Inside Overhang) */}
+                  <polygon
+                    onContextMenu={(e) => {
+                      if (isHovered && hoveredRoofTarget?.type === 'edge') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleRoofContextMenu(e, roof, hoveredRoofTarget.edgeIndex);
+                      }
+                    }}
+                    points={(roof.polygon || []).map(p => {
+                      const px = typeof p.x === 'number' ? p.x : (Array.isArray(p) ? p[0] : 0);
+                      const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
+                      return `${px},${py}`;
+                    }).join(" ")}
+                    fill={!roof.v3Data ? (isSelected ? "rgba(245,158,11,0.22)" : isHovered ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.10)") : "transparent"}
+                    stroke={isSelected ? "#22c55e" : isHovered ? "#f59e0b" : "#d97706"}
+                    strokeWidth={isSelected ? 2.5 : 1.8}
+                    strokeDasharray={roof.v3Data ? "5,3" : "none"}
+                    style={{ cursor: "pointer" }}
+                  />
+
+                  {/* 2D Straight Skeleton Edges (V3 Topology) */}
+                  {roof.v3Data?.topology2D && (() => {
+                    const topo = roof.v3Data.topology2D;
+                    const nodes = topo.nodes || [];
+                    const edges = topo.edges || [];
+                    const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                      ? realScale
+                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+                    const getNodeCoord = (ref) => {
+                      if (ref == null) return null;
+                      let node = null;
+                      if (typeof ref === 'object' && ref !== null) {
+                        node = ref;
+                      } else if (Array.isArray(nodes)) {
+                        if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+                          node = nodes[ref];
+                        } else {
+                          node = nodes.find(n => n && n.id === ref);
+                        }
+                      }
+                      if (!node) return null;
+
+                      const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+                      const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+                      if (isNaN(rawX) || isNaN(rawY)) return null;
+
+                      return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+                    };
+
+                    return (
+                      <g pointerEvents="none">
+                        {edges.map((e, eIdx) => {
+                          const p1 = getNodeCoord(e.source);
+                          const p2 = getNodeCoord(e.target);
+                          if (!p1 || !p2) return null;
+
+                          let strokeColor = "#22c55e"; // eave
+                          let strokeWidth = 2.0;
+                          let dash = "none";
+
+                          if (e.edge_type === 'ridge') {
+                            strokeColor = "#ef4444";
+                            strokeWidth = 2.8;
+                          } else if (e.edge_type === 'hip') {
+                            strokeColor = "#3b82f6";
+                            strokeWidth = 2.2;
+                          } else if (e.edge_type === 'valley') {
+                            strokeColor = "#14b8a6";
+                            strokeWidth = 2.2;
+                            dash = "5,3";
+                          } else if (e.edge_type === 'gable') {
+                            strokeColor = "#a855f7";
+                            strokeWidth = 2.4;
+                          } else if (roof.roofType === 'shed' && e.contour_edge_index === (roof.eaveEdgeIndex || 0)) {
+                            strokeColor = "#06b6d4"; // Vibrant cyan for Shed Eave Under
+                            strokeWidth = 3.2;
+                          } else if (e.is_bisector) {
+                            strokeColor = "#6366f1";
+                            strokeWidth = 2.0;
+                          }
+
+                          return (
+                            <line
+                              key={`roof-topo-${roof.id}-${eIdx}`}
+                              x1={p1.x}
+                              y1={p1.y}
+                              x2={p2.x}
+                              y2={p2.y}
+                              stroke={strokeColor}
+                              strokeWidth={strokeWidth}
+                              strokeDasharray={dash}
+                              strokeLinecap="round"
+                            />
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
+
+                  {/* Active Selected / Hovered Edge Highlight */}
+                  {(roof.polygon || []).map((_, eIdx) => {
+                    const isEdgeSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex === eIdx;
+                    const isEdgeHovered = isHovered && hoveredRoofTarget?.type === 'edge' && hoveredRoofTarget?.edgeIndex === eIdx;
+                    if (!isEdgeSelected && !isEdgeHovered) return null;
+
                     const p1 = (roof.polygon || [])[eIdx];
                     const p2 = (roof.polygon || [])[(eIdx + 1) % roof.polygon.length];
                     if (!p1 || !p2) return null;
@@ -4068,106 +4246,59 @@ export default function CanvasView({
                     const p1y = typeof p1.y === 'number' ? p1.y : p1[1];
                     const p2x = typeof p2.x === 'number' ? p2.x : p2[0];
                     const p2y = typeof p2.y === 'number' ? p2.y : p2[1];
-                    return (
-                      <g pointerEvents="none">
-                        <line x1={p1x} y1={p1y} x2={p2x} y2={p2y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
-                        {hoveredRoofTarget.projectionPoint && (
-                          <circle cx={hoveredRoofTarget.projectionPoint.x} cy={hoveredRoofTarget.projectionPoint.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
-                        )}
-                      </g>
-                    );
-                  })()}
 
-                  {/* Priority 1 & Handles: Vertices */}
-                  {(isSelected || isHovered) && (roof.polygon || []).map((v, idx) => {
-                    const isVertexHovered = isHovered && hoveredRoofTarget?.type === 'vertex' && hoveredRoofTarget?.index === idx;
-                    const vx = typeof v.x === 'number' ? v.x : v[0];
-                    const vy = typeof v.y === 'number' ? v.y : v[1];
                     return (
-                      <circle
-                        key={`roof-v-${roof.id}-${idx}`}
-                        cx={vx}
-                        cy={vy}
-                        r={isVertexHovered ? 7 : 5}
-                        fill={isVertexHovered ? "#ef4444" : "#f59e0b"}
-                        stroke="#ffffff"
-                        strokeWidth={2}
-                        style={{ cursor: "grab" }}
+                      <line
+                        key={`edge-active-${roof.id}-${eIdx}`}
+                        x1={p1x}
+                        y1={p1y}
+                        x2={p2x}
+                        y2={p2y}
+                        stroke="#f59e0b"
+                        strokeWidth={isEdgeSelected ? 4.5 : 3.5}
+                        strokeLinecap="round"
+                        pointerEvents="none"
                       />
                     );
                   })}
 
-                  {/* Informative Canvas Area Overlay Badge */}
-                  <foreignObject
-                    x={c.x - 110}
-                    y={c.y - 45}
-                    width={220}
-                    height={90}
-                    style={{ overflow: 'visible', pointerEvents: 'auto' }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: isSelected ? 'rgba(217, 119, 6, 0.92)' : 'rgba(30, 41, 59, 0.88)',
-                        border: isSelected ? '2px solid #fef3c7' : '1px solid rgba(245, 158, 11, 0.5)',
-                        borderRadius: '10px',
-                        padding: '6px 12px',
-                        color: '#ffffff',
-                        boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
-                        backdropFilter: 'blur(4px)',
-                        fontSize: '13px',
-                        userSelect: 'none',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* Title: Roof Name */}
-                      <div style={{ fontWeight: 700, fontSize: '13px', color: '#fef3c7', letterSpacing: '0.5px' }}>
-                        🏠 {roof.name || "Roof"}
-                      </div>
-
-                      {/* 3D True Surface Area (Large text) */}
-                      <div style={{ fontWeight: 800, fontSize: '20px', color: '#ffffff', margin: '2px 0' }}>
-                        {scaleValue ? `${trueArea.toFixed(2)} m²` : "No Scale"}
-                      </div>
-
-                      {/* Inline Pitch Angle Input Control */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: 0.95 }}>
-                        <span>Pitch:</span>
-                        <PitchInput
-                          value={roof.pitchAngle || 0}
-                          onChange={(val) => updateRoofPitch(roof.id, val)}
+                  {/* Selected Roof Vertices (Numbered badges: 1, 2, 3...) */}
+                  {isSelected && (roof.polygon || []).map((v, idx) => {
+                    const vx = typeof v.x === 'number' ? v.x : v[0];
+                    const vy = typeof v.y === 'number' ? v.y : v[1];
+                    return (
+                      <g
+                        key={`roof-v-${roof.id}-${idx}`}
+                        style={{ cursor: "pointer" }}
+                        title={`Vertex #${idx + 1} (Double-click to delete)`}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          deleteRoofVertex && deleteRoofVertex(roof.id, idx);
+                        }}
+                      >
+                        <circle
+                          cx={vx}
+                          cy={vy}
+                          r={8}
+                          fill="#f59e0b"
+                          stroke="#ffffff"
+                          strokeWidth={1.5}
                         />
-                        <span>°</span>
-                      </div>
-
-                      {/* Roof Type Selection Dropdown */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', marginTop: '4px' }}>
-                        <span>Type:</span>
-                        <select
-                          value={roof.roofType || "hip"}
-                          onChange={(e) => updateRoofType(roof.id, e.target.value)}
-                          style={{
-                            fontSize: '11px',
-                            background: 'rgba(255,255,255,0.2)',
-                            border: '1px solid rgba(255,255,255,0.4)',
-                            borderRadius: '4px',
-                            color: '#ffffff',
-                            padding: '1px 2px',
-                            outline: 'none',
-                            cursor: 'pointer'
-                          }}
+                        <text
+                          x={vx}
+                          y={vy}
+                          fill="#000000"
+                          fontSize={9}
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          pointerEvents="none"
                         >
-                          <option value="hip" style={{ color: '#000' }}>Hipped (4 mái)</option>
-                          <option value="gable_horiz" style={{ color: '#000' }}>Gable Horiz (Đầu hồi ngang)</option>
-                          <option value="gable_vert" style={{ color: '#000' }}>Gable Vert (Đầu hồi dọc)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </foreignObject>
+                          {idx + 1}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
@@ -5309,6 +5440,9 @@ export default function CanvasView({
         edgeIndex={roofContextMenu.edgeIndex}
         onClose={closeRoofContextMenu}
         onSetEaveEdge={setRoofEaveEdge}
+        onUpdateEdgeAngle={updateRoofEdgeAngle}
+        onTrimEdge={trimRoofEdge}
+        onDeleteRoof={deleteRoof}
       />
 
       {/* ===== WALL VERTEX MENU OVERLAY ===== */}

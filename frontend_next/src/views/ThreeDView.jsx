@@ -744,29 +744,329 @@ export default function ThreeDView({
           if (!poly || poly.length < 3) return;
 
           const n = poly.length;
-          const pts2d = poly.map(p => new THREE.Vector2(
-            typeof p.x === 'number' ? p.x : p[0],
-            typeof p.y === 'number' ? p.y : p[1]
-          ));
-
           const topYOffset = yOffset + levelWallHeight;
-          const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
-          const roofThickness = 120 / scaleFactor;
+          const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+            ? realScale
+            : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+          const roofThickness = 120 / mmPerPx;
+          const wallHeightMm = roof.wallHeight || 2700;
 
-          const pitchDeg = typeof roof.pitchAngle === 'number' ? roof.pitchAngle : 0;
-          const pitchRad = pitchDeg * (Math.PI / 180);
+          // Case 1: Roof has V3 computed 3D Mesh (Ear-Clipping Triangulated)
+          if (roof.v3Data && (roof.v3Data.roofMesh || roof.v3Data.mesh3D)) {
+            const roofMesh = roof.v3Data.roofMesh || roof.v3Data.mesh3D;
+            const wallMesh = roof.v3Data.wallMesh;
 
-          const material = new THREE.MeshStandardMaterial({
-            color: 0xd97706, // Warm terracotta amber roof
-            roughness: 0.45,
-            metalness: 0.15,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 1
-          });
+            const getV = (v) => {
+              if (!v) return null;
+              const vx = typeof v[0] === 'number' ? v[0] : (typeof v.x === 'number' ? v.x : parseFloat(v.x || 0));
+              const vy = typeof v[1] === 'number' ? v[1] : (typeof v.y === 'number' ? v.y : parseFloat(v.y || 0));
+              const vz = typeof v[2] === 'number' ? v[2] : (typeof v.z === 'number' ? v.z : parseFloat(v.z || 0));
+              if (isNaN(vx) || isNaN(vy) || isNaN(vz)) return null;
+              return [vx, vy, vz];
+            };
 
-          if (pitchDeg == 0 || !roof.solvedPolygon3D) {
-            // Flat roof extrude
+            // Vibrant Multi-color Palette per Roof Face (matching visual CAD standard)
+            const ROOF_FACE_PALETTE = [
+              0x10b981, // Vibrant Emerald Green
+              0x3b82f6, // Royal Blue / Cobalt
+              0xdb2777, // Rose Magenta
+              0x8b5cf6, // Violet Purple
+              0x06b6d4, // Cyan Teal
+              0xf59e0b, // Amber Gold
+              0x14b8a6, // Teal Green
+              0xec4899, // Pink
+              0x6366f1, // Electric Indigo
+              0xef4444  // Crimson Red
+            ];
+
+            // 1. Render Multi-Color Roof Slope Faces (Ear-Clipping Triangulated)
+            const faceGroups = roofMesh?.face_groups;
+            const graphFaces = roof.v3Data?.graph?.faces || roof.v3Data?.topology2D?.faces;
+            const rVerts = roofMesh?.vertices || roof.v3Data?.graph?.vertices || [];
+
+            // Helper: Ear-Clipping 2D Triangulation for complex/concave/L-shaped roof faces
+            const triangulateEarClip = (fvIndices, allVerts) => {
+              const poly2d = fvIndices.map(vid => {
+                const v = getV(allVerts[vid]);
+                return v ? { x: v[0], y: v[1], id: vid } : null;
+              }).filter(Boolean);
+
+              const n = poly2d.length;
+              if (n < 3) return [];
+              if (n === 3) return [[poly2d[0].id, poly2d[1].id, poly2d[2].id]];
+
+              const isEar = (pPrev, pCurr, pNext, poly) => {
+                const cp = (pCurr.x - pPrev.x) * (pNext.y - pCurr.y) - (pCurr.y - pPrev.y) * (pNext.x - pCurr.x);
+                if (cp <= 1e-7) return false;
+                for (let i = 0; i < poly.length; i++) {
+                  const pt = poly[i];
+                  if (pt === pPrev || pt === pCurr || pt === pNext) continue;
+                  const d1 = (pt.x - pCurr.x) * (pPrev.y - pCurr.y) - (pPrev.x - pCurr.x) * (pt.y - pCurr.y);
+                  const d2 = (pt.x - pNext.x) * (pCurr.y - pNext.y) - (pCurr.x - pNext.x) * (pt.y - pNext.y);
+                  const d3 = (pt.x - pPrev.x) * (pNext.y - pPrev.y) - (pNext.x - pPrev.x) * (pt.y - pPrev.y);
+                  const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+                  const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+                  if (!(hasNeg && hasPos)) return false;
+                }
+                return true;
+              };
+
+              const triangles = [];
+              const indices = poly2d.map((_, i) => i);
+              let iterations = 0;
+
+              while (indices.length > 3 && iterations < 150) {
+                iterations++;
+                let earFound = false;
+                for (let i = 0; i < indices.length; i++) {
+                  const prevI = indices[(i - 1 + indices.length) % indices.length];
+                  const currI = indices[i];
+                  const nextI = indices[(i + 1) % indices.length];
+
+                  const pPrev = poly2d[prevI];
+                  const pCurr = poly2d[currI];
+                  const pNext = poly2d[nextI];
+                  const polySubset = indices.map(idx => poly2d[idx]);
+
+                  if (isEar(pPrev, pCurr, pNext, polySubset)) {
+                    triangles.push([pPrev.id, pCurr.id, pNext.id]);
+                    indices.splice(i, 1);
+                    earFound = true;
+                    break;
+                  }
+                }
+                if (!earFound) break;
+              }
+
+              if (indices.length === 3) {
+                triangles.push([poly2d[indices[0]].id, poly2d[indices[1]].id, poly2d[indices[2]].id]);
+              }
+              return triangles;
+            };
+
+            if (Array.isArray(faceGroups) && faceGroups.length > 0 && rVerts.length > 0) {
+              // Priority 1: Use backend Ear-Clipped face_groups
+              faceGroups.forEach((fg, fIdx) => {
+                const triangles = fg.triangles || [];
+                if (triangles.length === 0) return;
+
+                const facePositions = [];
+                triangles.forEach(tri => {
+                  const v0 = getV(rVerts[tri[0]]);
+                  const v1 = getV(rVerts[tri[1]]);
+                  const v2 = getV(rVerts[tri[2]]);
+                  if (!v0 || !v1 || !v2) return;
+
+                  facePositions.push(
+                    v0[0] / mmPerPx - imgSize.w / 2,
+                    topYOffset + (v0[2] - wallHeightMm) / mmPerPx,
+                    v0[1] / mmPerPx - imgSize.h / 2,
+
+                    v1[0] / mmPerPx - imgSize.w / 2,
+                    topYOffset + (v1[2] - wallHeightMm) / mmPerPx,
+                    v1[1] / mmPerPx - imgSize.h / 2,
+
+                    v2[0] / mmPerPx - imgSize.w / 2,
+                    topYOffset + (v2[2] - wallHeightMm) / mmPerPx,
+                    v2[1] / mmPerPx - imgSize.h / 2
+                  );
+                });
+
+                if (facePositions.length > 0) {
+                  const faceGeom = new THREE.BufferGeometry();
+                  faceGeom.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
+                  faceGeom.computeVertexNormals();
+
+                  const faceColor = ROOF_FACE_PALETTE[fIdx % ROOF_FACE_PALETTE.length];
+                  const faceMat = new THREE.MeshStandardMaterial({
+                    color: faceColor,
+                    roughness: 0.35,
+                    metalness: 0.15,
+                    side: THREE.DoubleSide
+                  });
+
+                  const fMesh = new THREE.Mesh(faceGeom, faceMat);
+                  fMesh.castShadow = enableShadows;
+                  fMesh.receiveShadow = enableShadows;
+                  scene.add(fMesh);
+                  roofMeshesRef.current.push(fMesh);
+
+                  const edgesGeom = new THREE.EdgesGeometry(faceGeom, 15);
+                  const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+                  const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
+                  scene.add(lineSegments);
+                  roofMeshesRef.current.push(lineSegments);
+                }
+              });
+            } else if (Array.isArray(graphFaces) && graphFaces.length > 0 && rVerts.length > 0) {
+              // Priority 2: Triangulate each polygon face with robust 2D Ear-Clipping
+              graphFaces.forEach((face, fIdx) => {
+                if (face.is_gable || face.pitch_angle === 90 || (Array.isArray(roof.angles) && roof.angles[face.contour_edge_index] === 90)) return;
+                const fv = face.vertices || [];
+                if (fv.length < 3) return;
+
+                const tris = triangulateEarClip(fv, rVerts);
+                const facePositions = [];
+
+                tris.forEach(tri => {
+                  const v0 = getV(rVerts[tri[0]]);
+                  const v1 = getV(rVerts[tri[1]]);
+                  const v2 = getV(rVerts[tri[2]]);
+                  if (!v0 || !v1 || !v2) return;
+
+                  facePositions.push(
+                    v0[0] / mmPerPx - imgSize.w / 2,
+                    topYOffset + (v0[2] - wallHeightMm) / mmPerPx,
+                    v0[1] / mmPerPx - imgSize.h / 2,
+
+                    v1[0] / mmPerPx - imgSize.w / 2,
+                    topYOffset + (v1[2] - wallHeightMm) / mmPerPx,
+                    v1[1] / mmPerPx - imgSize.h / 2,
+
+                    v2[0] / mmPerPx - imgSize.w / 2,
+                    topYOffset + (v2[2] - wallHeightMm) / mmPerPx,
+                    v2[1] / mmPerPx - imgSize.h / 2
+                  );
+                });
+
+                if (facePositions.length > 0) {
+                  const faceGeom = new THREE.BufferGeometry();
+                  faceGeom.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
+                  faceGeom.computeVertexNormals();
+
+                  const faceColor = ROOF_FACE_PALETTE[fIdx % ROOF_FACE_PALETTE.length];
+                  const faceMat = new THREE.MeshStandardMaterial({
+                    color: faceColor,
+                    roughness: 0.35,
+                    metalness: 0.15,
+                    side: THREE.DoubleSide
+                  });
+
+                  const fMesh = new THREE.Mesh(faceGeom, faceMat);
+                  fMesh.castShadow = enableShadows;
+                  fMesh.receiveShadow = enableShadows;
+                  scene.add(fMesh);
+                  roofMeshesRef.current.push(fMesh);
+
+                  const edgesGeom = new THREE.EdgesGeometry(faceGeom, 15);
+                  const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+                  const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
+                  scene.add(lineSegments);
+                  roofMeshesRef.current.push(lineSegments);
+                }
+              });
+            } else if (roofMesh && roofMesh.vertices && roofMesh.faces && roofMesh.faces.length > 0) {
+              // Priority 3: Fallback combined mesh
+              const positions = [];
+              roofMesh.faces.forEach((face, fIdx) => {
+                if (!Array.isArray(face) || face.length < 3) return;
+                const i0 = face[0], i1 = face[1], i2 = face[2];
+                const v0 = getV(rVerts[i0]), v1 = getV(rVerts[i1]), v2 = getV(rVerts[i2]);
+                if (!v0 || !v1 || !v2) return;
+
+                positions.push(
+                  v0[0] / mmPerPx - imgSize.w / 2,
+                  topYOffset + (v0[2] - wallHeightMm) / mmPerPx,
+                  v0[1] / mmPerPx - imgSize.h / 2,
+
+                  v1[0] / mmPerPx - imgSize.w / 2,
+                  topYOffset + (v1[2] - wallHeightMm) / mmPerPx,
+                  v1[1] / mmPerPx - imgSize.h / 2,
+
+                  v2[0] / mmPerPx - imgSize.w / 2,
+                  topYOffset + (v2[2] - wallHeightMm) / mmPerPx,
+                  v2[1] / mmPerPx - imgSize.h / 2
+                );
+              });
+
+              if (positions.length > 0) {
+                const roofGeom = new THREE.BufferGeometry();
+                roofGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                roofGeom.computeVertexNormals();
+
+                const roofMat = new THREE.MeshStandardMaterial({
+                  color: 0x3b82f6,
+                  roughness: 0.35,
+                  metalness: 0.15,
+                  side: THREE.DoubleSide
+                });
+
+                const rMesh = new THREE.Mesh(roofGeom, roofMat);
+                rMesh.castShadow = enableShadows;
+                rMesh.receiveShadow = enableShadows;
+                scene.add(rMesh);
+                roofMeshesRef.current.push(rMesh);
+
+                const edgesGeom = new THREE.EdgesGeometry(roofGeom, 20);
+                const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+                const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
+                scene.add(lineSegments);
+                roofMeshesRef.current.push(lineSegments);
+              }
+            }
+
+            // 2. Render Triangular Gable Walls (Tường thu hồi)
+            const gMesh = roof.v3Data.gableMesh || wallMesh?.gable_mesh;
+            const gVerts = gMesh?.vertices || [];
+            const gFaces = gMesh?.faces || [];
+
+            if (gFaces.length > 0) {
+              const gPositions = [];
+              gFaces.forEach(face => {
+                if (!Array.isArray(face) || face.length < 3) return;
+                const i0 = face[0], i1 = face[1], i2 = face[2];
+                const v0 = getV(gVerts[i0]), v1 = getV(gVerts[i1]), v2 = getV(gVerts[i2]);
+                if (!v0 || !v1 || !v2) return;
+
+                gPositions.push(
+                  v0[0] / mmPerPx - imgSize.w / 2,
+                  topYOffset + (v0[2] - wallHeightMm) / mmPerPx,
+                  v0[1] / mmPerPx - imgSize.h / 2,
+
+                  v1[0] / mmPerPx - imgSize.w / 2,
+                  topYOffset + (v1[2] - wallHeightMm) / mmPerPx,
+                  v1[1] / mmPerPx - imgSize.h / 2,
+
+                  v2[0] / mmPerPx - imgSize.w / 2,
+                  topYOffset + (v2[2] - wallHeightMm) / mmPerPx,
+                  v2[1] / mmPerPx - imgSize.h / 2
+                );
+              });
+
+              if (gPositions.length > 0) {
+                const gGeom = new THREE.BufferGeometry();
+                gGeom.setAttribute('position', new THREE.Float32BufferAttribute(gPositions, 3));
+                gGeom.computeVertexNormals();
+
+                const gMat = new THREE.MeshStandardMaterial({
+                  color: 0xcbd5e1, // Clean cement wall slate (#cbd5e1)
+                  roughness: 0.75,
+                  metalness: 0.05,
+                  side: THREE.DoubleSide
+                });
+
+                const gMeshObj = new THREE.Mesh(gGeom, gMat);
+                gMeshObj.castShadow = enableShadows;
+                gMeshObj.receiveShadow = enableShadows;
+                scene.add(gMeshObj);
+                roofMeshesRef.current.push(gMeshObj);
+
+                // Crisp outline for gable walls
+                const gEdges = new THREE.EdgesGeometry(gGeom, 20);
+                const gEdgesMat = new THREE.LineBasicMaterial({ color: 0x475569, linewidth: 1 });
+                const gLines = new THREE.LineSegments(gEdges, gEdgesMat);
+                scene.add(gLines);
+                roofMeshesRef.current.push(gLines);
+              }
+            }
+
+          } else {
+            // Case 2: Fallback Flat Extruded Roof (before V3 computation)
+            const pts2d = poly.map(p => new THREE.Vector2(
+              typeof p.x === 'number' ? p.x : p[0],
+              typeof p.y === 'number' ? p.y : p[1]
+            ));
+
             const shape = new THREE.Shape();
             shape.moveTo(pts2d[0].x, pts2d[0].y);
             for (let i = 1; i < n; i++) shape.lineTo(pts2d[i].x, pts2d[i].y);
@@ -775,116 +1075,18 @@ export default function ThreeDView({
             const extrudeSettings = { depth: roofThickness, bevelEnabled: false };
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
 
+            const material = new THREE.MeshStandardMaterial({
+              color: 0xd97706,
+              roughness: 0.45,
+              metalness: 0.15,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.85
+            });
+
             const mesh = new THREE.Mesh(geometry, material);
             mesh.rotation.x = Math.PI / 2;
             mesh.position.set(-imgSize.w / 2, topYOffset + roofThickness, -imgSize.h / 2);
-            mesh.castShadow = enableShadows;
-            mesh.receiveShadow = enableShadows;
-            scene.add(mesh);
-            roofMeshesRef.current.push(mesh);
-          } else {
-            // 3D Pitched Slope Roof Mesh from solvedPolygon3D
-            const positions = [];
-            const normals = [];
-
-            // Extract the 3D polygon
-            const poly3D = roof.solvedPolygon3D.map(p => ({
-              x: p.x - imgSize.w / 2,
-              y: topYOffset + roofThickness + (p.z || 0),
-              z: p.y - imgSize.h / 2
-            }));
-
-            // Triangulate the 2D base shape to render the 3D roof faces
-            const triangles = THREE.ShapeUtils.triangulateShape(pts2d, []);
-
-            for (let i = 0; i < triangles.length; i++) {
-              const [i0, i1, i2] = triangles[i];
-
-              const v0 = poly3D[i0];
-              const v1 = poly3D[i1];
-              const v2 = poly3D[i2];
-
-              positions.push(
-                v0.x, v0.y, v0.z,
-                v1.x, v1.y, v1.z,
-                v2.x, v2.y, v2.z
-              );
-
-              // Calculate normal
-              let ax = v1.x - v0.x, ay = v1.y - v0.y, az = v1.z - v0.z;
-              let bx = v2.x - v0.x, by = v2.y - v0.y, bz = v2.z - v0.z;
-              let nx = ay * bz - az * by;
-              let ny = az * bx - ax * bz;
-              let nz = ax * by - ay * bx;
-
-              // If normal points down, reverse winding
-              if (ny < 0) {
-                nx = -nx; ny = -ny; nz = -nz;
-                const l = positions.length;
-                positions[l - 6] = v2.x; positions[l - 5] = v2.y; positions[l - 4] = v2.z;
-                positions[l - 3] = v1.x; positions[l - 2] = v1.y; positions[l - 1] = v1.z;
-              }
-
-              const normLen = Math.hypot(nx, ny, nz) || 1;
-              nx /= normLen; ny /= normLen; nz /= normLen;
-
-              normals.push(
-                nx, ny, nz,
-                nx, ny, nz,
-                nx, ny, nz
-              );
-
-              // Underside Flat Ceiling Triangle (bottom of roof)
-              positions.push(
-                v0.x, topYOffset, v0.z,
-                v2.x, topYOffset, v2.z,  // Reversed winding for bottom
-                v1.x, topYOffset, v1.z
-              );
-              normals.push(
-                0, -1, 0,
-                0, -1, 0,
-                0, -1, 0
-              );
-            }
-
-            // Add vertical perimeter skirts to seal the roof volume
-            for (let i = 0; i < n; i++) {
-              const v1_top = poly3D[i];
-              const v2_top = poly3D[(i + 1) % n];
-
-              const v1_bot = { x: v1_top.x, y: topYOffset, z: v1_top.z };
-              const v2_bot = { x: v2_top.x, y: topYOffset, z: v2_top.z };
-
-              positions.push(
-                v1_bot.x, v1_bot.y, v1_bot.z,
-                v2_bot.x, v2_bot.y, v2_bot.z,
-                v2_top.x, v2_top.y, v2_top.z
-              );
-              positions.push(
-                v1_bot.x, v1_bot.y, v1_bot.z,
-                v2_top.x, v2_top.y, v2_top.z,
-                v1_top.x, v1_top.y, v1_top.z
-              );
-
-              const ax = v2_bot.x - v1_bot.x, ay = v2_bot.y - v1_bot.y, az = v2_bot.z - v1_bot.z;
-              const bx = v2_top.x - v1_bot.x, by = v2_top.y - v1_bot.y, bz = v2_top.z - v1_bot.z;
-              let nx = ay * bz - az * by;
-              let ny = az * bx - ax * bz;
-              let nz = ax * by - ay * bx;
-              const normLen = Math.hypot(nx, ny, nz) || 1;
-              nx /= normLen; ny /= normLen; nz /= normLen;
-
-              normals.push(
-                nx, ny, nz, nx, ny, nz, nx, ny, nz,
-                nx, ny, nz, nx, ny, nz, nx, ny, nz
-              );
-            }
-
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-
-            const mesh = new THREE.Mesh(geometry, material);
             mesh.castShadow = enableShadows;
             mesh.receiveShadow = enableShadows;
             scene.add(mesh);

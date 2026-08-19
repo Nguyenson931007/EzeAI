@@ -246,8 +246,9 @@ export default function App() {
     isDrawingRoof, setIsDrawingRoof,
     roofInteractionState, setRoofInteractionState,
     selectedRoofId, setSelectedRoofId,
+    selectedRoofEdgeIndex, setSelectedRoofEdgeIndex,
     hoveredRoofTarget, setHoveredRoofTarget,
-    updateRoofPitch, updateRoofType, deleteRoof,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, deleteRoof, deleteRoofVertex,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
@@ -1269,8 +1270,16 @@ export default function App() {
               hoveredRoofTarget={hoveredRoofTarget}
               updateRoofPitch={updateRoofPitch}
               updateRoofType={updateRoofType}
+              updateRoofEdgeAngle={updateRoofEdgeAngle}
+              updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+              computeSelectedRoof={computeSelectedRoof}
+              trimRoofEdge={trimRoofEdge}
+              isComputingRoof={isComputingRoof}
               setRoofEaveEdge={setRoofEaveEdge}
+              selectedRoofEdgeIndex={selectedRoofEdgeIndex}
+              setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
               deleteRoof={deleteRoof}
+              deleteRoofVertex={deleteRoofVertex}
               currentPoly={currentPoly}
               currentDoor={currentDoor}
               currentMouse={currentMouse}
@@ -1433,7 +1442,20 @@ export default function App() {
                 selectedRoofId={selectedRoofId}
                 setSelectedRoofId={setSelectedRoofId}
                 updateRoofPitch={updateRoofPitch}
+                updateRoofType={updateRoofType}
+                updateRoofEdgeAngle={updateRoofEdgeAngle}
+                updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                computeSelectedRoof={computeSelectedRoof}
+                trimRoofEdge={trimRoofEdge}
+                isComputingRoof={isComputingRoof}
+                setRoofEaveEdge={setRoofEaveEdge}
+                selectedRoofEdgeIndex={selectedRoofEdgeIndex}
+                setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
+                applyDefaultPitchToAll={applyDefaultPitchToAll}
+                applyDefaultOverhangToAll={applyDefaultOverhangToAll}
                 deleteRoof={deleteRoof}
+                deleteRoofVertex={deleteRoofVertex}
+                setShow3D={setShow3D}
                 lintelController={lintelController}
                 selectedId={selectedId}
                 onLoadJob={handleLoadJob}
