@@ -633,39 +633,48 @@ async def tasklist_sso(payload: dict, response: Response):
     logger.info(f"[SSO] Tasklist auth response: {res_json}")
     user_data = res_json.get("data") or res_json.get("user") or res_json
 
-    # 1. Trích xuất username từ payload gửi từ Web3 (nếu có)
-    payload_user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
-    payload_username = str(payload.get("username") or payload.get("UserID") or payload_user.get("username") or payload_user.get("UserID") or payload_user.get("name") or "").strip()
+    def _find_val(obj, keys):
+        if not isinstance(obj, dict):
+            return ""
+        lower_map = {str(k).lower(): str(v).strip() for k, v in obj.items() if v is not None}
+        for k in keys:
+            v = lower_map.get(k.lower())
+            if v and v.lower() not in ["none", "null", "undefined", ""]:
+                return v
+        return ""
 
-    # 2. Trích xuất thông tin user từ Tasklist API response
-    direct_username = str(
-        payload_username or
-        user_data.get("username") or 
-        user_data.get("UserID") or 
-        user_data.get("user_id") or 
-        user_data.get("UserId") or 
-        user_data.get("name") or 
-        user_data.get("FullName") or 
-        user_data.get("full_name") or 
-        ""
-    ).strip()
+    username_keys = ["userid", "user_id", "username", "user_name", "account", "login_name", "name", "fullname", "full_name", "displayname"]
+    manv_keys = ["ma_nv", "manv", "staff_id", "employee_id"]
 
-    manv = str(user_data.get("ma_nv") or user_data.get("MaNV") or user_data.get("manv") or "").strip()
+    extracted_user = (
+        _find_val(payload, username_keys) or
+        _find_val(payload.get("user"), username_keys) or
+        _find_val(user_data, username_keys) or
+        _find_val(res_json, username_keys)
+    )
 
-    # Ưu tiên lấy thông tin theo direct_username từ MSSQL
+    extracted_manv = (
+        _find_val(payload, manv_keys) or
+        _find_val(payload.get("user"), manv_keys) or
+        _find_val(user_data, manv_keys) or
+        _find_val(res_json, manv_keys)
+    )
+
+    # Ưu tiên lấy thông tin theo UserID từ MSSQL
     mssql_user = None
-    if direct_username:
-        mssql_user = get_mssql_account_user(direct_username)
-    if not mssql_user and manv:
-        mssql_user = get_mssql_account_user(manv)
+    if extracted_user:
+        mssql_user = get_mssql_account_user(extracted_user)
+    if not mssql_user and extracted_manv:
+        mssql_user = get_mssql_account_user(extracted_manv)
 
-    if direct_username:
-        username = direct_username
+    if extracted_user:
+        username = mssql_user.get("UserID") if mssql_user else extracted_user
     elif mssql_user:
-        username = str(mssql_user.get("UserID") or manv or "sso_user").strip()
-        manv = str(mssql_user.get("MaNV") or manv).strip()
+        username = str(mssql_user.get("UserID") or extracted_manv or "sso_user").strip()
     else:
-        username = manv or "sso_user"
+        username = extracted_manv or "sso_user"
+
+    manv = mssql_user.get("MaNV") if mssql_user else (extracted_manv or "")
 
     raw_role = user_data.get("RoleName") or user_data.get("role") or (mssql_user.get("RoleName") if mssql_user else "User")
     is_mgmt = user_data.get("IsManagement") == 1 or (mssql_user and mssql_user.get("IsManagement") == 1)

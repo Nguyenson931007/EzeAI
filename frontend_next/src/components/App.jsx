@@ -554,16 +554,44 @@ export default function App() {
     }
   }, [handleLoadJob, setCurrentProjectName, setActiveTab, setCurrentJobId]);
 
-  // Kiểm tra tham số ?job= trên URL khi đã đăng nhập (hoặc refresh trang)
+  // Kiểm tra tham số ?job=, ?token=, ?user= trên URL khi load trang
   useEffect(() => {
-    if (!isLoggedIn) return;
-    const idJobEms = new URLSearchParams(window.location.search).get("job");
-    if (idJobEms) {
+    const params = new URLSearchParams(window.location.search);
+    const idJobEms = params.get("job");
+    const urlToken = params.get("token") || params.get("sso_token");
+    const urlUser = params.get("user") || params.get("username") || params.get("UserID");
+
+    if (urlToken || urlUser) {
+      console.log("[SSO] Đang xác thực user từ URL params:", { urlToken, urlUser });
+      ApiService.tasklistSSO({ token: urlToken || "direct_url", username: urlUser })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status === "success") {
+            const finalUsername = data.username || urlUser || "Liam";
+            const userData = {
+              username: finalUsername,
+              role: data.role || "admin",
+              ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
+              session_token: data.session_token,
+            };
+            setIsLoggedIn(true);
+            setUser(userData);
+            localStorage.setItem("isLoggedIn", "true");
+            localStorage.setItem("user", JSON.stringify(userData));
+            console.log("[SSO] URL Login thành công với:", userData.username);
+            if (idJobEms) loadEmsJob(idJobEms);
+          }
+        })
+        .catch(err => console.warn("[SSO] Lỗi URL SSO:", err));
+      return;
+    }
+
+    if (isLoggedIn && idJobEms) {
       loadEmsJob(idJobEms);
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
     }
-  }, [isLoggedIn, loadEmsJob]);
+  }, [isLoggedIn, loadEmsJob, setIsLoggedIn, setUser]);
 
   // ── 2.5. Tự động lưu & Khôi phục Workspace khi F5 (Reload) qua IndexedDB ──
   const isRestoringSessionRef = useRef(false);
@@ -749,9 +777,14 @@ export default function App() {
 
       try {
         console.log("[SSO] Đang xác thực SSO token từ TaskList...", event.data);
+        const extractedUser = event.data.username || 
+          event.data.UserID || 
+          event.data.user_id || 
+          (event.data.user && (typeof event.data.user === "string" ? event.data.user : (event.data.user.username || event.data.user.UserID || event.data.user.user_id || event.data.user.name)));
+
         const ssoPayload = {
           token: event.data.token,
-          username: event.data.username || event.data.UserID || (event.data.user && (event.data.user.username || event.data.user.UserID || event.data.user.name)),
+          username: extractedUser,
           user: event.data.user
         };
         const response = await ApiService.tasklistSSO(ssoPayload);
@@ -769,10 +802,11 @@ export default function App() {
           return;
         }
 
+        const finalUsername = data.username || extractedUser || "Liam";
         const userData = {
-          username: data.username,
-          role: data.role,
-          ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "",
+          username: finalUsername,
+          role: data.role || "admin",
+          ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
           session_token: data.session_token,
         };
 

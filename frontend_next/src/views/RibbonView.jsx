@@ -146,6 +146,14 @@ const CAD_ICONS = {
       <path d="M2 10h20" />
     </svg>
   ),
+  NewPDF: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="12" y1="18" x2="12" y2="12" />
+      <line x1="9" y1="15" x2="15" y2="15" />
+    </svg>
+  ),
   Projects: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
@@ -355,10 +363,13 @@ export default function RibbonView({
     currentPage, setCurrentPage,
     currentProjectName, setCurrentProjectName,
     roomsByPage, setRoomsByPage,
-    doorsByPage, wallsByPage,
-    roofsByPage, lintelsByPage,
-    scalesByPage, wasteByPage,
-    currentJobId,
+    doorsByPage, setDoorsByPage,
+    wallsByPage, setWallsByPage,
+    roofsByPage, setRoofsByPage,
+    lintelsByPage, setLintelsByPage,
+    scalesByPage, setScalesByPage,
+    wasteByPage, setWasteByPage,
+    currentJobId, setCurrentJobId,
     realScale,
     showFrameworkModal, setShowFrameworkModal,
     showAreaSummaryModal, setShowAreaSummaryModal,
@@ -675,6 +686,52 @@ export default function RibbonView({
           <>
             <div className="ribbon-group">
               <div className="ribbon-buttons">
+                <label className="ribbon-btn" title="Tạo dự án mới hoàn toàn từ file PDF (New Job)">
+                  <span className="icon" style={{ color: "#2563eb" }}><CAD_ICONS.NewPDF /></span> <span className="label" style={{ fontWeight: 600, color: "#1e40af" }}>New PDF</span>
+                  <input
+                    type="file" accept=".pdf,image/*" style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+
+                      // Reset hoàn toàn Job ID, Job name và Storage cũ để tạo Job mới 100%
+                      if (setCurrentJobId) setCurrentJobId(null);
+                      try {
+                        if (typeof window !== "undefined") {
+                          sessionStorage.removeItem("pendingEmsJob");
+                          localStorage.removeItem("pendingEmsJob");
+                          localStorage.removeItem("ezefloor_last_active_job_id");
+                          localStorage.removeItem("ezefloor_last_active_project_name");
+                          window.history.replaceState({}, document.title, window.location.pathname);
+                        }
+                      } catch (_) { }
+
+                      const newJobName = file.name.replace(/\.[^/.]+$/, "");
+                      setCurrentProjectName(newJobName);
+
+                      // Xóa trắng toàn bộ layers của job cũ
+                      if (setRoomsByPage) setRoomsByPage({});
+                      if (setWallsByPage) setWallsByPage({});
+                      if (setDoorsByPage) setDoorsByPage({});
+                      if (setRoofsByPage) setRoofsByPage({});
+                      if (setLintelsByPage) setLintelsByPage({});
+                      if (setScalesByPage) setScalesByPage({});
+                      if (setWasteByPage) setWasteByPage({});
+
+                      if (file.type === "application/pdf") {
+                        loadPDF(file, false);
+                      } else {
+                        const url = URL.createObjectURL(file);
+                        const imgData = { image: url, w: 2000, h: 1500, fileName: newJobName };
+                        setPendingPages([imgData]);
+                        setImportSelectedPages([0]);
+                        if (setIsAddingPagesMode) setIsAddingPagesMode(false);
+                        setShowImportPageSelector(true);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
                 <label className="ribbon-btn" title="Open PDF / Image">
                   <span className="icon"><CAD_ICONS.FolderOpen /></span> <span className="label">Open</span>
                   <input
