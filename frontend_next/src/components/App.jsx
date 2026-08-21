@@ -25,6 +25,8 @@ import RightPropertyPaneView from "@/views/RightPropertyPaneView";
 import CanvasView from "@/views/CanvasView";
 import SearchSidebarView from "@/views/SearchSidebarView";
 import ThumbnailSidebarView from "@/views/ThumbnailSidebarView";
+import LeftRailView from "@/views/LeftRailView";
+import FloorTabBarView from "@/views/FloorTabBarView";
 import DoorTypePanel from "@/components/DoorTypePanel";
 import LintelCatalogPanel from "@/components/LintelCatalogPanel";
 import TrainButton from "@/components/TrainButton";
@@ -213,14 +215,77 @@ export default function App() {
   const [imgSize, setImgSize] = useState({ w: 800, h: 600 });
   const [highlightType, setHighlightType] = useState(null);
   const [showBOQ, setShowBOQ] = useState(false);
-  const [show3D, setShow3D] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState("2d"); // "2d" | "3d" | "split" - Default to 2D Plan on start
+  const [splitRatio, setSplitRatio] = useState(70); // 70% 2D / 30% 3D default
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const splitContainerRef = useRef(null);
+
+  const show3D = workspaceMode === "3d" || workspaceMode === "split";
+  const setShow3D = useCallback((val) => {
+    if (typeof val === "function") {
+      setWorkspaceMode(prev => (val(prev === "3d" || prev === "split") ? "3d" : "2d"));
+    } else {
+      setWorkspaceMode(val ? "3d" : "2d");
+    }
+  }, []);
+
+  const handleSetWorkspaceMode = useCallback((mode) => {
+    setWorkspaceMode(mode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("ezefloor_workspace_mode", mode);
+    }
+  }, []);
+
+  const handleSplitMouseDown = useCallback((e) => {
+    e.preventDefault();
+    setIsDraggingSplit(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDraggingSplit) return;
+
+    const handleMouseMove = (e) => {
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const relativeX = e.clientX - rect.left;
+      let newRatio = (relativeX / rect.width) * 100;
+      if (newRatio < 20) newRatio = 20;
+      if (newRatio > 80) newRatio = 80;
+      setSplitRatio(newRatio);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingSplit(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingSplit]);
   const [layerVisibility, setLayerVisibility] = useState({
     floor: true,
     wall: true,
     door: true,
     ocr: true,
     labels: true,
+    lintel: true,
+    roof: true
   });
+  const [hiddenItemIds, setHiddenItemIds] = useState(new Set());
+  const toggleItemVisibility = useCallback((id) => {
+    setHiddenItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
   const [showExportPageSelector, setShowExportPageSelector] = useState(false);
   const [exportSelectedPages, setExportSelectedPages] = useState([]);
   const [showImportPageSelector, setShowImportPageSelector] = useState(false);
@@ -273,6 +338,9 @@ export default function App() {
     selectedType, setSelectedType,
     selectedPointIndex,
     selectedWallIds, setSelectedWallIds,
+    selectedDoorIds, setSelectedDoorIds,
+    selectedRoomIds, setSelectedRoomIds,
+    selectedLintelIds, setSelectedLintelIds,
     cutPreviewPoint,
     selectWall,
     deleteWalls,
@@ -371,25 +439,8 @@ export default function App() {
   }, [doorsByPage, roomsByPage, wallsByPage, realScale]);
 
   const processedRoomsByPage = useMemo(() => {
-    const newObj = {};
-    Object.keys(roomsByPage).forEach(page => {
-      const pageRooms = roomsByPage[page];
-      const pageWalls = wallsByPage[page] || [];
-      if (!Array.isArray(pageRooms)) {
-        newObj[page] = pageRooms;
-        return;
-      }
-      newObj[page] = pageRooms.map(r => {
-        if (!r.polygon || r.polygon.length < 3) return r;
-        const snappedPoly = snapRoomPolygonToWalls(r.polygon, pageWalls, 25);
-        return {
-          ...r,
-          polygon: snappedPoly
-        };
-      });
-    });
-    return newObj;
-  }, [roomsByPage, wallsByPage]);
+    return roomsByPage || {};
+  }, [roomsByPage]);
 
   const rooms = Array.isArray(processedRoomsByPage[currentPage])
     ? processedRoomsByPage[currentPage]
@@ -608,6 +659,62 @@ export default function App() {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, isLoggedIn]);
+
+  // ── 3D Multi-Monitor / Popout Synchronization via BroadcastChannel ──
+  const handlePopout3D = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const popout = window.open(
+      "/3d-view",
+      "EzeFloor_3D_Studio_Popout",
+      "width=1280,height=850,menubar=no,toolbar=no,location=no,status=no,resizable=yes"
+    );
+    if (popout) {
+      popout.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
+
+    const channel = new BroadcastChannel("ezefloor_3d_sync");
+
+    const payload = {
+      wallsByPage,
+      doorsByPage: processedDoorsByPage,
+      roomsByPage,
+      roofsByPage,
+      pages,
+      currentPage,
+      realScale,
+      imgSize,
+      currentProjectName
+    };
+
+    try {
+      localStorage.setItem("ezefloor_3d_state", JSON.stringify(payload));
+    } catch (e) {}
+
+    channel.postMessage({
+      type: "STATE_UPDATE",
+      payload
+    });
+
+    channel.onmessage = (event) => {
+      const { type, payload: msgPayload } = event.data || {};
+      if (type === "REQUEST_INITIAL_STATE") {
+        channel.postMessage({
+          type: "STATE_UPDATE",
+          payload
+        });
+      } else if (type === "WALLS_UPDATED_FROM_3D" && msgPayload?.wallsByPage) {
+        setWallsByPage(msgPayload.wallsByPage);
+      }
+    };
+
+    return () => {
+      channel.close();
+    };
+  }, [wallsByPage, processedDoorsByPage, roomsByPage, roofsByPage, pages, currentPage, realScale, imgSize, currentProjectName]);
 
   // ── 3. TASK_LIST_WEB3_SSO Listener tốc độ cao (Tức thì < 50ms) ──
   useEffect(() => {
@@ -1029,8 +1136,10 @@ export default function App() {
     pages, setPages,
     currentPage, setCurrentPage,
     roomsByPage, setRoomsByPage,
-    wallsByPage,
+    wallsByPage, setWallsByPage,
     doorsByPage, setDoorsByPage,
+    roofsByPage, setRoofsByPage,
+    lintelsByPage, setLintelsByPage,
     user,
     currentProjectName,
     realScale,
@@ -1097,7 +1206,8 @@ export default function App() {
         inferenceTiming={inferenceTiming}
         cancelROI={cancelROI}
         showBOQ={showBOQ} setShowBOQ={setShowBOQ}
-        show3D={show3D} setShow3D={setShow3D}
+        show3D={workspaceMode === "3d"} setShow3D={setShow3D}
+        workspaceMode={workspaceMode} setWorkspaceMode={handleSetWorkspaceMode}
         layerVisibility={layerVisibility} setLayerVisibility={setLayerVisibility}
         handleLogout={handleLogout}
         handleSaveJob={handleSaveJob}
@@ -1151,19 +1261,32 @@ export default function App() {
         />
       ) : (
         <div className="cad-body">
-          {!show3D && (
-            <ThumbnailSidebarView
-              pages={pages}
-              setPages={setPages}
-              currentPage={currentPage}
-              onPageClick={goPage}
-              roomsByPage={roomsByPage}
-              onAddPagesClick={openAddPagesSelector}
-              onDeletePage={handleDeletePage}
+          {workspaceMode !== "3d" && (
+            <LeftRailView
+              interactionMode={interactionMode}
+              setInteractionMode={setInteractionMode}
+              drawing={drawing}
+              setDrawing={setDrawing}
+              isMeasuring={isMeasuring}
+              setIsMeasuring={setIsMeasuring}
+              setMeasurePoints={setMeasurePoints}
+              isDistancing={isDistancing}
+              setIsDistancing={setIsDistancing}
+              setDistancePoints={setDistancePoints}
+              isDrawingRoof={isDrawingRoof}
+              setIsDrawingRoof={setIsDrawingRoof}
+              showPenetrations={showPenetrations}
+              doorController={doorController}
+              lintelController={lintelController}
+              setIsDrawingDoor={setIsDrawingDoor}
+              setSelectedRoofId={setSelectedRoofId}
+              setSelectedId={setSelectedId}
+              setSelectedType={setSelectedType}
+              setCurrentPoly={setCurrentPoly}
             />
           )}
 
-          {showPenetrations && !show3D && (
+          {showPenetrations && workspaceMode !== "3d" && (
             <div
               style={{
                 opacity: currentDoor && currentDoor.length > 0 ? 0.15 : 1,
@@ -1194,7 +1317,7 @@ export default function App() {
             </div>
           )}
 
-          {!show3D && (lintelController?.showCatalogPanel || (selectedType === 'lintel' && !isDrawingLintel)) && (
+          {workspaceMode !== "3d" && (lintelController?.showCatalogPanel || (selectedType === 'lintel' && !isDrawingLintel)) && (
             <div
               style={{
                 zIndex: 10,
@@ -1234,149 +1357,245 @@ export default function App() {
             </div>
           )}
 
-          {show3D ? (
-            <ThreeDView
-              pages={pages}
-              wallsByPage={wallsByPage}
-              setWallsByPage={setWallsByPage}
-              doorsByPage={processedDoorsByPage}
-              setDoorsByPage={setDoorsByPage}
-              updateDoor={updateDoor}
-              roomsByPage={roomsByPage}
-              roofsByPage={roofsByPage}
-              currentPage={currentPage}
-              realScale={realScale}
-              image={image}
-              imgSize={imgSize}
-              selectedId={selectedId}
-              setSelectedId={setSelectedId}
-              setSelectedType={setSelectedType}
-              onClose={() => setShow3D(false)}
-            />
-          ) : (
-            <CanvasView
-              svgRef={svgRef}
-              image={image}
-              imgSize={imgSize}
-              offset={offset}
-              scale={scale}
-              drawing={drawing}
-              isDrawingDoor={isDrawingDoor}
-              isDrawingRoof={isDrawingRoof}
-              roofInteractionState={roofInteractionState}
-              selectedRoofId={selectedRoofId}
-              setSelectedRoofId={setSelectedRoofId}
-              hoveredRoofTarget={hoveredRoofTarget}
-              updateRoofPitch={updateRoofPitch}
-              updateRoofType={updateRoofType}
-              setRoofEaveEdge={setRoofEaveEdge}
-              deleteRoof={deleteRoof}
-              currentPoly={currentPoly}
-              currentDoor={currentDoor}
-              currentMouse={currentMouse}
-              rooms={rooms}
-              walls={wallsByPage[currentPage] || []}
-              underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
-              doors={processedDoorsByPage[currentPage] || []}
-              pdfOffset={pdfOffsetsByPage[currentPage] || { x: 0, y: 0 }}
-              setPdfOffsetsByPage={setPdfOffsetsByPage}
-              scaleValue={scaleValue}
-              realScale={realScale}
-              highlightType={highlightType}
-              selectedId={selectedId}
-              setSelectedId={setSelectedId}
-              selectedType={selectedType}
-              setSelectedType={setSelectedType}
-              selectedPointIndex={selectedPointIndex}
-              selectedWallIds={selectedWallIds}
-              setSelectedWallIds={setSelectedWallIds}
-              selectWall={selectWall}
-              cutPreviewPoint={cutPreviewPoint}
-              interactionMode={interactionMode}
-              setInteractionMode={setInteractionMode}
-              hoverId={hoverId}
-              setHoverId={setHoverId}
-              layerVisibility={layerVisibility}
-              isPanning={isPanning}
-              isDistancing={isDistancing}
-              isMeasuring={isMeasuring}
-              isAddingPoint={isAddingPoint}
-              measurePoints={measurePoints}
-              distancePoints={distancePoints}
-              distanceResults={distanceResults}
-              setDistanceResults={setDistanceResults}
-              hoveredDistIdx={hoveredDistIdx}
-              setHoveredDistIdx={setHoveredDistIdx}
-              isShiftDown={isShiftDown}
-              isSnapMode={isSnapMode}
-              isWallSnapEnabled={isWallSnapEnabled}
-              setIsWallSnapEnabled={setIsWallSnapEnabled}
-              setDrawingWall={setDrawingWall}
-              setDrawingWallEnd={setDrawingWallEnd}
-              straightenWall={straightenWall}
-              rect={rect}
-              roiRect={roiRect}
-              roiProgress={roiProgress}
-              cacheStatus={cacheStatus}
-              inferenceTiming={inferenceTiming}
-              isDetecting={isDetecting}
-              activeScanRoom={activeScanRoom}
-              cancelROI={cancelROI}
-              setOffset={setOffset}
-              setScale={setScale}
-              currentPage={currentPage}
-              pages={pages}
-              handleClick={handleClick}
-              handleRoomDoubleClick={handleRoomDoubleClick}
-              finishPolygon={finishPolygon}
-              finishRoof={finishRoof}
-              finishDoor={finishDoor}
-              onMouseMove={onMouseMove}
-              onMouseDown={onMouseDown}
-              onMouseUp={onMouseUp}
-              onWheel={onWheel}
-              startDrag={startDrag}
-              dragging={dragging}
-              pushHistory={pushHistory}
-              updateDoor={updateDoor}
-              deleteDoor={deleteDoor}
-              doorController={doorController}
-              deleteWalls={deleteWalls}
-              autoMergeCollinearWalls={autoMergeCollinearWalls}
-              updateWallsProperty={updateWallsProperty}
-              pullStepPreview={pullStepPreview}
-              setPullStepInfo={setPullStepInfo}
-              extRectStart={extRectStart}
-              setExtRectStart={setExtRectStart}
-              searchResults={searchResults}
-              searchResultsVisible={searchResultsVisible}
-              hoveredSearchResultId={hoveredSearchResultId}
-              zoomToBbox={zoomToBbox}
-              showPDF={showPDF}
-              setShowPDF={setShowPDF}
-              selectedWallVertex={selectedWallVertex}
-              setSelectedWallVertex={setSelectedWallVertex}
-              drawingWall={drawingWall}
-              drawingWallEnd={drawingWallEnd}
-              handleWallDoubleClick={handleWallDoubleClick}
-              vertexMenu={vertexMenu}
-              setVertexMenu={setVertexMenu}
-              wallBodyMenu={wallBodyMenu}
-              setWallBodyMenu={setWallBodyMenu}
-              isWallMergeDisabled={isWallMergeDisabled}
-              setIsWallMergeDisabled={setIsWallMergeDisabled}
-              startDrawWallFromVertex={startDrawWallFromVertex}
-              separateJunction={separateJunction}
-              selectedVertices={selectedVertices}
-              setSelectedVertices={setSelectedVertices}
-              startVertexMove={startVertexMove}
-              lintelController={lintelController}
-              isDrawingLintel={isDrawingLintel}
-              lintelPreview={lintelPreview}
-            />
-          )}
+          {/* ── 2D / 3D DUAL WORKSPACE CONTAINER ── */}
+          <div ref={splitContainerRef} className="cad-dual-workspace">
+            {/* ── 2D WORKSPACE PANEL ── */}
+            {(workspaceMode === "2d" || workspaceMode === "split") && (
+              <div
+                className="cad-workspace-panel"
+                style={{
+                  width: workspaceMode === "split" ? `${splitRatio}%` : "100%",
+                  flexShrink: 0
+                }}
+              >
+                {/* 2D Workspace Badge & Focus/Fullscreen button */}
+                <div className="cad-workspace-badge">
+                  <span>▦ 2D Floorplan</span>
+                  <button
+                    onClick={() => handleSetWorkspaceMode(workspaceMode === "2d" ? "split" : "2d")}
+                    title={workspaceMode === "2d" ? "Quay lại chế độ xem song song (Split View)" : "Phóng to toàn màn hình 2D (Maximize 2D)"}
+                  >
+                    {workspaceMode === "2d" ? "◫" : "⛶"}
+                  </button>
+                </div>
 
-          {!show3D && (
+                <div className="cad-canvas-container" style={{ width: "100%", height: "100%" }}>
+                  <FloorTabBarView
+                    pages={pages}
+                    currentPage={currentPage}
+                    onPageClick={goPage}
+                    roomsByPage={roomsByPage}
+                    onAddPagesClick={openAddPagesSelector}
+                    onDeletePage={handleDeletePage}
+                  />
+                  <CanvasView
+                    svgRef={svgRef}
+                    image={image}
+                    imgSize={imgSize}
+                    offset={offset}
+                    scale={scale}
+                    fitToScreen={fitToScreen}
+                    drawing={drawing}
+                    isDrawingDoor={isDrawingDoor}
+                    isDrawingRoof={isDrawingRoof}
+                    roofInteractionState={roofInteractionState}
+                    selectedRoofId={selectedRoofId}
+                    setSelectedRoofId={setSelectedRoofId}
+                    hoveredRoofTarget={hoveredRoofTarget}
+                    updateRoofPitch={updateRoofPitch}
+                    updateRoofType={updateRoofType}
+                    setRoofEaveEdge={setRoofEaveEdge}
+                    deleteRoof={deleteRoof}
+                    currentPoly={currentPoly}
+                    currentDoor={currentDoor}
+                    currentMouse={currentMouse}
+                    rooms={rooms}
+                    walls={wallsByPage[currentPage] || []}
+                    underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
+                    doors={processedDoorsByPage[currentPage] || []}
+                    pdfOffset={pdfOffsetsByPage[currentPage] || { x: 0, y: 0 }}
+                    setPdfOffsetsByPage={setPdfOffsetsByPage}
+                    scaleValue={scaleValue}
+                    realScale={realScale}
+                    highlightType={highlightType}
+                    selectedId={selectedId}
+                    setSelectedId={setSelectedId}
+                    selectedType={selectedType}
+                    setSelectedType={setSelectedType}
+                    selectedPointIndex={selectedPointIndex}
+                    selectedWallIds={selectedWallIds}
+                    setSelectedWallIds={setSelectedWallIds}
+                    selectedDoorIds={selectedDoorIds}
+                    setSelectedDoorIds={setSelectedDoorIds}
+                    selectedRoomIds={selectedRoomIds}
+                    setSelectedRoomIds={setSelectedRoomIds}
+                    selectedLintelIds={selectedLintelIds}
+                    setSelectedLintelIds={setSelectedLintelIds}
+                    selectWall={selectWall}
+                    cutPreviewPoint={cutPreviewPoint}
+                    interactionMode={interactionMode}
+                    setInteractionMode={setInteractionMode}
+                    hoverId={hoverId}
+                    setHoverId={setHoverId}
+                    layerVisibility={layerVisibility}
+                    hiddenItemIds={hiddenItemIds}
+                    isPanning={isPanning}
+                    isDistancing={isDistancing}
+                    isMeasuring={isMeasuring}
+                    isAddingPoint={isAddingPoint}
+                    measurePoints={measurePoints}
+                    distancePoints={distancePoints}
+                    distanceResults={distanceResults}
+                    setDistanceResults={setDistanceResults}
+                    hoveredDistIdx={hoveredDistIdx}
+                    setHoveredDistIdx={setHoveredDistIdx}
+                    isShiftDown={isShiftDown}
+                    isSnapMode={isSnapMode}
+                    isWallSnapEnabled={isWallSnapEnabled}
+                    setIsWallSnapEnabled={setIsWallSnapEnabled}
+                    setDrawingWall={setDrawingWall}
+                    setDrawingWallEnd={setDrawingWallEnd}
+                    straightenWall={straightenWall}
+                    rect={rect}
+                    roiRect={roiRect}
+                    roiProgress={roiProgress}
+                    cacheStatus={cacheStatus}
+                    inferenceTiming={inferenceTiming}
+                    isDetecting={isDetecting}
+                    activeScanRoom={activeScanRoom}
+                    cancelROI={cancelROI}
+                    setOffset={setOffset}
+                    setScale={setScale}
+                    currentPage={currentPage}
+                    pages={pages}
+                    handleClick={handleClick}
+                    handleRoomDoubleClick={handleRoomDoubleClick}
+                    finishPolygon={finishPolygon}
+                    finishRoof={finishRoof}
+                    finishDoor={finishDoor}
+                    onMouseMove={onMouseMove}
+                    onMouseDown={onMouseDown}
+                    onMouseUp={onMouseUp}
+                    onWheel={onWheel}
+                    startDrag={startDrag}
+                    dragging={dragging}
+                    pushHistory={pushHistory}
+                    updateDoor={updateDoor}
+                    deleteDoor={deleteDoor}
+                    doorController={doorController}
+                    deleteWalls={deleteWalls}
+                    autoMergeCollinearWalls={autoMergeCollinearWalls}
+                    updateWallsProperty={updateWallsProperty}
+                    pullStepPreview={pullStepPreview}
+                    setPullStepInfo={setPullStepInfo}
+                    extRectStart={extRectStart}
+                    setExtRectStart={setExtRectStart}
+                    searchResults={searchResults}
+                    searchResultsVisible={searchResultsVisible}
+                    hoveredSearchResultId={hoveredSearchResultId}
+                    zoomToBbox={zoomToBbox}
+                    showPDF={showPDF}
+                    setShowPDF={setShowPDF}
+                    selectedWallVertex={selectedWallVertex}
+                    setSelectedWallVertex={setSelectedWallVertex}
+                    drawingWall={drawingWall}
+                    drawingWallEnd={drawingWallEnd}
+                    handleWallDoubleClick={handleWallDoubleClick}
+                    vertexMenu={vertexMenu}
+                    setVertexMenu={setVertexMenu}
+                    wallBodyMenu={wallBodyMenu}
+                    setWallBodyMenu={setWallBodyMenu}
+                    isWallMergeDisabled={isWallMergeDisabled}
+                    setIsWallMergeDisabled={setIsWallMergeDisabled}
+                    startDrawWallFromVertex={startDrawWallFromVertex}
+                    separateJunction={separateJunction}
+                    selectedVertices={selectedVertices}
+                    setSelectedVertices={setSelectedVertices}
+                    startVertexMove={startVertexMove}
+                    lintelController={lintelController}
+                    isDrawingLintel={isDrawingLintel}
+                    lintelPreview={lintelPreview}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ── DRAGGABLE SPLIT DIVIDER ── */}
+            {workspaceMode === "split" && (
+              <div
+                className={`cad-split-divider ${isDraggingSplit ? "dragging" : ""}`}
+                onMouseDown={handleSplitMouseDown}
+                onDoubleClick={() => setSplitRatio(70)}
+                title="Kéo sang trái/phải để điều chỉnh tỉ lệ (Nhấp đúp để reset về 70/30)"
+              />
+            )}
+
+            {/* ── 3D WORKSPACE PANEL (only in split mode) ── */}
+            {workspaceMode === "split" && (
+              <div
+                className="cad-workspace-panel"
+                style={{
+                  width: `${100 - splitRatio}%`,
+                  flexShrink: 0,
+                  flexGrow: 1
+                }}
+              >
+                {/* 3D Workspace Badge & Popout button */}
+                <div className="cad-workspace-badge" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>🧊 3D View</span>
+                  <button
+                    onClick={() => {
+                      handlePopout3D();
+                      handleSetWorkspaceMode("2d");
+                    }}
+                    title="Pop out 3D Studio into a separate window and switch to 2D only (Mở 3D ra cửa sổ riêng và chuyển về 2D)"
+                    style={{
+                      padding: "2px 7px",
+                      borderRadius: "4px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      background: "rgba(59, 130, 246, 0.1)",
+                      border: "1px solid rgba(59, 130, 246, 0.3)",
+                      color: "#2563eb",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "3px"
+                    }}
+                  >
+                    ⧉ Pop out
+                  </button>
+                  <button
+                    onClick={() => handleSetWorkspaceMode("2d")}
+                    title="Close 3D panel (Đóng 3D)"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <ThreeDView
+                  pages={pages}
+                  wallsByPage={wallsByPage}
+                  setWallsByPage={setWallsByPage}
+                  doorsByPage={processedDoorsByPage}
+                  setDoorsByPage={setDoorsByPage}
+                  updateDoor={updateDoor}
+                  roomsByPage={roomsByPage}
+                  roofsByPage={roofsByPage}
+                  currentPage={currentPage}
+                  realScale={realScale}
+                  image={image}
+                  imgSize={imgSize}
+                  selectedId={selectedId}
+                  setSelectedId={setSelectedId}
+                  setSelectedType={setSelectedType}
+                  onClose={() => handleSetWorkspaceMode("2d")}
+                />
+              </div>
+            )}
+          </div>
+
+          {workspaceMode !== "3d" && (
             activeTab === "Search" ? (
               <SearchSidebarView
                 searchResults={searchResults}
@@ -1420,6 +1639,12 @@ export default function App() {
                 setHighlightType={setHighlightType}
                 selectedWallIds={selectedWallIds}
                 setSelectedWallIds={setSelectedWallIds}
+                selectedDoorIds={selectedDoorIds}
+                setSelectedDoorIds={setSelectedDoorIds}
+                selectedRoomIds={selectedRoomIds}
+                setSelectedRoomIds={setSelectedRoomIds}
+                selectedLintelIds={selectedLintelIds}
+                setSelectedLintelIds={setSelectedLintelIds}
                 setSelectedType={setSelectedType}
                 setSelectedId={setSelectedId}
                 updateWallsProperty={updateWallsProperty}
@@ -1437,6 +1662,29 @@ export default function App() {
                 lintelController={lintelController}
                 selectedId={selectedId}
                 onLoadJob={handleLoadJob}
+                loadPDF={loadPDF}
+                setPendingPages={setPendingPages}
+                setImportSelectedPages={setImportSelectedPages}
+                setIsAddingPagesMode={setIsAddingPagesMode}
+                setShowImportPageSelector={setShowImportPageSelector}
+                pages={pages}
+                currentPage={currentPage}
+                setCurrentPage={goPage}
+                goPage={goPage}
+                currentProjectName={currentProjectName}
+                wallsByPage={wallsByPage}
+                doorsByPage={processedDoorsByPage}
+                roomsByPage={roomsByPage}
+                setRoomsByPage={setRoomsByPage}
+                lintelsByPage={lintelsByPage}
+                roofsByPage={roofsByPage}
+                hiddenItemIds={hiddenItemIds}
+                setHiddenItemIds={setHiddenItemIds}
+                toggleItemVisibility={toggleItemVisibility}
+                layerVisibility={layerVisibility}
+                setLayerVisibility={setLayerVisibility}
+                deleteItem={deleteItem}
+                selectWall={selectWall}
               />
             )
           )}

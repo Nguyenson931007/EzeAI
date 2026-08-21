@@ -664,16 +664,13 @@ export default function AIDoor({
           const n1 = { x: -u_frame.y, y: u_frame.x };
           const n2 = { x: u_frame.y, y: -u_frame.x };
 
-          const rawDx2 = o2.x - hingeX;
-          const rawDy2 = o2.y - hingeY;
-          const dot1 = rawDx2 * n1.x + rawDy2 * n1.y;
-          const dot2 = rawDx2 * n2.x + rawDy2 * n2.y;
-          let norm = dot1 >= dot2 ? n1 : n2;
+          // Use the door segmentation polygon centroid as ground truth for swing direction
+          const polyCentroidX = polyPoints.reduce((sum, p) => sum + p.x, 0) / polyPoints.length;
+          const polyCentroidY = polyPoints.reduce((sum, p) => sum + p.y, 0) / polyPoints.length;
+          const dotCentroid1 = (polyCentroidX - hingeX) * n1.x + (polyCentroidY - hingeY) * n1.y;
+          const dotCentroid2 = (polyCentroidX - hingeX) * n2.x + (polyCentroidY - hingeY) * n2.y;
 
-          const currentSwing = d.swing || d.swing_direction;
-          if (currentSwing === "outward") {
-            norm = (norm === n1) ? n2 : n1;
-          }
+          const norm = dotCentroid1 >= dotCentroid2 ? n1 : n2;
 
           const o2_proj = {
             x: hingeX + r * norm.x,
@@ -1110,17 +1107,6 @@ export default function AIDoor({
             startDrag(d.id, null, 'door-move');
           }
         }}
-      />
-
-      {/* Render raw model-detected polygon area (translucent fill and dashed border) */}
-      <polygon
-        points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-        fill={isSelected ? "rgba(255, 87, 34, 0.12)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(168, 85, 247, 0.06)")}
-        stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
-        strokeWidth={1}
-        strokeDasharray="3,3"
-        opacity={0.65}
-        style={{ pointerEvents: 'none' }}
       />
 
       {/* For Sliding Doors: Render 1 rectangular box with length following model and width following nearest wall */}

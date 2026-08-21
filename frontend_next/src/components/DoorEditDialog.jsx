@@ -187,8 +187,17 @@ export default function DoorEditDialog({
       right: actDist.distRightMm ?? 0
     });
     
+    let effW = door.width_mm;
+    if (!effW && door.points && door.points.length >= 2) {
+      const p1 = Array.isArray(door.points[0]) ? { x: door.points[0][0], y: door.points[0][1] } : door.points[0];
+      const p2 = Array.isArray(door.points[1]) ? { x: door.points[1][0], y: door.points[1][1] } : door.points[1];
+      const lenPx = Math.hypot((p2.x || 0) - (p1.x || 0), (p2.y || 0) - (p1.y || 0));
+      const scale = (typeof realScale === 'number' && realScale > 0) ? realScale : 18.0;
+      effW = Math.round(lenPx * scale);
+    }
+
     setHeightMm(door.height_mm || 1980);
-    setWidthMm(door.width_mm || 760);
+    setWidthMm(effW || 760);
     setApplyToAll(true);
   }, [door, walls, realScale]);
 

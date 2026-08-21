@@ -679,3 +679,110 @@ async def tasklist_sso(payload: dict, response: Response):
         "session_token": new_token,
         "data": user_data
     }
+
+
+class UserProfileUpdate(BaseModel):
+    full_name_en: Optional[str] = None
+    full_name_vi: Optional[str] = None
+    age: Optional[int] = None
+    position: Optional[str] = None
+    team: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
+
+@router.get("/users/me")
+@router.get("/api/users/me")
+def get_current_user_profile(
+    auth_username: Optional[str] = Header(None, alias="X-Username"),
+    session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
+    session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
+):
+    session_token = session_token_cookie or session_token_header
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if auth_username:
+            cursor.execute(
+                "SELECT id, username, email, role, full_name_en, full_name_vi, age, position, team, phone, is_active, is_online, status FROM users WHERE username = ?", 
+                (auth_username,)
+            )
+        elif session_token:
+            cursor.execute(
+                "SELECT id, username, email, role, full_name_en, full_name_vi, age, position, team, phone, is_active, is_online, status FROM users WHERE session_token = ?", 
+                (session_token,)
+            )
+        else:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@router.put("/users/me")
+@router.put("/api/users/me")
+def update_current_user_profile(
+    profile_data: UserProfileUpdate,
+    auth_username: Optional[str] = Header(None, alias="X-Username"),
+    session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
+    session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
+):
+    session_token = session_token_cookie or session_token_header
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        user_row = None
+        if auth_username:
+            cursor.execute("SELECT id, username FROM users WHERE username = ?", (auth_username,))
+            user_row = cursor.fetchone()
+        elif session_token:
+            cursor.execute("SELECT id, username FROM users WHERE session_token = ?", (session_token,))
+            user_row = cursor.fetchone()
+        
+        if not user_row:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        user_id = user_row["id"]
+        updates = []
+        params = []
+
+        if profile_data.full_name_en is not None:
+            updates.append("full_name_en = ?")
+            params.append(profile_data.full_name_en)
+        if profile_data.full_name_vi is not None:
+            updates.append("full_name_vi = ?")
+            params.append(profile_data.full_name_vi)
+        if profile_data.age is not None:
+            updates.append("age = ?")
+            params.append(profile_data.age)
+        if profile_data.position is not None:
+            updates.append("position = ?")
+            params.append(profile_data.position)
+        if profile_data.team is not None:
+            updates.append("team = ?")
+            params.append(profile_data.team)
+        if profile_data.phone is not None:
+            updates.append("phone = ?")
+            params.append(profile_data.phone)
+        if profile_data.email is not None and profile_data.email.strip():
+            updates.append("email = ?")
+            params.append(profile_data.email.strip())
+
+        if updates:
+            params.append(user_id)
+            cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", tuple(params))
+            conn.commit()
+
+        cursor.execute(
+            "SELECT id, username, email, role, full_name_en, full_name_vi, age, position, team, phone, is_active, is_online, status FROM users WHERE id = ?", 
+            (user_id,)
+        )
+        updated_row = cursor.fetchone()
+        return {"status": "success", "user": dict(updated_row)}
+    finally:
+        conn.close()
+

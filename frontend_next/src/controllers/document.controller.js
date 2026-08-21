@@ -24,8 +24,10 @@ export function useDocumentController({
   pages, setPages,
   currentPage, setCurrentPage,
   roomsByPage, setRoomsByPage,
-  wallsByPage,
+  wallsByPage, setWallsByPage,
   doorsByPage, setDoorsByPage,
+  roofsByPage, setRoofsByPage,
+  lintelsByPage, setLintelsByPage,
   user,
   currentProjectName,
   realScale,
@@ -206,7 +208,27 @@ export function useDocumentController({
     const newW = oldH;
     const newH = oldW;
 
-    const rot90cw = (p) => ({ x: oldH - p.y, y: p.x });
+    const rotPoint = (p) => {
+      if (!p) return p;
+      if (Array.isArray(p)) {
+        return [oldH - p[1], p[0]];
+      }
+      if (typeof p === "object" && typeof p.x === "number" && typeof p.y === "number") {
+        return { ...p, x: oldH - p.y, y: p.x };
+      }
+      return p;
+    };
+
+    const rotPolygon = (poly) => {
+      if (!poly || !Array.isArray(poly)) return poly;
+      return poly.map(rotPoint);
+    };
+
+    const rotBbox = (bbox) => {
+      if (!bbox || !Array.isArray(bbox) || bbox.length !== 4) return bbox;
+      const [x1, y1, x2, y2] = bbox;
+      return [oldH - y2, x1, oldH - y1, x2];
+    };
 
     const img = new window.Image();
     await new Promise(resolve => { img.onload = resolve; img.src = image; });
@@ -221,29 +243,47 @@ export function useDocumentController({
     ctx.drawImage(img, 0, 0, oldW, oldH);
     const rotatedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
 
-    const rotatedRooms = rooms.map(r => ({
+    const rotatedRooms = (roomsByPage[currentPage] || []).map(r => ({
       ...r,
-      polygon: r.polygon.map(rot90cw)
+      polygon: rotPolygon(r.polygon)
     }));
 
-    const rotatedDoors = (doorsByPage[currentPage] || []).map(d => {
-      const [x1, y1, x2, y2] = d.bbox;
-      return {
-        ...d,
-        bbox: [oldH - y2, x1, oldH - y1, x2],
-        polygon: d.polygon.map(([x, y]) => [oldH - y, x]),
-        centroid: [oldH - d.centroid[1], d.centroid[0]]
-      };
-    });
+    const rotatedWalls = (wallsByPage[currentPage] || []).map(w => ({
+      ...w,
+      centerline: w.centerline ? w.centerline.map(rotPoint) : w.centerline,
+      polygon: rotPolygon(w.polygon)
+    }));
 
-    pushHistory(rotatedRooms);
+    const rotatedDoors = (doorsByPage[currentPage] || []).map(d => ({
+      ...d,
+      bbox: rotBbox(d.bbox),
+      polygon: rotPolygon(d.polygon),
+      centroid: rotPoint(d.centroid),
+      points: d.points ? d.points.map(rotPoint) : d.points,
+      centerPoint: rotPoint(d.centerPoint),
+      position: rotPoint(d.position)
+    }));
+
+    const rotatedRoofs = (roofsByPage?.[currentPage] || []).map(r => ({
+      ...r,
+      polygon: rotPolygon(r.polygon)
+    }));
+
+    const rotatedLintels = (lintelsByPage?.[currentPage] || []).map(l => ({
+      ...l,
+      startPt: rotPoint(l.startPt),
+      endPt: rotPoint(l.endPt)
+    }));
+
+    pushHistory(rotatedRooms, rotatedWalls, rotatedDoors);
     setImage(rotatedDataUrl);
     setImgSize({ w: newW, h: newH });
-    
-    setDoorsByPage(prev => ({
-      ...prev,
-      [currentPage]: rotatedDoors
-    }));
+
+    setRoomsByPage(prev => ({ ...prev, [currentPage]: rotatedRooms }));
+    if (setWallsByPage) setWallsByPage(prev => ({ ...prev, [currentPage]: rotatedWalls }));
+    setDoorsByPage(prev => ({ ...prev, [currentPage]: rotatedDoors }));
+    if (setRoofsByPage) setRoofsByPage(prev => ({ ...prev, [currentPage]: rotatedRoofs }));
+    if (setLintelsByPage) setLintelsByPage(prev => ({ ...prev, [currentPage]: rotatedLintels }));
 
     setPages(prev => prev.map((pg, i) =>
       i === currentPage ? { ...pg, image: rotatedDataUrl, w: newW, h: newH } : pg

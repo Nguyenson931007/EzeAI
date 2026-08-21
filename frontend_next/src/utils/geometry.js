@@ -591,8 +591,10 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
 
   const isWindowDoor = (d) => {
     if (!d) return false;
-    const t = String(d.type || d.class || d.category || d.door_type || d.type_name || d.name || '').toLowerCase();
-    return t.includes('window') || t.includes('cửa sổ') || d.is_window === true;
+    const t = String(d.type || d.class || d.category || d.door_type || d.type_name || d.name || d.door_name || d.doorName || '').toLowerCase();
+    const isSliding = t.includes('sliding') || t.includes('slider') || t.includes('windoor') || t.includes('slide') || (d.doorTypeId && String(d.doorTypeId).includes('sliding'));
+    if (isSliding) return false;
+    return t.includes('window') || t.includes('cửa sổ') || d.is_window === true || d.doorTypeId === 'win_standard' || (d.id && String(d.id).startsWith('window_'));
   };
 
   // Group doors by parent wall and sort by t
@@ -636,17 +638,20 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
 
     if (!dp1 || !dp2) continue;
 
-    const effWidthMm = door.width_mm || door.width;
-    if (effWidthMm && realScale && realScale > 0) {
-      const curLenPx = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
-      const expectedPx = effWidthMm / realScale;
-      if (curLenPx > 0 && expectedPx > 0) {
-        const midX = (dp1.x + dp2.x) / 2;
-        const midY = (dp1.y + dp2.y) / 2;
-        const ux = (dp2.x - dp1.x) / curLenPx;
-        const uy = (dp2.y - dp1.y) / curLenPx;
-        dp1 = { x: midX - ux * (expectedPx / 2), y: midY - uy * (expectedPx / 2) };
-        dp2 = { x: midX + ux * (expectedPx / 2), y: midY + uy * (expectedPx / 2) };
+    if (!door.points || door.points.length < 2) {
+      const effWidthMm = door.width_mm || door.width;
+      const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
+      if (effWidthMm && effScale > 0) {
+        const curLenPx = Math.hypot(dp2.x - dp1.x, dp2.y - dp1.y);
+        const expectedPx = effWidthMm / effScale;
+        if (curLenPx > 0 && expectedPx > 0) {
+          const midX = (dp1.x + dp2.x) / 2;
+          const midY = (dp1.y + dp2.y) / 2;
+          const ux = (dp2.x - dp1.x) / curLenPx;
+          const uy = (dp2.y - dp1.y) / curLenPx;
+          dp1 = { x: midX - ux * (expectedPx / 2), y: midY - uy * (expectedPx / 2) };
+          dp2 = { x: midX + ux * (expectedPx / 2), y: midY + uy * (expectedPx / 2) };
+        }
       }
     }
 
@@ -1883,24 +1888,76 @@ export function snapDoorToWalls(door, walls, maxDist = 40, forceWallLock = false
   return door;
 }
 
-export function mapFloorName(name, index) {
-  if (!name) {
-    const labels = ["GF", "FF", "SF", "TF"];
-    return index < labels.length ? labels[index] : `${index}F`;
+export function isWindowOnWall(windowItem, walls, maxDist = 80) {
+  if (!walls || walls.length === 0) return true;
+  if (windowItem.parentWallId) {
+    const parent = walls.find(w => w.id === windowItem.parentWallId);
+    if (parent) return true;
   }
-  const norm = name.toLowerCase().trim().replace(/[\s_]+/g, '_');
-  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0') return 'GF';
-  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1') return 'FF';
-  if (norm === 'third_floor' || norm === 'floor_2') return 'SF';
-  if (norm === 'fourth_floor' || norm === 'floor_3') return 'TF';
-  if (norm === 'fifth_floor' || norm === 'floor_4') return '4F';
-  if (norm === 'roof') return 'Roof';
 
-  const match = norm.match(/^floor_(\d+)$/);
+  let p1, p2;
+  if (windowItem.points && windowItem.points.length >= 2) {
+    const pt0 = windowItem.points[0];
+    const pt1 = windowItem.points[1];
+    p1 = Array.isArray(pt0) ? { x: pt0[0], y: pt0[1] } : pt0;
+    p2 = Array.isArray(pt1) ? { x: pt1[0], y: pt1[1] } : pt1;
+  } else if (windowItem.polygon && windowItem.polygon.length >= 3) {
+    const pts = windowItem.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    p1 = { x: cx, y: cy };
+    p2 = { x: cx, y: cy };
+  } else if (windowItem.mask_polygon && windowItem.mask_polygon.length >= 3) {
+    const pts = windowItem.mask_polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    p1 = { x: cx, y: cy };
+    p2 = { x: cx, y: cy };
+  } else if (windowItem.x != null && windowItem.y != null) {
+    p1 = { x: windowItem.x, y: windowItem.y };
+    p2 = { x: windowItem.x, y: windowItem.y };
+  } else {
+    return false;
+  }
+
+  const C = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+  for (const w of walls) {
+    if (w.centerline && w.centerline.length === 2) {
+      const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+      const proj = distancePointToSegment(C, a, b);
+      const wallThick = w.thickness_px || 25;
+      const allowedDist = Math.max(maxDist, wallThick * 1.5);
+      if (proj.dist <= allowedDist) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function mapFloorName(name, index = 0) {
+  const pIdx = (typeof index === 'number' && !isNaN(index)) ? index : 0;
+  if (!name) {
+    return `Level ${pIdx + 1}`;
+  }
+  const norm = String(name).toLowerCase().trim().replace(/[\s_]+/g, '_');
+  if (norm.includes('roof') || norm.includes('mai')) return 'Roof';
+  if (norm === 'first_floor' || norm === 'ground_floor' || norm === 'floor_0' || norm === 'level_0' || norm === 'gf' || norm === 'level_1') return 'Level 1';
+  if (norm === 'upper_floor' || norm === 'second_floor' || norm === 'floor_1' || norm === 'level_2' || norm === 'ff') return 'Level 2';
+  if (norm === 'third_floor' || norm === 'floor_2' || norm === 'level_3' || norm === 'sf') return 'Level 3';
+  if (norm === 'fourth_floor' || norm === 'floor_3' || norm === 'level_4' || norm === 'tf') return 'Level 4';
+  if (norm === 'fifth_floor' || norm === 'floor_4' || norm === 'level_5') return 'Level 5';
+
+  const match = norm.match(/^(?:floor|level)_(\d+)$/);
   if (match) {
     const idx = parseInt(match[1]);
-    const labels = ["GF", "FF", "SF", "TF"];
-    return idx < labels.length ? labels[idx] : `${idx}F`;
+    return `Level ${idx + 1}`;
+  }
+
+  if (/^floor\s*/i.test(name.trim())) {
+    return name.trim().replace(/^floor\s*/i, 'Level ');
   }
 
   return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());

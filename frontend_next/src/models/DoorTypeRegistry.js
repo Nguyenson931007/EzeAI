@@ -473,9 +473,11 @@ export const FIRE_RATING_OPTIONS = [
  * @returns {number} Door height in mm
  */
 export function computeDoorHeight(wallClassName, doorTypeId, wallHeightOverride = null) {
-  const wallDef = WALL_TYPE_DEFAULTS[wallClassName] || WALL_TYPE_DEFAULTS.interior_wall;
   const doorDef = DOOR_TYPE_REGISTRY[doorTypeId];
-
+  if (doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard') {
+    return doorDef?.defaultHeight || 1200;
+  }
+  const wallDef = WALL_TYPE_DEFAULTS[wallClassName] || WALL_TYPE_DEFAULTS.interior_wall;
   const wallHeight = wallHeightOverride || wallDef.heightMm;
   const headOffset = doorDef ? doorDef.headOffset : 100;
 
@@ -485,23 +487,61 @@ export function computeDoorHeight(wallClassName, doorTypeId, wallHeightOverride 
 /**
  * Resolves a door type registry key from legacy class/type strings.
  *
- * @param {string} doorClass - e.g., "single_door", "double_door", "sliding_door"
+ * @param {string} doorClass - e.g., "single_door", "double_door", "sliding_door", "sliding", "slider"
  * @param {string} [category] - "external" | "internal" (defaults to "internal")
  * @returns {string} Registry key
  */
 export function resolveDoorTypeId(doorClass, category = 'internal') {
+  if (!doorClass) {
+    return category === 'external' ? 'ext_hinged_single' : 'int_hinged_single';
+  }
+
+  // If already a valid registry key, return it
+  if (DOOR_TYPE_REGISTRY[doorClass]) {
+    return doorClass;
+  }
+
+  const str = String(doorClass).toLowerCase().trim();
   const prefix = category === 'external' ? 'ext_' : 'int_';
 
-  // Direct lookup from renderClass
+  // 1. Direct match on renderClass, doorType, or ID with category prefix
   for (const [key, def] of Object.entries(DOOR_TYPE_REGISTRY)) {
-    if (def.renderClass === doorClass && key.startsWith(prefix)) {
-      return key;
+    if (key.startsWith(prefix)) {
+      if (def.renderClass === str || def.doorType === str || def.id === str) {
+        return key;
+      }
     }
   }
 
-  // Fallback: try any category
+  // 2. Semantic matching based on door type keywords
+  if (str.includes('cavity') || str.includes('cs_slider') || str === 'cs') {
+    return 'int_cavity_slider';
+  }
+  if (str.includes('double_slider') || str.includes('dbl_slider') || str.includes('double slider')) {
+    return 'int_double_slider';
+  }
+  if (str.includes('sliding') || str.includes('slider') || str === 'slide') {
+    return category === 'external' ? 'ext_sliding' : 'int_sliding';
+  }
+  if (str.includes('bifold') || str.includes('bi-fold') || str.includes('folding')) {
+    return category === 'external' ? 'ext_bifold' : 'int_bifold';
+  }
+  if (str.includes('garage') || str.includes('roller')) {
+    return 'ext_garage';
+  }
+  if (str.includes('window') || str.includes('win_') || str === 'win') {
+    return 'win_standard';
+  }
+  if (str.includes('double') || str.includes('french')) {
+    return category === 'external' ? 'ext_hinged_double' : 'int_hinged_double';
+  }
+  if (str.includes('single') || str.includes('hinged') || str.includes('entry')) {
+    return category === 'external' ? 'ext_hinged_single' : 'int_hinged_single';
+  }
+
+  // 3. Fallback: match any category
   for (const [key, def] of Object.entries(DOOR_TYPE_REGISTRY)) {
-    if (def.renderClass === doorClass) {
+    if (def.renderClass === str || def.doorType === str) {
       return key;
     }
   }
@@ -584,12 +624,12 @@ export function setWindowSequence(count) {
 
 function nextDoorName() {
   doorSequenceCounter++;
-  return `D-${String(doorSequenceCounter).padStart(3, '0')}`;
+  return `D-${String(doorSequenceCounter).padStart(2, '0')}`;
 }
 
 function nextWindowName() {
   windowSequenceCounter++;
-  return `W-${String(windowSequenceCounter).padStart(3, '0')}`;
+  return `W-${String(windowSequenceCounter).padStart(2, '0')}`;
 }
 
 /**
@@ -736,40 +776,47 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     : findParentWall(centerPoint, walls);
 
   // Resolve door type
-  let isWindowObj = door.class === 'window' || door.type === 'window' || door.doorTypeId === 'win_standard';
+  let isWindowObj = door.class === 'window' || door.type === 'window' || door.doorTypeId === 'win_standard' || (door.id && String(door.id).startsWith('window_'));
   const isParentWallExt = parentWall && (
     parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior
   );
+  const isParentWallInt = parentWall && (
+    parentWall.class_name === 'interior_wall' || parentWall.class_name === 'partition_wall' ||
+    parentWall.type === 'int' || parentWall.wall_type === 'int' ||
+    (!isParentWallExt && parentWall.class_name !== 'block_wall')
+  );
 
-  const doorNameLower = (door.door_name || door.doorName || door.ocr_text || '').toLowerCase();
-  const isNameInternal = doorNameLower.includes('internal') || doorNameLower.includes('int') || doorNameLower.includes('door') || doorNameLower.includes('cs') || doorNameLower.includes('slider');
-
-  // If a window is located on an interior wall OR has an internal door label, convert it to a sliding door!
-  if (isWindowObj && (isNameInternal || (parentWall && !isParentWallExt))) {
-    isWindowObj = false;
-    door.class = 'sliding_door';
-    door.type = 'sliding';
-    door.doorTypeId = 'int_sliding';
-    if (!door.doorName || door.doorName === 'Internal Door') {
-      door.doorName = `D-${(door.id || '').replace('window_', '').replace('door_', '').replace('win_', '').substring(0, 3)}`;
-      door.door_name = door.doorName;
-    }
+  // Rule: Window on internal wall → sliding door
+  let windowConvertedToSliding = false;
+  if (isWindowObj && isParentWallInt && !isParentWallExt) {
+    windowConvertedToSliding = true;
+    isWindowObj = false; // no longer treated as window
   }
 
-  const doorClass = isWindowObj ? 'window' : (door.class || 'single_door');
-  const isExternal = door.is_ext || door.is_exterior || door.location === 'external' || isParentWallExt || doorClass.includes('ext') || (door.door_name || door.doorName || '').toLowerCase().includes('external');
+  const isSlidingDetected = windowConvertedToSliding || (!isWindowObj && (
+    door.type === 'sliding' ||
+    (door.class && (door.class.includes('sliding') || door.class.includes('slider'))) ||
+    (door.door_name || door.doorName || '').toLowerCase().includes('slider')
+  ));
+
+  const doorClass = isWindowObj ? 'window' : (isSlidingDetected ? 'sliding_door' : (door.class || door.type || 'single_door'));
+  const isExternal = door.is_ext || door.is_exterior || door.location === 'external' || isParentWallExt || String(doorClass).includes('ext') || (door.door_name || door.doorName || '').toLowerCase().includes('external');
   const category = isExternal ? 'external' : 'internal';
-  const doorTypeId = door.doorTypeId || (isWindowObj ? 'win_standard' : resolveDoorTypeId(doorClass, category));
-  const doorDef = DOOR_TYPE_REGISTRY[doorTypeId] || (isWindowObj ? DOOR_TYPE_REGISTRY.win_standard : DOOR_TYPE_REGISTRY.int_hinged_single);
+  const resolvedId = resolveDoorTypeId(door.doorTypeId || doorClass || door.type, category);
+  const doorTypeId = (door.doorTypeId && DOOR_TYPE_REGISTRY[door.doorTypeId] && !(isSlidingDetected && door.doorTypeId.includes('hinged')) && !windowConvertedToSliding)
+    ? door.doorTypeId
+    : resolvedId;
+  const doorDef = DOOR_TYPE_REGISTRY[doorTypeId] || (isWindowObj ? DOOR_TYPE_REGISTRY.win_standard : (isSlidingDetected ? (isExternal ? DOOR_TYPE_REGISTRY.ext_sliding : DOOR_TYPE_REGISTRY.int_sliding) : DOOR_TYPE_REGISTRY.int_hinged_single));
 
   // Compute metrics
   let widthMm = door.width_mm;
   if (!widthMm || (door.width_source !== 'manual' && door.width_source !== 'ocr')) {
-    if (door.points && door.points.length >= 2 && realScale && realScale > 0) {
+    if (door.points && door.points.length >= 2) {
       const p1 = Array.isArray(door.points[0]) ? { x: door.points[0][0], y: door.points[0][1] } : door.points[0];
       const p2 = Array.isArray(door.points[1]) ? { x: door.points[1][0], y: door.points[1][1] } : door.points[1];
       const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      const calcMm = Math.round(distPx * realScale);
+      const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
+      const calcMm = Math.round(distPx * effScale);
       if (calcMm > 0) {
         widthMm = calcMm;
       }
@@ -778,12 +825,16 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
   if (!widthMm) {
     widthMm = doorDef.defaultWidth;
   }
-  let heightMm = door.height_mm || doorDef.defaultHeight;
-  if (parentWall) {
-    const wallClass = parentWall.class_name || 'interior_wall';
-    const wallHeight = parentWall.height || WALL_TYPE_DEFAULTS[wallClass]?.heightMm || 2400;
-    if (!door.height_mm) {
+  let heightMm = door.height_mm || door.heightMm;
+  if (!heightMm) {
+    if (isWindowObj) {
+      heightMm = doorDef.defaultHeight || 1200;
+    } else if (parentWall) {
+      const wallClass = parentWall.class_name || 'interior_wall';
+      const wallHeight = parentWall.height || WALL_TYPE_DEFAULTS[wallClass]?.heightMm || 2400;
       heightMm = computeDoorHeight(wallClass, doorTypeId, wallHeight);
+    } else {
+      heightMm = doorDef.defaultHeight || 1980;
     }
   }
 
@@ -804,9 +855,11 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
   return {
     // New BIM fields (defaults, won't overwrite existing)
     doorName: door.doorName || door.door_name || (
-      (door.type === 'window' || door.class === 'window' || doorTypeId === 'win_standard')
+      (door.type === 'window' || door.class === 'window' || doorTypeId === 'win_standard') && !windowConvertedToSliding
         ? `W-${(door.id || '').replace('door_', '').replace('win_', '').replace('window_', '').substring(0, 3)}`
-        : `D-${(door.id || '').replace('door_', '').substring(0, 3)}`
+        : windowConvertedToSliding
+          ? `SD-${(door.id || '').replace('door_', '').replace('win_', '').replace('window_', '').substring(0, 3)}`
+          : `D-${(door.id || '').replace('door_', '').substring(0, 3)}`
     ),
     doorTypeId: doorTypeId,
     parentWallId: parentWall?.id || null,
@@ -856,9 +909,11 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     }) : null,
 
     // Ensure normalized field aliases
-    doorTypeId: isWindowObj ? 'win_standard' : doorTypeId,
+    doorTypeId: doorTypeId,
     type: isWindowObj ? 'window' : doorDef.doorType,
     class: isWindowObj ? 'window' : doorDef.renderClass,
+    is_window: isWindowObj,
+    windowConvertedToSliding: windowConvertedToSliding,
     width_mm: widthMm,
     height_mm: heightMm,
     hingeSide: door.hingeSide || door.hinge_side || 'left',

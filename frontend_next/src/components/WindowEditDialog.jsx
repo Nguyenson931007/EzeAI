@@ -201,9 +201,27 @@ export default function WindowEditDialog({
       right: actDist.distRightMm ?? 0
     });
     
+    let effW = door.width_mm;
+    if (!effW && door.points && door.points.length >= 2) {
+      const p1 = Array.isArray(door.points[0]) ? { x: door.points[0][0], y: door.points[0][1] } : door.points[0];
+      const p2 = Array.isArray(door.points[1]) ? { x: door.points[1][0], y: door.points[1][1] } : door.points[1];
+      const lenPx = Math.hypot((p2.x || 0) - (p1.x || 0), (p2.y || 0) - (p1.y || 0));
+      const scale = (typeof realScale === 'number' && realScale > 0) ? realScale : 18.0;
+      let calcMm = Math.round(lenPx * scale);
+      const STANDARD_DIMENSIONS = [600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000, 3600, 4200, 4800];
+      for (const stdW of STANDARD_DIMENSIONS) {
+        const snapTol = Math.max(120, stdW * 0.10);
+        if (Math.abs(calcMm - stdW) <= snapTol) {
+          calcMm = stdW;
+          break;
+        }
+      }
+      effW = calcMm;
+    }
+
     setSillHeight(door.sillHeight || door.sill_height || 900);
     setHeightMm(door.height_mm || 1200);
-    setWidthMm(door.width_mm || 1200);
+    setWidthMm(effW || 1200);
     setApplyToAll(true);
   }, [door, walls, realScale]);
 

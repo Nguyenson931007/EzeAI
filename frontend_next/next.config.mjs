@@ -1,7 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // CAD/BIM client-side application — all rendering is client-side
-  allowedDevOrigins: ['14.241.197.188'],
+  allowedDevOrigins: [
+    'localhost:3011',
+    '127.0.0.1:3011',
+    '14.241.197.188',
+    '*.ngrok-free.dev',
+    '*.ngrok-free.app',
+    '*.ngrok.io',
+    '*.ngrok.app',
+    'elope-gory-filth.ngrok-free.dev'
+  ],
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8090";

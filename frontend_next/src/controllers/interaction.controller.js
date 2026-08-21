@@ -128,6 +128,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   const [selectedType, setSelectedType] = useState(null); // 'room', 'wall', or 'door'
   const [selectedPointIndex, setSelectedPointIndex] = useState(null);
   const [selectedWallIds, setSelectedWallIds] = useState([]);
+  const [selectedDoorIds, setSelectedDoorIds] = useState([]);
+  const [selectedRoomIds, setSelectedRoomIds] = useState([]);
+  const [selectedLintelIds, setSelectedLintelIds] = useState([]);
   const [cutPreviewPoint, setCutPreviewPoint] = useState(null);
 
   const [drawing, setDrawing] = useState(false);
@@ -1193,38 +1196,101 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function deleteItem() {
+    let hasDeletedAny = false;
+
+    // 1. Delete selected Roof(s)
     if (selectedRoofId) {
       deleteRoof(selectedRoofId);
       setSelectedRoofId(null);
-      return;
+      hasDeletedAny = true;
     }
 
-    if (selectedType === 'door' || selectedType === 'window') {
-      if (selectedId) {
+    // 2. Collect and delete all selected Doors & Windows
+    const doorIdsToDelete = [...(selectedDoorIds || [])];
+    if ((selectedType === 'door' || selectedType === 'window') && selectedId && !doorIdsToDelete.includes(selectedId)) {
+      doorIdsToDelete.push(selectedId);
+    }
+    let currentDoors = doorsByPage[currentPage] || [];
+    if (doorIdsToDelete.length > 0) {
+      currentDoors = currentDoors.filter(d => !doorIdsToDelete.includes(d.id));
+      setDoorsByPage(prev => ({ ...prev, [currentPage]: currentDoors }));
+      setSelectedDoorIds([]);
+      hasDeletedAny = true;
+    }
+
+    // 3. Collect and delete all selected Lintels
+    const lintelIdsToDelete = [...(selectedLintelIds || [])];
+    if (selectedType === 'lintel' && selectedId && !lintelIdsToDelete.includes(selectedId)) {
+      lintelIdsToDelete.push(selectedId);
+    }
+    let currentLintels = lintelsByPage[currentPage] || [];
+    if (lintelIdsToDelete.length > 0) {
+      currentLintels = currentLintels.filter(l => !lintelIdsToDelete.includes(l.id));
+      setLintelsByPage(prev => ({ ...prev, [currentPage]: currentLintels }));
+      setSelectedLintelIds([]);
+      hasDeletedAny = true;
+    }
+
+    // 4. Collect and delete all selected Walls
+    const wallIdsToDelete = [...(selectedWallIds || [])];
+    if (selectedType === 'wall' && selectedId && !wallIdsToDelete.includes(selectedId)) {
+      wallIdsToDelete.push(selectedId);
+    }
+    let currentWalls = wallsByPage[currentPage] || [];
+    if (wallIdsToDelete.length > 0) {
+      const targetBaseIds = wallIdsToDelete.map(id => getBaseWallId(id));
+      currentWalls = currentWalls.filter(w => (!wallIdsToDelete.includes(w.id) && !targetBaseIds.includes(w.id) && !targetBaseIds.includes(getBaseWallId(w.id))) || w.locked);
+      currentLintels = currentLintels.filter(l => !wallIdsToDelete.includes(l.wallId) && !targetBaseIds.includes(l.wallId));
+
+      setWallsByPage(prev => ({ ...prev, [currentPage]: currentWalls }));
+      setLintelsByPage(prev => ({ ...prev, [currentPage]: currentLintels }));
+      setSelectedWallIds([]);
+      hasDeletedAny = true;
+    }
+
+    // 5. Collect and delete all selected Rooms
+    const roomIdsToDelete = [...(selectedRoomIds || [])];
+    if (selectedType === 'room' && selectedId && !roomIdsToDelete.includes(selectedId)) {
+      roomIdsToDelete.push(selectedId);
+    }
+    let currentRooms = roomsByPage[currentPage] || rooms || [];
+    if (roomIdsToDelete.length > 0) {
+      currentRooms = currentRooms.filter(r => !roomIdsToDelete.includes(r.id));
+      setRoomsByPage(prev => ({ ...prev, [currentPage]: currentRooms }));
+      setSelectedRoomIds([]);
+      hasDeletedAny = true;
+    }
+
+    // Push to unified history if any entity was deleted
+    if (hasDeletedAny) {
+      pushHistory(currentRooms, currentWalls, currentDoors, currentLintels);
+    } else if (selectedId) {
+      // Fallback single deletion if type was not in selection arrays
+      if (selectedType === 'door' || selectedType === 'window') {
         doorController.deleteDoor(selectedId);
-      }
-      setSelectedId(null);
-      setSelectedType(null);
-    } else if (selectedType === 'lintel') {
-      if (selectedId) {
+      } else if (selectedType === 'lintel') {
         const pageLintels = lintelsByPage[currentPage] || [];
         const newLintels = pageLintels.filter(l => l.id !== selectedId);
         setLintelsByPage(prev => ({ ...prev, [currentPage]: newLintels }));
         pushHistory(null, wallsByPage[currentPage] || [], doorsByPage[currentPage] || [], newLintels);
-      }
-      setSelectedId(null);
-      setSelectedType(null);
-    } else if (selectedType === 'wall') {
-      const idsToDelete = selectedWallIds.length > 0 ? selectedWallIds : (selectedId ? [selectedId] : []);
-      deleteWalls(idsToDelete);
-    } else {
-      if (selectedId) {
-        const newRooms = rooms.filter(r => r.id !== selectedId);
+      } else if (selectedType === 'wall') {
+        deleteWalls([selectedId]);
+      } else {
+        const newRooms = (roomsByPage[currentPage] || rooms || []).filter(r => r.id !== selectedId);
+        setRoomsByPage(prev => ({ ...prev, [currentPage]: newRooms }));
         pushHistory(newRooms);
       }
-      setSelectedId(null);
-      setSelectedType(null);
     }
+
+    // Clear all selection states
+    setSelectedId(null);
+    setSelectedType(null);
+    setSelectedWallIds([]);
+    setSelectedDoorIds([]);
+    setSelectedRoomIds([]);
+    setSelectedLintelIds([]);
+    setSelectedRoofId(null);
+    setSelectedWallVertex(null);
   }
 
   const deleteAllRooms = async (skipConfirm = false) => {
@@ -1260,17 +1326,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (!p1) return p2;
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
-    const angle = Math.atan2(dy, dx);
 
-    // Snap strictly to horizontal and vertical (90 degree increments / PI/2)
-    const step = Math.PI / 2;
-    const snappedAngle = Math.round(angle / step) * step;
-    const dist = Math.hypot(dx, dy);
-
-    return {
-      x: p1.x + dist * Math.cos(snappedAngle),
-      y: p1.y + dist * Math.sin(snappedAngle)
-    };
+    // Snap strictly to horizontal or vertical axis (matching mouse position along active axis)
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return { x: p2.x, y: p1.y };
+    } else {
+      return { x: p1.x, y: p2.y };
+    }
   }
 
   async function handleClick(e) {
@@ -1278,7 +1340,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       ignoreClickRef.current = false;
       return;
     }
-    if (isSpaceDown || isDraggingPan) return; // Prevent clicking while panning
+    if (isSpaceDown || isDraggingPan || interactionMode === "pan") return; // Prevent clicking while panning
     if (isDrawingLintel) return;
     const p = getMouse(e);
 
@@ -1491,7 +1553,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     if (drawing) {
       const last = currentPoly[currentPoly.length - 1];
-      const point = (isShiftDown || isSnapMode) && last ? snap(last, p) : p;
+      const point = isShiftDown && last ? snap(last, p) : p;
       setCurrentPoly(prev => [...prev, point]);
       return;
     }
@@ -2903,17 +2965,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       panStart.current = { x: e.clientX, y: e.clientY };
       return;
     } else {
-      setIsPanning(isSpaceDown);
+      setIsPanning(isSpaceDown || interactionMode === "pan");
     }
 
     // ===== NORMAL MOUSE TRACKING (drawing tools, cursor preview) =====
     const p = getMouse(e);
     let snappedP = p;
 
-    if (isShiftDown || isSnapMode) {
-      if (drawing && currentPoly.length > 0) {
+    if (drawing && currentPoly.length > 0) {
+      if (isShiftDown) {
         snappedP = snap(currentPoly[currentPoly.length - 1], p);
-      } else if (isMeasuring && measurePoints.length === 1) {
+      } else {
+        snappedP = p;
+      }
+    } else if (isShiftDown || isSnapMode) {
+      if (isMeasuring && measurePoints.length === 1) {
         snappedP = snap(measurePoints[0], p);
       } else if (isDistancing && distancePoints.length === 1) {
         snappedP = snap(distancePoints[0], p);
@@ -2927,8 +2993,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const snappedToWall = snapToOtherWalls(p, drawingWall.wallId || null, pageWalls, 20, isWallSnapEnabled);
       let mx = snappedToWall.x;
       let my = snappedToWall.y;
+      const isObjectSnapped = isWallSnapEnabled && (Math.hypot(snappedToWall.x - p.x, snappedToWall.y - p.y) > 0.001);
 
-      if (!isShiftDown) {
+      if (!isShiftDown && !isObjectSnapped) {
         const snapped = snap({ x: drawingWall.startX, y: drawingWall.startY }, { x: mx, y: my });
         mx = snapped.x;
         my = snapped.y;
@@ -3201,7 +3268,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       return;
     }
 
-    if (isSpaceDown || e.button === 1) {
+    if (isSpaceDown || e.button === 1 || (interactionMode === "pan" && e.button === 0)) {
       panStart.current = { x: e.clientX, y: e.clientY };
       setIsPanning(true);
       ignoreClickRef.current = true;
@@ -3472,7 +3539,18 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       if (rect.isMarquee) {
         const dx = Math.abs(rect.x2 - rect.x1);
         const dy = Math.abs(rect.y2 - rect.y1);
+        const isAppend = e && (e.ctrlKey || e.shiftKey || e.metaKey);
         if (dx < 5 && dy < 5) {
+          if (!isAppend) {
+            setSelectedWallIds([]);
+            setSelectedDoorIds([]);
+            setSelectedRoomIds([]);
+            setSelectedLintelIds([]);
+            setSelectedRoofId(null);
+            setSelectedId(null);
+            setSelectedType(null);
+            setSelectedWallVertex(null);
+          }
           setRect(null);
           return;
         }
@@ -3482,29 +3560,155 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const maxY = Math.max(rect.y1, rect.y2);
 
         const inBox = (x, y) => x >= minX && x <= maxX && y >= minY && y <= maxY;
-        const pageWalls = wallsByPage[currentPage] || [];
+
+        const lineIntersectsSegment = (p1, p2, p3, p4) => {
+          const ccw = (a, b, c) => (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
+          return (ccw(p1, p3, p4) !== ccw(p2, p3, p4)) && (ccw(p1, p2, p3) !== ccw(p1, p2, p4));
+        };
+
+        const segIntersectsBox = (pt1, pt2) => {
+          if (!pt1 || !pt2) return false;
+          const x1 = pt1.x !== undefined ? pt1.x : pt1[0];
+          const y1 = pt1.y !== undefined ? pt1.y : pt1[1];
+          const x2 = pt2.x !== undefined ? pt2.x : pt2[0];
+          const y2 = pt2.y !== undefined ? pt2.y : pt2[1];
+          if (inBox(x1, y1) || inBox(x2, y2)) return true;
+          const a = { x: x1, y: y1 }, b = { x: x2, y: y2 };
+          const c1 = { x: minX, y: minY }, c2 = { x: maxX, y: minY };
+          const c3 = { x: maxX, y: maxY }, c4 = { x: minX, y: maxY };
+          return (
+            lineIntersectsSegment(a, b, c1, c2) ||
+            lineIntersectsSegment(a, b, c2, c3) ||
+            lineIntersectsSegment(a, b, c3, c4) ||
+            lineIntersectsSegment(a, b, c4, c1)
+          );
+        };
+
+        const polyIntersectsBox = (polygon) => {
+          if (!polygon || !polygon.length) return false;
+          for (const pt of polygon) {
+            const px = pt.x !== undefined ? pt.x : pt[0];
+            const py = pt.y !== undefined ? pt.y : pt[1];
+            if (inBox(px, py)) return true;
+          }
+          for (let i = 0; i < polygon.length; i++) {
+            const next = (i + 1) % polygon.length;
+            if (segIntersectsBox(polygon[i], polygon[next])) return true;
+          }
+          const boxCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+          if (pointInPolygon(boxCenter, polygon)) return true;
+          return false;
+        };
+
+        // 1. Matched Walls
+        const pageWalls = (layerVisibility?.wall !== false) ? (wallsByPage[currentPage] || []) : [];
         const matchedWallIds = pageWalls
           .filter(w => {
-            if (!w.centerline || w.centerline.length !== 2) return false;
-            const [p1, p2] = w.centerline;
-            return inBox(p1[0], p1[1]) || inBox(p2[0], p2[1]);
+            if (w.centerline && w.centerline.length === 2) {
+              if (segIntersectsBox(w.centerline[0], w.centerline[1])) return true;
+            }
+            if (w.polygon && w.polygon.length >= 3) {
+              if (polyIntersectsBox(w.polygon)) return true;
+            }
+            return false;
           })
           .map(w => w.id);
 
-        if (matchedWallIds.length > 0) {
-          const isAppend = e && (e.ctrlKey || e.shiftKey || e.metaKey);
-          if (isAppend) {
-            setSelectedWallIds(prev => Array.from(new Set([...prev, ...matchedWallIds])));
-          } else {
-            setSelectedWallIds(matchedWallIds);
+        // 2. Matched Doors & Windows
+        const pageDoors = (doorsByPage[currentPage] || []).filter(d => {
+          const isWin = d.is_window || d.type === "window" || String(d.id || "").startsWith("win_");
+          if (isWin && layerVisibility?.window === false) return false;
+          if (!isWin && layerVisibility?.door === false) return false;
+          return true;
+        });
+        const matchedDoors = pageDoors.filter(d => {
+          if (d.points && d.points.length >= 2) {
+            if (segIntersectsBox(d.points[0], d.points[1])) return true;
           }
-          setSelectedId(matchedWallIds[matchedWallIds.length - 1]);
-          setSelectedType("wall");
+          if (d.polygon && d.polygon.length >= 3) {
+            if (polyIntersectsBox(d.polygon)) return true;
+          }
+          if (d.mask_polygon && d.mask_polygon.length >= 3) {
+            if (polyIntersectsBox(d.mask_polygon)) return true;
+          }
+          if (d.x != null && d.y != null && inBox(d.x, d.y)) return true;
+          const bbox = getDoorBoundingBox(d);
+          if (bbox && bbox.length >= 3 && polyIntersectsBox(bbox)) return true;
+          return false;
+        });
+
+        // 3. Matched Rooms / Floors
+        const pageRooms = (layerVisibility?.floor !== false) ? (roomsByPage[currentPage] || []) : [];
+        const matchedRooms = pageRooms.filter(r => {
+          if (r.polygon && r.polygon.length >= 3) {
+            return polyIntersectsBox(r.polygon);
+          }
+          return false;
+        });
+
+        // 4. Matched Lintels
+        const pageLintels = (layerVisibility?.lintel !== false) ? (lintelsByPage && lintelsByPage[currentPage] ? lintelsByPage[currentPage] : []) : [];
+        const matchedLintels = pageLintels.filter(l => {
+          if (l.start && l.end && segIntersectsBox(l.start, l.end)) return true;
+          if (l.polygon && l.polygon.length >= 3 && polyIntersectsBox(l.polygon)) return true;
+          return false;
+        });
+
+        // 5. Matched Roofs
+        const pageRoofs = (roofsByPage && roofsByPage[currentPage]) ? roofsByPage[currentPage] : [];
+        const matchedRoofs = pageRoofs.filter(roof => {
+          if (roof.polygon && roof.polygon.length >= 3) {
+            return polyIntersectsBox(roof.polygon);
+          }
+          return false;
+        });
+
+        const matchedDoorIds = matchedDoors.map(d => d.id);
+        const matchedRoomIds = matchedRooms.map(r => r.id);
+        const matchedLintelIds = matchedLintels.map(l => l.id);
+
+        if (isAppend) {
+          if (matchedWallIds.length > 0) setSelectedWallIds(prev => Array.from(new Set([...prev, ...matchedWallIds])));
+          if (matchedDoorIds.length > 0) setSelectedDoorIds(prev => Array.from(new Set([...prev, ...matchedDoorIds])));
+          if (matchedRoomIds.length > 0) setSelectedRoomIds(prev => Array.from(new Set([...prev, ...matchedRoomIds])));
+          if (matchedLintelIds.length > 0) setSelectedLintelIds(prev => Array.from(new Set([...prev, ...matchedLintelIds])));
         } else {
-          if (!e || !(e.ctrlKey || e.shiftKey || e.metaKey)) {
+          setSelectedWallIds(matchedWallIds);
+          setSelectedDoorIds(matchedDoorIds);
+          setSelectedRoomIds(matchedRoomIds);
+          setSelectedLintelIds(matchedLintelIds);
+        }
+
+        const totalMatched = matchedWallIds.length + matchedDoorIds.length + matchedRoomIds.length + matchedLintelIds.length + matchedRoofs.length;
+        if (totalMatched > 0) {
+          if (matchedWallIds.length > 0) {
+            setSelectedId(matchedWallIds[matchedWallIds.length - 1]);
+            setSelectedType("wall");
+          } else if (matchedDoorIds.length > 0) {
+            const lastDoor = matchedDoors[matchedDoors.length - 1];
+            const isWin = lastDoor.is_window || lastDoor.type === "window" || String(lastDoor.id || "").startsWith("win_");
+            setSelectedId(lastDoor.id);
+            setSelectedType(isWin ? "window" : "door");
+          } else if (matchedRoomIds.length > 0) {
+            setSelectedId(matchedRoomIds[matchedRoomIds.length - 1]);
+            setSelectedType("room");
+          } else if (matchedLintelIds.length > 0) {
+            setSelectedId(matchedLintelIds[matchedLintelIds.length - 1]);
+            setSelectedType("lintel");
+          } else if (matchedRoofs.length > 0) {
+            setSelectedRoofId(matchedRoofs[matchedRoofs.length - 1].id);
+            setSelectedType("roof");
+          }
+          if (matchedRoofs.length === 0) setSelectedRoofId(null);
+        } else {
+          if (!isAppend) {
             setSelectedWallIds([]);
+            setSelectedDoorIds([]);
+            setSelectedRoomIds([]);
+            setSelectedLintelIds([]);
             setSelectedId(null);
             setSelectedType(null);
+            setSelectedRoofId(null);
           }
         }
         setRect(null);
@@ -3622,6 +3826,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     selectedType, setSelectedType,
     selectedPointIndex, setSelectedPointIndex,
     selectedWallIds, setSelectedWallIds,
+    selectedDoorIds, setSelectedDoorIds,
+    selectedRoomIds, setSelectedRoomIds,
+    selectedLintelIds, setSelectedLintelIds,
     cutPreviewPoint, setCutPreviewPoint,
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,

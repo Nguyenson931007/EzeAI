@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EzeQuote AI</title>
+<style>
+  :root{
+    --blue-950:#0b1f4d;
+    --blue-900:#0f2f76;
+    --blue-800:#12388f;
+    --blue-700:#1746b3;
+    --blue-600:#1d5fd6;
+    --blue:#2563eb;
+    --blue-light:#4f8dfd;
+    --blue-50:#eef3ff;
+    --blue-100:#e2eaff;
+    --border:#dbe3f5;
+    --border-dark:#c3d0ef;
+    --text:#101a33;
+    --text-dim:#5b6b8c;
+    --text-faint:#94a3c4;
+    --bg-app:#ffffff;
+    --bg-panel:#f6f8fe;
+    --bg-canvas:#eef2fc;
+    --green:#16a34a;
+    --orange:#f59e0b;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    color:var(--text);
+    font-size:13px;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    background:var(--bg-app);
+    user-select:none;
+  }
+  button{font:inherit;}
+
+  /* ---------- TITLE BAR ---------- */
+  .titlebar{
+    height:40px;
+    display:flex;
+    align-items:center;
+    padding:0 12px;
+    background:linear-gradient(90deg,var(--blue-900),var(--blue-700));
+    flex-shrink:0;
+  }
+  .titlebar .logo{
+    width:22px;height:22px;border-radius:6px;
+    background:#fff;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--blue-700);font-weight:800;font-size:13px;margin-right:8px;
+  }
+  .titlebar .appname{font-weight:600;font-size:14px;color:#fff;letter-spacing:.2px;}
+  .titlebar .appname b{font-weight:800;}
+  .titlebar .badge{
+    margin-left:8px;font-size:10px;font-weight:700;color:var(--blue-900);
+    background:#8fd3ff;padding:2px 7px;border-radius:20px;letter-spacing:.03em;
+  }
+  .account-area{margin-left:auto;display:flex;align-items:center;gap:10px;}
+  .acc-avatar{
+    width:26px;height:26px;border-radius:50%;background:#8fd3ff;color:var(--blue-900);
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;
+  }
+  .acc-info{display:flex;flex-direction:column;line-height:1.15;cursor:pointer;position:relative;}
+  .acc-name{font-size:12.5px;font-weight:600;color:#fff;}
+  .acc-role{font-size:10.5px;color:#bcd3ff;}
+  .acc-menu{
+    position:absolute;top:32px;right:0;background:#fff;border:1px solid var(--border);
+    border-radius:8px;box-shadow:0 8px 24px rgba(16,26,51,.2);min-width:150px;
+    display:none;z-index:80;overflow:hidden;
+  }
+  .acc-menu.show{display:block;}
+  .acc-menu div{padding:9px 14px;font-size:12.5px;color:var(--text);cursor:pointer;}
+  .acc-menu div:hover{background:var(--blue-50);color:var(--blue-700);}
+  .acc-menu .logout{color:#dc2626;border-top:1px solid var(--border);}
+  .acc-menu .logout:hover{background:#fee2e2;}
+
+  /* ---------- MENU BAR ---------- */
+  .menubar{
+    height:32px;
+    display:flex;align-items:center;
+    padding:0 12px;gap:4px;
+    border-bottom:1px solid var(--border);
+    font-size:13px;color:#374151;
+    flex-shrink:0;
+    background:var(--bg-app);
+  }
+  .menubar span{cursor:pointer;padding:4px 8px;border-radius:5px;}
+  .menubar span:hover{background:var(--blue-50);color:var(--blue-700);}
+  .menubar span.active{background:var(--blue-100);color:var(--blue-700);font-weight:600;}
+
+  /* ---------- TOOLBAR ---------- */
+  .toolbar{
+    height:52px;
+    display:flex;align-items:center;
+    padding:0 14px;gap:10px;
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
+    background:var(--bg-app);
+  }
+  .tb-btn{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:2px;font-size:11px;color:#374151;
+    padding:4px 9px;border-radius:6px;cursor:pointer;
+    min-width:44px;border:1px solid transparent;background:none;
+  }
+  .tb-btn:hover:not(.disabled){background:var(--blue-50);color:var(--blue-700);}
+  .tb-btn:active:not(.disabled){background:var(--blue-100);}
+  .tb-btn.disabled{color:var(--text-faint);cursor:default;}
+  .tb-icon{font-size:15px;line-height:1;}
+  .tb-divider{width:1px;height:28px;background:var(--border);margin:0 4px;}
+
+  .tab-switch{
+    display:flex;background:var(--bg-panel);border-radius:8px;padding:3px;gap:2px;
+    border:1px solid var(--border);
+  }
+  .tab-switch .opt{
+    padding:6px 14px;border-radius:6px;font-size:12.5px;font-weight:500;
+    display:flex;align-items:center;gap:6px;color:#4b5563;cursor:pointer;
+  }
+  .tab-switch .opt.active{background:var(--blue);color:#fff;box-shadow:0 2px 6px rgba(37,99,235,.35);}
+
+  .snap-toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#374151;margin-left:4px;cursor:pointer;}
+  .switch{width:34px;height:19px;background:#c3cee6;border-radius:20px;position:relative;flex-shrink:0;transition:background .15s;}
+  .switch.on{background:var(--blue);}
+  .switch::after{content:"";position:absolute;width:14px;height:14px;background:#fff;border-radius:50%;top:2.5px;left:2.5px;transition:left .15s;}
+  .switch.on::after{left:17px;}
+
+  .grid-icons{display:flex;gap:6px;color:#4b5563;font-size:15px;margin-left:6px;}
+  .grid-icons span{padding:5px 6px;border-radius:6px;cursor:pointer;}
+  .grid-icons span:hover{background:var(--blue-50);}
+  .grid-icons span.active{background:var(--blue-100);color:var(--blue-700);}
+
+  .units-select{
+    margin-left:auto;display:flex;align-items:center;gap:14px;
+  }
+  .unit-box{
+    display:flex;align-items:center;gap:4px;font-size:12.5px;color:#374151;
+    border:1px solid var(--border-dark);padding:5px 10px;border-radius:6px;cursor:pointer;position:relative;
+  }
+  .unit-box:hover{border-color:var(--blue-light);color:var(--blue-700);}
+  .unit-menu{
+    position:absolute;top:34px;left:0;background:#fff;border:1px solid var(--border);
+    border-radius:8px;box-shadow:0 8px 24px rgba(16,26,51,.15);min-width:70px;
+    display:none;z-index:50;overflow:hidden;
+  }
+  .unit-menu.show{display:block;}
+  .unit-menu div{padding:7px 12px;font-size:12.5px;cursor:pointer;}
+  .unit-menu div:hover{background:var(--blue-50);color:var(--blue-700);}
+  .icon-group{display:flex;gap:6px;color:#4b5563;font-size:15px;}
+  .icon-group span{padding:5px 6px;border-radius:6px;cursor:pointer;}
+  .icon-group span:hover{background:var(--blue-50);color:var(--blue-700);}
+
+  /* ---------- MAIN LAYOUT ---------- */
+  .main{flex:1;display:flex;min-height:0;}
+
+  /* Left icon rail */
+  .rail{
+    width:56px;border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:center;
+    padding:10px 0;gap:6px;background:var(--bg-app);flex-shrink:0;
+  }
+  .rail .r-btn{
+    width:38px;height:38px;border-radius:9px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;color:#4b5563;cursor:pointer;position:relative;
+  }
+  .rail .r-btn.active{background:var(--blue);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.4);}
+  .rail .r-btn:hover:not(.active){background:var(--blue-50);color:var(--blue-700);}
+  .rail .spacer{flex:1;}
+  .rail .r-btn.gear{color:#9ca3af;font-size:17px;}
+  .rail .tip{
+    position:absolute;left:48px;top:50%;transform:translateY(-50%);
+    background:var(--blue-950);color:#fff;font-size:11px;padding:4px 8px;border-radius:5px;
+    white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .1s;z-index:60;
+  }
+  .rail .r-btn:hover .tip{opacity:1;}
+
+  /* Canvas area */
+  .canvas-wrap{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .filetab-bar{
+    height:36px;display:flex;align-items:center;
+    border-bottom:1px solid var(--border);
+    padding-left:10px;gap:2px;flex-shrink:0;background:var(--bg-panel);
+  }
+  .filetab{
+    display:flex;align-items:center;gap:8px;
+    padding:7px 14px;font-size:12.5px;color:#374151;
+    background:#e3eaff;border-radius:8px 8px 0 0;cursor:pointer;
+  }
+  .filetab.active{background:#fff;color:var(--blue-700);font-weight:600;box-shadow:0 -2px 0 var(--blue) inset;}
+  .filetab .x{color:var(--text-faint);font-size:13px;padding:2px;border-radius:3px;}
+  .filetab .x:hover{background:#fff;color:#dc2626;}
+  .filetab .plus{color:var(--text-dim);padding:6px 12px;font-size:15px;cursor:pointer;border-radius:6px;}
+  .filetab .plus:hover{background:var(--blue-50);color:var(--blue-700);}
+
+  .canvas{
+    flex:1;position:relative;background:
+      linear-gradient(var(--bg-canvas),var(--bg-canvas)),
+      repeating-linear-gradient(0deg,rgba(29,95,214,0.06) 0 1px,transparent 1px 25px),
+      repeating-linear-gradient(90deg,rgba(29,95,214,0.06) 0 1px,transparent 1px 25px);
+    overflow:hidden;
+  }
+  .canvas.nogrid{background:var(--bg-canvas);}
+  .canvas-inner{position:absolute;inset:0;transform-origin:center center;transition:transform .12s ease-out;}
+  .canvas-inner svg{position:absolute;inset:0;width:100%;height:100%;}
+
+  .wall-hit{cursor:pointer;}
+  .wall-hit:hover{stroke:var(--blue-light) !important;}
+  .room-hit{cursor:pointer;}
+  .room-hit:hover{fill:rgba(37,99,235,.06);}
+
+  .dim-badge{
+    position:absolute;background:var(--blue);color:#fff;
+    font-size:12px;font-weight:600;padding:5px 10px;border-radius:5px;
+    box-shadow:0 2px 6px rgba(37,99,235,.35);pointer-events:none;
+  }
+
+  .toast{
+    position:absolute;left:50%;top:14px;transform:translateX(-50%) translateY(-14px);
+    background:var(--blue-950);color:#fff;font-size:12.5px;padding:8px 16px;border-radius:8px;
+    opacity:0;transition:all .2s;pointer-events:none;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:100;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .view3d{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;
+    background:radial-gradient(ellipse at 50% 30%,#dce8ff 0%,var(--bg-canvas) 70%);
+    color:var(--text-dim);gap:10px;
+  }
+  .view3d.show{display:flex;}
+  .view3d .cube{
+    width:150px;height:150px;position:relative;transform-style:preserve-3d;
+    transform:rotateX(-22deg) rotateY(35deg);animation:spin 10s linear infinite;
+  }
+  @keyframes spin{from{transform:rotateX(-22deg) rotateY(0deg);}to{transform:rotateX(-22deg) rotateY(360deg);}}
+  .view3d .cube div{
+    position:absolute;width:150px;height:150px;border:2px solid var(--blue);
+    background:rgba(37,99,235,.12);
+  }
+  .view3d .f1{transform:translateZ(75px);}
+  .view3d .f2{transform:rotateY(90deg) translateZ(75px);}
+  .view3d .f3{transform:rotateY(180deg) translateZ(75px);}
+  .view3d .f4{transform:rotateY(-90deg) translateZ(75px);}
+  .view3d .f5{transform:rotateX(90deg) translateZ(75px);}
+  .view3d .f6{transform:rotateX(-90deg) translateZ(75px);}
+  .view3d p{font-size:13px;color:var(--text-dim);margin:0;}
+
+  .minimap{
+    position:absolute;right:22px;bottom:22px;width:210px;
+    background:#fff;border:2px solid var(--blue-light);border-radius:8px;
+    box-shadow:0 6px 18px rgba(16,26,51,.18);
+    padding:10px 10px 8px;
+  }
+  .minimap svg{width:100%;height:110px;display:block;}
+  .minimap-ctrl{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--text-dim);}
+  .minimap-ctrl .zicon{cursor:pointer;color:#6b7280;padding:2px 4px;border-radius:4px;}
+  .minimap-ctrl .zicon:hover{background:var(--blue-50);color:var(--blue-700);}
+  .minimap-ctrl input[type=range]{flex:1;accent-color:var(--blue);}
+
+  /* Right panel */
+  .panel{
+    width:340px;border-left:1px solid var(--border);
+    display:flex;flex-direction:column;flex-shrink:0;background:var(--bg-app);
+    overflow:hidden;
+  }
+  .panel-tabs{
+    display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg-panel);
+  }
+  .panel-tabs .pt{
+    flex:1;text-align:center;padding:12px 0;font-size:13px;color:var(--text-dim);
+    border-bottom:2px solid transparent;cursor:pointer;
+  }
+  .panel-tabs .pt:hover{color:var(--blue-700);}
+  .panel-tabs .pt.active{color:var(--blue);border-color:var(--blue);font-weight:600;background:#fff;}
+
+  .panel-body{flex:1;overflow-y:auto;padding:14px 16px;}
+  .panel-view{display:none;}
+  .panel-view.show{display:block;}
+
+  .prop-divider{
+    display:flex;align-items:center;gap:8px;margin:16px 0 4px;
+    color:var(--blue-700);font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  }
+  .prop-divider::before,.prop-divider::after{content:"";flex:1;height:1px;background:var(--border);}
+  .prop-divider span{white-space:nowrap;}
+
+  .proj-title{font-size:12px;color:var(--blue-700);font-weight:700;margin-bottom:10px;letter-spacing:.02em;}
+  .search-box{
+    display:flex;align-items:center;gap:8px;border:1px solid var(--border-dark);
+    border-radius:7px;padding:7px 10px;font-size:12.5px;color:var(--text-faint);margin-bottom:10px;
+  }
+  .search-box input{border:none;outline:none;background:none;font:inherit;flex:1;color:var(--text);}
+
+  .tree{font-size:13px;}
+  .tree-row{display:flex;align-items:center;gap:6px;padding:5px 2px;border-radius:5px;cursor:pointer;}
+  .tree-row:hover{background:var(--blue-50);}
+  .tree-row .car{width:12px;color:#9ca3af;font-size:10px;cursor:pointer;}
+  .tree-row .ic{width:16px;text-align:center;color:#6b7280;}
+  .tree-row .lbl{flex:1;}
+  .tree-row .count{color:var(--text-dim);}
+  .tree-row .eye{color:var(--blue);font-size:13px;cursor:pointer;padding:2px 3px;border-radius:3px;}
+  .tree-row .eye:hover{background:var(--blue-100);}
+  .tree-row .eye.off{color:var(--text-faint);}
+  .tree-row.selected{background:var(--blue-100);color:var(--blue-700);font-weight:600;}
+  .tree-children{overflow:hidden;max-height:0;transition:max-height .15s ease;}
+  .tree-children.open{max-height:600px;}
+  .indent1{padding-left:18px;}
+  .indent2{padding-left:36px;}
+  .indent3{padding-left:54px;}
+
+  .wall-header{
+    display:flex;align-items:center;gap:8px;padding:12px 0 10px;border-top:1px solid var(--border);margin-top:8px;
+  }
+  .wall-header .ic{width:26px;height:26px;border-radius:6px;background:var(--blue-100);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--blue-700);}
+  .wall-header .name{font-weight:700;font-size:14px;flex:1;color:var(--blue-900);}
+  .wall-header .star{color:var(--text-faint);cursor:pointer;font-size:15px;}
+  .wall-header .star.on{color:#f59e0b;}
+  .wall-header .dots{color:var(--text-faint);cursor:pointer;}
+
+  .sect-title{
+    font-size:11.5px;font-weight:700;color:var(--blue-700);text-transform:uppercase;
+    letter-spacing:.03em;margin:14px 0 6px;display:flex;align-items:center;gap:6px;cursor:pointer;
+  }
+  .sect-title .car{font-size:10px;color:#9ca3af;transition:transform .15s;}
+  .sect-title.collapsed .car{transform:rotate(-90deg);}
+  .sect-body{overflow:hidden;max-height:600px;transition:max-height .15s ease;}
+  .sect-body.collapsed{max-height:0;}
+
+  .kv{display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;}
+  .kv .k{color:var(--text-dim);}
+  .kv .v{color:var(--text);font-weight:500;text-align:right;}
+  .kv .v.green{color:var(--green);font-weight:700;}
+  .kv .v.editable{cursor:text;border-bottom:1px dashed transparent;}
+  .kv .v.editable:hover{border-color:var(--blue-light);color:var(--blue-700);}
+
+  .note{display:flex;align-items:flex-start;gap:6px;font-size:12.5px;padding:3px 0;}
+  .note.warn{color:#b45309;}
+  .note.ok{color:var(--green);}
+
+  .empty-hint{color:var(--text-faint);font-size:12.5px;text-align:center;padding:40px 10px;}
+
+  .valid-item{display:flex;gap:10px;padding:10px;border-radius:8px;margin-bottom:8px;background:var(--bg-panel);border:1px solid var(--border);}
+  .valid-item .vi-ic{font-size:16px;flex-shrink:0;}
+  .valid-item.warn .vi-ic{color:#f59e0b;}
+  .valid-item.ok .vi-ic{color:var(--green);}
+  .valid-item .vi-t{font-weight:600;font-size:12.5px;margin-bottom:2px;}
+  .valid-item .vi-d{font-size:12px;color:var(--text-dim);}
+  .valid-summary{display:flex;gap:10px;margin-bottom:14px;}
+  .vs-box{flex:1;text-align:center;padding:10px 6px;border-radius:8px;background:var(--bg-panel);border:1px solid var(--border);}
+  .vs-box .n{font-size:18px;font-weight:800;}
+  .vs-box .l{font-size:11px;color:var(--text-dim);}
+  .vs-box.ok .n{color:var(--green);}
+  .vs-box.warn .n{color:#f59e0b;}
+
+  .proj-card{
+    border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;
+    cursor:pointer;background:#fff;transition:border-color .12s,box-shadow .12s;
+  }
+  .proj-card:hover{border-color:var(--blue-light);box-shadow:0 4px 12px rgba(37,99,235,.1);}
+  .proj-card.active{border-color:var(--blue);background:var(--blue-50);box-shadow:0 4px 12px rgba(37,99,235,.12);}
+  .pc-top{display:flex;align-items:flex-start;gap:10px;}
+  .pc-icon{width:32px;height:32px;border-radius:8px;background:var(--blue-100);color:var(--blue-700);
+    display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+  .pc-main{flex:1;min-width:0;}
+  .pc-name{font-weight:700;font-size:13.5px;color:var(--blue-900);}
+  .pc-client{font-size:11.5px;color:var(--text-dim);margin-top:1px;}
+  .pc-status{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;flex-shrink:0;white-space:nowrap;}
+  .pc-status.open{background:#dbeafe;color:var(--blue-700);}
+  .pc-status.draft{background:#f1f3f6;color:var(--text-dim);}
+  .pc-status.review{background:#fef3c7;color:#b45309;}
+  .pc-status.complete{background:#dcfce7;color:var(--green);}
+  .pc-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px;color:var(--text-dim);margin-top:9px;}
+  .pc-meta.sub{margin-top:5px;font-size:11px;color:var(--text-faint);}
+
+  .statusbar{
+    height:30px;border-top:1px solid var(--border);
+    display:flex;align-items:center;padding:0 14px;gap:22px;
+    font-size:12px;color:var(--text-dim);flex-shrink:0;background:var(--bg-panel);
+  }
+  .statusbar .dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;}
+  .statusbar .grow{flex:1;}
+  .statusbar .zoomrange{width:90px;accent-color:var(--blue);}
+  .statusbar .zbtn{cursor:pointer;padding:2px 5px;border-radius:4px;}
+  .statusbar .zbtn:hover{background:var(--blue-50);color:var(--blue-700);}
+</style>
+</head>
+<body>
+
+  <!-- TITLE BAR -->
+  <div class="titlebar">
+    <div class="logo">◎</div>
+    <div class="appname"><b>Ezequote</b></div>
+    <div class="badge">AI</div>
+    <div class="account-area">
+      <div class="acc-avatar">JD</div>
+      <div class="acc-info" onclick="toggleAccMenu(event)">
+        <span class="acc-name">Paul Nguyen ▾</span>
+        <span class="acc-role">Project Estimator</span>
+        <div class="acc-menu" id="accMenu">
+          <div onclick="toast('Opening account settings')">Account Settings</div>
+          <div onclick="toast('Opening billing')">Billing</div>
+          <div class="logout" onclick="toast('Logged out ✓')">Log Out</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MENU BAR -->
+  <div class="menubar" id="menubar">
+    <span data-m="File">File</span><span data-m="Edit">Edit</span><span data-m="View">View</span><span data-m="Design">Design</span><span data-m="Reports">Reports</span><span data-m="Tools">Tools</span><span data-m="Help">Help</span>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="tb-btn" onclick="toast('New project created')"><span class="tb-icon">📄</span>New</div>
+    <div class="tb-btn" onclick="toast('Opening project…')"><span class="tb-icon">📂</span>Open</div>
+    <div class="tb-btn" onclick="toast('Project saved ✓')"><span class="tb-icon">💾</span>Save</div>
+    <div class="tb-divider"></div>
+    <div class="tb-btn disabled"><span class="tb-icon">↶</span>Undo</div>
+    <div class="tb-btn disabled"><span class="tb-icon">↷</span>Redo</div>
+    <div class="tb-divider"></div>
+
+    <div class="tab-switch" id="viewSwitch">
+      <div class="opt active" data-v="2d">▦ 2D Plan</div>
+      <div class="opt" data-v="3d">🧊 3D View</div>
+    </div>
+    <div class="tb-divider"></div>
+    <div class="tb-btn disabled"><span class="tb-icon">‹</span></div>
+    <div class="tb-btn disabled"><span class="tb-icon">›</span></div>
+    <div class="tb-btn" onclick="toast('Exporting drawing')"><span class="tb-icon">⇧</span></div>
+    <div class="tb-btn" onclick="toast('Move mode')"><span class="tb-icon">✥</span></div>
+
+    <div class="snap-toggle" id="snapToggle" onclick="toggleSnap()">
+      <div class="switch on" id="snapSwitch"></div>Snap
+    </div>
+
+    <div class="grid-icons" id="gridIcons">
+      <span class="active" data-g="fine" title="Fine grid">#</span>
+      <span data-g="coarse" title="Coarse grid">▦</span>
+      <span data-g="border" title="Border">▭</span>
+      <span data-g="ruler" title="Ruler">—</span>
+    </div>
+
+    <div class="units-select">
+      <div class="unit-box" id="unitBox" onclick="toggleUnitMenu(event)">
+        <span id="unitLabel">mm</span> ▾
+        <div class="unit-menu" id="unitMenu">
+          <div onclick="setUnit(event,'mm')">mm</div>
+          <div onclick="setUnit(event,'m')">m</div>
+          <div onclick="setUnit(event,'ft')">ft</div>
+        </div>
+      </div>
+      <span class="icon-group">
+        <span title="Windows">🪟▾</span>
+        <span title="Fullscreen" onclick="toast('Fullscreen mode')">⛶</span>
+        <span title="Display settings" onclick="toast('Display settings')">⛶</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- LEFT RAIL -->
+    <div class="rail" id="rail">
+      <div class="r-btn active" data-tool="select"><span>↖</span><span class="tip">Select object</span></div>
+      <div class="r-btn" data-tool="pan"><span>✋</span><span class="tip">Pan canvas</span></div>
+      <div class="r-btn" data-tool="draw"><span>✎</span><span class="tip">Draw wall</span></div>
+      <div class="r-btn" data-tool="rect"><span>▭</span><span class="tip">Draw rectangle</span></div>
+      <div class="r-btn" data-tool="fill"><span>⬛</span><span class="tip">Fill area</span></div>
+      <div class="r-btn" data-tool="grid"><span>▦</span><span class="tip">Grid axis</span></div>
+      <div class="r-btn" data-tool="door"><span>⌂</span><span class="tip">Door / window</span></div>
+      <div class="r-btn" data-tool="poly"><span>⬠</span><span class="tip">Polygon</span></div>
+      <div class="r-btn" data-tool="room"><span>▤</span><span class="tip">Room label</span></div>
+      <div class="r-btn" data-tool="layer"><span>◱</span><span class="tip">Layer manager</span></div>
+      <div class="spacer"></div>
+      <div class="r-btn gear" onclick="toast('App settings')"><span>···</span></div>
+    </div>
+
+    <!-- CANVAS -->
+    <div class="canvas-wrap">
+      <div class="filetab-bar" id="filetabs">
+        <div class="filetab active" data-tab="ground">▦ Ground Floor <span class="x" onclick="event.stopPropagation();toast('Cannot close the last floor')">✕</span></div>
+        <div class="plus" onclick="addTab()">+</div>
+      </div>
+
+      <div class="canvas" id="canvas">
+        <div class="canvas-inner" id="canvasInner">
+        <svg viewBox="0 0 1080 700" preserveAspectRatio="none">
+          <!-- grid axis labels top -->
+          <g font-family="sans-serif" font-size="13" fill="#374151">
+            <circle cx="180" cy="55" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="180" y="59" text-anchor="middle">1</text>
+            <circle cx="350" cy="55" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="350" y="59" text-anchor="middle">2</text>
+            <circle cx="500" cy="55" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="500" y="59" text-anchor="middle">3</text>
+            <circle cx="660" cy="55" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="660" y="59" text-anchor="middle">4</text>
+            <circle cx="900" cy="55" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="900" y="59" text-anchor="middle">5</text>
+
+            <circle cx="60" cy="200" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="60" y="204" text-anchor="middle">A</text>
+            <circle cx="60" cy="400" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="60" y="404" text-anchor="middle">B</text>
+            <circle cx="60" cy="530" r="11" fill="none" stroke="#94a3c4"/>
+            <text x="60" y="534" text-anchor="middle">C</text>
+          </g>
+          <!-- dim lines -->
+          <g stroke="#94a3c4" stroke-width="1" font-family="sans-serif" font-size="11" fill="#4b5563">
+            <line x1="180" y1="75" x2="180" y2="110"/>
+            <line x1="350" y1="75" x2="350" y2="110"/>
+            <line x1="500" y1="75" x2="500" y2="110"/>
+            <line x1="660" y1="75" x2="660" y2="110"/>
+            <line x1="900" y1="75" x2="900" y2="110"/>
+            <line x1="180" y1="95" x2="900" y2="95"/>
+            <text x="540" y="88" text-anchor="middle" font-weight="600">18,000</text>
+            <text x="265" y="108" text-anchor="middle">4,200</text>
+            <text x="425" y="108" text-anchor="middle">3,600</text>
+            <text x="580" y="108" text-anchor="middle">4,200</text>
+            <text x="780" y="108" text-anchor="middle">6,000</text>
+          </g>
+
+          <!-- room fill hit areas (click to select room) -->
+          <g id="roomHits">
+            <rect class="room-hit" data-room="bedroom1" x="182" y="122" width="166" height="146" fill="transparent"/>
+            <rect class="room-hit" data-room="bath" x="352" y="122" width="86" height="146" fill="transparent"/>
+            <rect class="room-hit" data-room="kitchen" x="440" y="122" width="178" height="146" fill="transparent"/>
+            <rect class="room-hit" data-room="dining" x="622" y="122" width="276" height="196" fill="transparent"/>
+            <rect class="room-hit" data-room="hall" x="182" y="272" width="166" height="156" fill="transparent"/>
+            <rect class="room-hit" data-room="bedroom2" x="182" y="432" width="166" height="166" fill="transparent"/>
+            <rect class="room-hit" data-room="wc" x="352" y="432" width="56" height="146" fill="transparent"/>
+            <rect class="room-hit" data-room="entry" x="412" y="482" width="116" height="116" fill="transparent"/>
+            <rect class="room-hit" data-room="porch" x="412" y="602" width="116" height="76" fill="transparent"/>
+          </g>
+
+          <!-- Outer walls -->
+          <g stroke="#101a33" stroke-width="4" fill="none">
+            <rect x="180" y="120" width="720" height="480" />
+          </g>
+          <rect x="180" y="118" width="720" height="8" fill="#c9cdd3"/>
+
+          <!-- interior walls -->
+          <g stroke="#101a33" stroke-width="3" fill="none">
+            <line x1="350" y1="120" x2="350" y2="270"/>
+            <line x1="440" y1="120" x2="440" y2="270"/>
+            <line x1="530" y1="120" x2="530" y2="270"/>
+            <line x1="180" y1="270" x2="530" y2="270"/>
+            <line x1="180" y1="270" x2="180" y2="430"/>
+            <line x1="350" y1="270" x2="350" y2="430"/>
+            <line x1="350" y1="430" x2="180" y2="430"/>
+            <line x1="350" y1="430" x2="350" y2="600"/>
+            <line x1="180" y1="600" x2="530" y2="600"/>
+            <line x1="410" y1="430" x2="410" y2="600"/>
+            <line x1="410" y1="480" x2="530" y2="480"/>
+            <line x1="470" y1="480" x2="470" y2="600"/>
+            <line x1="530" y1="270" x2="530" y2="600"/>
+            <line x1="410" y1="600" x2="410" y2="680"/>
+            <line x1="530" y1="600" x2="530" y2="680"/>
+            <line x1="410" y1="680" x2="530" y2="680"/>
+            <line x1="620" y1="120" x2="620" y2="270"/>
+            <line x1="530" y1="270" x2="650" y2="270"/>
+            <line x1="650" y1="270" x2="650" y2="320"/>
+            <line x1="650" y1="320" x2="750" y2="320"/>
+            <line x1="750" y1="320" x2="750" y2="440"/>
+            <line x1="580" y1="440" x2="750" y2="440"/>
+            <line x1="580" y1="440" x2="580" y2="480"/>
+            <line x1="700" y1="440" x2="700" y2="480"/>
+          </g>
+
+          <!-- clickable wall overlays -->
+          <g id="wallHits">
+            <line class="wall-hit" data-wall="100" x1="180" y1="120" x2="900" y2="120" stroke="transparent" stroke-width="14"/>
+            <line class="wall-hit" data-wall="101" x1="180" y1="120" x2="180" y2="600" stroke="transparent" stroke-width="14"/>
+            <line class="wall-hit" data-wall="102" x1="900" y1="120" x2="900" y2="440" stroke="transparent" stroke-width="14"/>
+            <line class="wall-hit" data-wall="103" x1="180" y1="600" x2="530" y2="600" stroke="transparent" stroke-width="14"/>
+            <line class="wall-hit" data-wall="104" x1="350" y1="120" x2="350" y2="270" stroke="transparent" stroke-width="14"/>
+            <line class="wall-hit" data-wall="105" x1="440" y1="120" x2="440" y2="270" stroke="transparent" stroke-width="14"/>
+            <line class="wall-hit" data-wall="106" x1="620" y1="120" x2="620" y2="270" stroke="transparent" stroke-width="14"/>
+          </g>
+
+          <!-- selected wall highlight -->
+          <line id="selWallLine" x1="900" y1="120" x2="900" y2="440" stroke="var(--blue)" stroke-width="6" style="stroke:#2563eb"/>
+          <circle id="selDotA" cx="900" cy="120" r="6" fill="#2563eb"/>
+          <circle id="selDotB" cx="900" cy="440" r="6" fill="#2563eb"/>
+
+          <!-- door arcs (orange) -->
+          <g stroke="#f97316" stroke-width="2" fill="none">
+            <path d="M 350 240 A 60 60 0 0 1 410 300" />
+            <path d="M 300 300 L 300 350 A 50 50 0 0 1 350 400"/>
+            <path d="M 350 430 A 40 40 0 0 1 390 470"/>
+            <path d="M 530 440 L 570 440"/>
+          </g>
+
+          <!-- room labels -->
+          <g font-family="sans-serif" fill="#374151" text-anchor="middle" style="pointer-events:none">
+            <text x="265" y="200" font-size="13" font-weight="600">BEDROOM 1</text>
+            <text x="265" y="216" font-size="12" fill="#6b7280">16.2 m²</text>
+
+            <text x="395" y="185" font-size="13" font-weight="600">BATH</text>
+            <text x="395" y="200" font-size="12" fill="#6b7280">5.1 m²</text>
+
+            <text x="575" y="200" font-size="13" font-weight="600">KITCHEN</text>
+            <text x="575" y="216" font-size="12" fill="#6b7280">12.8 m²</text>
+
+            <text x="800" y="270" font-size="14" font-weight="600">DINING</text>
+            <text x="800" y="288" font-size="12" fill="#6b7280">15.3 m²</text>
+
+            <text x="265" y="355" font-size="13" font-weight="600">HALL</text>
+            <text x="265" y="371" font-size="12" fill="#6b7280">8.7 m²</text>
+
+            <text x="265" y="455" font-size="13" font-weight="600">BEDROOM 2</text>
+            <text x="265" y="471" font-size="12" fill="#6b7280">14.8 m²</text>
+
+            <text x="390" y="530" font-size="12" font-weight="600">WC</text>
+            <text x="390" y="545" font-size="11" fill="#6b7280">2.4 m²</text>
+
+            <text x="500" y="510" font-size="13" font-weight="600">ENTRY</text>
+            <text x="500" y="526" font-size="12" fill="#6b7280">6.1 m²</text>
+
+            <text x="470" y="635" font-size="13" font-weight="600">PORCH</text>
+            <text x="470" y="651" font-size="12" fill="#6b7280">7.5 m²</text>
+          </g>
+
+          <!-- left side dims -->
+          <g stroke="#94a3c4" font-family="sans-serif" font-size="11" fill="#4b5563">
+            <line x1="120" y1="120" x2="120" y2="270"/>
+            <line x1="120" y1="270" x2="120" y2="430"/>
+            <line x1="120" y1="430" x2="120" y2="600"/>
+            <text x="112" y="200" text-anchor="middle" transform="rotate(-90 112,200)">3,600</text>
+            <text x="112" y="355" text-anchor="middle" transform="rotate(-90 112,355)">9,000</text>
+            <text x="112" y="510" text-anchor="middle" transform="rotate(-90 112,510)">3,000</text>
+            <text x="112" y="620" text-anchor="middle" transform="rotate(-90 112,620)">2,400</text>
+          </g>
+        </svg>
+        <div class="dim-badge" id="dimBadge" style="right:88px; top:290px;">5.300 m</div>
+        </div>
+
+        <div class="view3d" id="view3d">
+          <div class="cube"><div class="f1"></div><div class="f2"></div><div class="f3"></div><div class="f4"></div><div class="f5"></div><div class="f6"></div></div>
+          <p>3D preview — rotating illustrative mass model (quick build from the 2D floor plan)</p>
+        </div>
+
+        <div class="toast" id="toast"></div>
+
+        <div class="minimap">
+          <svg viewBox="0 0 200 100">
+            <rect x="15" y="15" width="150" height="70" fill="none" stroke="#374151" stroke-width="1.4"/>
+            <line x1="55" y1="15" x2="55" y2="45" stroke="#374151"/>
+            <line x1="90" y1="15" x2="90" y2="45" stroke="#374151"/>
+            <line x1="15" y1="45" x2="90" y2="45" stroke="#374151"/>
+            <line x1="55" y1="45" x2="55" y2="85" stroke="#374151"/>
+            <line x1="90" y1="45" x2="90" y2="85" stroke="#374151"/>
+            <line x1="120" y1="15" x2="120" y2="45" stroke="#374151"/>
+            <rect x="90" y="15" width="1.6" height="70" fill="#2563eb"/>
+          </svg>
+          <div class="minimap-ctrl">
+            <span class="zicon" onclick="zoomBy(-10)">–</span>
+            <input type="range" class="zoomrange" id="zoomSlider" min="30" max="200" value="85" oninput="setZoom(this.value)">
+            <span id="zoomLabel">85%</span><span class="zicon" onclick="toast('Zoomed to fit')">⛶</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="panel">
+      <div class="panel-tabs" id="panelTabs">
+        <div class="pt active" data-p="explorer">Explorer</div>
+        <div class="pt" data-p="hardware">Project Hardware</div>
+      </div>
+
+      <div class="panel-body">
+
+        <!-- EXPLORER VIEW (tree + inline properties) -->
+        <div class="panel-view show" id="view-explorer">
+          <div class="proj-title">PROJECT: Modern House</div>
+          <div class="search-box"><span>🔍</span><input id="treeSearch" placeholder="Search" oninput="filterTree()"></div>
+
+          <div class="tree" id="tree">
+            <div class="tree-row"><span class="car">▾</span><span class="ic">🏠</span><span class="lbl">Modern House</span></div>
+            <div class="tree-row indent1"><span class="car">▾</span><span class="ic">🏢</span><span class="lbl">Ground Floor</span></div>
+
+            <div class="tree-row indent2" onclick="toggleGroup('grpWalls')"><span class="car" id="carWalls">▾</span><span class="ic">▦</span><span class="lbl">Walls</span><span class="count">(40)</span></div>
+            <div class="tree-children open" id="grpWalls">
+              <div class="tree-row indent3 wall-row selected" data-wall="102"><span class="ic">▦</span><span class="lbl">Wall #100</span><span class="eye" data-wall-eye="100">◉</span></div>
+              <div class="tree-row indent3 wall-row" data-wall="101"><span class="ic">▦</span><span class="lbl">Wall #101</span><span class="eye" data-wall-eye="101">◉</span></div>
+              <div class="tree-row indent3 wall-row selected" data-wall="102" id="row-wall-102"><span class="ic">▦</span><span class="lbl">Wall #102</span><span class="eye" data-wall-eye="102">◉</span></div>
+              <div class="tree-row indent3 wall-row" data-wall="103"><span class="ic">▦</span><span class="lbl">Wall #103</span><span class="eye" data-wall-eye="103">◉</span></div>
+              <div class="tree-row indent3" style="color:#9ca3af;cursor:default;">···</div>
+            </div>
+
+            <div class="tree-row indent2" onclick="toggleGroup('grpDoors')"><span class="car" id="carDoors">▸</span><span class="ic">🚪</span><span class="lbl">Doors</span><span class="count">(12)</span></div>
+            <div class="tree-children" id="grpDoors">
+              <div class="tree-row indent3" onclick="selectGeneric('Door #12','Interior wood door, 800×2000mm')"><span class="ic">🚪</span><span class="lbl">Door #12</span></div>
+              <div class="tree-row indent3" onclick="selectGeneric('Door #13','Interior wood door, 700×2000mm')"><span class="ic">🚪</span><span class="lbl">Door #13</span></div>
+            </div>
+
+            <div class="tree-row indent2" onclick="toggleGroup('grpWindows')"><span class="car" id="carWindows">▸</span><span class="ic">🪟</span><span class="lbl">Windows</span><span class="count">(15)</span></div>
+            <div class="tree-children" id="grpWindows">
+              <div class="tree-row indent3" onclick="selectGeneric('Window #15','Aluminum glass window, 1200×1400mm')"><span class="ic">🪟</span><span class="lbl">Window #15</span></div>
+              <div class="tree-row indent3" onclick="selectGeneric('Window #16','Aluminum glass window, 900×1200mm')"><span class="ic">🪟</span><span class="lbl">Window #16</span></div>
+            </div>
+
+            <div class="tree-row indent2" onclick="toggleGroup('grpRooms')"><span class="car" id="carRooms">▸</span><span class="ic">▤</span><span class="lbl">Rooms</span><span class="count">(9)</span></div>
+            <div class="tree-children" id="grpRooms">
+              <div class="tree-row indent3" onclick="selectRoom('dining')"><span class="ic">▤</span><span class="lbl">Dining — 15.3 m²</span></div>
+              <div class="tree-row indent3" onclick="selectRoom('kitchen')"><span class="ic">▤</span><span class="lbl">Kitchen — 12.8 m²</span></div>
+              <div class="tree-row indent3" onclick="selectRoom('bedroom1')"><span class="ic">▤</span><span class="lbl">Bedroom 1 — 16.2 m²</span></div>
+            </div>
+
+            <div class="tree-row indent1" onclick="toast('Switch to First Floor')"><span class="car">▸</span><span class="ic">🏢</span><span class="lbl">First Floor</span></div>
+            <div class="tree-row indent1" onclick="toast('View roof structure')"><span class="car">▸</span><span class="ic">⌂</span><span class="lbl">Roofs</span></div>
+          </div>
+
+          <div class="prop-divider"><span>SELECTED ELEMENT</span></div>
+          <div id="propContent"></div>
+        </div>
+
+        <!-- PROJECT HARDWARE VIEW -->
+        <div class="panel-view" id="view-hardware">
+          <div class="proj-title">ALL PROJECTS (4)</div>
+          <div class="search-box"><span>🔍</span><input placeholder="Search projects"></div>
+
+          <div class="proj-card active" data-proj="modern-house" onclick="selectProject(this)">
+            <div class="pc-top">
+              <div class="pc-icon">🏠</div>
+              <div class="pc-main">
+                <div class="pc-name">Modern House</div>
+                <div class="pc-client">Client: Nguyen Van A</div>
+              </div>
+              <div class="pc-status open">Open</div>
+            </div>
+            <div class="pc-meta">
+              <span>📍 12 Tran Phu St, Da Lat</span>
+              <span>📐 128 m²</span>
+              <span>💰 $18,420</span>
+            </div>
+            <div class="pc-meta sub">
+              <span>Modified: Today 09:12 AM</span>
+              <span>Floors: 2</span>
+            </div>
+          </div>
+
+          <div class="proj-card" data-proj="lakeview-villa" onclick="selectProject(this)">
+            <div class="pc-top">
+              <div class="pc-icon">🏡</div>
+              <div class="pc-main">
+                <div class="pc-name">Lakeview Villa</div>
+                <div class="pc-client">Client: Tran Thi B</div>
+              </div>
+              <div class="pc-status draft">Draft</div>
+            </div>
+            <div class="pc-meta">
+              <span>📍 45 Ho Xuan Huong, Da Lat</span>
+              <span>📐 210 m²</span>
+              <span>💰 $34,900</span>
+            </div>
+            <div class="pc-meta sub">
+              <span>Modified: Yesterday 4:35 PM</span>
+              <span>Floors: 3</span>
+            </div>
+          </div>
+
+          <div class="proj-card" data-proj="riverside-townhouse" onclick="selectProject(this)">
+            <div class="pc-top">
+              <div class="pc-icon">🏢</div>
+              <div class="pc-main">
+                <div class="pc-name">Riverside Townhouse</div>
+                <div class="pc-client">Client: Le Minh C</div>
+              </div>
+              <div class="pc-status review">In Review</div>
+            </div>
+            <div class="pc-meta">
+              <span>📍 8 Nguyen Chi Thanh, Hanoi</span>
+              <span>📐 96 m²</span>
+              <span>💰 $12,650</span>
+            </div>
+            <div class="pc-meta sub">
+              <span>Modified: 3 days ago</span>
+              <span>Floors: 2</span>
+            </div>
+          </div>
+
+          <div class="proj-card" data-proj="hillside-cabin" onclick="selectProject(this)">
+            <div class="pc-top">
+              <div class="pc-icon">⛺</div>
+              <div class="pc-main">
+                <div class="pc-name">Hillside Cabin</div>
+                <div class="pc-client">Client: Pham Thu D</div>
+              </div>
+              <div class="pc-status complete">Complete</div>
+            </div>
+            <div class="pc-meta">
+              <span>📍 Ta Nung, Da Lat</span>
+              <span>📐 64 m²</span>
+              <span>💰 $8,300</span>
+            </div>
+            <div class="pc-meta sub">
+              <span>Modified: 2 weeks ago</span>
+              <span>Floors: 1</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="statusbar">
+    <span><span class="dot"></span>Ready</span>
+    <span id="mouseX">X: 12540</span>
+    <span id="mouseY">Y: 8420</span>
+    <span>Z: 0</span>
+    <span>Grid: 100 mm</span>
+    <span id="statSnap">Snap: On</span>
+    <span>Ortho: Off</span>
+    <span>Polar: On</span>
+    <span class="grow"></span>
+    <span>Project Units: <b id="statUnit">mm</b></span>
+    <span id="statZoom">85%</span>
+    <span class="zbtn" onclick="zoomBy(-10)">–</span>
+    <input type="range" class="zoomrange" id="zoomSlider2" min="30" max="200" value="85" oninput="setZoom(this.value)">
+    <span class="zbtn" onclick="zoomBy(10)">+</span>
+  </div>
+
+<script>
+  // ---------- toast ----------
+  let toastTimer;
+  function toast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>t.classList.remove('show'), 1600);
+  }
+
+  // ---------- project hardware list ----------
+  const projectNames = {
+    'modern-house':'Modern House','lakeview-villa':'Lakeview Villa',
+    'riverside-townhouse':'Riverside Townhouse','hillside-cabin':'Hillside Cabin'
+  };
+  function selectProject(el){
+    document.querySelectorAll('.proj-card').forEach(c=>c.classList.remove('active'));
+    el.classList.add('active');
+    toast('Opening project: ' + projectNames[el.dataset.proj]);
+  }
+
+  // ---------- account menu ----------
+  function toggleAccMenu(e){
+    e.stopPropagation();
+    document.getElementById('accMenu').classList.toggle('show');
+  }
+  document.addEventListener('click', ()=>document.getElementById('accMenu').classList.remove('show'));
+
+  // ---------- menu bar ----------
+  document.querySelectorAll('#menubar span').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      document.querySelectorAll('#menubar span').forEach(s=>s.classList.remove('active'));
+      el.classList.add('active');
+      toast('Menu "'+el.dataset.m+'" (demo)');
+      setTimeout(()=>el.classList.remove('active'), 500);
+    });
+  });
+
+  // ---------- 2D / 3D switch ----------
+  document.getElementById('viewSwitch').addEventListener('click', e=>{
+    const opt = e.target.closest('.opt');
+    if(!opt) return;
+    document.querySelectorAll('#viewSwitch .opt').forEach(o=>o.classList.remove('active'));
+    opt.classList.add('active');
+    const is3d = opt.dataset.v === '3d';
+    document.getElementById('view3d').classList.toggle('show', is3d);
+    document.getElementById('canvasInner').style.visibility = is3d ? 'hidden' : 'visible';
+    toast(is3d ? 'Switched to 3D view' : 'Switched to 2D floor plan');
+  });
+
+  // ---------- snap toggle ----------
+  let snapOn = true;
+  function toggleSnap(){
+    snapOn = !snapOn;
+    document.getElementById('snapSwitch').classList.toggle('on', snapOn);
+    document.getElementById('statSnap').textContent = 'Snap: ' + (snapOn ? 'On' : 'Off');
+    toast('Snap ' + (snapOn ? 'enabled' : 'disabled'));
+  }
+
+  // ---------- grid icons ----------
+  document.getElementById('gridIcons').addEventListener('click', e=>{
+    const s = e.target.closest('span');
+    if(!s) return;
+    s.classList.toggle('active');
+    if(s.dataset.g === 'fine'){
+      document.getElementById('canvas').classList.toggle('nogrid', !s.classList.contains('active'));
+    }
+  });
+
+  // ---------- unit dropdown ----------
+  function toggleUnitMenu(e){
+    e.stopPropagation();
+    document.getElementById('unitMenu').classList.toggle('show');
+  }
+  function setUnit(e, u){
+    e.stopPropagation();
+    document.getElementById('unitLabel').textContent = u;
+    document.getElementById('statUnit').textContent = u;
+    document.getElementById('unitMenu').classList.remove('show');
+    toast('Display unit: ' + u);
+  }
+  document.addEventListener('click', ()=>document.getElementById('unitMenu').classList.remove('show'));
+
+  // ---------- left rail tools ----------
+  const toolNames = {select:'Select object',pan:'Pan canvas',draw:'Draw wall',rect:'Draw rectangle',fill:'Fill area',grid:'Grid axis',door:'Door / window',poly:'Polygon',room:'Room label',layer:'Layer manager'};
+  document.getElementById('rail').addEventListener('click', e=>{
+    const b = e.target.closest('.r-btn[data-tool]');
+    if(!b) return;
+    document.querySelectorAll('#rail .r-btn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    const tool = b.dataset.tool;
+    document.getElementById('canvas').style.cursor = tool==='pan' ? 'grab' : (tool==='select' ? 'default' : 'crosshair');
+    toast('Tool: ' + toolNames[tool]);
+  });
+
+  // ---------- file tabs ----------
+  let tabCount = 1;
+  document.getElementById('filetabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.filetab');
+    if(tab){
+      document.querySelectorAll('.filetab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+    }
+  });
+  function addTab(){
+    tabCount++;
+    const bar = document.getElementById('filetabs');
+    const plus = bar.querySelector('.plus');
+    const div = document.createElement('div');
+    div.className = 'filetab';
+    div.dataset.tab = 'floor'+tabCount;
+    div.innerHTML = '▦ First Floor <span class="x" onclick="event.stopPropagation();this.parentElement.remove()">✕</span>';
+    bar.insertBefore(div, plus);
+    document.querySelectorAll('.filetab').forEach(t=>t.classList.remove('active'));
+    div.classList.add('active');
+    toast('Added new floor tab');
+  }
+
+  // ---------- panel tabs ----------
+  document.getElementById('panelTabs').addEventListener('click', e=>{
+    const pt = e.target.closest('.pt');
+    if(!pt) return;
+    document.querySelectorAll('.pt').forEach(p=>p.classList.remove('active'));
+    pt.classList.add('active');
+    document.querySelectorAll('.panel-view').forEach(v=>v.classList.remove('show'));
+    document.getElementById('view-'+pt.dataset.p).classList.add('show');
+  });
+
+  // ---------- tree group expand/collapse ----------
+  function toggleGroup(id){
+    const el = document.getElementById(id);
+    const car = document.getElementById('car'+id.replace('grp',''));
+    el.classList.toggle('open');
+    if(car) car.textContent = el.classList.contains('open') ? '▾' : '▸';
+  }
+
+  // ---------- tree search filter ----------
+  function filterTree(){
+    const q = document.getElementById('treeSearch').value.toLowerCase();
+    document.querySelectorAll('.tree-row.indent3').forEach(row=>{
+      const lbl = row.querySelector('.lbl');
+      if(!lbl) return;
+      const match = lbl.textContent.toLowerCase().includes(q);
+      row.style.display = match ? 'flex' : 'none';
+    });
+  }
+
+  // ---------- eye visibility toggle ----------
+  document.getElementById('grpWalls').addEventListener('click', e=>{
+    const eye = e.target.closest('.eye');
+    if(eye){
+      e.stopPropagation();
+      eye.classList.toggle('off');
+      eye.textContent = eye.classList.contains('off') ? '○' : '◉';
+      const wid = eye.dataset.wallEye;
+      const svgLine = document.querySelector('.wall-hit[data-wall="'+wid+'"]');
+      toast('Wall #'+wid+' ' + (eye.classList.contains('off') ? 'hidden' : 'shown'));
+      return;
+    }
+    const row = e.target.closest('.wall-row');
+    if(row) selectWall(row.dataset.wall);
+  });
+
+  // ---------- wall data ----------
+  const wallData = {
+    '100': {length:'18.000 m', thickness:'90 mm', height:'3.000 m', layer:'Exterior Walls', material:'Steel Frame', cost:'$146.80', costM:'$8.15', room:'Dining / Kitchen', door:'—', window:'Window #16', notes:[{t:'warn',m:'Missing insulation'}], coords:{x1:180,y1:120,x2:900,y2:120}},
+    '101': {length:'9.000 m', thickness:'90 mm', height:'3.000 m', layer:'Exterior Walls', material:'Steel Frame', cost:'$73.40', costM:'$8.15', room:'Bedroom 1 / Bedroom 2', door:'—', window:'Window #12', notes:[{t:'ok',m:'Wall meets structural requirements.'}], coords:{x1:180,y1:120,x2:180,y2:600}},
+    '102': {length:'5.300 m', thickness:'90 mm', height:'3.000 m', layer:'Exterior Walls', material:'Steel Frame', cost:'$43.21', costM:'$8.15', room:'Dining', door:'—', window:'Window #15', notes:[{t:'warn',m:'Missing insulation'},{t:'ok',m:'Wall meets structural requirements.'}], coords:{x1:900,y1:120,x2:900,y2:440}},
+    '103': {length:'3.500 m', thickness:'110 mm', height:'3.000 m', layer:'Exterior Walls', material:'Concrete Block', cost:'$52.90', costM:'$15.11', room:'Entry / Porch', door:'Door #12', window:'—', notes:[{t:'ok',m:'Wall meets structural requirements.'}], coords:{x1:180,y1:600,x2:530,y2:600}},
+    '104': {length:'1.500 m', thickness:'75 mm', height:'3.000 m', layer:'Interior Walls', material:'Gypsum Board', cost:'$9.60', costM:'$6.40', room:'Bedroom 1 / Bath', door:'Door #13', window:'—', notes:[{t:'ok',m:'Wall meets structural requirements.'}], coords:{x1:350,y1:120,x2:350,y2:270}},
+    '105': {length:'1.500 m', thickness:'75 mm', height:'3.000 m', layer:'Interior Walls', material:'Gypsum Board', cost:'$9.60', costM:'$6.40', room:'Bath / Kitchen', door:'—', window:'—', notes:[{t:'ok',m:'Wall meets structural requirements.'}], coords:{x1:440,y1:120,x2:440,y2:270}},
+    '106': {length:'1.500 m', thickness:'75 mm', height:'3.000 m', layer:'Interior Walls', material:'Gypsum Board', cost:'$9.60', costM:'$6.40', room:'Kitchen / Dining', door:'—', window:'—', notes:[{t:'ok',m:'Wall meets structural requirements.'}], coords:{x1:620,y1:120,x2:620,y2:270}},
+  };
+  let currentWall = '102';
+
+  function selectWall(id){
+    if(!wallData[id]) return;
+    currentWall = id;
+    document.querySelectorAll('.wall-row').forEach(r=>r.classList.toggle('selected', r.dataset.wall===id));
+    const c = wallData[id].coords;
+    const line = document.getElementById('selWallLine');
+    line.setAttribute('x1',c.x1); line.setAttribute('y1',c.y1);
+    line.setAttribute('x2',c.x2); line.setAttribute('y2',c.y2);
+    document.getElementById('selDotA').setAttribute('cx',c.x1); document.getElementById('selDotA').setAttribute('cy',c.y1);
+    document.getElementById('selDotB').setAttribute('cx',c.x2); document.getElementById('selDotB').setAttribute('cy',c.y2);
+    renderWallProps(id);
+    // ensure Explorer tab is active so the inline properties are visible
+    document.querySelectorAll('.pt').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.pt[data-p="explorer"]').classList.add('active');
+    document.querySelectorAll('.panel-view').forEach(v=>v.classList.remove('show'));
+    document.getElementById('view-explorer').classList.add('show');
+    document.getElementById('propContent').scrollIntoView({behavior:'smooth', block:'nearest'});
+    toast('Selected Wall #'+id);
+  }
+
+  function renderWallProps(id){
+    const d = wallData[id];
+    const notesHtml = d.notes.map(n=>`<div class="note ${n.t}">${n.t==='warn'?'⚠':'✓'} ${n.m}</div>`).join('');
+    document.getElementById('propContent').innerHTML = `
+      <div class="wall-header">
+        <div class="ic">▦</div>
+        <div class="name">Wall #${id}</div>
+        <div class="star" onclick="this.classList.toggle('on')">☆</div>
+        <div class="dots" onclick="toast('More options')">⋯</div>
+      </div>
+
+      <div class="sect-title" onclick="toggleSect(this)"><span class="car">▾</span>General</div>
+      <div class="sect-body">
+        <div class="kv"><span class="k">Length</span><span class="v">${d.length}</span></div>
+        <div class="kv"><span class="k">Thickness</span><span class="v editable" contenteditable oninput="toast('Thickness updated')">${d.thickness}</span></div>
+        <div class="kv"><span class="k">Height</span><span class="v editable" contenteditable oninput="toast('Height updated')">${d.height}</span></div>
+        <div class="kv"><span class="k">Layer</span><span class="v">${d.layer}</span></div>
+        <div class="kv"><span class="k">Phase Created</span><span class="v">New Construction</span></div>
+      </div>
+
+      <div class="sect-title" onclick="toggleSect(this)"><span class="car">▾</span>Material</div>
+      <div class="sect-body">
+        <div class="kv"><span class="k">Material</span><span class="v">${d.material}</span></div>
+        <div class="kv"><span class="k">Finish</span><span class="v">—</span></div>
+      </div>
+
+      <div class="sect-title" onclick="toggleSect(this)"><span class="car">▾</span>Cost</div>
+      <div class="sect-body">
+        <div class="kv"><span class="k">Cost Impact</span><span class="v green">${d.cost}</span></div>
+        <div class="kv"><span class="k">Cost / m</span><span class="v">${d.costM}</span></div>
+      </div>
+
+      <div class="sect-title" onclick="toggleSect(this)"><span class="car">▾</span>AI Notes / Issues</div>
+      <div class="sect-body">${notesHtml}</div>
+
+      <div class="sect-title" onclick="toggleSect(this)"><span class="car">▾</span>Related Items</div>
+      <div class="sect-body">
+        <div class="kv"><span class="k">Room</span><span class="v">${d.room}</span></div>
+        <div class="kv"><span class="k">Door</span><span class="v">${d.door}</span></div>
+        <div class="kv"><span class="k">Window</span><span class="v">${d.window}</span></div>
+      </div>
+
+      <div class="sect-title" onclick="toggleSect(this)"><span class="car">▾</span>History</div>
+      <div class="sect-body">
+        <div class="kv"><span class="k">Created</span><span class="v">Today 08:10 AM</span></div>
+        <div class="kv"><span class="k">Modified</span><span class="v">Today 09:12 AM</span></div>
+      </div>
+    `;
+  }
+  function toggleSect(el){
+    el.classList.toggle('collapsed');
+    el.nextElementSibling.classList.toggle('collapsed');
+  }
+
+  // clickable walls on canvas
+  document.getElementById('wallHits').addEventListener('click', e=>{
+    const line = e.target.closest('.wall-hit');
+    if(line) selectWall(line.dataset.wall);
+  });
+
+  // generic doors/windows selection
+  function selectGeneric(name, desc){
+    document.querySelectorAll('.pt').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.pt[data-p="explorer"]').classList.add('active');
+    document.querySelectorAll('.panel-view').forEach(v=>v.classList.remove('show'));
+    document.getElementById('view-explorer').classList.add('show');
+    document.getElementById('propContent').innerHTML = `
+      <div class="wall-header"><div class="ic">🪟</div><div class="name">${name}</div><div class="star">☆</div><div class="dots">⋯</div></div>
+      <div class="sect-title"><span class="car">▾</span>General</div>
+      <div class="sect-body"><div class="kv"><span class="k">Description</span><span class="v">${desc}</span></div></div>
+      <div class="empty-hint">Select a wall on the floor plan to see full specifications and cost.</div>
+    `;
+    toast('Selected ' + name);
+  }
+
+  const roomInfo = {
+    dining:{name:'Dining', area:'15.3 m²'}, kitchen:{name:'Kitchen', area:'12.8 m²'},
+    bedroom1:{name:'Bedroom 1', area:'16.2 m²'}, bedroom2:{name:'Bedroom 2', area:'14.8 m²'},
+    bath:{name:'Bath', area:'5.1 m²'}, hall:{name:'Hall', area:'8.7 m²'},
+    wc:{name:'WC', area:'2.4 m²'}, entry:{name:'Entry', area:'6.1 m²'}, porch:{name:'Porch', area:'7.5 m²'}
+  };
+  function selectRoom(key){
+    const r = roomInfo[key];
+    document.querySelectorAll('.pt').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.pt[data-p="explorer"]').classList.add('active');
+    document.querySelectorAll('.panel-view').forEach(v=>v.classList.remove('show'));
+    document.getElementById('view-explorer').classList.add('show');
+    document.getElementById('propContent').innerHTML = `
+      <div class="wall-header"><div class="ic">▤</div><div class="name">${r.name}</div><div class="star">☆</div><div class="dots">⋯</div></div>
+      <div class="sect-title"><span class="car">▾</span>General</div>
+      <div class="sect-body">
+        <div class="kv"><span class="k">Area</span><span class="v">${r.area}</span></div>
+        <div class="kv"><span class="k">Ceiling Height</span><span class="v">3.000 m</span></div>
+      </div>
+      <div class="sect-title"><span class="car">▾</span>AI Notes / Issues</div>
+      <div class="sect-body"><div class="note ok">✓ Room meets minimum area requirement.</div></div>
+    `;
+    toast('Selected room ' + r.name);
+  }
+  document.getElementById('roomHits').addEventListener('click', e=>{
+    const r = e.target.closest('.room-hit');
+    if(r) selectRoom(r.dataset.room);
+  });
+
+  // ---------- zoom ----------
+  function setZoom(v){
+    document.getElementById('zoomSlider').value = v;
+    document.getElementById('zoomSlider2').value = v;
+    document.getElementById('zoomLabel').textContent = v + '%';
+    document.getElementById('statZoom').textContent = v + '%';
+    document.getElementById('canvasInner').style.transform = 'scale(' + (v/100) + ')';
+  }
+  function zoomBy(delta){
+    const cur = parseInt(document.getElementById('zoomSlider').value);
+    let nv = Math.min(200, Math.max(30, cur+delta));
+    setZoom(nv);
+  }
+
+  // ---------- mouse coords ----------
+  document.getElementById('canvas').addEventListener('mousemove', e=>{
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round((e.clientX - rect.left) * 20);
+    const y = Math.round((e.clientY - rect.top) * 20);
+    document.getElementById('mouseX').textContent = 'X: ' + x;
+    document.getElementById('mouseY').textContent = 'Y: ' + y;
+  });
+
+  // init
+  selectWall('102');
+  setZoom(85);
+</script>
+
+</body>
+</html>
