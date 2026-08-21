@@ -19,6 +19,7 @@ export const useAuthController = (user, setUser, setIsLoggedIn) => {
         const userData = { 
           username: data.username, 
           role: data.role,
+          ma_nv: data.manv || data.ma_nv || data.MaNV || "",
           session_token: data.session_token
         };
         setIsLoggedIn(true);

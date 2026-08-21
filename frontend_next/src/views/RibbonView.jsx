@@ -148,7 +148,15 @@ const CAD_ICONS = {
   ),
   Projects: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
+      <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+    </svg>
+  ),
+  Procurement: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <path d="M16 10a4 4 0 0 1-8 0" />
     </svg>
   ),
   Save: () => (
@@ -348,16 +356,89 @@ export default function RibbonView({
     currentProjectName, setCurrentProjectName,
     roomsByPage, setRoomsByPage,
     doorsByPage, wallsByPage,
+    roofsByPage, lintelsByPage,
+    scalesByPage, wasteByPage,
+    currentJobId,
     realScale,
     showFrameworkModal, setShowFrameworkModal,
     showAreaSummaryModal, setShowAreaSummaryModal,
     showInsulationModal, setShowInsulationModal
   } = useAppModel();
+  const [isExportingProcurement, setIsExportingProcurement] = useState(false);
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
   const [showWallConfig, setShowWallConfig] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const userMenuRef = React.useRef(null);
+
+  const handleExportToProcurement = async () => {
+    if (isExportingProcurement) return;
+    setIsExportingProcurement(true);
+
+    try {
+      const token = user?.session_token || (typeof window !== "undefined" ? localStorage.getItem("token") : null);
+      const currentEmsJobId = currentJobId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null);
+
+      const payload = {
+        token: token,
+        user: user ? {
+          username: user.username,
+          role: user.role,
+          ma_nv: user.ma_nv || user.MaNV || user.manv
+        } : null,
+        jobId: currentEmsJobId,
+        projectName: currentProjectName || "Untitled Project",
+        data: {
+          projectName: currentProjectName,
+          jobId: currentEmsJobId,
+          pages: pages || [],
+          wallsByPage: wallsByPage || {},
+          doorsByPage: doorsByPage || {},
+          roomsByPage: roomsByPage || {},
+          roofsByPage: roofsByPage || {},
+          lintelsByPage: lintelsByPage || {},
+          scalesByPage: scalesByPage || {},
+          realScale: realScale || 1.0,
+          wasteByPage: wasteByPage || {}
+        }
+      };
+
+      const targetWeb = `http://14.241.197.188:7642/?job=${encodeURIComponent(currentEmsJobId || "")}&token=${encodeURIComponent(token || "")}`;
+
+      console.log("[Procurement] Đang đóng gói dữ liệu và gửi sang Procurement...", payload);
+
+      let sendSuccess = false;
+      let errorMsg = "";
+      try {
+        const result = await ApiService.exportProcurement(payload);
+        if (result && result.status === "success") {
+          sendSuccess = true;
+        } else if (result && result.message) {
+          errorMsg = result.message;
+        }
+      } catch (fetchErr) {
+        console.warn("[Procurement] Lỗi khi gửi API:", fetchErr);
+        errorMsg = fetchErr.message;
+      }
+
+      // Mở trang web đích trên tab mới
+      window.open(targetWeb, "_blank");
+
+      if (sendSuccess) {
+        showAlert("Đã gửi dữ liệu toàn bộ Job sang Procurement thành công!", "Thông báo");
+      } else {
+        showAlert(
+          "Đã mở Procurement trên tab mới.\n\n(Lưu ý: Máy chủ Procurement tại http://14.241.197.188:7642/ hiện chưa phản hồi kết nối API - Hãy đảm bảo máy chủ/dịch vụ tại cổng 7642 đã được bật).",
+          "Thông báo"
+        );
+      }
+    } catch (err) {
+      console.error("[Procurement] Lỗi:", err);
+      showAlert("Có lỗi xảy ra khi đóng gói dữ liệu: " + err.message, "Lỗi");
+    } finally {
+      setIsExportingProcurement(false);
+    }
+  };
 
   const handleToggleScale = () => {
     if (isMeasuring) {
@@ -1070,6 +1151,14 @@ export default function RibbonView({
           <>
             <div className="ribbon-group">
               <div className="ribbon-buttons">
+                <button
+                  className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
+                  onClick={handleExportToProcurement}
+                  disabled={isExportingProcurement}
+                  title="Gửi dữ liệu Job sang hệ thống Procurement (http://14.241.197.188:7642/)"
+                >
+                  <span className="icon"><CAD_ICONS.Procurement /></span><span className="label">Procurement</span>
+                </button>
                 <button className={`ribbon-btn ${showBOQ ? "active" : ""}`} onClick={() => setShowBOQ(v => !v)} title="Bill of Quantities summary">
                   <span className="icon"><CAD_ICONS.Chart /></span><span className="label">BOQ</span>
                 </button>

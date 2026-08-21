@@ -1012,3 +1012,32 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
         if conn:
             conn.close()
 
+
+@router.post("/jobs/export-procurement")
+@router.post("/api/jobs/export-procurement")
+async def export_procurement(payload: dict):
+    """
+    Chuyển tiếp gói dữ liệu Job từ EzeFloor sang dịch vụ Procurement (http://14.241.197.188:7642/api/receive-job)
+    """
+    import httpx
+    target_url = "http://14.241.197.188:7642/api/receive-job"
+    token = payload.get("token")
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(target_url, json=payload, headers=headers)
+            return {
+                "status": "success",
+                "remote_status": res.status_code,
+                "remote_data": res.text
+            }
+    except Exception as e:
+        logger.warning(f"[Procurement] Không thể kết nối tới máy chủ Procurement ({target_url}): {e}")
+        return {
+            "status": "connection_error",
+            "message": f"Máy chủ Procurement tại 14.241.197.188:7642 hiện chưa phản hồi hoặc chưa được bật: {str(e)}"
+        }
+

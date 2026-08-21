@@ -232,12 +232,15 @@ def get_mssql_account_user(username_or_manv: str):
     """
     Truy vấn thông tin tài khoản từ MSSQL Server (dbo.Account JOIN dbo.roles).
     Lấy 4 cột: MaNV, UserID, Password, IsManagement kèm tên nhãn Role (từ dbo.roles).
+    Ưu tiên tìm theo UserID trước, nếu không tìm thấy mới tìm theo MaNV.
     """
     try:
         from app.mssql_db import get_mssql_connection
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
-        query = """
+        
+        # 1. Ưu tiên khớp chính xác theo UserID
+        query_user = """
             SELECT TOP 1 
                 a.MaNV, 
                 a.UserID, 
@@ -246,10 +249,27 @@ def get_mssql_account_user(username_or_manv: str):
                 r.name AS RoleName 
             FROM dbo.Account a 
             LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
-            WHERE a.UserID = %s OR a.MaNV = %s
+            WHERE a.UserID = %s
         """
-        cursor.execute(query, (username_or_manv, username_or_manv))
+        cursor.execute(query_user, (username_or_manv,))
         row = cursor.fetchone()
+
+        # 2. Nếu không tìm thấy theo UserID, mới tìm theo MaNV
+        if not row:
+            query_manv = """
+                SELECT TOP 1 
+                    a.MaNV, 
+                    a.UserID, 
+                    a.Password, 
+                    a.IsManagement, 
+                    r.name AS RoleName 
+                FROM dbo.Account a 
+                LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
+                WHERE a.MaNV = %s
+            """
+            cursor.execute(query_manv, (username_or_manv,))
+            row = cursor.fetchone()
+
         conn.close()
         return row
     except Exception as e:
@@ -406,9 +426,14 @@ def login(user: UserLogin, response: Response):
             secure=False
         )
         
+        mssql_info = get_mssql_account_user(row["username"])
+        manv = mssql_info["MaNV"] if mssql_info else ("ADMIN01" if row["username"] == "admin" else "")
+        
         return {
             "status": "success",
             "username": row["username"],
+            "manv": manv,
+            "ma_nv": manv,
             "role": row["role"],
             "session_token": new_token
         }
@@ -494,9 +519,14 @@ def validate_session_endpoint(
             except Exception:
                 pass
 
+        mssql_info = get_mssql_account_user(row_dict["username"])
+        manv = mssql_info["MaNV"] if mssql_info else ("ADMIN01" if row_dict["username"] == "admin" else "")
+
         return {
             "status": "valid",
             "username": row_dict["username"],
+            "manv": manv,
+            "ma_nv": manv,
             "role": row_dict.get("role", "user"),
             "session_token": session_token
         }
@@ -600,15 +630,33 @@ async def tasklist_sso(payload: dict, response: Response):
         raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
 
     res_json = result.json()
-    user_data = res_json.get("data") or res_json
+    logger.info(f"[SSO] Tasklist auth response: {res_json}")
+    user_data = res_json.get("data") or res_json.get("user") or res_json
 
-    # Trích xuất thông tin user từ Tasklist
+    # 1. Trích xuất username từ payload gửi từ Web3 (nếu có)
+    payload_user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+    payload_username = str(payload.get("username") or payload.get("UserID") or payload_user.get("username") or payload_user.get("UserID") or payload_user.get("name") or "").strip()
+
+    # 2. Trích xuất thông tin user từ Tasklist API response
+    direct_username = str(
+        payload_username or
+        user_data.get("username") or 
+        user_data.get("UserID") or 
+        user_data.get("user_id") or 
+        user_data.get("UserId") or 
+        user_data.get("name") or 
+        user_data.get("FullName") or 
+        user_data.get("full_name") or 
+        ""
+    ).strip()
+
     manv = str(user_data.get("ma_nv") or user_data.get("MaNV") or user_data.get("manv") or "").strip()
-    direct_username = str(user_data.get("UserID") or user_data.get("username") or user_data.get("name") or "").strip()
-    
-    # Chỉ truy vấn MSSQL nếu Tasklist không trả về Username trực tiếp
+
+    # Ưu tiên lấy thông tin theo direct_username từ MSSQL
     mssql_user = None
-    if not direct_username and manv:
+    if direct_username:
+        mssql_user = get_mssql_account_user(direct_username)
+    if not mssql_user and manv:
         mssql_user = get_mssql_account_user(manv)
 
     if direct_username:

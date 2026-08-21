@@ -748,8 +748,13 @@ export default function App() {
       handled = true;
 
       try {
-        console.log("[SSO] Đang xác thực SSO token từ TaskList...");
-        const response = await ApiService.tasklistSSO(event.data.token);
+        console.log("[SSO] Đang xác thực SSO token từ TaskList...", event.data);
+        const ssoPayload = {
+          token: event.data.token,
+          username: event.data.username || event.data.UserID || (event.data.user && (event.data.user.username || event.data.user.UserID || event.data.user.name)),
+          user: event.data.user
+        };
+        const response = await ApiService.tasklistSSO(ssoPayload);
         if (!response.ok) {
           const errText = await response.text();
           console.warn("[SSO] TaskList SSO thất bại:", response.status, errText);
@@ -767,6 +772,7 @@ export default function App() {
         const userData = {
           username: data.username,
           role: data.role,
+          ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "",
           session_token: data.session_token,
         };
 

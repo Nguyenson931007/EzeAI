@@ -87,12 +87,13 @@ export const ApiService = {
     return res;
   },
 
-  async tasklistSSO(token) {
+  async tasklistSSO(payloadOrToken) {
+    const body = typeof payloadOrToken === "string" ? { token: payloadOrToken } : payloadOrToken;
     const res = await fetch(`${BASE_URL}/api/auth/tasklist-sso`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ token }),
+      body: JSON.stringify(body),
     });
     return res;
   },
@@ -224,6 +225,16 @@ export const ApiService = {
 
   async getSharedJob(token) {
     const res = await fetch(`${BASE_URL}/jobs/share/${token}`);
+    return res.json();
+  },
+
+  async exportProcurement(payload) {
+    const res = await fetch(`${BASE_URL}/jobs/export-procurement`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
     return res.json();
   },
 
