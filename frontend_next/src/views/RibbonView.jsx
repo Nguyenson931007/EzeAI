@@ -462,14 +462,28 @@ export default function RibbonView({
       let storedUser = null;
       try {
         if (storedUserStr) storedUser = JSON.parse(storedUserStr);
-      } catch (e) {}
+      } catch (e) { }
 
       const currentUser = user || storedUser;
-      const token = currentUser?.session_token || (typeof window !== "undefined" ? (localStorage.getItem("token") || "") : "") || "";
+      const taskListToken = (typeof window !== "undefined" ? (localStorage.getItem("tasklist_token") || localStorage.getItem("ems_token")) : "") ||
+        currentUser?.tasklist_token ||
+        currentUser?.session_token ||
+        (typeof window !== "undefined" ? (localStorage.getItem("token") || "") : "") || "";
+      const token = taskListToken;
       const username = currentUser?.username || (typeof window !== "undefined" ? (localStorage.getItem("username") || "") : "") || "";
       const role = currentUser?.role || "admin";
       const manv = currentUser?.ma_nv || currentUser?.MaNV || currentUser?.manv || "";
-      const currentEmsJobId = currentJobId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null);
+
+      let pendingEmsJob = null;
+      try {
+        const pendingEmsJobStr = typeof window !== "undefined" ? sessionStorage.getItem("pendingEmsJob") : null;
+        if (pendingEmsJobStr) pendingEmsJob = JSON.parse(pendingEmsJobStr);
+      } catch (e) {}
+
+      const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
+      const candidateJobId = urlJob || pendingEmsJob?.id || pendingEmsJob?.id_job || pendingEmsJob?.ems_id || pendingEmsJob?.job_id || currentJobId;
+      const isValidEmsJob = candidateJobId && String(candidateJobId) !== "null" && String(candidateJobId) !== "undefined" && String(candidateJobId).trim() !== "";
+      const currentEmsJobId = isValidEmsJob ? String(candidateJobId).trim() : null;
 
       const payload = {
         token: token,
@@ -499,7 +513,7 @@ export default function RibbonView({
 
       const target = new URL("http://14.241.197.188:7642/");
       if (currentEmsJobId) {
-        target.searchParams.set("job", String(currentEmsJobId));
+        target.searchParams.set("job", currentEmsJobId);
       }
       target.searchParams.set("source", "tool-ai");
       target.searchParams.set("sso", "tool-ai");
@@ -579,46 +593,88 @@ export default function RibbonView({
   };
 
   const handleToggleScale = () => {
-    if (isMeasuring) {
+    const isAnyOtherToolActive = Boolean(
+      drawing ||
+      isDistancing ||
+      isDrawingDoor ||
+      isDrawingRoof ||
+      isAddingPoint ||
+      showPenetrations ||
+      (doorController && doorController.showPenetrations) ||
+      (lintelController && lintelController.isDrawingLintel) ||
+      (interactionMode && interactionMode !== "select" && interactionMode !== "pan")
+    );
+
+    // Turn off all other drawing/measuring modes completely
+    if (setDrawing) setDrawing(false);
+    if (setCurrentPoly) setCurrentPoly([]);
+    if (setIsDistancing) setIsDistancing(false);
+    if (setDistancePoints) setDistancePoints([]);
+    if (setIsDrawingDoor) setIsDrawingDoor(false);
+    if (setIsDrawingRoof) setIsDrawingRoof(false);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setIsAddingPoint) setIsAddingPoint(false);
+    if (setShowPenetrations) setShowPenetrations(false);
+    if (setInteractionMode) setInteractionMode("select");
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (doorController) {
+      if (typeof doorController.cancelDoorDraw === "function") doorController.cancelDoorDraw();
+      if (typeof doorController.setShowPenetrations === "function") doorController.setShowPenetrations(false);
+    }
+    if (lintelController) {
+      if (typeof lintelController.cancelLintelDraw === "function") lintelController.cancelLintelDraw();
+      if (typeof lintelController.setIsDrawingLintel === "function") lintelController.setIsDrawingLintel(false);
+    }
+
+    if (isMeasuring && !isAnyOtherToolActive) {
       if (setIsMeasuring) setIsMeasuring(false);
       if (setMeasurePoints) setMeasurePoints([]);
     } else {
-      if (setDrawing) setDrawing(false);
-      if (setIsDistancing) setIsDistancing(false);
-      if (setDistancePoints) setDistancePoints([]);
-      if (setIsDrawingDoor) setIsDrawingDoor(false);
-      if (setIsDrawingRoof) setIsDrawingRoof(false);
-      if (setInteractionMode) setInteractionMode("select");
-      if (setSelectedId) setSelectedId(null);
-      if (setSelectedType) setSelectedType(null);
-      if (doorController) {
-        doorController.cancelDoorDraw();
-        doorController.setShowPenetrations(false);
-      }
-      if (lintelController) lintelController.cancelLintelDraw();
       if (setIsMeasuring) setIsMeasuring(true);
       if (setMeasurePoints) setMeasurePoints([]);
     }
   };
 
   const handleToggleDistance = () => {
-    if (isDistancing) {
+    const isAnyOtherToolActive = Boolean(
+      drawing ||
+      isMeasuring ||
+      isDrawingDoor ||
+      isDrawingRoof ||
+      isAddingPoint ||
+      showPenetrations ||
+      (doorController && doorController.showPenetrations) ||
+      (lintelController && lintelController.isDrawingLintel) ||
+      (interactionMode && interactionMode !== "select" && interactionMode !== "pan")
+    );
+
+    // Turn off all other drawing/measuring modes completely
+    if (setDrawing) setDrawing(false);
+    if (setCurrentPoly) setCurrentPoly([]);
+    if (setIsMeasuring) setIsMeasuring(false);
+    if (setMeasurePoints) setMeasurePoints([]);
+    if (setIsDrawingDoor) setIsDrawingDoor(false);
+    if (setIsDrawingRoof) setIsDrawingRoof(false);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setIsAddingPoint) setIsAddingPoint(false);
+    if (setShowPenetrations) setShowPenetrations(false);
+    if (setInteractionMode) setInteractionMode("select");
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (doorController) {
+      if (typeof doorController.cancelDoorDraw === "function") doorController.cancelDoorDraw();
+      if (typeof doorController.setShowPenetrations === "function") doorController.setShowPenetrations(false);
+    }
+    if (lintelController) {
+      if (typeof lintelController.cancelLintelDraw === "function") lintelController.cancelLintelDraw();
+      if (typeof lintelController.setIsDrawingLintel === "function") lintelController.setIsDrawingLintel(false);
+    }
+
+    if (isDistancing && !isAnyOtherToolActive) {
       if (setIsDistancing) setIsDistancing(false);
       if (setDistancePoints) setDistancePoints([]);
     } else {
-      if (setDrawing) setDrawing(false);
-      if (setIsMeasuring) setIsMeasuring(false);
-      if (setMeasurePoints) setMeasurePoints([]);
-      if (setIsDrawingDoor) setIsDrawingDoor(false);
-      if (setIsDrawingRoof) setIsDrawingRoof(false);
-      if (setInteractionMode) setInteractionMode("select");
-      if (setSelectedId) setSelectedId(null);
-      if (setSelectedType) setSelectedType(null);
-      if (doorController) {
-        doorController.cancelDoorDraw();
-        doorController.setShowPenetrations(false);
-      }
-      if (lintelController) lintelController.cancelLintelDraw();
       if (setIsDistancing) setIsDistancing(true);
       if (setDistancePoints) setDistancePoints([]);
     }
@@ -1132,7 +1188,7 @@ export default function RibbonView({
                   title={`Page ${currentPage + 1} of ${pages.length || 1}`}
                 >
                   <span className="icon"><CAD_ICONS.Pdf /></span>
-                  <span className="label">Pg {currentPage + 1}/{pages.length || 1}</span>
+                  <span className="label">Level {currentPage + 1}/{pages.length || 1}</span>
                 </div>
                 <button className="ribbon-btn" onClick={() => { if (currentPage < pages.length - 1) goPage(currentPage + 1); }} title="Next Page">
                   <span className="icon"><CAD_ICONS.ArrowRight /></span><span className="label">Next</span>
