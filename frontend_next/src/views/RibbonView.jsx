@@ -476,12 +476,17 @@ export default function RibbonView({
 
       let pendingEmsJob = null;
       try {
-        const pendingEmsJobStr = typeof window !== "undefined" ? sessionStorage.getItem("pendingEmsJob") : null;
+        const pendingEmsJobStr = (typeof window !== "undefined" ? (sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob")) : null);
         if (pendingEmsJobStr) pendingEmsJob = JSON.parse(pendingEmsJobStr);
       } catch (e) {}
 
+      const idHW = pendingEmsJob?.id_HW || pendingEmsJob?.IdJob_HW || pendingEmsJob?.hw_id || pendingEmsJob?.id_hw || null;
+      const jobNum = pendingEmsJob?.job_number || pendingEmsJob?.job_num || (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName : null);
       const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
-      const candidateJobId = urlJob || pendingEmsJob?.id || pendingEmsJob?.id_job || pendingEmsJob?.ems_id || pendingEmsJob?.job_id || currentJobId;
+      const emsId = pendingEmsJob?.id_job || pendingEmsJob?.id || pendingEmsJob?.ems_id || null;
+
+      // Ưu tiên id_HW (hoặc job_num) theo đúng chuẩn định danh giữa TaskList, AI và Procurement
+      const candidateJobId = idHW || urlJob || jobNum || emsId || currentJobId;
       const isValidEmsJob = candidateJobId && String(candidateJobId) !== "null" && String(candidateJobId) !== "undefined" && String(candidateJobId).trim() !== "";
       const currentEmsJobId = isValidEmsJob ? String(candidateJobId).trim() : null;
 
@@ -494,10 +499,18 @@ export default function RibbonView({
           ma_nv: manv,
           session_token: token
         } : null,
+        id_HW: idHW,
+        IdJob_HW: idHW,
+        job_number: jobNum,
+        job_num: jobNum,
         jobId: currentEmsJobId,
-        projectName: currentProjectName || "Untitled Project",
+        projectName: currentProjectName || jobNum || "Untitled Project",
         data: {
-          projectName: currentProjectName,
+          id_HW: idHW,
+          IdJob_HW: idHW,
+          job_number: jobNum,
+          job_num: jobNum,
+          projectName: currentProjectName || jobNum,
           jobId: currentEmsJobId,
           pages: pages || [],
           wallsByPage: wallsByPage || {},
@@ -511,25 +524,17 @@ export default function RibbonView({
         }
       };
 
-      const target = new URL("http://14.241.197.188:7642/");
-      if (currentEmsJobId) {
-        target.searchParams.set("job", currentEmsJobId);
-      }
-      target.searchParams.set("source", "tool-ai");
-      target.searchParams.set("sso", "tool-ai");
-      console.log(
-        "[Procurement] Đang đóng gói dữ liệu và gửi sang Procurement...",
-        {
-          target: target.toString(),
-          payload
-        }
-      );
       let sendSuccess = false;
       let errorMsg = "";
+      let remoteJobId = null;
       try {
         const result = await ApiService.exportProcurement(payload);
         if (result?.status === "success") {
           sendSuccess = true;
+          try {
+            const parsedRemote = typeof result.remote_data === "string" ? JSON.parse(result.remote_data) : result.remote_data;
+            remoteJobId = parsedRemote?.jobId || parsedRemote?.id_HW || parsedRemote?.id || parsedRemote?.data?.jobId || parsedRemote?.data?.id || null;
+          } catch (e) {}
         } else if (result?.message) {
           errorMsg = result.message;
         }
@@ -537,13 +542,42 @@ export default function RibbonView({
         console.warn("[Procurement] Lỗi khi gửi API:", fetchErr);
         errorMsg = fetchErr?.message || "Unknown API error";
       }
+
+      const finalDeepLinkJob = remoteJobId || idHW || currentEmsJobId;
+      const target = new URL("http://14.241.197.188:7642/");
+      if (finalDeepLinkJob) {
+        target.searchParams.set("job", String(finalDeepLinkJob));
+      }
+      if (idHW) {
+        target.searchParams.set("id_HW", String(idHW));
+        target.searchParams.set("id_hw", String(idHW));
+      }
+      if (jobNum) {
+        target.searchParams.set("job_num", String(jobNum));
+        target.searchParams.set("job_number", String(jobNum));
+      }
+      target.searchParams.set("source", "tool-ai");
+      target.searchParams.set("sso", "web3");
+
+      console.log(
+        "[Procurement] Đang mở Procurement với thông tin Job HW...",
+        {
+          target: target.toString(),
+          idHW,
+          jobNum,
+          finalDeepLinkJob,
+          payload
+        }
+      );
+
       // Mở Procurement
       const popup = window.open(target.toString(), "_blank");
       if (!popup) {
-        showAlert("Popup bị chặn.", "Lỗi");
+        showAlert("Popup bị chặn. Vui lòng cho phép popup trên trình duyệt.", "Lỗi");
         return;
       }
-      // Gửi SSO token qua postMessage
+
+      // Gửi SSO token qua postMessage (tương thích cả Web3 và Tool-AI)
       if (token) {
         let attempts = 0;
         let timer = null;
@@ -558,9 +592,23 @@ export default function RibbonView({
           try {
             popup.postMessage(
               {
+                type: "TASK_LIST_WEB3_SSO",
+                token: token,
+                id_HW: idHW,
+                job_number: jobNum,
+                job_num: jobNum,
+                jobId: finalDeepLinkJob
+              },
+              target.origin
+            );
+            popup.postMessage(
+              {
                 type: "PROCUREMENT_SSO",
                 token: token,
-                jobId: currentEmsJobId
+                id_HW: idHW,
+                job_number: jobNum,
+                job_num: jobNum,
+                jobId: finalDeepLinkJob
               },
               target.origin
             );
@@ -569,7 +617,6 @@ export default function RibbonView({
           }
         };
         timer = setInterval(sendSso, 250);
-        // gửi ngay lần đầu
         sendSso();
       }
       if (sendSuccess) {
