@@ -570,13 +570,24 @@ export default function App() {
               role: data.role || "admin",
               ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
               session_token: data.session_token,
+<<<<<<< HEAD
               tasklist_token: urlToken || "",
+=======
+              tasklist_token: urlToken,
+>>>>>>> ff62647fba6bd93295a5292e950acd0f6e5a44f7
             };
             setIsLoggedIn(true);
             setUser(userData);
             localStorage.setItem("isLoggedIn", "true");
             localStorage.setItem("user", JSON.stringify(userData));
+<<<<<<< HEAD
             if (urlToken) localStorage.setItem("tasklist_token", urlToken);
+=======
+            if (urlToken) {
+              localStorage.setItem("tasklist_token", urlToken);
+              localStorage.setItem("ems_token", urlToken);
+            }
+>>>>>>> ff62647fba6bd93295a5292e950acd0f6e5a44f7
             console.log("[SSO] URL Login thành công với:", userData.username);
             if (idJobEms) loadEmsJob(idJobEms);
           }
@@ -890,14 +901,25 @@ export default function App() {
           role: data.role || "admin",
           ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
           session_token: data.session_token,
+<<<<<<< HEAD
           tasklist_token: rawToken,
+=======
+          tasklist_token: event.data.token,
+>>>>>>> ff62647fba6bd93295a5292e950acd0f6e5a44f7
         };
 
         setIsLoggedIn(true);
         setUser(userData);
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("user", JSON.stringify(userData));
+<<<<<<< HEAD
         if (rawToken) localStorage.setItem("tasklist_token", rawToken);
+=======
+        if (event.data.token) {
+          localStorage.setItem("tasklist_token", event.data.token);
+          localStorage.setItem("ems_token", event.data.token);
+        }
+>>>>>>> ff62647fba6bd93295a5292e950acd0f6e5a44f7
         console.log("[SSO] Đăng nhập thành công với tài khoản:", userData.username);
 
         const idJobEms = new URLSearchParams(window.location.search).get("job");

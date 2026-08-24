@@ -1437,6 +1437,7 @@ export default function AIDoor({
 
         const handleHorizontalFlip = (e) => {
           e.stopPropagation();
+          e.preventDefault();
           if (isVerticalDoor) {
             // For vertical door, Horizontal Flip (Left ↔ Right) is across the wall line (Swing flip)
             const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
@@ -1471,8 +1472,10 @@ export default function AIDoor({
                 return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
               });
             }
+            const newPoints = (d.points && d.points.length >= 2) ? [d.points[1], d.points[0]] : d.points;
             updateDoor({
               ...d,
+              points: newPoints,
               hingeSide: newHinge,
               hinge_side: newHinge,
               polygon: newPoly,
@@ -1483,6 +1486,7 @@ export default function AIDoor({
 
         const handleVerticalFlip = (e) => {
           e.stopPropagation();
+          e.preventDefault();
           if (isVerticalDoor) {
             // For vertical door, Vertical Flip (Up ↕ Down) is along the wall (Hinge flip)
             const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
@@ -1496,8 +1500,10 @@ export default function AIDoor({
                 return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
               });
             }
+            const newPoints = (d.points && d.points.length >= 2) ? [d.points[1], d.points[0]] : d.points;
             updateDoor({
               ...d,
+              points: newPoints,
               hingeSide: newHinge,
               hinge_side: newHinge,
               polygon: newPoly,
@@ -1528,11 +1534,17 @@ export default function AIDoor({
         };
 
         return (
-          <g style={{ pointerEvents: 'auto' }}>
+          <g 
+            style={{ pointerEvents: 'auto' }}
+            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+            onPointerDown={(e) => { e.stopPropagation(); }}
+          >
             {/* Horizontal Flip Button (Left ↔ Right on Screen) */}
             <g 
               transform={isVerticalDoor ? `translate(${cxAvg + 30}, ${cyAvg - 18})` : `translate(${cxAvg - 20}, ${cyAvg + 28})`} 
               style={{ cursor: 'pointer' }}
+              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+              onPointerDown={(e) => { e.stopPropagation(); }}
               onClick={handleHorizontalFlip}
             >
               <rect x="-16" y="-14" width="32" height="28" rx="6" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.35))" />
@@ -1543,6 +1555,8 @@ export default function AIDoor({
             <g 
               transform={isVerticalDoor ? `translate(${cxAvg + 30}, ${cyAvg + 18})` : `translate(${cxAvg + 20}, ${cyAvg + 28})`} 
               style={{ cursor: 'pointer' }}
+              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+              onPointerDown={(e) => { e.stopPropagation(); }}
               onClick={handleVerticalFlip}
             >
               <rect x="-16" y="-14" width="32" height="28" rx="6" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.35))" />
