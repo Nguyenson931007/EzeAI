@@ -570,11 +570,13 @@ export default function App() {
               role: data.role || "admin",
               ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
               session_token: data.session_token,
+              tasklist_token: urlToken || "",
             };
             setIsLoggedIn(true);
             setUser(userData);
             localStorage.setItem("isLoggedIn", "true");
             localStorage.setItem("user", JSON.stringify(userData));
+            if (urlToken) localStorage.setItem("tasklist_token", urlToken);
             console.log("[SSO] URL Login thành công với:", userData.username);
             if (idJobEms) loadEmsJob(idJobEms);
           }
@@ -882,17 +884,20 @@ export default function App() {
         }
 
         const finalUsername = data.username || extractedUser || "Liam";
+        const rawToken = event.data.token || "";
         const userData = {
           username: finalUsername,
           role: data.role || "admin",
           ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
           session_token: data.session_token,
+          tasklist_token: rawToken,
         };
 
         setIsLoggedIn(true);
         setUser(userData);
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("user", JSON.stringify(userData));
+        if (rawToken) localStorage.setItem("tasklist_token", rawToken);
         console.log("[SSO] Đăng nhập thành công với tài khoản:", userData.username);
 
         const idJobEms = new URLSearchParams(window.location.search).get("job");

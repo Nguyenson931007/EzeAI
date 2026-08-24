@@ -462,10 +462,11 @@ export default function RibbonView({
       let storedUser = null;
       try {
         if (storedUserStr) storedUser = JSON.parse(storedUserStr);
-      } catch (e) {}
+      } catch (e) { }
 
       const currentUser = user || storedUser;
-      const token = currentUser?.session_token || (typeof window !== "undefined" ? (localStorage.getItem("token") || "") : "") || "";
+      const tasklistToken = currentUser?.tasklist_token || (typeof window !== "undefined" ? (localStorage.getItem("tasklist_token") || "") : "") || "";
+      const token = tasklistToken || currentUser?.session_token || (typeof window !== "undefined" ? (localStorage.getItem("token") || "") : "") || "";
       const username = currentUser?.username || (typeof window !== "undefined" ? (localStorage.getItem("username") || "") : "") || "";
       const role = currentUser?.role || "admin";
       const manv = currentUser?.ma_nv || currentUser?.MaNV || currentUser?.manv || "";
@@ -478,7 +479,8 @@ export default function RibbonView({
           username: username,
           role: role,
           ma_nv: manv,
-          session_token: token
+          session_token: currentUser?.session_token || token,
+          tasklist_token: tasklistToken
         } : null,
         jobId: currentEmsJobId,
         projectName: currentProjectName || "Untitled Project",
@@ -503,6 +505,10 @@ export default function RibbonView({
       }
       target.searchParams.set("source", "tool-ai");
       target.searchParams.set("sso", "tool-ai");
+      if (token) {
+        target.searchParams.set("token", token);
+        target.searchParams.set("task_list_token", token);
+      }
       console.log(
         "[Procurement] Đang đóng gói dữ liệu và gửi sang Procurement...",
         {
@@ -546,7 +552,11 @@ export default function RibbonView({
               {
                 type: "PROCUREMENT_SSO",
                 token: token,
-                jobId: currentEmsJobId
+                accessToken: token,
+                access_token: token,
+                jobId: currentEmsJobId,
+                username: username,
+                user: currentUser
               },
               target.origin
             );
@@ -1132,7 +1142,7 @@ export default function RibbonView({
                   title={`Page ${currentPage + 1} of ${pages.length || 1}`}
                 >
                   <span className="icon"><CAD_ICONS.Pdf /></span>
-                  <span className="label">Pg {currentPage + 1}/{pages.length || 1}</span>
+                  <span className="label">Level {currentPage + 1}/{pages.length || 1}</span>
                 </div>
                 <button className="ribbon-btn" onClick={() => { if (currentPage < pages.length - 1) goPage(currentPage + 1); }} title="Next Page">
                   <span className="icon"><CAD_ICONS.ArrowRight /></span><span className="label">Next</span>
