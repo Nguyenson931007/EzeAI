@@ -15,12 +15,13 @@ const JobHistory = ({ username, onLoadJob }) => {
 
   const fetchTotalCount = async () => {
     try {
-      const data = await ApiService.getJobsCount();
+      const data = await ApiService.getJobsCount(username);
       if (data && typeof data.count === 'number') {
         setTotalCount(data.count);
       }
     } catch (err) {
-      console.error('Error fetching count:', err);
+      console.warn('Error fetching count (fallback to 0):', err?.message || err);
+      setTotalCount(0);
     }
   };
 

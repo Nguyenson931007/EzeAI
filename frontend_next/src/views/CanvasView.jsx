@@ -54,12 +54,24 @@ const REVIEW_COLORS = {
 
 const roomSemanticStyleMap = {
   dry: {
-    stroke: "#38BDF8",
-    fill: "rgba(56,189,248,0.08)"
+    stroke: "#dc2626",
+    fill: "rgba(239, 68, 68, 0.15)"
   },
   wet: {
-    stroke: "#EF4444",
-    fill: "rgba(239,68,68,0.10)"
+    stroke: "#0284c7",
+    fill: "rgba(56, 189, 248, 0.14)"
+  },
+  timber_deck: {
+    stroke: "#d97706",
+    fill: "rgba(217, 119, 6, 0.18)"
+  },
+  tile_deck: {
+    stroke: "#059669",
+    fill: "rgba(16, 185, 129, 0.16)"
+  },
+  deck: {
+    stroke: "#d97706",
+    fill: "rgba(217, 119, 6, 0.18)"
   }
 };
 
@@ -378,22 +390,13 @@ const RoomPolygonLayer = React.memo(({
         const isDraggingThis = dragging && dragging.id === r.id;
         const style = getRoomStyle(r);
 
-        // Determine confidence/review color overlay
+        // Determine confidence/review state
         const isLowConfidence = r.conf !== undefined && r.conf < (config?.rooms ?? 0.55);
-        const reviewState = r.correction_source || (isLowConfidence ? "low_confidence" : "AI_GENERATED");
-        const revStyle = REVIEW_COLORS[reviewState];
 
         let stroke = isSelected ? "#f59e0b" : (isHovered ? "#fbbf24" : style.stroke);
-        let strokeWidth = isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 3 : 1.2));
-        let opacity = isSelected ? 0.8 : (isHovered ? 0.7 : 1);
-        let fill = isSelected ? "rgba(245,158,11,0.15)" : style.fill;
-
-        // If verified or corrected, boost stroke outline (Requirement 8)
-        if (revStyle && !isSelected && !isHovered && !isDraggingThis) {
-          stroke = revStyle.stroke;
-          strokeWidth = 1.5;
-          fill = revStyle.fill;
-        }
+        let strokeWidth = isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 3 : 1.5));
+        let opacity = isSelected ? 0.85 : (isHovered ? 0.75 : 1);
+        let fill = isSelected ? "rgba(245,158,11,0.2)" : style.fill;
 
         // Apply visual heatmap outlining for low confidence rooms
         if (heatmapMode && isLowConfidence && !isSelected && !isHovered && !isDraggingThis) {
@@ -1089,19 +1092,21 @@ const WallLayer = React.memo(({
 
       {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
       {(walls || []).map((w, idx) => {
-        const isSelected = selectedWallIds.some(id => id === w.id || getBaseWallId(id) === getBaseWallId(w.id));
-        const isHovered = w.id === hoverId || getBaseWallId(w.id) === getBaseWallId(hoverId);
-        const isDraggingThis = dragging && (dragging.id === w.id || getBaseWallId(dragging.id) === getBaseWallId(w.id));
+        const isSelected = selectedWallIds.some(id => id === w.id || (getBaseWallId && getBaseWallId(id) === getBaseWallId(w.id))) ||
+          selectedId === w.id || (getBaseWallId && getBaseWallId(selectedId) === getBaseWallId(w.id));
+        const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
+        const isDraggingThis = dragging && (dragging.id === w.id || (getBaseWallId && getBaseWallId(dragging.id) === getBaseWallId(w.id)));
         const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
 
         let fillColor = "rgba(0, 0, 0, 0)"; // fully transparent for hit test
         let strokeColor = "none";
 
         if (isSelected) {
-          strokeColor = "#38bdf8"; // highlight selected wall in blue
-          fillColor = "rgba(56, 189, 248, 0.25)";
+          strokeColor = "#0284c7"; // bold CAD sky blue
+          fillColor = "rgba(2, 132, 199, 0.45)"; // vibrant translucent blue fill
         } else if (isHovered) {
-          fillColor = "rgba(168, 85, 247, 0.05)";
+          fillColor = "rgba(56, 189, 248, 0.15)";
+          strokeColor = "#38bdf8";
         }
 
         return (
@@ -1151,16 +1156,19 @@ const WallLayer = React.memo(({
               />
             )}
 
-            {/* Wall Polygon Hitbox */}
+            {/* Wall Polygon Hitbox & Highlight Outline */}
             <polygon
               key={`hitbox-${w.id}-${idx}`}
               points={pointsStr}
               fill={fillColor}
               stroke={strokeColor}
-              strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
+              strokeWidth={isDraggingThis ? 1.2 : (isSelected ? 4.5 : (isHovered ? 2 : 0))}
+              strokeLinejoin="round"
+              strokeLinecap="round"
               style={{
                 cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
-                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
+                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto",
+                filter: isSelected ? "drop-shadow(0 0 6px rgba(2, 132, 199, 0.85))" : undefined
               }}
               onMouseEnter={() => setHoverId(w.id)}
               onMouseLeave={() => setHoverId(null)}
@@ -1196,6 +1204,21 @@ const WallLayer = React.memo(({
                 }
               }}
             />
+
+            {/* Prominent Selection Centerline Indicator */}
+            {isSelected && w.centerline && w.centerline.length === 2 && (
+              <line
+                x1={w.centerline[0][0]}
+                y1={w.centerline[0][1]}
+                x2={w.centerline[1][0]}
+                y2={w.centerline[1][1]}
+                stroke="#38bdf8"
+                strokeWidth={2.5}
+                strokeDasharray="6,3"
+                strokeLinecap="round"
+                style={{ pointerEvents: 'none' }}
+              />
+            )}
           </g>
         );
       })}
@@ -3437,10 +3460,26 @@ export default function CanvasView({
   }, [svgRef, onWheel]);
 
   const getRoomStyle = (room) => {
-    const w = room.wetness || room.type || "dry";
-    const type = w === "wet" ? "wet" : "dry";
-    if (highlightType && highlightType !== w) {
-      return { stroke: "rgba(200,200,200,0.1)", fill: "rgba(200,200,200,0.05)" };
+    const rawType = room.type || room.wetness || room.zone || "dry";
+    const roomName = String(room.name || room.room_name || "").toLowerCase();
+    let type = "dry";
+
+    if (rawType === "wet" || rawType === "bath" || rawType === "ensuite" || rawType === "wc" || rawType === "laundry") {
+      type = "wet";
+    } else if (rawType === "timber_deck" || (rawType === "deck" && !roomName.includes("tile")) || /(deck.*timber|timber.*deck|balcony)/i.test(roomName)) {
+      type = "timber_deck";
+    } else if (rawType === "tile_deck" || (rawType === "deck" && roomName.includes("tile")) || /(deck.*tile|tile.*deck|patio|alfresco|porch|verandah)/i.test(roomName)) {
+      type = "tile_deck";
+    } else if (rawType === "deck") {
+      type = "timber_deck";
+    } else if (/(bath|ens|ensuite|wc|powder|toilet|l'dry|laundry|utility|shower)/i.test(roomName)) {
+      type = "wet";
+    } else {
+      type = "dry";
+    }
+
+    if (highlightType && highlightType !== type && highlightType !== rawType) {
+      return { stroke: "rgba(200,200,200,0.12)", fill: "rgba(200,200,200,0.04)" };
     }
     return roomSemanticStyleMap[type] || roomSemanticStyleMap.dry;
   };

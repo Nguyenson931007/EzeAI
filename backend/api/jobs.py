@@ -192,26 +192,29 @@ def get_jobs_count(username: Optional[str] = None):
     - Nếu cung cấp `username`: Đếm số lượng dự án thuộc sở hữu của người dùng đó.
     - Nếu không: Trả về số lượng toàn bộ dự án trên hệ thống.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
     try:
-        if username and username != "undefined":
-            cursor.execute(
-                "SELECT COUNT(*) as total FROM jobs j JOIN users u ON j.user_id = u.id WHERE u.username = ?", 
-                (username,)
-            )
-        else:
-            cursor.execute("SELECT COUNT(*) as total FROM jobs")
-            
-        row = cursor.fetchone()
-        count = int(row["total"]) if row else 0
-        print(f"[debug] Tổng số lượng dự án: {count} (Người sở hữu={username})")
-        return {"count": count}
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            if username and username.strip() not in ("undefined", "null", "None", ""):
+                cursor.execute(
+                    "SELECT COUNT(*) as total FROM jobs j JOIN users u ON j.user_id = u.id WHERE u.username = ?", 
+                    (username.strip(),)
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) as total FROM jobs")
+                
+            row = cursor.fetchone()
+            count = int(row["total"]) if row and "total" in row and row["total"] is not None else 0
+            return {"count": count}
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
     except Exception as e:
-        print(f"[error] Lỗi khi đếm số dự án: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
+        logger.warning(f"Lỗi khi đếm số dự án (trả về 0 mặc định): {e}")
+        return {"count": 0}
 
 
 @router.get("/jobs/history")

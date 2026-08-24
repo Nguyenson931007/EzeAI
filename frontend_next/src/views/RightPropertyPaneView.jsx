@@ -4553,7 +4553,7 @@ export default function RightPropertyPaneView({
                   <AreaCard
                     label="Dry"
                     value={`${dry.toFixed(2)} m²`}
-                    dotColor="#2196F3"
+                    dotColor="#ef4444"
                     ratio={totalInternal > 0 ? dry / totalInternal : 0}
                     parentLabel="internal"
                     isActive={highlightType === "dry"}
@@ -4564,7 +4564,7 @@ export default function RightPropertyPaneView({
                   <AreaCard
                     label="Wet"
                     value={`${wet.toFixed(2)} m²`}
-                    dotColor="#ef4444"
+                    dotColor="#2196F3"
                     ratio={totalInternal > 0 ? wet / totalInternal : 0}
                     parentLabel="internal"
                     isActive={highlightType === "wet"}

@@ -1363,24 +1363,24 @@ export default function AIDoor({
               }}
             >
               <rect
-                x={cxAvg - 23}
-                y={cyAvg - 7}
-                width={46}
-                height={14}
-                rx={3}
-                fill="rgba(15, 23, 42, 0.88)"
-                stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#6b7280")}
-                strokeWidth={1}
-                style={{ pointerEvents: 'none' }}
+                x={cxAvg - 34}
+                y={cyAvg - 11}
+                width={68}
+                height={22}
+                rx={5}
+                fill="rgba(15, 23, 42, 0.92)"
+                stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#64748b")}
+                strokeWidth={1.5}
+                style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }}
               />
               <text
                 x={cxAvg}
-                y={cyAvg}
-                fontSize="9"
+                y={cyAvg + 1}
+                fontSize="12"
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#9ca3af")}
-                fontWeight="600"
+                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#e2e8f0")}
+                fontWeight="700"
                 fontFamily="Inter, monospace"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
@@ -1391,29 +1391,30 @@ export default function AIDoor({
 
           {/* Door Class Name / Door ID Label */}
           <g 
-            transform={`translate(${cxAvg}, ${cyAvg - 15})`} 
+            transform={`translate(${cxAvg}, ${cyAvg - 26})`} 
             style={{ pointerEvents: 'none' }}
           >
             {isSelected && (
               <rect
-                x={-28}
-                y={-8}
-                width={56}
-                height={16}
-                rx={4}
+                x={-38}
+                y={-12}
+                width={76}
+                height={24}
+                rx={5}
                 fill="#FF5722"
                 opacity={0.95}
+                filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
               />
             )}
             <text
               x={0}
-              y={0}
-              fill={isSelected ? "#ffffff" : "#1e293b"}
-              fontSize={10}
-              fontWeight="600"
+              y={1}
+              fill={isSelected ? "#ffffff" : "#0f172a"}
+              fontSize={12}
+              fontWeight="700"
               textAnchor="middle"
               alignmentBaseline="middle"
-              style={{ textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white', userSelect: 'none' }}
+              style={{ textShadow: isSelected ? 'none' : '0 0 4px white, 0 0 4px white', userSelect: 'none' }}
             >
               {d.doorName || d.door_name || (d.class ? d.class.replace('_door', '') : 'Door')}
             </text>
@@ -1530,22 +1531,22 @@ export default function AIDoor({
           <g style={{ pointerEvents: 'auto' }}>
             {/* Horizontal Flip Button (Left ↔ Right on Screen) */}
             <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + 15}, ${cyAvg - 12})` : `translate(${cxAvg - 15}, ${cyAvg + 15})`} 
+              transform={isVerticalDoor ? `translate(${cxAvg + 30}, ${cyAvg - 18})` : `translate(${cxAvg - 20}, ${cyAvg + 28})`} 
               style={{ cursor: 'pointer' }}
               onClick={handleHorizontalFlip}
             >
-              <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
-              <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↔</text>
+              <rect x="-16" y="-14" width="32" height="28" rx="6" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.35))" />
+              <text x="0" y="3" fontSize="16" fontWeight="bold" fill="#38bdf8" textAnchor="middle" dominantBaseline="middle">↔</text>
             </g>
             
             {/* Vertical Flip Button (Up ↕ Down on Screen) */}
             <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + 15}, ${cyAvg + 12})` : `translate(${cxAvg + 15}, ${cyAvg + 15})`} 
+              transform={isVerticalDoor ? `translate(${cxAvg + 30}, ${cyAvg + 18})` : `translate(${cxAvg + 20}, ${cyAvg + 28})`} 
               style={{ cursor: 'pointer' }}
               onClick={handleVerticalFlip}
             >
-              <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
-              <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↕</text>
+              <rect x="-16" y="-14" width="32" height="28" rx="6" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.35))" />
+              <text x="0" y="3" fontSize="16" fontWeight="bold" fill="#38bdf8" textAnchor="middle" dominantBaseline="middle">↕</text>
             </g>
           </g>
         );
