@@ -623,23 +623,16 @@ export default function RibbonView({
               {
                 type: "PROCUREMENT_SSO",
                 token: token,
-<<<<<<< HEAD
                 task_list_token: token,
                 accessToken: token,
                 access_token: token,
-                id_HW: idHW,
-                job_number: jobNum,
-                job_num: jobNum,
-                jobId: finalDeepLinkJob,
-                username: username,
-                user: currentUser
-=======
                 ems_id: emsUuid,
                 id_HW: idHW,
                 job_number: jobNum,
                 job_num: jobNum,
-                jobId: emsUuid || idHW
->>>>>>> c9c14e50ad1ee3005a08962884d6be564133c9a7
+                jobId: emsUuid || idHW,
+                username: username,
+                user: currentUser
               },
               target.origin
             );
