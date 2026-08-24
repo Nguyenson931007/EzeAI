@@ -480,15 +480,30 @@ export default function RibbonView({
         if (pendingEmsJobStr) pendingEmsJob = JSON.parse(pendingEmsJobStr);
       } catch (e) {}
 
-      const idHW = pendingEmsJob?.id_HW || pendingEmsJob?.IdJob_HW || pendingEmsJob?.hw_id || pendingEmsJob?.id_hw || null;
-      const jobNum = pendingEmsJob?.job_number || pendingEmsJob?.job_num || (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName : null);
       const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
-      const emsId = pendingEmsJob?.id_job || pendingEmsJob?.id || pendingEmsJob?.ems_id || null;
+      const isUuid = (val) => typeof val === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
 
-      // Ưu tiên id_HW (hoặc job_num) theo đúng chuẩn định danh giữa TaskList, AI và Procurement
-      const candidateJobId = idHW || urlJob || jobNum || emsId || currentJobId;
-      const isValidEmsJob = candidateJobId && String(candidateJobId) !== "null" && String(candidateJobId) !== "undefined" && String(candidateJobId).trim() !== "";
-      const currentEmsJobId = isValidEmsJob ? String(candidateJobId).trim() : null;
+      // 1. EMS UUID (e.g. 46d7a842-974c-40de-99d5-1a610a366b65) - Dùng cho Procurement resolver ?job=
+      let emsUuid = null;
+      if (urlJob && isUuid(urlJob)) {
+        emsUuid = urlJob.trim();
+      } else if (pendingEmsJob?.id && isUuid(pendingEmsJob.id)) {
+        emsUuid = String(pendingEmsJob.id).trim();
+      } else if (pendingEmsJob?.id_job && isUuid(pendingEmsJob.id_job)) {
+        emsUuid = String(pendingEmsJob.id_job).trim();
+      } else if (pendingEmsJob?.ems_id && isUuid(pendingEmsJob.ems_id)) {
+        emsUuid = String(pendingEmsJob.ems_id).trim();
+      } else if (urlJob) {
+        emsUuid = urlJob.trim();
+      }
+
+      // 2. Hardware ID (e.g. 207)
+      const idHW = pendingEmsJob?.id_HW || pendingEmsJob?.IdJob_HW || pendingEmsJob?.hw_id || pendingEmsJob?.id_hw || (!isUuid(currentJobId) ? currentJobId : null);
+
+      // 3. Job Number (e.g. J-1001)
+      const jobNum = pendingEmsJob?.job_number || pendingEmsJob?.job_num || (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName : null);
+
+      const finalDeepLinkJob = emsUuid || idHW || currentJobId;
 
       const payload = {
         token: token,
@@ -500,19 +515,21 @@ export default function RibbonView({
           session_token: currentUser?.session_token || token,
           tasklist_token: tasklistToken
         } : null,
+        ems_id: emsUuid,
         id_HW: idHW,
         IdJob_HW: idHW,
         job_number: jobNum,
         job_num: jobNum,
-        jobId: currentEmsJobId,
+        jobId: finalDeepLinkJob,
         projectName: currentProjectName || jobNum || "Untitled Project",
         data: {
+          ems_id: emsUuid,
           id_HW: idHW,
           IdJob_HW: idHW,
           job_number: jobNum,
           job_num: jobNum,
           projectName: currentProjectName || jobNum,
-          jobId: currentEmsJobId,
+          jobId: finalDeepLinkJob,
           pages: pages || [],
           wallsByPage: wallsByPage || {},
           doorsByPage: doorsByPage || {},
@@ -528,15 +545,10 @@ export default function RibbonView({
 
       let sendSuccess = false;
       let errorMsg = "";
-      let remoteJobId = null;
       try {
         const result = await ApiService.exportProcurement(payload);
         if (result?.status === "success") {
           sendSuccess = true;
-          try {
-            const parsedRemote = typeof result.remote_data === "string" ? JSON.parse(result.remote_data) : result.remote_data;
-            remoteJobId = parsedRemote?.jobId || parsedRemote?.id_HW || parsedRemote?.id || parsedRemote?.data?.jobId || parsedRemote?.data?.id || null;
-          } catch (e) {}
         } else if (result?.message) {
           errorMsg = result.message;
         }
@@ -545,11 +557,14 @@ export default function RibbonView({
         errorMsg = fetchErr?.message || "Unknown API error";
       }
 
-      const finalDeepLinkJob = remoteJobId || idHW || currentEmsJobId;
       const target = new URL("http://14.241.197.188:7642/");
-      if (finalDeepLinkJob) {
+      // Gắn EMS UUID vào ?job= để ApplicationShell.tsx tìm thấy job trên EMS
+      if (emsUuid) {
+        target.searchParams.set("job", emsUuid);
+      } else if (finalDeepLinkJob) {
         target.searchParams.set("job", String(finalDeepLinkJob));
       }
+
       if (idHW) {
         target.searchParams.set("id_HW", String(idHW));
         target.searchParams.set("id_hw", String(idHW));
@@ -562,12 +577,12 @@ export default function RibbonView({
       target.searchParams.set("sso", "web3");
 
       console.log(
-        "[Procurement] Đang mở Procurement với thông tin Job HW...",
+        "[Procurement] Đang mở Procurement với EMS UUID & ID HW...",
         {
           target: target.toString(),
+          emsUuid,
           idHW,
           jobNum,
-          finalDeepLinkJob,
           payload
         }
       );
@@ -596,10 +611,11 @@ export default function RibbonView({
               {
                 type: "TASK_LIST_WEB3_SSO",
                 token: token,
+                ems_id: emsUuid,
                 id_HW: idHW,
                 job_number: jobNum,
                 job_num: jobNum,
-                jobId: finalDeepLinkJob
+                jobId: emsUuid || idHW
               },
               target.origin
             );
@@ -607,6 +623,7 @@ export default function RibbonView({
               {
                 type: "PROCUREMENT_SSO",
                 token: token,
+<<<<<<< HEAD
                 task_list_token: token,
                 accessToken: token,
                 access_token: token,
@@ -616,6 +633,13 @@ export default function RibbonView({
                 jobId: finalDeepLinkJob,
                 username: username,
                 user: currentUser
+=======
+                ems_id: emsUuid,
+                id_HW: idHW,
+                job_number: jobNum,
+                job_num: jobNum,
+                jobId: emsUuid || idHW
+>>>>>>> c9c14e50ad1ee3005a08962884d6be564133c9a7
               },
               target.origin
             );
