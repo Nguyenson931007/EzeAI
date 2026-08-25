@@ -63,7 +63,14 @@ const RoofEngine = {
       eave_edge_index: roof.eaveEdgeIndex || 0,
       wall_height: roof.wallHeight || 2700,
       scale_factor: mmPerPx,
-      raw_points_pixels: rawPointsPixels
+      raw_points_pixels: rawPointsPixels,
+      dutch_edges: Array.isArray(roof.dutchEdges) ? roof.dutchEdges : [],
+      dutch_overhangs: Array.isArray(roof.dutchOverhangs) ? roof.dutchOverhangs.map(v => typeof v === 'number' ? v : 0.0) : [],
+      dutch_rake_overhangs: Array.isArray(roof.dutchRakeOverhangs) ? roof.dutchRakeOverhangs.map(v => typeof v === 'number' ? v : 0.0) : [],
+      dutch_cut_points: Array.isArray(roof.dutchCutPoints) ? roof.dutchCutPoints.map(pt => {
+        if (!pt || !Array.isArray(pt) || pt.length < 2) return null;
+        return [pt[0] * mmPerPx, pt[1] * mmPerPx];
+      }) : []
     };
 
     if (roof.holes && roof.holes.length > 0) {
@@ -99,7 +106,15 @@ const RoofEngine = {
     roofType = 'hip_gable',
     eaveEdgeIndex = 0,
     baseZ = 0.0,
-    holeAngles = []
+    holeAngles = [],
+    dutch_edges = [],
+    dutch_overhangs = [],
+    dutch_rake_overhangs = [],
+    dutch_cut_points = [],
+    dutchEdges = [],
+    dutchOverhangs = [],
+    dutchRakeOverhangs = [],
+    dutchCutPoints = []
   }) {
     const buildPayload = {
       topology,
@@ -110,7 +125,11 @@ const RoofEngine = {
       wall_height: wallHeight,
       roof_type: roofType,
       eave_edge_index: eaveEdgeIndex,
-      base_z: baseZ
+      base_z: baseZ,
+      dutch_edges: dutch_edges.length > 0 ? dutch_edges : dutchEdges,
+      dutch_overhangs: (dutch_overhangs.length > 0 ? dutch_overhangs : dutchOverhangs).map(v => typeof v === 'number' ? v : 0.0),
+      dutch_rake_overhangs: (dutch_rake_overhangs.length > 0 ? dutch_rake_overhangs : dutchRakeOverhangs).map(v => typeof v === 'number' ? v : 0.0),
+      dutch_cut_points: (dutch_cut_points.length > 0 ? dutch_cut_points : dutchCutPoints).map(pt => (!pt || !Array.isArray(pt) || pt.length < 2) ? null : pt)
     };
 
     return await ApiService.buildRoof3D(buildPayload);
@@ -120,12 +139,15 @@ const RoofEngine = {
    * Complete Pipeline: Computes 2D Straight Skeleton and 3D Mesh in one workflow.
    * Returns a ready-to-cache v3Data object.
    */
-  computeRoofPipeline: async function({ roof, scaleFactor }) {
-    const payload = this.createRoofPayload({ roof, scaleFactor });
+  computeRoofPipeline: async function({ roof, scaleFactor, realScale }) {
+    const payload = this.createRoofPayload({ roof, scaleFactor, realScale });
     if (!payload) throw new Error("Invalid roof geometry (need at least 3 points)");
 
     // Step 1: Compute 2D Straight Skeleton topology
     const topoRes = await this.calculateTopology2D(payload);
+    if (!topoRes || !topoRes.result) {
+      throw new Error(topoRes?.detail || "Failed to calculate 2D roof topology");
+    }
     const rawTopology = topoRes.result;
 
     // Step 2: Build exact 3D algebraic planes, gable extensions, and wall shell
@@ -137,11 +159,23 @@ const RoofEngine = {
       wallHeight: payload.wall_height,
       roofType: payload.roof_type,
       eaveEdgeIndex: payload.eave_edge_index,
-      holeAngles: payload.hole_angles || []
+      holeAngles: payload.hole_angles || [],
+      dutch_edges: payload.dutch_edges,
+      dutch_overhangs: payload.dutch_overhangs,
+      dutch_rake_overhangs: payload.dutch_rake_overhangs,
+      dutch_cut_points: payload.dutch_cut_points
     });
+
+    if (!planesRes || planesRes.detail || (!planesRes.graph && !rawTopology)) {
+      throw new Error(planesRes?.detail || "Failed to generate 3D roof planes");
+    }
 
     // Convert final 3D graph (with gable verge extensions) into 2D topology
     const finalGraph = planesRes.graph || rawTopology;
+    if (!finalGraph) {
+      throw new Error("No graph structure returned from 3D roof builder");
+    }
+
     const finalTopology2D = {
       nodes: (finalGraph.vertices || finalGraph.nodes || []).map(v => ({
         id: v.id,
@@ -270,7 +304,118 @@ const RoofEngine = {
         isDirty: false
       }
     };
+  },
+
+  /**
+   * 4. Export full 2D and 3D Input & Output data for inspection, debugging, and backup
+   */
+  exportRoofIO: function({ roof, scaleFactor, realScale, download = true }) {
+    if (!roof) {
+      console.warn("RoofEngine.exportRoofIO: No roof provided.");
+      return null;
+    }
+
+    const mmPerPx = getRealScaleMm(scaleFactor, realScale);
+    const points = roof.polygon || [];
+    const n = points.length;
+
+    const pointsMm = points.map(pt => {
+      const px = pt.x !== undefined ? pt.x : (pt.pdfX !== undefined ? pt.pdfX : pt[0]);
+      const py = pt.y !== undefined ? pt.y : (pt.pdfY !== undefined ? pt.pdfY : pt[1]);
+      return [px * mmPerPx, py * mmPerPx];
+    });
+
+    const pointsPixels = points.map(pt => {
+      const px = pt.x !== undefined ? pt.x : (pt.pdfX !== undefined ? pt.pdfX : pt[0]);
+      const py = pt.y !== undefined ? pt.y : (pt.pdfY !== undefined ? pt.pdfY : pt[1]);
+      return [px, py];
+    });
+
+    const finalAngles = Array.isArray(roof.angles) && roof.angles.length === n
+      ? roof.angles
+      : Array(n).fill(roof.pitchAngle || 22.5);
+
+    const finalOverhangs = Array.isArray(roof.overhangs) && roof.overhangs.length === n
+      ? roof.overhangs
+      : Array(n).fill(0.0);
+
+    const exportBundle = {
+      meta: {
+        exported_at: new Date().toISOString(),
+        version: "3.0",
+        engine: "EzeFloor Roof V3 Engine",
+        roof_id: roof.id,
+        roof_name: roof.name || `Roof_${roof.id}`
+      },
+      input: {
+        parameters: {
+          roof_type: roof.roofType || 'hip_gable',
+          pitch_angle_deg: roof.pitchAngle || 22.5,
+          angles_deg: finalAngles,
+          overhangs_mm: finalOverhangs,
+          wall_height_mm: roof.wallHeight || 2700,
+          scale_mm_per_px: mmPerPx,
+          eave_edge_index: roof.eaveEdgeIndex || 0,
+          dutch_config: {
+            dutch_edges: Array.isArray(roof.dutchEdges) ? roof.dutchEdges : [],
+            dutch_overhangs_mm: Array.isArray(roof.dutchOverhangs) ? roof.dutchOverhangs : [],
+            dutch_rake_overhangs_mm: Array.isArray(roof.dutchRakeOverhangs) ? roof.dutchRakeOverhangs : [],
+            dutch_cut_points_px: Array.isArray(roof.dutchCutPoints) ? roof.dutchCutPoints : [],
+            dutch_cut_points_mm: Array.isArray(roof.dutchCutPoints) ? roof.dutchCutPoints.map(pt => pt ? [pt[0] * mmPerPx, pt[1] * mmPerPx] : null) : []
+          }
+        },
+        geometry_2d: {
+          points_pixels: pointsPixels,
+          points_mm: pointsMm,
+          point_count: n,
+          holes_pixels: roof.holes || [],
+          holes_mm: (roof.holes || []).map(h => h.map(pt => {
+            const px = pt.x !== undefined ? pt.x : (pt.pdfX !== undefined ? pt.pdfX : pt[0]);
+            const py = pt.y !== undefined ? pt.y : (pt.pdfY !== undefined ? pt.pdfY : pt[1]);
+            return [px * mmPerPx, py * mmPerPx];
+          }))
+        }
+      },
+      output_2d: {
+        topology: roof.v3Data?.topology2D || null,
+        diagnostics_graph: roof.v3Data?.graph || null
+      },
+      output_3d: {
+        mesh_3d: roof.v3Data?.mesh3D || null,
+        roof_mesh: roof.v3Data?.roofMesh || roof.v3Data?.roof_mesh || null,
+        wall_mesh: roof.v3Data?.wallMesh || roof.v3Data?.wall_mesh || null,
+        gable_mesh: roof.v3Data?.gableMesh || roof.v3Data?.gable_mesh || null,
+        planes: roof.v3Data?.planes || null,
+        max_planarity_error_mm: roof.v3Data?.maxPlanarityErrorMm ?? 0.0
+      }
+    };
+
+    console.log("📦 [RoofEngine] Exported Roof 2D/3D I/O:", exportBundle);
+
+    if (download && typeof window !== 'undefined') {
+      try {
+        const jsonStr = JSON.stringify(exportBundle, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const safeName = (roof.name || `roof_${roof.id}`).replace(/[^a-z0-9_-]/gi, '_');
+        a.href = url;
+        a.download = `${safeName}_2d_3d_io.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error("Failed to trigger download:", err);
+      }
+    }
+
+    return exportBundle;
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.RoofEngine = RoofEngine;
+}
 
 export default RoofEngine;

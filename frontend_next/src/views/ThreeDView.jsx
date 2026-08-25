@@ -120,6 +120,11 @@ export default function ThreeDView({
   const [enableShadows, setEnableShadows] = useState(true);
   const [visibleLevels, setVisibleLevels] = useState({});
 
+  // ── 3D Roof Color Mode & Custom Colors ──
+  const [roofColorMode, setRoofColorMode] = useState("palette"); // "palette" | "single"
+  const [singleRoofColor, setSingleRoofColor] = useState("#334155"); // Elegant Slate Charcoal Roof Color
+  const [showRoofOutlines, setShowRoofOutlines] = useState(true); // Toggle white CAD outline lines
+
   // ── 3D Wall Color Mode & Custom Colors ──
   const [wallColorMode, setWallColorMode] = useState("type"); // "type" | "height" | "default"
   const [extWallColor, setExtWallColor] = useState("#ea580c"); // Terracotta / Exterior
@@ -760,7 +765,10 @@ export default function ThreeDView({
               imgSize,
               topYOffset,
               wallHeightMm,
-              enableShadows
+              enableShadows,
+              roofColorMode,
+              singleRoofColor,
+              showOutlines: showRoofOutlines
             });
 
             roofObjects.forEach(obj => {
@@ -1748,6 +1756,7 @@ export default function ThreeDView({
     pages, wallsByPage, doorsByPage, roomsByPage, roofsByPage, sortedPageIndices, visibleLevels,
     showFloors, showPDF, showDoors, showRoofs, wallHeight, floorDepth, realScale, enableShadows,
     wallColorMode, extWallColor, intWallColor, partWallColor, heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
+    roofColorMode, singleRoofColor, showRoofOutlines,
     selected3DWall, selectedId, levelBaseYOffsets, pageHeightsMm
   ]);
 
@@ -2025,6 +2034,116 @@ export default function ThreeDView({
               </div>
             </div>
           )}
+        </div>
+
+        {/* 🏠 ROOF COLOR MODE & CUSTOMIZATION */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
+          <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>🏠 ROOF STYLING</span>
+            <span style={{ fontSize: "10px", color: roofColorMode === "single" ? "#34d399" : "#f59e0b", fontWeight: "600" }}>
+              {roofColorMode === "single" ? "Single Color" : "Multi Color (CAD)"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: "4px", backgroundColor: "rgba(15, 23, 42, 0.6)", padding: "4px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            <button
+              onClick={() => setRoofColorMode("palette")}
+              style={{
+                flex: 1,
+                padding: "5px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: roofColorMode === "palette" ? "#3b82f6" : "transparent",
+                color: roofColorMode === "palette" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              🎨 Multi Color
+            </button>
+            <button
+              onClick={() => setRoofColorMode("single")}
+              style={{
+                flex: 1,
+                padding: "5px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: roofColorMode === "single" ? "#10b981" : "transparent",
+                color: roofColorMode === "single" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              🏠 Single Color
+            </button>
+          </div>
+
+          {/* Color Picker & Presets for Single Tone Roof */}
+          {roofColorMode === "single" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>Roof color:</span>
+                <input
+                  type="color"
+                  value={singleRoofColor}
+                  onChange={(e) => setSingleRoofColor(e.target.value)}
+                  style={{ width: "26px", height: "26px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+
+              {/* Quick Presets for Roof Color */}
+              <div style={{ display: "flex", gap: "5px" }}>
+                {[
+                  { name: "Gray-Black", color: "#334155" },
+                  { name: "Red tile", color: "#b91c1c" },
+                  { name: "Dark Blue", color: "#1e3a8a" },
+                  { name: "Moss Green", color: "#0f766e" }
+                ].map(p => (
+                  <button
+                    key={p.color}
+                    onClick={() => setSingleRoofColor(p.color)}
+                    style={{
+                      flex: 1,
+                      padding: "4px 0",
+                      fontSize: "10px",
+                      fontWeight: "bold",
+                      borderRadius: "5px",
+                      border: singleRoofColor === p.color ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.1)",
+                      backgroundColor: p.color,
+                      color: "#ffffff",
+                      cursor: "pointer",
+                      textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+                      boxShadow: singleRoofColor === p.color ? "0 0 8px rgba(56, 189, 248, 0.5)" : "none"
+                    }}
+                    title={p.name}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Outline Toggle */}
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db", marginTop: "2px" }}>
+            <span> Display Outlines</span>
+            <input
+              type="checkbox"
+              checked={showRoofOutlines}
+              onChange={() => setShowRoofOutlines(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#3b82f6"
+              }}
+            />
+          </label>
         </div>
 
         {/* Toggles */}

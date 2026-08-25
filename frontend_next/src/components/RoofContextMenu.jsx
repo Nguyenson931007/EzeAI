@@ -61,29 +61,31 @@ const RoofContextMenu = ({
       }}
     >
       <div style={{ padding: '4px 12px', fontSize: '11px', color: '#94a3b8', borderBottom: '1px solid #334155', fontWeight: 600 }}>
-        Edge #{edgeIndex + 1} ({isGable ? 'Gable 90°' : `${currentAngle}°`})
+        Edge #{edgeIndex} ({isGable ? 'Gable 90°' : `${currentAngle}°`})
       </div>
 
-      {/* Toggle Gable 90° vs Hip 22.5° */}
-      <div
-        style={{
-          padding: '8px 12px',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px'
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#334155')}
-        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-        onClick={(e) => {
-          e.stopPropagation();
-          onUpdateEdgeAngle?.(roof.id, edgeIndex, isGable ? 22.5 : 90);
-          onClose();
-        }}
-      >
-        <span>{isGable ? '🏠' : '🏛️'}</span>
-        <span>{isGable ? 'Switch to Hip (22.5°)' : 'Set as Gable Wall (90°)'}</span>
-      </div>
+      {/* Toggle Gable 90° vs Hip 22.5° (Only for Gable / Dutch / Hip roofs) */}
+      {roof.roofType !== 'shed' && (
+        <div
+          style={{
+            padding: '8px 12px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#334155')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          onClick={(e) => {
+            e.stopPropagation();
+            onUpdateEdgeAngle?.(roof.id, edgeIndex, isGable ? 22.5 : 90);
+            onClose();
+          }}
+        >
+          <span>{isGable ? '🏠' : '🏛️'}</span>
+          <span>{isGable ? 'Switch to Hip (22.5°)' : 'Set as Gable Wall (90°)'}</span>
+        </div>
+      )}
 
       {/* Trim Eave Overhang */}
       <div

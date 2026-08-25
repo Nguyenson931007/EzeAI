@@ -21,6 +21,7 @@ from .roof_graph import RoofGraph, RoofVertex, RoofEdge, RoofFace
 from .plane_builder import DeterministicPlaneBuilder
 from .shed_builder import ShedBuilder
 from .gable_builder import GableBuilder
+from .dutch_builder import DutchBuilder
 from .wall_builder import WallBuilder
 from .clipper import RoofClipper
 from .solver import RoofConstraintSolver
@@ -39,6 +40,7 @@ __all__ = [
     "DeterministicPlaneBuilder",
     "ShedBuilder",
     "GableBuilder",
+    "DutchBuilder",
     "WallBuilder",
     "RoofClipper",
     "RoofConstraintSolver",

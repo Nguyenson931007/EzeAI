@@ -10,7 +10,16 @@ import { ROOF_FACE_PALETTE, getPlaneNormalKey, getVertexCoords } from './Roof3DB
  * 🏠 RoofScene3D: Standalone React-Three-Fiber 3D Canvas component for Roof Models.
  * Accepts v3Data or { vertices, faces, roofMesh, wallMesh, gableMesh }
  */
-export function RoofMeshComponent({ vertices = [], faces = [], roofMesh, wallMesh, gableMesh }) {
+export function RoofMeshComponent({
+  vertices = [],
+  faces = [],
+  roofMesh,
+  wallMesh,
+  gableMesh,
+  roofColorMode = "palette",
+  singleRoofColor = "#334155",
+  showOutlines = true
+}) {
   const groupRef = useRef(null);
 
   const rVerts = roofMesh?.vertices || vertices || [];
@@ -56,30 +65,34 @@ export function RoofMeshComponent({ vertices = [], faces = [], roofMesh, wallMes
       const [nx, ny, nz] = normalKey.split(',').map(Number);
       const isVerticalWall = Math.abs(ny) < 0.15;
 
-      const color = isVerticalWall ? '#cbd5e1' : ROOF_FACE_PALETTE[idx % ROOF_FACE_PALETTE.length];
-      const opacity = isVerticalWall ? 0.7 : 0.9;
-      const roughness = isVerticalWall ? 0.8 : 0.35;
+      const color = isVerticalWall
+        ? '#cbd5e1'
+        : (roofColorMode === "single" ? (singleRoofColor || '#334155') : ROOF_FACE_PALETTE[idx % ROOF_FACE_PALETTE.length]);
+      const opacity = isVerticalWall ? 0.7 : 0.95;
+      const roughness = isVerticalWall ? 0.8 : 0.45;
 
       return { geometry, color, opacity, roughness, isVerticalWall, key: idx };
     });
 
     // Wireframe edges for boundary and ridge/hip/valley lines
     const points = [];
-    for (const [edgeKey, normals] of Object.entries(edgeMap)) {
-      if (normals.length === 1 || (normals.length >= 2 && normals[0] !== normals[1])) {
-        const [idx1, idx2] = edgeKey.split(',').map(Number);
-        const v1 = getVertexCoords(rVerts[idx1]);
-        const v2 = getVertexCoords(rVerts[idx2]);
-        if (v1 && v2) {
-          points.push(new THREE.Vector3(v1[0], v1[2], -v1[1]));
-          points.push(new THREE.Vector3(v2[0], v2[2], -v2[1]));
+    if (showOutlines) {
+      for (const [edgeKey, normals] of Object.entries(edgeMap)) {
+        if (normals.length === 1 || (normals.length >= 2 && normals[0] !== normals[1])) {
+          const [idx1, idx2] = edgeKey.split(',').map(Number);
+          const v1 = getVertexCoords(rVerts[idx1]);
+          const v2 = getVertexCoords(rVerts[idx2]);
+          if (v1 && v2) {
+            points.push(new THREE.Vector3(v1[0], v1[2], -v1[1]));
+            points.push(new THREE.Vector3(v2[0], v2[2], -v2[1]));
+          }
         }
       }
     }
     const edgeGeo = points.length > 0 ? new THREE.BufferGeometry().setFromPoints(points) : null;
 
     return { faceMeshes: meshes, edgeSegments: edgeGeo };
-  }, [rVerts, rTris]);
+  }, [rVerts, rTris, roofColorMode, singleRoofColor, showOutlines]);
 
   return (
     <group ref={groupRef}>
@@ -91,7 +104,7 @@ export function RoofMeshComponent({ vertices = [], faces = [], roofMesh, wallMes
             transparent={opacity < 1}
             opacity={opacity}
             roughness={roughness}
-            metalness={isVerticalWall ? 0.05 : 0.15}
+            metalness={isVerticalWall ? 0.05 : 0.1}
           />
         </mesh>
       ))}
@@ -105,7 +118,14 @@ export function RoofMeshComponent({ vertices = [], faces = [], roofMesh, wallMes
   );
 }
 
-export default function RoofScene3D({ v3Data, height = "100%", width = "100%" }) {
+export default function RoofScene3D({
+  v3Data,
+  height = "100%",
+  width = "100%",
+  roofColorMode = "palette",
+  singleRoofColor = "#334155",
+  showOutlines = true
+}) {
   if (!v3Data) return null;
 
   const roofMesh = v3Data.roofMesh || v3Data.roof_mesh;
@@ -125,6 +145,9 @@ export default function RoofScene3D({ v3Data, height = "100%", width = "100%" })
           roofMesh={roofMesh}
           wallMesh={v3Data.wallMesh || v3Data.wall_mesh}
           gableMesh={v3Data.gableMesh || v3Data.gable_mesh}
+          roofColorMode={roofColorMode}
+          singleRoofColor={singleRoofColor}
+          showOutlines={showOutlines}
         />
 
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />

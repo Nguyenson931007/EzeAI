@@ -248,7 +248,9 @@ export default function App() {
     selectedRoofId, setSelectedRoofId,
     selectedRoofEdgeIndex, setSelectedRoofEdgeIndex,
     hoveredRoofTarget, setHoveredRoofTarget,
-    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, deleteRoof, deleteRoofVertex,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    exportRoofIO,
+    toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
@@ -283,7 +285,7 @@ export default function App() {
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
     handleClick, handleRoomDoubleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
-    startDrawingRoof, setRoofEaveEdge,
+    startDrawingRoof,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -631,7 +633,7 @@ export default function App() {
       if (document.referrer) {
         allowedOrigins.add(new URL(document.referrer).origin);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const receiveSSO = async (event) => {
       if (!allowedOrigins.has(event.origin) && !event.origin?.includes("14.241.197.188") && !event.origin?.includes("103.77.167.69")) return;
@@ -694,7 +696,7 @@ export default function App() {
       for (const target of targets) {
         try {
           target.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
-        } catch (_) {}
+        } catch (_) { }
       }
     };
 
@@ -1272,6 +1274,10 @@ export default function App() {
               updateRoofType={updateRoofType}
               updateRoofEdgeAngle={updateRoofEdgeAngle}
               updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+              toggleDutchEdge={toggleDutchEdge}
+              updateDutchOverhang={updateDutchOverhang}
+              updateDutchRakeOverhang={updateDutchRakeOverhang}
+              updateDutchCutPoints={updateDutchCutPoints}
               computeSelectedRoof={computeSelectedRoof}
               trimRoofEdge={trimRoofEdge}
               isComputingRoof={isComputingRoof}
@@ -1283,6 +1289,7 @@ export default function App() {
               currentPoly={currentPoly}
               currentDoor={currentDoor}
               currentMouse={currentMouse}
+              roofs={roofsByPage[currentPage] || []}
               rooms={rooms}
               walls={wallsByPage[currentPage] || []}
               underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
@@ -1445,6 +1452,10 @@ export default function App() {
                 updateRoofType={updateRoofType}
                 updateRoofEdgeAngle={updateRoofEdgeAngle}
                 updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                toggleDutchEdge={toggleDutchEdge}
+                updateDutchOverhang={updateDutchOverhang}
+                updateDutchRakeOverhang={updateDutchRakeOverhang}
+                updateDutchCutPoints={updateDutchCutPoints}
                 computeSelectedRoof={computeSelectedRoof}
                 trimRoofEdge={trimRoofEdge}
                 isComputingRoof={isComputingRoof}
@@ -1455,6 +1466,7 @@ export default function App() {
                 applyDefaultOverhangToAll={applyDefaultOverhangToAll}
                 deleteRoof={deleteRoof}
                 deleteRoofVertex={deleteRoofVertex}
+                exportRoofIO={exportRoofIO}
                 setShow3D={setShow3D}
                 lintelController={lintelController}
                 selectedId={selectedId}

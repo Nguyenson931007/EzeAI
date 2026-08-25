@@ -134,6 +134,7 @@ class RoofGraph:
         self.edges: List[RoofEdge] = []
         self.faces: List[RoofFace] = []
         self.gable_walls: List[Dict[str, Any]] = []
+        self.dutch_walls: List[Dict[str, Any]] = []
 
     @classmethod
     def from_cgal_json(
@@ -289,10 +290,128 @@ class RoofGraph:
 
         self.edges = new_edges
 
+    def split_face_by_plane(
+        self,
+        face_id: int,
+        plane_pt: Tuple[float, float],
+        plane_normal: Tuple[float, float],
+        eps: float = 1e-5,
+    ) -> Tuple[Optional[List[int]], Optional[List[int]], List[int]]:
+        """
+        Splits a face polygon by a vertical plane (defined by plane_pt (px, py) and outward normal (nx, ny)).
+        Returns (lower_vert_ids, upper_vert_ids, cut_vert_ids).
+        - lower_part: Vertices on the inside/eave side ((P - pt) . normal <= 0)
+        - upper_part: Vertices on the outside/ridge side ((P - pt) . normal >= 0)
+        - cut_vert_ids: Newly created or existing vertices along the cutting line.
+        """
+        face = None
+        for f in self.faces:
+            if f.id == face_id:
+                face = f
+                break
+
+        if not face:
+            return None, None, []
+
+        px, py = plane_pt
+        nx, ny = plane_normal
+        poly_vids = face.vertices
+        n_v = len(poly_vids)
+        if n_v < 3:
+            return None, None, []
+
+        def signed_dist(v_id: int) -> float:
+            v = self.vertices[v_id]
+            return (v.x - px) * nx + (v.y - py) * ny
+
+        dists = [signed_dist(vid) for vid in poly_vids]
+
+        # Check if plane intersects within face bounds
+        min_d = min(dists)
+        max_d = max(dists)
+        if max_d < -eps or min_d > eps:
+            # Face is completely on one side
+            if max_d < 0:
+                return list(poly_vids), None, []
+            else:
+                return None, list(poly_vids), []
+
+        lower_vids: List[int] = []
+        upper_vids: List[int] = []
+        cut_vids: List[int] = []
+
+        for i in range(n_v):
+            curr_id = poly_vids[i]
+            next_id = poly_vids[(i + 1) % n_v]
+            d_curr = dists[i]
+            d_next = dists[(i + 1) % n_v]
+
+            if abs(d_curr) <= eps:
+                lower_vids.append(curr_id)
+                upper_vids.append(curr_id)
+                if curr_id not in cut_vids:
+                    cut_vids.append(curr_id)
+            elif d_curr < 0:
+                lower_vids.append(curr_id)
+            else:
+                upper_vids.append(curr_id)
+
+            # Check segment crossing
+            if (d_curr < -eps and d_next > eps) or (d_curr > eps and d_next < -eps):
+                t = -d_curr / (d_next - d_curr)
+                t = max(0.0, min(1.0, t))
+                v_curr = self.vertices[curr_id]
+                v_next = self.vertices[next_id]
+
+                inter_x = (1.0 - t) * v_curr.x + t * v_next.x
+                inter_y = (1.0 - t) * v_curr.y + t * v_next.y
+                # Calculate exact Z on face plane
+                inter_z = face.plane_a * inter_x + face.plane_b * inter_y + face.plane_c
+
+                inter_id = len(self.vertices)
+                inter_v = RoofVertex(
+                    id=inter_id,
+                    x=inter_x,
+                    y=inter_y,
+                    z=inter_z,
+                    vertex_type="dutch_cut_inter",
+                    is_contour=False,
+                    is_skeleton=True,
+                    fixed_z=inter_z,
+                )
+                self.vertices.append(inter_v)
+                lower_vids.append(inter_id)
+                upper_vids.append(inter_id)
+                cut_vids.append(inter_id)
+
+        return lower_vids, upper_vids, cut_vids
+
+    @staticmethod
+    def validate_dutch_cut_interior_invariant(
+        p_cut: Tuple[float, float],
+        v_corner: Tuple[float, float],
+        n_in: Tuple[float, float],
+        n_out: Optional[Tuple[float, float]] = None,
+        eps: float = 1e-5,
+    ) -> bool:
+        """
+        Failsafe invariant guard ensuring that cut point p_cut resides in the
+        interior half-space of the eave edge (in the direction of inward normal).
+        """
+        dot_in = (p_cut[0] - v_corner[0]) * n_in[0] + (p_cut[1] - v_corner[1]) * n_in[1]
+
+        if dot_in < -eps:
+            raise ValueError(
+                f"Dutch cut point {p_cut} escaped into exterior region! "
+                f"dot_in={dot_in:.4f}. Normal orientation check failed."
+            )
+        return True
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "vertices": [v.to_dict() for v in self.vertices],
             "edges": [e.to_dict() for e in self.edges],
             "faces": [f.to_dict() for f in self.faces],
             "gable_walls": self.gable_walls,
+            "dutch_walls": getattr(self, "dutch_walls", []),
         }

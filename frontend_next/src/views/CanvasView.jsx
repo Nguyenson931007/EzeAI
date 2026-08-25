@@ -2743,6 +2743,10 @@ export default function CanvasView({
   updateRoofType,
   updateRoofEdgeAngle,
   updateRoofEdgeOverhang,
+  toggleDutchEdge,
+  updateDutchOverhang,
+  updateDutchRakeOverhang,
+  updateDutchCutPoints,
   computeSelectedRoof,
   trimRoofEdge,
   isComputingRoof,
@@ -2754,6 +2758,7 @@ export default function CanvasView({
   currentPoly,
   currentDoor,
   currentMouse,
+  roofs,
   rooms,
   walls,
   underlayWalls = [],
@@ -4051,91 +4056,43 @@ export default function CanvasView({
               const isSelected = selectedRoofId === roof.id;
               const isHovered = hoveredRoofTarget?.roofId === roof.id;
               const areaM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
+              const hasOvh = Boolean(
+                (roof.overhangs && Array.isArray(roof.overhangs) && roof.overhangs.some(v => typeof v === 'number' && v > 0)) ||
+                (roof.dutchOverhangs && Array.isArray(roof.dutchOverhangs) && roof.dutchOverhangs.some(v => typeof v === 'number' && v > 0)) ||
+                (typeof roof.overhang === 'number' && roof.overhang > 0)
+              );
+
+              const topo = roof.v3Data?.topology2D;
+              const nodes = topo?.nodes || [];
+              const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                ? realScale
+                : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+              const getNodeCoord = (ref) => {
+                if (ref == null) return null;
+                let node = null;
+                if (typeof ref === 'object' && ref !== null) {
+                  node = ref;
+                } else if (Array.isArray(nodes)) {
+                  if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+                    node = nodes[ref];
+                  } else {
+                    node = nodes.find(n => n && n.id === ref);
+                  }
+                }
+                if (!node) return null;
+                const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+                const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+                if (isNaN(rawX) || isNaN(rawY)) return null;
+                return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+              };
 
               return (
                 <g key={roof.id}>
-                  {/* Roof Base Polygon */}
+                  {/* Roof Base Polygon: Only stroked if no V3 topology or has no OVH */}
                   <polygon
                     onContextMenu={(e) => {
-                      if (isHovered && hoveredRoofTarget?.type === 'edge') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleRoofContextMenu(e, roof, hoveredRoofTarget.edgeIndex);
-                      }
-                    }}
-                    points={(roof.polygon || []).map(p => {
-                      const px = typeof p.x === 'number' ? p.x : (Array.isArray(p) ? p[0] : 0);
-                      const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
-                      return `${px},${py}`;
-                    }).join(" ")}
-                    fill={isSelected ? "rgba(245,158,11,0.22)" : isHovered ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.10)"}
-                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706"}
-                    strokeWidth={isSelected ? 2.5 : isHovered ? 2.0 : 1.5}
-                    strokeDasharray={isSelected ? "none" : "6,3"}
-                    style={{ cursor: "pointer" }}
-                  />
-
-                  {/* 2D Straight Skeleton Face Fills (V3 Topology) */}
-                  {roof.v3Data?.topology2D?.faces && (() => {
-                    const topo = roof.v3Data.topology2D;
-                    const nodes = topo.nodes || [];
-                    const faces = topo.faces || [];
-                    const mmPerPx = (typeof realScale === 'number' && realScale > 0)
-                      ? realScale
-                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
-
-                    const FACE_COLORS = [
-                      'rgba(245, 158, 11, 0.12)',
-                      'rgba(59, 130, 246, 0.12)',
-                      'rgba(16, 185, 129, 0.12)',
-                      'rgba(168, 85, 247, 0.12)',
-                      'rgba(236, 72, 153, 0.12)',
-                      'rgba(6, 182, 212, 0.12)',
-                      'rgba(234, 179, 8, 0.12)',
-                      'rgba(99, 102, 241, 0.12)'
-                    ];
-
-                    const getNodeCoord = (ref) => {
-                      if (ref == null) return null;
-                      let node = null;
-                      if (typeof ref === 'object' && ref !== null) {
-                        node = ref;
-                      } else if (Array.isArray(nodes)) {
-                        if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
-                          node = nodes[ref];
-                        } else {
-                          node = nodes.find(n => n && n.id === ref);
-                        }
-                      }
-                      if (!node) return null;
-                      const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
-                      const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
-                      if (isNaN(rawX) || isNaN(rawY)) return null;
-                      return { x: rawX / mmPerPx, y: rawY / mmPerPx };
-                    };
-
-                    return (
-                      <g pointerEvents="none">
-                        {faces.map((face, fIdx) => {
-                          const vertCoords = (face.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
-                          if (vertCoords.length < 3) return null;
-                          return (
-                            <polygon
-                              key={`roof-face-${roof.id}-${fIdx}`}
-                              points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
-                              fill={FACE_COLORS[fIdx % FACE_COLORS.length]}
-                              stroke="none"
-                            />
-                          );
-                        })}
-                      </g>
-                    );
-                  })()}
-
-                  {/* Base Building Wall Outline (Inside Overhang) */}
-                  <polygon
-                    onContextMenu={(e) => {
-                      if (isHovered && hoveredRoofTarget?.type === 'edge') {
+                      if (isHovered && hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null) {
                         e.preventDefault();
                         e.stopPropagation();
                         handleRoofContextMenu(e, roof, hoveredRoofTarget.edgeIndex);
@@ -4147,98 +4104,160 @@ export default function CanvasView({
                       return `${px},${py}`;
                     }).join(" ")}
                     fill={!roof.v3Data ? (isSelected ? "rgba(245,158,11,0.22)" : isHovered ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.10)") : "transparent"}
-                    stroke={isSelected ? "#22c55e" : isHovered ? "#f59e0b" : "#d97706"}
-                    strokeWidth={isSelected ? 2.5 : 1.8}
-                    strokeDasharray={roof.v3Data ? "5,3" : "none"}
+                    stroke={(!roof.v3Data || !hasOvh) ? (isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706") : "none"}
+                    strokeWidth={isSelected ? 2.5 / scale : 1.5 / scale}
+                    strokeDasharray={isSelected ? "none" : "6,3"}
                     style={{ cursor: "pointer" }}
                   />
 
-                  {/* 2D Straight Skeleton Edges (V3 Topology) */}
-                  {roof.v3Data?.topology2D && (() => {
-                    const topo = roof.v3Data.topology2D;
-                    const nodes = topo.nodes || [];
-                    const edges = topo.edges || [];
-                    const mmPerPx = (typeof realScale === 'number' && realScale > 0)
-                      ? realScale
-                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+                  {/* 2D Straight Skeleton Face Fills (V3 Topology) */}
+                  {topo?.faces && (
+                    <g>
+                      {topo.faces.map((face, fIdx) => {
+                        const vertCoords = (face.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
+                        if (vertCoords.length < 3) return null;
 
-                    const getNodeCoord = (ref) => {
-                      if (ref == null) return null;
-                      let node = null;
-                      if (typeof ref === 'object' && ref !== null) {
-                        node = ref;
-                      } else if (Array.isArray(nodes)) {
-                        if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
-                          node = nodes[ref];
-                        } else {
-                          node = nodes.find(n => n && n.id === ref);
+                        const isFaceSelected = isSelected && selectedRoofEdgeIndex !== null && face.contour_edge_index !== undefined && selectedRoofEdgeIndex === face.contour_edge_index;
+                        const isFaceHovered = isHovered && (
+                          hoveredRoofTarget?.faceId === face.id ||
+                          (hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null && face.contour_edge_index !== undefined && hoveredRoofTarget?.edgeIndex === face.contour_edge_index)
+                        );
+
+                        const FACE_COLORS = [
+                          'rgba(245, 158, 11, 0.12)',
+                          'rgba(59, 130, 246, 0.12)',
+                          'rgba(16, 185, 129, 0.12)',
+                          'rgba(168, 85, 247, 0.12)',
+                          'rgba(236, 72, 153, 0.12)',
+                          'rgba(6, 182, 212, 0.12)',
+                          'rgba(234, 179, 8, 0.12)',
+                          'rgba(99, 102, 241, 0.12)'
+                        ];
+
+                        let fill = FACE_COLORS[fIdx % FACE_COLORS.length];
+                        let stroke = "none";
+                        let strokeWidth = 0;
+
+                        if (isFaceSelected) {
+                          fill = "rgba(245, 158, 11, 0.32)";
+                          stroke = "#f59e0b";
+                          strokeWidth = 2.0 / scale;
+                        } else if (isFaceHovered) {
+                          fill = "rgba(245, 158, 11, 0.22)";
+                          stroke = "#fbbf24";
+                          strokeWidth = 1.5 / scale;
                         }
-                      }
-                      if (!node) return null;
 
-                      const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
-                      const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
-                      if (isNaN(rawX) || isNaN(rawY)) return null;
+                        return (
+                          <polygon
+                            key={`roof-face-${roof.id}-${fIdx}`}
+                            points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
+                            fill={fill}
+                            stroke={stroke}
+                            strokeWidth={strokeWidth}
+                            style={{ cursor: "pointer" }}
+                            onContextMenu={(e) => {
+                              if (face.contour_edge_index !== undefined && face.contour_edge_index >= 0) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleRoofContextMenu(e, roof, face.contour_edge_index);
+                              }
+                            }}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
 
-                      return { x: rawX / mmPerPx, y: rawY / mmPerPx };
-                    };
+                  {/* 2D Straight Skeleton Topology Lines (Valleys, Ridges, Hips, Eaves) */}
+                  {topo?.edges && (
+                    <g pointerEvents="none">
+                      {topo.edges.map((edge, eIdx) => {
+                        const p1 = getNodeCoord(edge.source);
+                        const p2 = getNodeCoord(edge.target);
+                        if (!p1 || !p2) return null;
 
-                    return (
-                      <g pointerEvents="none">
-                        {edges.map((e, eIdx) => {
-                          const p1 = getNodeCoord(e.source);
-                          const p2 = getNodeCoord(e.target);
+                        const isEdgeRelated = isSelected && selectedRoofEdgeIndex !== null && edge.contour_edge_index === selectedRoofEdgeIndex;
+                        const isHoverRelated = isHovered && hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null && edge.contour_edge_index === hoveredRoofTarget.edgeIndex;
+                        const isHighlighted = isEdgeRelated || isHoverRelated;
+
+                        let strokeColor = "#64748b"; // technical slate for eaves
+                        let strokeWidth = (isHighlighted ? 3.0 : 1.8) / scale;
+                        let opacity = isHighlighted ? 1.0 : 0.85;
+                        let dash = "none";
+
+                        if (edge.is_contour) {
+                          strokeColor = isHighlighted ? "#f59e0b" : "#64748b";
+                          strokeWidth = (isHighlighted ? 3.2 : 2.0) / scale;
+                          opacity = isHighlighted ? 1.0 : 0.85;
+                        } else if (edge.edge_type === 'ridge') {
+                          strokeColor = isHighlighted ? "#dc2626" : "#e11d48"; // vibrant bold red
+                          strokeWidth = (isHighlighted ? 3.6 : 2.6) / scale;
+                          opacity = 1.0;
+                        } else if (edge.edge_type === 'valley') {
+                          strokeColor = isHighlighted ? "#2563eb" : "#0284c7"; // rich blue for valleys
+                          strokeWidth = (isHighlighted ? 3.2 : 2.4) / scale;
+                          dash = `${7 / scale},${3.5 / scale}`;
+                          opacity = 1.0;
+                        } else if (edge.edge_type === 'hip') {
+                          strokeColor = isHighlighted ? "#16a34a" : "#059669"; // rich emerald for hips
+                          strokeWidth = (isHighlighted ? 3.2 : 2.4) / scale;
+                          opacity = 1.0;
+                        }
+
+                        return (
+                          <line
+                            key={`roof-topo-${roof.id}-${eIdx}`}
+                            x1={p1.x}
+                            y1={p1.y}
+                            x2={p2.x}
+                            y2={p2.y}
+                            stroke={strokeColor}
+                            strokeWidth={strokeWidth}
+                            strokeDasharray={dash}
+                            strokeLinecap="round"
+                            opacity={opacity}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
+
+                  {/* Active Selected / Hovered Edge Highlight (Dynamically mapped to outer eave contour on OVH) */}
+                  {(roof.polygon || []).map((_, eIdx) => {
+                    const isEdgeSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex === eIdx;
+                    const isEdgeHovered = isHovered && (
+                      (hoveredRoofTarget?.type === 'edge' && hoveredRoofTarget?.edgeIndex === eIdx) ||
+                      (hoveredRoofTarget?.type === 'face' && hoveredRoofTarget?.edgeIndex === eIdx)
+                    );
+                    if (!isEdgeSelected && !isEdgeHovered) return null;
+
+                    // If V3 topology is available, find matching outer contour eave edge(s)
+                    if (topo?.edges) {
+                      const matchingEdges = topo.edges.filter(e => e.is_contour && e.contour_edge_index === eIdx);
+                      if (matchingEdges.length > 0) {
+                        return matchingEdges.map((mEdge, mIdx) => {
+                          const p1 = getNodeCoord(mEdge.source);
+                          const p2 = getNodeCoord(mEdge.target);
                           if (!p1 || !p2) return null;
-
-                          let strokeColor = "#22c55e"; // eave
-                          let strokeWidth = 2.0;
-                          let dash = "none";
-
-                          if (e.edge_type === 'ridge') {
-                            strokeColor = "#ef4444";
-                            strokeWidth = 2.8;
-                          } else if (e.edge_type === 'hip') {
-                            strokeColor = "#3b82f6";
-                            strokeWidth = 2.2;
-                          } else if (e.edge_type === 'valley') {
-                            strokeColor = "#14b8a6";
-                            strokeWidth = 2.2;
-                            dash = "5,3";
-                          } else if (e.edge_type === 'gable') {
-                            strokeColor = "#a855f7";
-                            strokeWidth = 2.4;
-                          } else if (roof.roofType === 'shed' && e.contour_edge_index === (roof.eaveEdgeIndex || 0)) {
-                            strokeColor = "#06b6d4"; // Vibrant cyan for Shed Eave Under
-                            strokeWidth = 3.2;
-                          } else if (e.is_bisector) {
-                            strokeColor = "#6366f1";
-                            strokeWidth = 2.0;
-                          }
-
                           return (
                             <line
-                              key={`roof-topo-${roof.id}-${eIdx}`}
+                              key={`edge-active-${roof.id}-${eIdx}-${mIdx}`}
                               x1={p1.x}
                               y1={p1.y}
                               x2={p2.x}
                               y2={p2.y}
-                              stroke={strokeColor}
-                              strokeWidth={strokeWidth}
-                              strokeDasharray={dash}
+                              stroke="#f59e0b"
+                              strokeWidth={isEdgeSelected ? 4.5 / scale : 3.5 / scale}
                               strokeLinecap="round"
+                              pointerEvents="none"
                             />
                           );
-                        })}
-                      </g>
-                    );
-                  })()}
+                        });
+                      }
+                    }
 
-                  {/* Active Selected / Hovered Edge Highlight */}
-                  {(roof.polygon || []).map((_, eIdx) => {
-                    const isEdgeSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex === eIdx;
-                    const isEdgeHovered = isHovered && hoveredRoofTarget?.type === 'edge' && hoveredRoofTarget?.edgeIndex === eIdx;
-                    if (!isEdgeSelected && !isEdgeHovered) return null;
-
+                    // Fallback to base polygon edge
                     const p1 = (roof.polygon || [])[eIdx];
                     const p2 = (roof.polygon || [])[(eIdx + 1) % roof.polygon.length];
                     if (!p1 || !p2) return null;
@@ -4255,22 +4274,31 @@ export default function CanvasView({
                         x2={p2x}
                         y2={p2y}
                         stroke="#f59e0b"
-                        strokeWidth={isEdgeSelected ? 4.5 : 3.5}
+                        strokeWidth={isEdgeSelected ? 4.5 / scale : 3.5 / scale}
                         strokeLinecap="round"
                         pointerEvents="none"
                       />
                     );
                   })}
 
-                  {/* Selected Roof Vertices (Numbered badges: 1, 2, 3...) */}
+                  {/* Selected Roof Vertices (Numbered badges: 0, 1, 2...) */}
                   {isSelected && (roof.polygon || []).map((v, idx) => {
-                    const vx = typeof v.x === 'number' ? v.x : v[0];
-                    const vy = typeof v.y === 'number' ? v.y : v[1];
+                    let vx = typeof v.x === 'number' ? v.x : v[0];
+                    let vy = typeof v.y === 'number' ? v.y : v[1];
+
+                    if (hasOvh && topo && Array.isArray(nodes) && nodes[idx]) {
+                      const cNode = getNodeCoord(nodes[idx]);
+                      if (cNode) {
+                        vx = cNode.x;
+                        vy = cNode.y;
+                      }
+                    }
+
                     return (
                       <g
                         key={`roof-v-${roof.id}-${idx}`}
                         style={{ cursor: "pointer" }}
-                        title={`Vertex #${idx + 1} (Double-click to delete)`}
+                        title={`Vertex #${idx} (Double-click to delete)`}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           deleteRoofVertex && deleteRoofVertex(roof.id, idx);
@@ -4294,7 +4322,7 @@ export default function CanvasView({
                           dominantBaseline="central"
                           pointerEvents="none"
                         >
-                          {idx + 1}
+                          {idx}
                         </text>
                       </g>
                     );
@@ -5268,6 +5296,294 @@ export default function CanvasView({
                 );
               }
               return null;
+            })()}
+
+            {interactionMode === "draw-dutch" && selectedRoofId && selectedRoofEdgeIndex !== null && currentMouse && (() => {
+              const roof = (roofs || []).find(r => r.id === selectedRoofId);
+              if (!roof || !roof.v3Data || !roof.v3Data.topology2D || !roof.v3Data.topology2D.faces) return null;
+              
+              const topo = roof.v3Data.topology2D;
+              const nodes = topo.nodes || [];
+              const faces = topo.faces || [];
+              const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                      ? realScale
+                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+              const getNodeCoord = (ref) => {
+                  if (ref == null) return null;
+                  let node = null;
+                  if (typeof ref === 'object' && ref !== null) node = ref;
+                  else if (Array.isArray(nodes)) {
+                    if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+                      node = nodes[ref];
+                    } else {
+                      node = nodes.find(n => n && n.id === ref);
+                    }
+                  }
+                  if (!node) return null;
+                  const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+                  const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+                  return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+              };
+
+              const poly = roof.polygon || [];
+              const nPts = poly.length;
+              if (nPts < 3 || selectedRoofEdgeIndex < 0 || selectedRoofEdgeIndex >= nPts) return null;
+
+              const eaveP1 = poly[selectedRoofEdgeIndex];
+              const eaveP2 = poly[(selectedRoofEdgeIndex + 1) % nPts];
+              const e1x = typeof eaveP1.x === 'number' ? eaveP1.x : eaveP1[0];
+              const e1y = typeof eaveP1.y === 'number' ? eaveP1.y : eaveP1[1];
+              const e2x = typeof eaveP2.x === 'number' ? eaveP2.x : eaveP2[0];
+              const e2y = typeof eaveP2.y === 'number' ? eaveP2.y : eaveP2[1];
+
+              const eMidX = (e1x + e2x) / 2;
+              const eMidY = (e1y + e2y) / 2;
+              const edx = e2x - e1x;
+              const edy = e2y - e1y;
+              const elen = Math.hypot(edx, edy) || 1;
+              const ux = edx / elen;
+              const uy = edy / elen;
+
+              // Roof centroid for inward orientation
+              let cPolyX = 0, cPolyY = 0;
+              poly.forEach(p => {
+                cPolyX += (typeof p.x === 'number' ? p.x : p[0]) / nPts;
+                cPolyY += (typeof p.y === 'number' ? p.y : p[1]) / nPts;
+              });
+
+              let inx = -uy;
+              let iny = ux;
+              if ((cPolyX - eMidX) * inx + (cPolyY - eMidY) * iny < 0) {
+                inx = -inx;
+                iny = -iny;
+              }
+
+              // Robust geometric matching for target face
+              let targetFace = null;
+              let bestScore = Infinity;
+
+              for (const f of faces) {
+                const vCoords = (f.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
+                if (vCoords.length < 3) continue;
+
+                let minSegDist = Infinity;
+                let bestAlign = 0;
+
+                for (let i = 0; i < vCoords.length; i++) {
+                  const vp1 = vCoords[i];
+                  const vp2 = vCoords[(i + 1) % vCoords.length];
+                  const segDx = vp2.x - vp1.x;
+                  const segDy = vp2.y - vp1.y;
+                  const segLen2 = segDx * segDx + segDy * segDy;
+                  if (segLen2 < 1e-4) continue;
+
+                  const segLen = Math.sqrt(segLen2);
+                  const align = Math.abs(ux * (segDx / segLen) + uy * (segDy / segLen));
+                  const t = Math.max(0, Math.min(1, ((eMidX - vp1.x) * segDx + (eMidY - vp1.y) * segDy) / segLen2));
+                  const projX = vp1.x + t * segDx;
+                  const projY = vp1.y + t * segDy;
+                  const d = Math.hypot(eMidX - projX, eMidY - projY);
+
+                  if (d < minSegDist) {
+                    minSegDist = d;
+                    bestAlign = align;
+                  }
+                }
+
+                const fCentroidX = vCoords.reduce((s, v) => s + v.x, 0) / vCoords.length;
+                const fCentroidY = vCoords.reduce((s, v) => s + v.y, 0) / vCoords.length;
+                const isInward = ((fCentroidX - eMidX) * inx + (fCentroidY - eMidY) * iny) >= -2;
+
+                let score = minSegDist;
+                if (!isInward) score += 5000;
+                if (bestAlign < 0.7) score += 2000;
+                if (f.contour_edge_index === selectedRoofEdgeIndex && minSegDist < 40) {
+                  score -= 10;
+                }
+
+                if (score < bestScore) {
+                  bestScore = score;
+                  targetFace = f;
+                }
+              }
+
+              if (!targetFace) {
+                targetFace = faces.find(f => f.contour_edge_index === selectedRoofEdgeIndex) || faces[0];
+              }
+
+              if (!targetFace || !targetFace.vertices) return null;
+
+              const vertCoords = targetFace.vertices.map(vRef => getNodeCoord(vRef)).filter(Boolean);
+              if (vertCoords.length < 3) return null;
+
+              // --- Magnetic Snap to Skeleton/Ridge vertices & lower apex nodes ---
+              const snapThreshold = 24 / scale;
+              let isSnapped = false;
+              let snapVertex = null;
+
+              // 1. Check all vertices of targetFace (prioritizing skeleton/ridge nodes)
+              for (const vRef of (targetFace.vertices || [])) {
+                const coord = getNodeCoord(vRef);
+                if (!coord) continue;
+                let nodeObj = null;
+                if (typeof vRef === 'object' && vRef !== null) nodeObj = vRef;
+                else if (Array.isArray(nodes)) nodeObj = nodes[vRef] || nodes.find(n => n?.id === vRef);
+
+                const isSkeleton = nodeObj?.is_skeleton || !nodeObj?.is_contour;
+                const dist = Math.hypot(currentMouse.x - coord.x, currentMouse.y - coord.y);
+
+                if (dist < snapThreshold) {
+                  if (!snapVertex || dist < snapVertex.dist || (isSkeleton && !snapVertex.isSkeleton)) {
+                    snapVertex = {
+                      x: coord.x,
+                      y: coord.y,
+                      dist,
+                      id: nodeObj?.id,
+                      isSkeleton,
+                      label: isSkeleton ? "Ridge Apex" : "Corner"
+                    };
+                    isSnapped = true;
+                  }
+                }
+              }
+
+              // 2. Also check other ridge/skeleton nodes across roof topology (e.g. lower ridge peak of complex roof)
+              if (!snapVertex) {
+                for (const node of nodes) {
+                  if (!node || node.is_contour) continue;
+                  const coord = getNodeCoord(node);
+                  if (!coord) continue;
+                  const dist = Math.hypot(currentMouse.x - coord.x, currentMouse.y - coord.y);
+                  if (dist < snapThreshold) {
+                    if (!snapVertex || dist < snapVertex.dist) {
+                      snapVertex = {
+                        x: coord.x,
+                        y: coord.y,
+                        dist,
+                        id: node.id,
+                        isSkeleton: true,
+                        label: "Ridge Apex"
+                      };
+                      isSnapped = true;
+                    }
+                  }
+                }
+              }
+
+              // Find cut line segment clipped to target face polygon
+              const mouseX = isSnapped ? snapVertex.x : currentMouse.x;
+              const mouseY = isSnapped ? snapVertex.y : currentMouse.y;
+
+              const intersections = [];
+              for (let i = 0; i < vertCoords.length; i++) {
+                const p1 = vertCoords[i];
+                const p2 = vertCoords[(i + 1) % vertCoords.length];
+                const d1 = inx * (p1.x - mouseX) + iny * (p1.y - mouseY);
+                const d2 = inx * (p2.x - mouseX) + iny * (p2.y - mouseY);
+
+                if ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) {
+                  if (Math.abs(d1 - d2) > 1e-6) {
+                    const s = d1 / (d1 - d2);
+                    const ix = p1.x + s * (p2.x - p1.x);
+                    const iy = p1.y + s * (p2.y - p1.y);
+                    intersections.push({ x: ix, y: iy, tAlongU: (ix - eMidX) * ux + (iy - eMidY) * uy });
+                  }
+                }
+              }
+
+              intersections.sort((a, b) => a.tAlongU - b.tAlongU);
+
+              let cutLineP1, cutLineP2, closestPt;
+              if (intersections.length >= 2) {
+                cutLineP1 = intersections[0];
+                cutLineP2 = intersections[intersections.length - 1];
+                closestPt = {
+                  x: isSnapped ? snapVertex.x : (cutLineP1.x + cutLineP2.x) / 2,
+                  y: isSnapped ? snapVertex.y : (cutLineP1.y + cutLineP2.y) / 2
+                };
+              } else {
+                const cutExt = 4000;
+                closestPt = { x: mouseX, y: mouseY };
+                cutLineP1 = { x: mouseX - ux * cutExt, y: mouseY - uy * cutExt };
+                cutLineP2 = { x: mouseX + ux * cutExt, y: mouseY + uy * cutExt };
+              }
+
+              return (
+                <g style={{ pointerEvents: 'all' }}>
+                  {/* Highlight mặt mái được chọn */}
+                  <polygon
+                     points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
+                     fill="rgba(244, 63, 94, 0.28)"
+                     stroke="#f43f5e"
+                     strokeWidth={2.5 / scale}
+                     onMouseDown={(e) => {
+                         e.stopPropagation();
+                         e.preventDefault();
+                         updateDutchCutPoints && updateDutchCutPoints(selectedRoofId, selectedRoofEdgeIndex, [closestPt.x, closestPt.y]);
+                         if (setInteractionMode) setInteractionMode('select');
+                     }}
+                     style={{ cursor: "crosshair" }}
+                  />
+                  {/* Đường preview vết cắt song song với eave edge */}
+                  <line
+                    x1={cutLineP1.x}
+                    y1={cutLineP1.y}
+                    x2={cutLineP2.x}
+                    y2={cutLineP2.y}
+                    stroke={isSnapped ? "#eab308" : "#f43f5e"}
+                    strokeWidth={(isSnapped ? 3.0 : 2.5) / scale}
+                    strokeDasharray={`${8 / scale},${6 / scale}`}
+                    pointerEvents="none"
+                  />
+                  {/* Điểm snap trên sống mái / viền */}
+                  <circle cx={closestPt.x} cy={closestPt.y} r={(isSnapped ? 7 : 6) / scale} fill={isSnapped ? "#eab308" : "#f43f5e"} stroke="#fff" strokeWidth={2/scale} pointerEvents="none" />
+
+                  {/* Magnetic Snap Target Indicator */}
+                  {isSnapped && snapVertex && (
+                    <g pointerEvents="none">
+                      <circle
+                        cx={snapVertex.x}
+                        cy={snapVertex.y}
+                        r={12 / scale}
+                        fill="none"
+                        stroke="#eab308"
+                        strokeWidth={2.5 / scale}
+                        strokeDasharray={`${4 / scale},${3 / scale}`}
+                      />
+                      <circle
+                        cx={snapVertex.x}
+                        cy={snapVertex.y}
+                        r={4.5 / scale}
+                        fill="#eab308"
+                        stroke="#ffffff"
+                        strokeWidth={1.5 / scale}
+                      />
+                      <rect
+                        x={snapVertex.x - 48 / scale}
+                        y={snapVertex.y - 28 / scale}
+                        width={96 / scale}
+                        height={18 / scale}
+                        rx={4 / scale}
+                        fill="rgba(15, 23, 42, 0.88)"
+                        stroke="#eab308"
+                        strokeWidth={1 / scale}
+                      />
+                      <text
+                        x={snapVertex.x}
+                        y={snapVertex.y - 18 / scale}
+                        fill="#fde047"
+                        fontSize={10 / scale}
+                        fontWeight="bold"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                      >
+                        📍 Snap {snapVertex.label}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
             })()}
 
           </g>

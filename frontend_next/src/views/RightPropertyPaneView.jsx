@@ -352,10 +352,15 @@ export default function RightPropertyPaneView({
   setRoofEaveEdge,
   deleteRoof,
   deleteRoofVertex,
+  exportRoofIO,
   setShow3D,
   lintelController,
   selectedId,
-  onLoadJob
+  onLoadJob,
+  toggleDutchEdge,
+  updateDutchOverhang,
+  updateDutchRakeOverhang,
+  updateDutchCutPoints,
 }) {
   const [defaultPitchInput, setDefaultPitchInput] = useState(22.5);
   const [defaultOverhangInput, setDefaultOverhangInput] = useState(0);
@@ -3376,7 +3381,7 @@ export default function RightPropertyPaneView({
                           }}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, fontSize: "12px" }}>
-                            <span>Hip / Gable</span>
+                            <span>Gable / Dutch / Hip</span>
                           </div>
                         </button>
 
@@ -3518,138 +3523,210 @@ export default function RightPropertyPaneView({
                                 const angle = Array.isArray(roof.angles) && roof.angles[eIdx] !== undefined ? roof.angles[eIdx] : 22.5;
                                 const ovh = Array.isArray(roof.overhangs) && roof.overhangs[eIdx] !== undefined ? roof.overhangs[eIdx] : 0;
                                 const isGable = angle === 90;
+                                const isDutch = roof.roofType !== 'shed' && Array.isArray(roof.dutchEdges) && roof.dutchEdges.includes(eIdx);
                                 const isShedEave = roof.roofType === 'shed' && (roof.eaveEdgeIndex || 0) === eIdx;
                                 const isRowActive = selectedRoofEdgeIndex === eIdx;
 
                                 return (
-                                  <tr
-                                    key={`e-${roof.id}-${eIdx}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSelectedRoofEdgeIndex && setSelectedRoofEdgeIndex(eIdx);
-                                    }}
-                                    style={{
-                                      borderBottom: "1px solid rgba(255,255,255,0.04)",
-                                      background: isRowActive ? "rgba(245, 158, 11, 0.18)" : (isShedEave ? "rgba(6, 182, 212, 0.12)" : "transparent"),
-                                      borderLeft: isRowActive ? "3px solid #f59e0b" : (isShedEave ? "3px solid #06b6d4" : "3px solid transparent"),
-                                      cursor: "pointer",
-                                      transition: "all 0.1s"
-                                    }}
-                                  >
-                                    <td style={{ padding: "5px 6px", fontWeight: 700, color: isRowActive ? "#fcd34d" : (isShedEave ? "#22d3ee" : "#cbd5e1") }}>
-                                      #{eIdx + 1}
-                                      {isShedEave && (
-                                        <span style={{ marginLeft: "4px", fontSize: "8px", background: "#06b6d4", color: "#000", padding: "1px 3px", borderRadius: "2px", fontWeight: "bold", verticalAlign: "middle" }}>
-                                          UNDER
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: "5px 6px" }}>
-                                      {roof.roofType !== 'shed' ? (
+                                  <React.Fragment key={`e-${roof.id}-${eIdx}`}>
+                                    <tr
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedRoofEdgeIndex && setSelectedRoofEdgeIndex(eIdx);
+                                      }}
+                                      style={{
+                                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                        background: isRowActive ? "rgba(245, 158, 11, 0.18)" : (isShedEave ? "rgba(6, 182, 212, 0.12)" : (isDutch ? "rgba(244, 63, 94, 0.12)" : "transparent")),
+                                        borderLeft: isRowActive ? "3px solid #f59e0b" : (isShedEave ? "3px solid #06b6d4" : (isDutch ? "3px solid #f43f5e" : "3px solid transparent")),
+                                        cursor: "pointer",
+                                        transition: "all 0.1s"
+                                      }}
+                                    >
+                                      <td style={{ padding: "5px 6px", fontWeight: 700, color: isRowActive ? "#fcd34d" : (isShedEave ? "#22d3ee" : "#cbd5e1") }}>
+                                        #{eIdx}
+                                        {isShedEave && (
+                                          <span style={{ marginLeft: "4px", fontSize: "8px", background: "#06b6d4", color: "#000", padding: "1px 3px", borderRadius: "2px", fontWeight: "bold", verticalAlign: "middle" }}>
+                                            UNDER
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "5px 6px" }}>
+                                        {roof.roofType !== 'shed' ? (
+                                          <input
+                                            type="number"
+                                            value={angle}
+                                            disabled={isGable}
+                                            onChange={(e) => updateRoofEdgeAngle && updateRoofEdgeAngle(roof.id, eIdx, parseFloat(e.target.value) || 0)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            style={{
+                                              width: "48px",
+                                              background: isGable ? "transparent" : "#1e293b",
+                                              border: isGable ? "1px solid transparent" : "1px solid #334155",
+                                              borderRadius: "4px",
+                                              color: isGable ? "#c084fc" : "#f8fafc",
+                                              fontSize: "11px",
+                                              padding: "2px 4px",
+                                              textAlign: "center"
+                                            }}
+                                          />
+                                        ) : (
+                                          <span style={{ color: isShedEave ? "#22d3ee" : "#94a3b8", fontWeight: isShedEave ? 600 : 400 }}>{roof.pitchAngle || 22.5}°</span>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "5px 6px" }}>
                                         <input
                                           type="number"
-                                          value={angle}
-                                          disabled={isGable}
-                                          onChange={(e) => updateRoofEdgeAngle && updateRoofEdgeAngle(roof.id, eIdx, parseFloat(e.target.value) || 0)}
+                                          value={ovh}
+                                          onChange={(e) => updateRoofEdgeOverhang && updateRoofEdgeOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
                                           onClick={(e) => e.stopPropagation()}
                                           style={{
                                             width: "48px",
-                                            background: isGable ? "transparent" : "#1e293b",
-                                            border: isGable ? "1px solid transparent" : "1px solid #334155",
+                                            background: "#1e293b",
+                                            border: "1px solid #334155",
                                             borderRadius: "4px",
-                                            color: isGable ? "#c084fc" : "#f8fafc",
+                                            color: isShedEave ? "#22d3ee" : "#f8fafc",
                                             fontSize: "11px",
                                             padding: "2px 4px",
                                             textAlign: "center"
                                           }}
                                         />
-                                      ) : (
-                                        <span style={{ color: isShedEave ? "#22d3ee" : "#94a3b8", fontWeight: isShedEave ? 600 : 400 }}>{roof.pitchAngle || 22.5}°</span>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: "5px 6px" }}>
-                                      <input
-                                        type="number"
-                                        value={ovh}
-                                        onChange={(e) => updateRoofEdgeOverhang && updateRoofEdgeOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        style={{
-                                          width: "48px",
-                                          background: "#1e293b",
-                                          border: "1px solid #334155",
-                                          borderRadius: "4px",
-                                          color: isShedEave ? "#22d3ee" : "#f8fafc",
-                                          fontSize: "11px",
-                                          padding: "2px 4px",
-                                          textAlign: "center"
-                                        }}
-                                      />
-                                    </td>
-                                    <td style={{ padding: "5px 6px", textAlign: "right" }}>
-                                      {roof.roofType === 'shed' ? (
-                                        <button
-                                          title={isShedEave ? "Current Low Eave (Eave Under)" : "Set as Low Eave (Eave Under)"}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setRoofEaveEdge && setRoofEaveEdge(roof.id, eIdx);
-                                          }}
-                                          style={{
-                                            background: isShedEave ? "rgba(6, 182, 212, 0.35)" : "#1e293b",
-                                            border: isShedEave ? "1px solid #06b6d4" : "1px solid #334155",
-                                            color: isShedEave ? "#22d3ee" : "#94a3b8",
-                                            borderRadius: "4px",
-                                            padding: "3px 6px",
-                                            fontSize: "10px",
-                                            fontWeight: isShedEave ? "bold" : "normal",
-                                            cursor: "pointer",
-                                            whiteSpace: "nowrap",
-                                            marginRight: "4px"
-                                          }}
-                                        >
-                                          {isShedEave ? "📍 Eave Under" : "Set Under"}
-                                        </button>
-                                      ) : (
-                                        <button
-                                          title={isGable ? "Switch to Hip pitch" : "Set as 90° Gable Wall"}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            updateRoofEdgeAngle && updateRoofEdgeAngle(roof.id, eIdx, isGable ? 22.5 : 90);
-                                          }}
-                                          style={{
-                                            background: isGable ? "rgba(168, 85, 247, 0.25)" : "#1e293b",
-                                            border: isGable ? "1px solid #a855f7" : "1px solid #334155",
-                                            color: isGable ? "#c084fc" : "#94a3b8",
-                                            borderRadius: "4px",
-                                            padding: "3px 6px",
-                                            fontSize: "10px",
-                                            cursor: "pointer",
-                                            marginRight: "4px"
-                                          }}
-                                        >
-                                          {isGable ? "🏛️ 90°" : "Hip"}
-                                        </button>
-                                      )}
+                                      </td>
+                                      <td style={{ padding: "5px 6px", textAlign: "right" }}>
+                                        {roof.roofType === 'shed' ? (
+                                          <button
+                                            title={isShedEave ? "Current Low Eave (Eave Under)" : "Set as Low Eave (Eave Under)"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setRoofEaveEdge && setRoofEaveEdge(roof.id, eIdx);
+                                            }}
+                                            style={{
+                                              background: isShedEave ? "rgba(6, 182, 212, 0.35)" : "#1e293b",
+                                              border: isShedEave ? "1px solid #06b6d4" : "1px solid #334155",
+                                              color: isShedEave ? "#22d3ee" : "#94a3b8",
+                                              borderRadius: "4px",
+                                              padding: "3px 6px",
+                                              fontSize: "10px",
+                                              fontWeight: isShedEave ? "bold" : "normal",
+                                              cursor: "pointer",
+                                              whiteSpace: "nowrap",
+                                              marginRight: "4px"
+                                            }}
+                                          >
+                                            {isShedEave ? "📍 Eave Under" : "Set Under"}
+                                          </button>
+                                        ) : (
+                                          <>
+                                            <button
+                                              title={isGable ? "Switch to Hip pitch" : "Set as 90° Gable Wall"}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                updateRoofEdgeAngle && updateRoofEdgeAngle(roof.id, eIdx, isGable ? 22.5 : 90);
+                                              }}
+                                              style={{
+                                                background: isGable ? "rgba(168, 85, 247, 0.25)" : "#1e293b",
+                                                border: isGable ? "1px solid #a855f7" : "1px solid #334155",
+                                                color: isGable ? "#c084fc" : "#94a3b8",
+                                                borderRadius: "4px",
+                                                padding: "3px 6px",
+                                                fontSize: "10px",
+                                                cursor: "pointer",
+                                                marginRight: "4px"
+                                              }}
+                                            >
+                                              {isGable ? "🏛️ 90°" : "Hip"}
+                                            </button>
+                                            <button
+                                              title={isDutch ? "Remove Dutch Cut" : "Add Dutch Cut"}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleDutchEdge && toggleDutchEdge(roof.id, eIdx);
+                                              }}
+                                              style={{
+                                                background: isDutch ? "rgba(244, 63, 94, 0.25)" : "#1e293b",
+                                                border: isDutch ? "1px solid #f43f5e" : "1px solid #334155",
+                                                color: isDutch ? "#fb7185" : "#94a3b8",
+                                                borderRadius: "4px",
+                                                padding: "3px 6px",
+                                                fontSize: "10px",
+                                                cursor: "pointer",
+                                                marginRight: "4px"
+                                              }}
+                                            >
+                                              {isDutch ? "🇳🇱 Dutch" : "Dutch"}
+                                            </button>
+                                          </>
+                                        )}
 
-                                      <button
-                                        title="Trim Eave Overhang"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          trimRoofEdge && trimRoofEdge(roof.id, eIdx);
-                                        }}
-                                        style={{
-                                          background: "rgba(239, 68, 68, 0.15)",
-                                          color: "#f87171",
-                                          border: "1px solid rgba(239, 68, 68, 0.4)",
-                                          borderRadius: "4px",
-                                          padding: "3px 6px",
-                                          fontSize: "10px",
-                                          cursor: "pointer"
-                                        }}
-                                      >
-                                        ✂️
-                                      </button>
-                                    </td>
-                                  </tr>
+                                        <button
+                                          title="Trim Eave Overhang"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            trimRoofEdge && trimRoofEdge(roof.id, eIdx);
+                                          }}
+                                          style={{
+                                            background: "rgba(239, 68, 68, 0.15)",
+                                            color: "#f87171",
+                                            border: "1px solid rgba(239, 68, 68, 0.4)",
+                                            borderRadius: "4px",
+                                            padding: "3px 6px",
+                                            fontSize: "10px",
+                                            cursor: "pointer"
+                                          }}
+                                        >
+                                          ✂️
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    {isDutch && (
+                                      <tr style={{ background: "rgba(244, 63, 94, 0.05)", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                        <td colSpan={4} style={{ padding: "8px" }}>
+                                          <div style={{ display: "flex", gap: "8px", alignItems: "center", justifyContent: "space-between" }}>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                              <label style={{ fontSize: "10px", color: "#cbd5e1" }}>Front OVH</label>
+                                              <input
+                                                type="number"
+                                                value={Array.isArray(roof.dutchOverhangs) && roof.dutchOverhangs[eIdx] !== undefined ? roof.dutchOverhangs[eIdx] : 0}
+                                                onChange={(e) => updateDutchOverhang && updateDutchOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
+                                                style={{ width: "50px", background: "#0f172a", border: "1px solid #334155", color: "#fff", padding: "2px", fontSize: "11px", borderRadius: "4px" }}
+                                              />
+                                            </div>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                              <label style={{ fontSize: "10px", color: "#cbd5e1" }}>Rake OVH</label>
+                                              <input
+                                                type="number"
+                                                value={Array.isArray(roof.dutchRakeOverhangs) && roof.dutchRakeOverhangs[eIdx] !== undefined ? roof.dutchRakeOverhangs[eIdx] : 0}
+                                                onChange={(e) => updateDutchRakeOverhang && updateDutchRakeOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
+                                                style={{ width: "50px", background: "#0f172a", border: "1px solid #334155", color: "#fff", padding: "2px", fontSize: "11px", borderRadius: "4px" }}
+                                              />
+                                            </div>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
+                                              <label style={{ fontSize: "10px", color: "#cbd5e1" }}>Cut Line</label>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  // Trigger drawing mode for this dutch edge
+                                                  setInteractionMode && setInteractionMode('draw-dutch');
+                                                  setSelectedRoofEdgeIndex && setSelectedRoofEdgeIndex(eIdx);
+                                                  setSelectedRoofId && setSelectedRoofId(roof.id);
+                                                }}
+                                                style={{
+                                                  background: "rgba(244, 63, 94, 0.2)",
+                                                  border: "1px solid #f43f5e",
+                                                  color: "#fb7185",
+                                                  borderRadius: "4px",
+                                                  padding: "3px 8px",
+                                                  fontSize: "10px",
+                                                  cursor: "pointer"
+                                                }}
+                                              >
+                                                ✏️ Draw Cut
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
                                 );
                               })}
                             </tbody>
@@ -3708,6 +3785,32 @@ export default function RightPropertyPaneView({
                         )}
 
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
+                          {/* {exportRoofIO && (
+                            <button
+                              title="Export 2D & 3D Input / Output data as JSON"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                exportRoofIO(roof.id);
+                              }}
+                              style={{
+                                background: "rgba(59, 130, 246, 0.15)",
+                                border: "1px solid rgba(59, 130, 246, 0.4)",
+                                color: "#60a5fa",
+                                borderRadius: "6px",
+                                padding: "6px 10px",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                transition: "all 0.15s ease"
+                              }}
+                            >
+                              📤 Export I/O
+                            </button>
+                          )} */}
+
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

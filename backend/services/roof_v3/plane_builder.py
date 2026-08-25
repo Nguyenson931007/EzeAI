@@ -96,7 +96,9 @@ class DeterministicPlaneBuilder:
     ):
         """Computes and assigns plane equations to all faces in the graph."""
         for face in graph.faces:
-            if force_recompute or (face.plane_a == 0.0 and face.plane_b == 0.0):
+            if getattr(face, "is_gable", False) or abs(face.pitch_angle - 90.0) < 1.0:
+                continue
+            if force_recompute or (face.plane_a == 0.0 and face.plane_b == 0.0 and face.plane_c == 0.0):
                 a, b, c, normal = cls.compute_face_plane(face, graph, default_eave_z)
                 face.plane_a = a
                 face.plane_b = b
@@ -155,7 +157,7 @@ class DeterministicPlaneBuilder:
     def triangulate_face_2d(face: RoofFace, graph: RoofGraph) -> List[List[int]]:
         """
         Triangulates a 3D polygon face using Ear-Clipping on its 2D projection.
-        Guarantees robust triangulation for concave (L/U-shaped) faces.
+        Guarantees robust triangulation for concave (L/U-shaped) faces and overhang cap polygons.
         """
         poly_2d = []
         for vid in face.vertices:
@@ -168,6 +170,16 @@ class DeterministicPlaneBuilder:
             return []
         if n == 3:
             return [[poly_2d[0][2], poly_2d[1][2], poly_2d[2][2]]]
+
+        # Ensure CCW winding order for 2D ear clipping
+        signed_area = 0.0
+        for i in range(n):
+            x1, y1 = poly_2d[i][0], poly_2d[i][1]
+            x2, y2 = poly_2d[(i + 1) % n][0], poly_2d[(i + 1) % n][1]
+            signed_area += (x1 * y2 - x2 * y1)
+
+        if signed_area < 0:
+            poly_2d = poly_2d[::-1]
 
         def is_ear(p_prev, p_curr, p_next, polygon):
             # Check convexity (cross product)
@@ -220,7 +232,10 @@ class DeterministicPlaneBuilder:
                     break
 
             if not ear_found:
-                # Fallback fan triangulation if non-simple
+                # Fallback fan triangulation if ear clipping stalls
+                for k in range(1, len(indices) - 1):
+                    triangles.append([poly_2d[indices[0]][2], poly_2d[indices[k]][2], poly_2d[indices[k + 1]][2]])
+                indices = []
                 break
 
         if len(indices) == 3:

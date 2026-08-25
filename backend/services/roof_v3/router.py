@@ -21,6 +21,7 @@ from .roof_graph import RoofGraph, RoofVertex, RoofEdge, RoofFace
 from .plane_builder import DeterministicPlaneBuilder
 from .shed_builder import ShedBuilder
 from .gable_builder import GableBuilder
+from .dutch_builder import DutchBuilder
 from .wall_builder import WallBuilder
 from .clipper import RoofClipper
 from .solver import RoofConstraintSolver
@@ -235,6 +236,14 @@ async def compute_roof_v3(req: ComputeRoofRequestV3):
             detail=f"Engine returned invalid JSON: {stdout[:500]}"
         )
 
+    # Remap contour_edge_index to original frontend edge ordering if polygon was reversed to CCW
+    if is_reversed and isinstance(result, dict) and "faces" in result:
+        n_pts = len(req.points)
+        for f in result["faces"]:
+            ci = f.get("contour_edge_index", -1)
+            if 0 <= ci < n_pts:
+                f["contour_edge_index"] = (n_pts - 2 - ci) % n_pts
+
     return ComputeRoofResponse(mode="topology", result=result)
 
 
@@ -265,9 +274,8 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
     # 2. Multi-pitch / Hip & Gable Roof
     ovhs = req.overhangs.copy() if req.overhangs else [0.0] * len(req.points)
     angles_list = req.angles.copy() if req.angles else [22.5] * len(req.points)
-    ccw_points, _, ccw_angles, ccw_ovhs, is_rev = ensure_ccw_all(req.points, None, angles_list, ovhs)
 
-    all_angles = ccw_angles.copy() if ccw_angles else []
+    all_angles = angles_list.copy() if angles_list else []
     if req.hole_angles:
         for ha in req.hole_angles:
             all_angles.extend(ha)
@@ -275,12 +283,12 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
     graph = RoofGraph.from_cgal_json(req.topology, all_angles if all_angles else None, default_eave_z=wall_h)
 
     # 2a. Correct eave_height for hip faces with CGAL overhang offset
-    if ccw_ovhs and ccw_angles:
+    if ovhs and angles_list:
         for face in graph.faces:
             ci = face.contour_edge_index
-            if 0 <= ci < len(ccw_angles) and ci < len(ccw_ovhs):
-                angle_deg = ccw_angles[ci]
-                ovh_val = ccw_ovhs[ci]
+            if 0 <= ci < len(angles_list) and ci < len(ovhs):
+                angle_deg = angles_list[ci]
+                ovh_val = ovhs[ci]
                 if abs(angle_deg - 90.0) > 1.0 and ovh_val > 0:
                     drop = ovh_val * math.tan(math.radians(angle_deg))
                     face.eave_height = wall_h - drop
@@ -289,7 +297,7 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
     DeterministicPlaneBuilder.build_all_planes(graph, default_eave_z=wall_h, force_recompute=True)
 
     # 2c. Recalculate fixed_z for contour vertices of offset hip faces
-    if ccw_ovhs:
+    if ovhs:
         for face in graph.faces:
             if abs(face.eave_height - wall_h) > 0.1:
                 for vid in face.vertices:
@@ -301,25 +309,38 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
                             v.z = z_plane
 
     # 2d. Apply Gable Verge Extension & Gable Walls if gable edges exist
-    if ccw_points and ccw_angles:
-        gable_walls = GableBuilder.extend_gable_verge(graph, ccw_points, ccw_angles, ccw_ovhs, wall_z=wall_h)
+    if req.points and angles_list:
+        gable_walls = GableBuilder.extend_gable_verge(graph, req.points, angles_list, ovhs, wall_z=wall_h)
         graph.gable_walls = gable_walls
 
-    # 2e. Generate pure Roof 3D Mesh
+    # 2e. Apply Dutch Gable modifications if dutch edges specified
+    if req.points and req.dutch_edges:
+        angles_list = req.angles if req.angles else [30.0] * len(req.points)
+        dutch_walls = DutchBuilder.apply_dutch_gables(
+            graph,
+            req.points,
+            angles_list,
+            dutch_edges=req.dutch_edges,
+            dutch_overhangs=req.dutch_overhangs,
+            dutch_rake_overhangs=req.dutch_rake_overhangs,
+            dutch_cut_points=req.dutch_cut_points,
+            wall_z=wall_h,
+        )
+        graph.dutch_walls = dutch_walls
+
+    # 2f. Generate pure Roof 3D Mesh
     mesh_data = DeterministicPlaneBuilder.generate_3d_mesh(graph)
 
-    # 2f. Generate separate 3D Wall Shell & Gable Walls
+    # 2g. Generate separate 3D Wall Shell & Gable Walls & Dutch Walls
     wall_mesh_data = {"vertices": [], "faces": [], "gable_mesh": {"vertices": [], "faces": []}, "wall_height": wall_h, "base_z": req.base_z}
     if req.points:
-        ovhs = req.overhangs.copy() if req.overhangs else [0.0] * len(req.points)
-        angles_list = req.angles.copy() if req.angles else [22.5] * len(req.points)
-        ccw_points, _, ccw_angles, _, _ = ensure_ccw_all(req.points, None, angles_list, ovhs)
         wall_mesh_data = WallBuilder.generate_wall_mesh(
-            ccw_points,
-            ccw_angles,
+            req.points,
+            angles_list,
             wall_height=wall_h,
             base_z=req.base_z,
             gable_walls=getattr(graph, "gable_walls", []),
+            dutch_walls=getattr(graph, "dutch_walls", []),
         )
 
     # Combined mesh

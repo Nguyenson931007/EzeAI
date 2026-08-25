@@ -40,7 +40,8 @@ const handleResponse = async (res) => {
   if (!res.ok) {
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
-      return res.json();
+      const errData = await res.json();
+      throw new Error(errData.detail || `Server returned error ${res.status}`);
     } else {
       const text = await res.text();
       throw new Error(`Server returned ${res.status}: ${text}`);

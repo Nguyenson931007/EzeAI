@@ -33,8 +33,15 @@ class GableBuilder:
         n_pts = len(points)
         gable_walls = []
 
+        signed_area = 0.0
+        for k in range(n_pts):
+            x1, y1 = points[k]
+            x2, y2 = points[(k + 1) % n_pts]
+            signed_area += (x1 * y2 - x2 * y1)
+        is_ccw = signed_area > 0
+
         for i in range(n_pts):
-            angle = angles[i] if i < len(angles) else 30.0
+            angle = angles[i] if i < len(angles) else 22.5
             ovh = overhangs[i] if i < len(overhangs) else 0.0
 
             if abs(angle - 90.0) < 1.0:  # Gable edge
@@ -47,9 +54,13 @@ class GableBuilder:
                 if length < 1e-6:
                     continue
 
-                # Outward normal for CCW polygon: right side of vector (dy, -dx)
-                nx = dy / length
-                ny = -dx / length
+                # Outward normal: right side for CCW, left side for CW
+                if is_ccw:
+                    nx = dy / length
+                    ny = -dx / length
+                else:
+                    nx = -dy / length
+                    ny = dx / length
 
                 # 1. Find the degenerate gable face (contour_edge_index == i)
                 gable_face = None

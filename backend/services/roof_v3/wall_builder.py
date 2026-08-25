@@ -23,7 +23,8 @@ class WallBuilder:
         angles: Optional[List[float]] = None,
         wall_height: float = 2700.0,
         base_z: float = 0.0,
-        gable_walls: Optional[List[Dict[str, Any]]] = None
+        gable_walls: Optional[List[Dict[str, Any]]] = None,
+        dutch_walls: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Generates full 3D wall mesh (vertical walls + gable walls).
@@ -75,6 +76,38 @@ class WallBuilder:
                 g_idx = len(gable_vertices)
                 gable_vertices.extend([v1, v2, v_ridge])
                 gable_faces.append([g_idx, g_idx + 1, g_idx + 2])
+
+        # 3. Add Dutch Gable Wall polygons (Tường thu hồi Dutch) from Z_cut up to ridge top
+        if dutch_walls:
+            for dw in dutch_walls:
+                wall_polygon = dw.get("wall_polygon")
+                if wall_polygon and len(wall_polygon) >= 3:
+                    start_idx = len(vertices_3d)
+                    g_start_idx = len(gable_vertices)
+                    for pt in wall_polygon:
+                        pt_3d = [float(pt[0]), float(pt[1]), float(pt[2])]
+                        vertices_3d.append(pt_3d)
+                        gable_vertices.append(pt_3d)
+                    n_v = len(wall_polygon)
+                    for k in range(1, n_v - 1):
+                        faces_3d.append([start_idx, start_idx + k, start_idx + k + 1])
+                        gable_faces.append([g_start_idx, g_start_idx + k, g_start_idx + k + 1])
+                else:
+                    c1 = dw.get("c1", [0, 0, 0])
+                    c2 = dw.get("c2", [0, 0, 0])
+                    ridge_top = dw.get("ridge_top", [0, 0, 0])
+
+                    v1 = [float(c1[0]), float(c1[1]), float(c1[2])]
+                    v2 = [float(c2[0]), float(c2[1]), float(c2[2])]
+                    v_ridge = [float(ridge_top[0]), float(ridge_top[1]), float(ridge_top[2])]
+
+                    idx = len(vertices_3d)
+                    vertices_3d.extend([v1, v2, v_ridge])
+                    faces_3d.append([idx, idx + 1, idx + 2])
+
+                    g_idx = len(gable_vertices)
+                    gable_vertices.extend([v1, v2, v_ridge])
+                    gable_faces.append([g_idx, g_idx + 1, g_idx + 2])
 
         return {
             "vertices": vertices_3d,

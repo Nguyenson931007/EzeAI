@@ -162,7 +162,10 @@ export function buildRoof3DSceneObjects({
   imgSize,
   topYOffset,
   wallHeightMm,
-  enableShadows = true
+  enableShadows = true,
+  roofColorMode = "palette", // "palette" | "single"
+  singleRoofColor = "#334155", // default uniform color (or customizable)
+  showOutlines = true
 }) {
   const createdObjects = [];
   if (!roof || !roof.v3Data) return createdObjects;
@@ -182,7 +185,7 @@ export function buildRoof3DSceneObjects({
     y / mmPerPx - imgSize.h / 2
   ];
 
-  // ── 1. RENDER MULTI-COLOR SLOPING ROOF FACETS ──
+  // ── 1. RENDER SLOPING ROOF FACETS (SINGLE TONE VS MULTI-COLOR PALETTE) ──
   const groupedFaces = groupRoofTriangles({
     graphFaces,
     roofMeshVerts: rVerts,
@@ -190,49 +193,98 @@ export function buildRoof3DSceneObjects({
     faceGroups
   });
 
-  groupedFaces.forEach((faceGroup, fIdx) => {
-    const triangles = faceGroup.triangles || [];
-    if (triangles.length === 0) return;
+  if (roofColorMode === "single") {
+    // ── UNIFIED SINGLE TONE ROOF MESH ──
+    const allPositions = [];
+    groupedFaces.forEach(faceGroup => {
+      const triangles = faceGroup.triangles || [];
+      triangles.forEach(tri => {
+        const v0 = getVertexCoords(rVerts[tri[0]]);
+        const v1 = getVertexCoords(rVerts[tri[1]]);
+        const v2 = getVertexCoords(rVerts[tri[2]]);
+        if (!v0 || !v1 || !v2) return;
 
-    const positions = [];
-    triangles.forEach(tri => {
-      const v0 = getVertexCoords(rVerts[tri[0]]);
-      const v1 = getVertexCoords(rVerts[tri[1]]);
-      const v2 = getVertexCoords(rVerts[tri[2]]);
-      if (!v0 || !v1 || !v2) return;
+        const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
+        const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
+        const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
 
-      const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
-      const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
-      const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
-
-      positions.push(...p0, ...p1, ...p2);
+        allPositions.push(...p0, ...p1, ...p2);
+      });
     });
 
-    if (positions.length > 0) {
-      const faceGeom = new THREE.BufferGeometry();
-      faceGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      faceGeom.computeVertexNormals();
+    if (allPositions.length > 0) {
+      const unifiedGeom = new THREE.BufferGeometry();
+      unifiedGeom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
+      unifiedGeom.computeVertexNormals();
 
-      const color = ROOF_FACE_PALETTE[fIdx % ROOF_FACE_PALETTE.length];
       const faceMat = new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.35,
-        metalness: 0.15,
+        color: singleRoofColor || "#334155",
+        roughness: 0.45,
+        metalness: 0.1,
         side: THREE.DoubleSide
       });
 
-      const fMesh = new THREE.Mesh(faceGeom, faceMat);
+      const fMesh = new THREE.Mesh(unifiedGeom, faceMat);
       fMesh.castShadow = enableShadows;
       fMesh.receiveShadow = enableShadows;
       createdObjects.push(fMesh);
 
-      // Crisp White CAD Outline Lines
-      const edgesGeom = new THREE.EdgesGeometry(faceGeom, 15);
-      const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
-      const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
-      createdObjects.push(lineSegments);
+      // Clean crease-only CAD lines (only at > 15 deg ridges, hips, valleys)
+      if (showOutlines) {
+        const edgesGeom = new THREE.EdgesGeometry(unifiedGeom, 15);
+        const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1.5 });
+        const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
+        createdObjects.push(lineSegments);
+      }
     }
-  });
+  } else {
+    // ── MULTI-COLOR PALETTE ROOF FACETS ──
+    groupedFaces.forEach((faceGroup, fIdx) => {
+      const triangles = faceGroup.triangles || [];
+      if (triangles.length === 0) return;
+
+      const positions = [];
+      triangles.forEach(tri => {
+        const v0 = getVertexCoords(rVerts[tri[0]]);
+        const v1 = getVertexCoords(rVerts[tri[1]]);
+        const v2 = getVertexCoords(rVerts[tri[2]]);
+        if (!v0 || !v1 || !v2) return;
+
+        const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
+        const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
+        const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
+
+        positions.push(...p0, ...p1, ...p2);
+      });
+
+      if (positions.length > 0) {
+        const faceGeom = new THREE.BufferGeometry();
+        faceGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        faceGeom.computeVertexNormals();
+
+        const color = ROOF_FACE_PALETTE[fIdx % ROOF_FACE_PALETTE.length];
+        const faceMat = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.35,
+          metalness: 0.15,
+          side: THREE.DoubleSide
+        });
+
+        const fMesh = new THREE.Mesh(faceGeom, faceMat);
+        fMesh.castShadow = enableShadows;
+        fMesh.receiveShadow = enableShadows;
+        createdObjects.push(fMesh);
+
+        // Crisp White CAD Outline Lines
+        if (showOutlines) {
+          const edgesGeom = new THREE.EdgesGeometry(faceGeom, 15);
+          const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+          const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
+          createdObjects.push(lineSegments);
+        }
+      }
+    });
+  }
 
   // ── 2. RENDER GABLE WALLS (TƯỜNG THU HỒI ĐẦU HỒI) ──
   const gMesh = roof.v3Data.gableMesh || roof.v3Data.gable_mesh || wallMesh?.gable_mesh;

@@ -3,7 +3,7 @@ Pydantic Data Models and Validation Schemas for Roof V3 Engine.
 """
 import math
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class ComputeRoofRequestV3(BaseModel):
@@ -18,6 +18,26 @@ class ComputeRoofRequestV3(BaseModel):
     roof_type: str = "hip_gable"                     # "hip_gable" or "shed"
     eave_edge_index: Optional[int] = 0               # low eave edge for shed roof
     wall_height: Optional[float] = 2700.0            # wall height in mm
+
+    # Dutch Gable extensions
+    dutch_edges: Optional[List[int]] = None          # absolute edge indices for dutch gable
+    dutch_overhangs: Optional[List[float]] = None    # front overhangs for dutch gablet in mm
+    dutch_rake_overhangs: Optional[List[float]] = None # rake overhangs for dutch gablet in mm
+    dutch_cut_points: Optional[List[Optional[List[float]]]] = None # sparse array of cut points [x, y] per edge
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_camel_case_dutch(cls, data: Any):
+        if isinstance(data, dict):
+            if "dutchEdges" in data and "dutch_edges" not in data:
+                data["dutch_edges"] = data["dutchEdges"]
+            if "dutchOverhangs" in data and "dutch_overhangs" not in data:
+                data["dutch_overhangs"] = data["dutchOverhangs"]
+            if "dutchRakeOverhangs" in data and "dutch_rake_overhangs" not in data:
+                data["dutch_rake_overhangs"] = data["dutchRakeOverhangs"]
+            if "dutchCutPoints" in data and "dutch_cut_points" not in data:
+                data["dutch_cut_points"] = data["dutchCutPoints"]
+        return data
 
     @field_validator("points")
     @classmethod
@@ -48,6 +68,26 @@ class BuildPlanesRequestV3(BaseModel):
     base_z: float = 0.0
     roof_type: str = "hip_gable"
     eave_edge_index: Optional[int] = 0
+
+    # Dutch Gable extensions
+    dutch_edges: Optional[List[int]] = None          # absolute edge indices for dutch gable
+    dutch_overhangs: Optional[List[float]] = None    # front overhangs for dutch gablet in mm
+    dutch_rake_overhangs: Optional[List[float]] = None # rake overhangs for dutch gablet in mm
+    dutch_cut_points: Optional[List[Optional[List[float]]]] = None # sparse array of cut points [x, y] per edge
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_camel_case_dutch(cls, data: Any):
+        if isinstance(data, dict):
+            if "dutchEdges" in data and "dutch_edges" not in data:
+                data["dutch_edges"] = data["dutchEdges"]
+            if "dutchOverhangs" in data and "dutch_overhangs" not in data:
+                data["dutch_overhangs"] = data["dutchOverhangs"]
+            if "dutchRakeOverhangs" in data and "dutch_rake_overhangs" not in data:
+                data["dutch_rake_overhangs"] = data["dutchRakeOverhangs"]
+            if "dutchCutPoints" in data and "dutch_cut_points" not in data:
+                data["dutch_cut_points"] = data["dutchCutPoints"]
+        return data
 
 
 class TrimEaveRequestV3(BaseModel):
