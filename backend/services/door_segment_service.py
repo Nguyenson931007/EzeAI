@@ -51,15 +51,23 @@ def _get_models() -> Tuple[YOLO, YOLO]:
     if _door_model is None or _window_model is None:
         with _model_lock:
             if _door_model is None:
-                p_door = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_backup.pt"
+                p_door = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt"
                 if not p_door.exists():
-                    p_door = BASE_DIR / "backend" / "models" / "Doors" / "best_backup.pt"
+                    p_door = BASE_DIR / "backend" / "models" / "Doors" / "best.pt"
+                if not p_door.exists():
+                    p_door = BASE_DIR / "models" / "Doors" / "final_one" / "best.pt"
+                if not p_door.exists():
+                    p_door = BASE_DIR / "models" / "Doors" / "best.pt"
                 logger.info(f"[door_segment_service] Loading Door model: {p_door}")
                 _door_model = YOLO(str(p_door))
             if _window_model is None:
-                p_win = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt"
+                p_win = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_1.pt"
                 if not p_win.exists():
-                    p_win = BASE_DIR / "backend" / "models" / "Doors" / "best_1.pt"
+                    p_win = BASE_DIR / "backend" / "models" / "Doors" / "best.pt"
+                if not p_win.exists():
+                    p_win = BASE_DIR / "models" / "Doors" / "final_one" / "best_1.pt"
+                if not p_win.exists():
+                    p_win = BASE_DIR / "models" / "Doors" / "best.pt"
                 logger.info(f"[door_segment_service] Loading Window model: {p_win}")
                 _window_model = YOLO(str(p_win))
     return _door_model, _window_model

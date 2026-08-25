@@ -1533,6 +1533,28 @@ export default function AIDoor({
           }
         };
 
+        // Tính hệ số phóng to button linh hoạt theo tỷ lệ scale thực tế (realScale) và chiều dài cửa
+        let scaleFactor = 1.5;
+        if (realScale && typeof realScale === 'number' && realScale > 0) {
+          scaleFactor = Math.max(1.3, Math.min(2.6, realScale > 20 ? realScale / 35 : realScale / 4.5));
+        } else if (p1 && p2) {
+          const doorLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          scaleFactor = Math.max(1.3, Math.min(2.4, doorLen / 45));
+        }
+
+        const btnW = Math.round(36 * scaleFactor);
+        const btnH = Math.round(32 * scaleFactor);
+        const halfW = btnW / 2;
+        const halfH = btnH / 2;
+        const btnRx = Math.round(7 * scaleFactor);
+        const iconSize = Math.round(18 * scaleFactor);
+        const strokeW = Math.max(1.5, 1.8 * scaleFactor);
+
+        const offsetXVert = Math.round(36 * scaleFactor);
+        const offsetYVert = Math.round(20 * scaleFactor);
+        const offsetXHoriz = Math.round(22 * scaleFactor);
+        const offsetYHoriz = Math.round(34 * scaleFactor);
+
         return (
           <g 
             style={{ pointerEvents: 'auto' }}
@@ -1541,26 +1563,68 @@ export default function AIDoor({
           >
             {/* Horizontal Flip Button (Left ↔ Right on Screen) */}
             <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + 30}, ${cyAvg - 18})` : `translate(${cxAvg - 20}, ${cyAvg + 28})`} 
+              transform={isVerticalDoor ? `translate(${cxAvg + offsetXVert}, ${cyAvg - offsetYVert})` : `translate(${cxAvg - offsetXHoriz}, ${cyAvg + offsetYHoriz})`} 
               style={{ cursor: 'pointer' }}
               onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
               onPointerDown={(e) => { e.stopPropagation(); }}
               onClick={handleHorizontalFlip}
             >
-              <rect x="-16" y="-14" width="32" height="28" rx="6" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.35))" />
-              <text x="0" y="3" fontSize="16" fontWeight="bold" fill="#38bdf8" textAnchor="middle" dominantBaseline="middle">↔</text>
+              <rect 
+                x={-halfW} 
+                y={-halfH} 
+                width={btnW} 
+                height={btnH} 
+                rx={btnRx} 
+                fill="#0f172a" 
+                stroke="#38bdf8" 
+                strokeWidth={strokeW} 
+                filter="drop-shadow(0 3px 6px rgba(0,0,0,0.45))" 
+              />
+              <text 
+                x="0" 
+                y={Math.round(2 * scaleFactor)} 
+                fontSize={iconSize} 
+                fontWeight="bold" 
+                fill="#38bdf8" 
+                textAnchor="middle" 
+                dominantBaseline="middle"
+                style={{ userSelect: 'none' }}
+              >
+                ↔
+              </text>
             </g>
             
             {/* Vertical Flip Button (Up ↕ Down on Screen) */}
             <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + 30}, ${cyAvg + 18})` : `translate(${cxAvg + 20}, ${cyAvg + 28})`} 
+              transform={isVerticalDoor ? `translate(${cxAvg + offsetXVert}, ${cyAvg + offsetYVert})` : `translate(${cxAvg + offsetXHoriz}, ${cyAvg + offsetYHoriz})`} 
               style={{ cursor: 'pointer' }}
               onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
               onPointerDown={(e) => { e.stopPropagation(); }}
               onClick={handleVerticalFlip}
             >
-              <rect x="-16" y="-14" width="32" height="28" rx="6" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.35))" />
-              <text x="0" y="3" fontSize="16" fontWeight="bold" fill="#38bdf8" textAnchor="middle" dominantBaseline="middle">↕</text>
+              <rect 
+                x={-halfW} 
+                y={-halfH} 
+                width={btnW} 
+                height={btnH} 
+                rx={btnRx} 
+                fill="#0f172a" 
+                stroke="#38bdf8" 
+                strokeWidth={strokeW} 
+                filter="drop-shadow(0 3px 6px rgba(0,0,0,0.45))" 
+              />
+              <text 
+                x="0" 
+                y={Math.round(2 * scaleFactor)} 
+                fontSize={iconSize} 
+                fontWeight="bold" 
+                fill="#38bdf8" 
+                textAnchor="middle" 
+                dominantBaseline="middle"
+                style={{ userSelect: 'none' }}
+              >
+                ↕
+              </text>
             </g>
           </g>
         );

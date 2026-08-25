@@ -116,11 +116,6 @@ export default function LoginView({
               </form>
             )}
           </div>
-
-          {/* Bottom security watermark */}
-          <div className="login-split-footer">
-            <span>EzeFloor Architecture Suite © {new Date().getFullYear()}</span>
-          </div>
         </div>
 
         {/* RIGHT COLUMN: Architectural Hero with Blueprint & Blue Gradient */}
@@ -129,31 +124,10 @@ export default function LoginView({
           <div className="login-split-bg-image"></div>
           <div className="login-split-gradient-overlay"></div>
           <div className="login-split-grid"></div>
-
-          {/* Top Right Tag */}
-          <div className="login-split-tag">
-            <span>BIM & CAD AI Platform</span>
-          </div>
-
-          {/* Hero Welcome Content */}
-          <div className="login-split-hero-content">
-            <h2 className="login-split-hero-title">
-              Welcome to EzeFloor
-            </h2>
-            <p className="login-split-hero-desc">
-              AI-powered architectural floor plan recognition, automated CAD takeoff estimation, and precision quantity calculations.
-            </p>
-
-            {/* Carousel indicator bars */}
-            <div className="login-split-indicators">
-              <span className="indicator active"></span>
-              <span className="indicator"></span>
-              <span className="indicator"></span>
-            </div>
-          </div>
         </div>
 
       </div>
     </div>
   );
 }
+
