@@ -26,6 +26,9 @@ export const useAuthController = (user, setUser, setIsLoggedIn) => {
         setUser(userData);
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("user", JSON.stringify(userData));
+        if (authData.password) {
+          sessionStorage.setItem("session_auth_key", authData.password);
+        }
         return { success: true };
       } else {
         if (data.detail && data.detail.includes("quá số lần")) {

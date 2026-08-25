@@ -473,6 +473,14 @@ export default function RibbonView({
       const username = currentUser?.username || (typeof window !== "undefined" ? (localStorage.getItem("username") || "") : "") || "";
       const role = currentUser?.role || "admin";
       const manv = currentUser?.ma_nv || currentUser?.MaNV || currentUser?.manv || "";
+      const sessionPassword = (typeof window !== "undefined" ? (sessionStorage.getItem("session_auth_key") || localStorage.getItem("session_auth_key")) : null) || "";
+
+      const cleanStr = (val) => {
+        if (val === null || val === undefined) return null;
+        const s = String(val).trim();
+        if (s === "" || s === "null" || s === "undefined" || s === "false") return null;
+        return s;
+      };
 
       let pendingEmsJob = null;
       try {
@@ -480,34 +488,64 @@ export default function RibbonView({
         if (pendingEmsJobStr) pendingEmsJob = JSON.parse(pendingEmsJobStr);
       } catch (e) {}
 
-      const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
-      const isUuid = (val) => typeof val === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
-
-      // 1. EMS UUID (e.g. 46d7a842-974c-40de-99d5-1a610a366b65) - Dùng cho Procurement resolver ?job=
-      let emsUuid = null;
-      if (urlJob && isUuid(urlJob)) {
-        emsUuid = urlJob.trim();
-      } else if (pendingEmsJob?.id && isUuid(pendingEmsJob.id)) {
-        emsUuid = String(pendingEmsJob.id).trim();
-      } else if (pendingEmsJob?.id_job && isUuid(pendingEmsJob.id_job)) {
-        emsUuid = String(pendingEmsJob.id_job).trim();
-      } else if (pendingEmsJob?.ems_id && isUuid(pendingEmsJob.ems_id)) {
-        emsUuid = String(pendingEmsJob.ems_id).trim();
-      } else if (urlJob) {
-        emsUuid = urlJob.trim();
+      // Nếu pendingEmsJob chưa có hoặc không khớp với currentProjectName, tự động tra cứu từ cachedTaskListJobs
+      if (!pendingEmsJob || (currentProjectName && pendingEmsJob.job_number !== currentProjectName && pendingEmsJob.job_num !== currentProjectName)) {
+        try {
+          const cachedJobsStr = typeof window !== "undefined" ? localStorage.getItem("cachedTaskListJobs") : null;
+          if (cachedJobsStr) {
+            const cachedJobs = JSON.parse(cachedJobsStr);
+            if (Array.isArray(cachedJobs) && currentProjectName) {
+              const found = cachedJobs.find(t => 
+                (t.job_number && t.job_number.toLowerCase().trim() === currentProjectName.toLowerCase().trim()) ||
+                (t.job_num && t.job_num.toLowerCase().trim() === currentProjectName.toLowerCase().trim()) ||
+                (t.hw_id && String(t.hw_id) === currentProjectName) ||
+                (t.id_job_ems && String(t.id_job_ems) === currentProjectName)
+              );
+              if (found) {
+                pendingEmsJob = found;
+                try {
+                  sessionStorage.setItem("pendingEmsJob", JSON.stringify(found));
+                  localStorage.setItem("pendingEmsJob", JSON.stringify(found));
+                } catch (e) {}
+              }
+            }
+          }
+        } catch (e) {}
       }
 
-      // 2. Hardware ID (e.g. 207)
-      const idHW = pendingEmsJob?.id_HW || pendingEmsJob?.IdJob_HW || pendingEmsJob?.hw_id || pendingEmsJob?.id_hw || (!isUuid(currentJobId) ? currentJobId : null);
+      const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
 
-      // 3. Job Number (e.g. J-1001)
-      const jobNum = pendingEmsJob?.job_number || pendingEmsJob?.job_num || (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName : null);
+      // 1. Job Number (e.g. EZEFLO-13-7189542)
+      const jobNum = cleanStr(pendingEmsJob?.job_number) ||
+                     cleanStr(pendingEmsJob?.job_num) ||
+                     (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName.trim() : null);
 
-      const finalDeepLinkJob = emsUuid || idHW || currentJobId;
+      // 2. EMS ID (Hỗ trợ cả UUID chuẩn, Web3 ID, NanoID, chuỗi mã TaskList, fallback sang jobNum)
+      const emsId = cleanStr(urlJob) ||
+                    cleanStr(pendingEmsJob?.ems_id) ||
+                    cleanStr(pendingEmsJob?.id_job_ems) ||
+                    cleanStr(pendingEmsJob?.id_job) ||
+                    cleanStr(pendingEmsJob?.id_ems) ||
+                    cleanStr(pendingEmsJob?.id) ||
+                    cleanStr(pendingEmsJob?.Id) ||
+                    cleanStr(pendingEmsJob?.job_id) ||
+                    cleanStr(jobNum);
+
+      // 3. Hardware ID
+      const idHW = cleanStr(pendingEmsJob?.id_HW) ||
+                   cleanStr(pendingEmsJob?.IdJob_HW) ||
+                   cleanStr(pendingEmsJob?.hw_id) ||
+                   cleanStr(pendingEmsJob?.id_hw) ||
+                   cleanStr(emsId) ||
+                   cleanStr(jobNum) ||
+                   cleanStr(currentJobId);
+
+      const finalDeepLinkJob = emsId || idHW || cleanStr(jobNum) || cleanStr(currentJobId);
 
       const payload = {
         token: token,
         username: username,
+        password: sessionPassword,
         user: currentUser ? {
           username: username,
           role: role,
@@ -515,17 +553,19 @@ export default function RibbonView({
           session_token: currentUser?.session_token || token,
           tasklist_token: tasklistToken
         } : null,
-        ems_id: emsUuid,
-        id_HW: idHW,
-        IdJob_HW: idHW,
+        ems_id: emsId,
+        id_job: emsId,
+        id_HW: idHW || emsId,
+        IdJob_HW: idHW || emsId,
         job_number: jobNum,
         job_num: jobNum,
         jobId: finalDeepLinkJob,
         projectName: currentProjectName || jobNum || "Untitled Project",
         data: {
-          ems_id: emsUuid,
-          id_HW: idHW,
-          IdJob_HW: idHW,
+          ems_id: emsId,
+          id_job: emsId,
+          id_HW: idHW || emsId,
+          IdJob_HW: idHW || emsId,
           job_number: jobNum,
           job_num: jobNum,
           projectName: currentProjectName || jobNum,
@@ -558,13 +598,13 @@ export default function RibbonView({
       }
 
       const target = new URL("http://14.241.197.188:7642/");
-      // Gắn EMS UUID vào ?job= để ApplicationShell.tsx tìm thấy job trên EMS
-      if (emsUuid) {
-        target.searchParams.set("job", emsUuid);
-      } else if (finalDeepLinkJob) {
+      if (finalDeepLinkJob) {
         target.searchParams.set("job", String(finalDeepLinkJob));
       }
-
+      if (emsId) {
+        target.searchParams.set("ems_id", String(emsId));
+        target.searchParams.set("id_job", String(emsId));
+      }
       if (idHW) {
         target.searchParams.set("id_HW", String(idHW));
         target.searchParams.set("id_hw", String(idHW));
@@ -573,16 +613,33 @@ export default function RibbonView({
         target.searchParams.set("job_num", String(jobNum));
         target.searchParams.set("job_number", String(jobNum));
       }
+      if (token) {
+        target.searchParams.set("token", String(token));
+        target.searchParams.set("sso_token", String(token));
+      }
+      if (username) {
+        target.searchParams.set("user", String(username));
+        target.searchParams.set("username", String(username));
+        target.searchParams.set("UserID", String(username));
+      }
+      if (sessionPassword) {
+        target.searchParams.set("pwd", String(sessionPassword));
+        target.searchParams.set("password", String(sessionPassword));
+        target.searchParams.set("pass", String(sessionPassword));
+      }
+      if (manv) {
+        target.searchParams.set("ma_nv", String(manv));
+        target.searchParams.set("employee_code", String(manv));
+      }
+      target.searchParams.set("auto_login", "true");
+      target.searchParams.set("autologin", "1");
       target.searchParams.set("source", "tool-ai");
-      target.searchParams.set("sso", "web3");
+      target.searchParams.set("sso", "tool-ai");
 
       console.log(
-        "[Procurement] Đang mở Procurement với EMS UUID & ID HW...",
+        "[Procurement] Đang đóng gói dữ liệu và gửi sang Procurement...",
         {
           target: target.toString(),
-          emsUuid,
-          idHW,
-          jobNum,
           payload
         }
       );
@@ -590,12 +647,12 @@ export default function RibbonView({
       // Mở Procurement
       const popup = window.open(target.toString(), "_blank");
       if (!popup) {
-        showAlert("Popup bị chặn. Vui lòng cho phép popup trên trình duyệt.", "Lỗi");
+        showAlert("Popup bị chặn.", "Lỗi");
         return;
       }
 
-      // Gửi SSO token qua postMessage (tương thích cả Web3 và Tool-AI)
-      if (token) {
+      // Gửi SSO credentials qua postMessage
+      if (token || username) {
         let attempts = 0;
         let timer = null;
         const sendSso = () => {
@@ -609,30 +666,39 @@ export default function RibbonView({
           try {
             popup.postMessage(
               {
-                type: "TASK_LIST_WEB3_SSO",
+                type: "PROCUREMENT_SSO",
+                action: "AUTO_LOGIN",
                 token: token,
-                ems_id: emsUuid,
-                id_HW: idHW,
-                job_number: jobNum,
-                job_num: jobNum,
-                jobId: emsUuid || idHW
+                sso_token: token,
+                user: username,
+                username: username,
+                password: sessionPassword,
+                pwd: sessionPassword,
+                ma_nv: manv,
+                jobId: finalDeepLinkJob
               },
               target.origin
             );
             popup.postMessage(
               {
-                type: "PROCUREMENT_SSO",
+                type: "TASK_LIST_WEB3_SSO",
+                action: "AUTO_LOGIN",
                 token: token,
                 task_list_token: token,
+                sso_token: token,
                 accessToken: token,
                 access_token: token,
-                ems_id: emsUuid,
-                id_HW: idHW,
+                user: username,
+                username: username,
+                password: sessionPassword,
+                pwd: sessionPassword,
+                ma_nv: manv,
+                ems_id: emsId,
+                id_job: emsId,
+                id_HW: idHW || emsId,
                 job_number: jobNum,
                 job_num: jobNum,
-                jobId: emsUuid || idHW,
-                username: username,
-                user: currentUser
+                jobId: finalDeepLinkJob
               },
               target.origin
             );
@@ -645,11 +711,10 @@ export default function RibbonView({
       }
       if (sendSuccess) {
         showAlert(
-          "Đã gửi dữ liệu toàn bộ Job sang Procurement thành công!",
+          "Đã mở Procurement và đồng bộ thông tin Job thành công!",
           "Thông báo"
         );
       } else {
-        console.warn("[Procurement] API export chưa thành công:", errorMsg);
         showAlert(
           "Đã mở Procurement trên tab mới.",
           "Thông báo"

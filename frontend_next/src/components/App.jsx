@@ -525,8 +525,9 @@ export default function App() {
         const jobInfo = emsResult.data;
         console.log("[SSO] Thông tin Job nhận được:", jobInfo);
 
-        // Lưu thông tin EMS job vào sessionStorage để các modal (Framework / Insulation / AreaSummary) sử dụng
+        // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+        localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
 
         const targetProjectName = jobInfo.job_number || ("Project " + String(idJobEms).slice(0, 8));
 
