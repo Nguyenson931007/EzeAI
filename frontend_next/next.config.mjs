@@ -26,6 +26,8 @@ const nextConfig = {
       { source: "/validate-session", destination: `${backendUrl}/validate-session` },
       { source: "/tasklist-sso", destination: `${backendUrl}/tasklist-sso` },
       { source: "/api/auth/tasklist-sso", destination: `${backendUrl}/api/auth/tasklist-sso` },
+      { source: "/task-list-sso", destination: `${backendUrl}/task-list-sso` },
+      { source: "/api/auth/task-list-sso", destination: `${backendUrl}/api/auth/task-list-sso` },
 
       // User management endpoints
       { source: "/users", destination: `${backendUrl}/users` },

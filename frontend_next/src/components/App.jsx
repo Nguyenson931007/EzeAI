@@ -571,7 +571,7 @@ export default function App() {
               role: data.role || "admin",
               ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
               session_token: data.session_token,
-              tasklist_token: urlToken,
+              tasklist_token: urlToken || "",
             };
             setIsLoggedIn(true);
             setUser(userData);
@@ -888,21 +888,22 @@ export default function App() {
         }
 
         const finalUsername = data.username || extractedUser || "Liam";
+        const rawToken = event.data.token || "";
         const userData = {
           username: finalUsername,
           role: data.role || "admin",
           ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
           session_token: data.session_token,
-          tasklist_token: event.data.token,
+          tasklist_token: rawToken,
         };
 
         setIsLoggedIn(true);
         setUser(userData);
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("user", JSON.stringify(userData));
-        if (event.data.token) {
-          localStorage.setItem("tasklist_token", event.data.token);
-          localStorage.setItem("ems_token", event.data.token);
+        if (rawToken) {
+          localStorage.setItem("tasklist_token", rawToken);
+          localStorage.setItem("ems_token", rawToken);
         }
         console.log("[SSO] Đăng nhập thành công với tài khoản:", userData.username);
 

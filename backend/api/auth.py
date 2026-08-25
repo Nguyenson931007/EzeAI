@@ -604,13 +604,26 @@ def validate_session(
 
 @router.post("/api/auth/tasklist-sso")
 @router.post("/tasklist-sso")
+@router.post("/api/auth/task-list-sso")
+@router.post("/task-list-sso")
 async def tasklist_sso(payload: dict, response: Response):
     """
     Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
     Gửi token xác thực tới máy chủ TaskList (https://103.77.167.69:8081/api/auth/me),
     đồng bộ tài khoản và tạo phiên làm việc (session) cho Web AI EzeFloor.
     """
-    token = payload.get("token")
+    token = (
+        payload.get("token")
+        or payload.get("accessToken")
+        or payload.get("access_token")
+        or payload.get("sso_token")
+        or payload.get("jwt")
+    )
+    if isinstance(token, str):
+        token = token.strip()
+        if token.startswith("Bearer "):
+            token = token[7:].strip()
+
     if not token:
         raise HTTPException(status_code=400, detail="Tasklist token is required")
 
@@ -627,7 +640,7 @@ async def tasklist_sso(payload: dict, response: Response):
 
     if result.status_code != 200:
         logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code}, url={TASKLIST_AUTH_URL}, body={result.text[:200]})")
-        raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
+        raise HTTPException(status_code=401, detail=f"Tasklist token không hợp lệ hoặc đã hết hạn (máy chủ trả về HTTP {result.status_code})")
 
     res_json = result.json()
     logger.info(f"[SSO] Tasklist auth response: {res_json}")
