@@ -603,6 +603,9 @@ export default function RightPropertyPaneView({
       const res = await ApiService.fetchTaskListJobs(2000, forceRefresh);
       if (res && res.status === "success" && Array.isArray(res.data)) {
         setTaskListJobs(res.data);
+        try {
+          localStorage.setItem("cachedTaskListJobs", JSON.stringify(res.data));
+        } catch (e) {}
       } else {
         setTaskListJobs([]);
       }
