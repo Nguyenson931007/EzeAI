@@ -10,6 +10,7 @@ import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
 import InsulationJobsModal from "@/components/InsulationJobsModal";
 import UserProfileModal from "@/components/UserProfileModal";
 import SettingsModal from "@/components/SettingsModal";
+import { createToolAiJwt } from "@/utils/toolAiSso";
 
 const CAD_ICONS = {
   Settings: () => (
@@ -598,65 +599,47 @@ export default function RibbonView({
       }
 
       const target = new URL("http://14.241.197.188:7642/");
+      target.searchParams.set("source", "tool-ai");
+      target.searchParams.set("sso", "tool-ai");
       if (finalDeepLinkJob) {
         target.searchParams.set("job", String(finalDeepLinkJob));
       }
-      if (emsId) {
-        target.searchParams.set("ems_id", String(emsId));
-        target.searchParams.set("id_job", String(emsId));
+
+      // Tạo Tool AI -> Procurement SSO JWT Token (HS256 với TOOL_AI_SSO_SECRET)
+      let toolAiJwt = null;
+      try {
+        const ssoRes = await ApiService.getProcurementSsoToken(manv || "EZE0090");
+        if (ssoRes?.status === "success" && ssoRes.token) {
+          toolAiJwt = ssoRes.token;
+        }
+      } catch (e) {}
+
+      if (!toolAiJwt) {
+        toolAiJwt = await createToolAiJwt(manv || "EZE0090");
       }
-      if (idHW) {
-        target.searchParams.set("id_HW", String(idHW));
-        target.searchParams.set("id_hw", String(idHW));
-      }
-      if (jobNum) {
-        target.searchParams.set("job_num", String(jobNum));
-        target.searchParams.set("job_number", String(jobNum));
-      }
-      if (token) {
-        target.searchParams.set("token", String(token));
-        target.searchParams.set("sso_token", String(token));
-      }
-      if (username) {
-        target.searchParams.set("user", String(username));
-        target.searchParams.set("username", String(username));
-        target.searchParams.set("UserID", String(username));
-      }
-      if (sessionPassword) {
-        target.searchParams.set("pwd", String(sessionPassword));
-        target.searchParams.set("password", String(sessionPassword));
-        target.searchParams.set("pass", String(sessionPassword));
-      }
-      if (manv) {
-        target.searchParams.set("ma_nv", String(manv));
-        target.searchParams.set("employee_code", String(manv));
-      }
-      target.searchParams.set("auto_login", "true");
-      target.searchParams.set("autologin", "1");
-      target.searchParams.set("source", "tool-ai");
-      target.searchParams.set("sso", "tool-ai");
 
       console.log(
-        "[Procurement] Đang đóng gói dữ liệu và gửi sang Procurement...",
+        "[Procurement SSO] Đang mở Procurement với Tool AI SSO Contract...",
         {
           target: target.toString(),
-          payload
+          ma_nv: manv || "EZE0090",
+          hasToolAiJwt: !!toolAiJwt
         }
       );
 
-      // Mở Procurement
+      // 1. Mở Procurement bằng window.open để giữ window.opener
       const popup = window.open(target.toString(), "_blank");
       if (!popup) {
-        showAlert("Popup bị chặn.", "Lỗi");
+        showAlert("Popup bị chặn. Vui lòng cho phép popup trên trình duyệt.", "Lỗi");
         return;
       }
 
-      // Gửi SSO credentials qua postMessage
-      if (token || username) {
+      // 2. postMessage token sang cửa sổ Procurement vừa mở
+      if (toolAiJwt) {
         let attempts = 0;
         let timer = null;
         const sendSso = () => {
-          if (popup.closed || attempts >= 24) {
+          if (popup.closed || attempts >= 30) {
             if (timer) {
               clearInterval(timer);
             }
@@ -664,11 +647,12 @@ export default function RibbonView({
           }
           attempts++;
           try {
+            // Đúng theo hợp đồng SSO Tool AI -> Procurement
             popup.postMessage(
               {
                 type: "PROCUREMENT_SSO",
                 action: "AUTO_LOGIN",
-                token: token,
+                token: toolAiJwt || token,
                 sso_token: token,
                 user: username,
                 username: username,
@@ -683,7 +667,7 @@ export default function RibbonView({
               {
                 type: "TASK_LIST_WEB3_SSO",
                 action: "AUTO_LOGIN",
-                token: token,
+                token: toolAiJwt || token,
                 task_list_token: token,
                 sso_token: token,
                 accessToken: token,
@@ -703,12 +687,13 @@ export default function RibbonView({
               target.origin
             );
           } catch (err) {
-            console.warn("[Procurement] Lỗi gửi SSO:", err);
+            console.warn("[Procurement] Lỗi gửi Tool AI SSO Token:", err);
           }
         };
-        timer = setInterval(sendSso, 250);
+        timer = setInterval(sendSso, 200);
         sendSso();
       }
+
       if (sendSuccess) {
         showAlert(
           "Đã mở Procurement và đồng bộ thông tin Job thành công!",
