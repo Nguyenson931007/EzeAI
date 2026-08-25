@@ -843,3 +843,40 @@ def update_current_user_profile(
     finally:
         conn.close()
 
+
+@router.post("/api/auth/procurement-sso-token")
+@router.post("/jobs/procurement-sso-token")
+async def generate_procurement_sso_token(payload: dict):
+    """
+    Tạo HS256 JWT Token cho Tool AI -> Procurement SSO Contract.
+    Ký bằng secret TOOL_AI_SSO_SECRET với payload chứa ma_nv.
+    """
+    import hmac
+    import base64
+    import json
+    import time
+
+    ma_nv = payload.get("ma_nv") or "EZE0090"
+    secret = os.getenv("TOOL_AI_SSO_SECRET", "DM6qyxmexfqAbBM43rfhVjN8PmYxokVM/OsGtdFOY4hVn9gIp1aRvzfes/1CEtQ9")
+
+    header = {"alg": "HS256", "typ": "JWT"}
+    jwt_payload = {
+        "ma_nv": str(ma_nv).strip(),
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 300  # 5 phút thời hạn
+    }
+
+    def _b64url(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
+
+    header_b64 = _b64url(json.dumps(header, separators=(',', ':')).encode('utf-8'))
+    payload_b64 = _b64url(json.dumps(jwt_payload, separators=(',', ':')).encode('utf-8'))
+
+    signing_input = f"{header_b64}.{payload_b64}".encode('utf-8')
+    signature = hmac.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest()
+    sig_b64 = _b64url(signature)
+
+    token = f"{header_b64}.{payload_b64}.{sig_b64}"
+    logger.info(f"[Procurement SSO] Đã tạo Tool AI JWT Token cho ma_nv={ma_nv}")
+    return {"status": "success", "token": token, "ma_nv": ma_nv}
+
