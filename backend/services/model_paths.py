@@ -28,6 +28,12 @@ MODEL_CANDIDATES = {
     "wall_seg": [
         BASE_DIR / "backend" / "models" / "Walls" / "best.pt",
     ],
+    "wall_prior": [
+        BASE_DIR / "backend" / "models" / "WallPrior" / "best.pt",
+        BASE_DIR / "models" / "WallPrior" / "best.pt",
+        BASE_DIR / "backend" / "runs" / "segment" / "WallPrior" / "weights" / "best.pt",
+        BASE_DIR / "runs" / "segment" / "WallPrior" / "weights" / "best.pt",
+    ],
     "text": [
         BASE_DIR / "backend" / "models" / "Text" / "weights" / "best.pt",
         BASE_DIR / "backend" / "runs" / "detect" / "Text" / "weights" / "best.pt",

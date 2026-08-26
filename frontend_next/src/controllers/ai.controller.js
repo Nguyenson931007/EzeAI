@@ -758,9 +758,8 @@ export const useAIController = (
           if (event.walls) {
             let detectedWalls = event.walls.map(w => {
               const rawCls = getWallClass(w);
-              // All internal walls default to partition_wall (non-LBW) until user activates LBW
-              const class_name = rawCls === "exterior_wall" ? "exterior_wall" : (rawCls === "block_wall" ? "block_wall" : "partition_wall");
-              const wall_type = class_name === "exterior_wall" ? "ext" : (class_name === "block_wall" ? "block" : "part");
+              const class_name = rawCls;
+              const wall_type = class_name === "exterior_wall" ? "ext" : (class_name === "block_wall" ? "block" : (class_name === "partition_wall" ? "part" : "int"));
               // Always use user-configured thickness based on frontend class determination
               // (backend may classify differently from getWallClass, causing mismatches)
               const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);

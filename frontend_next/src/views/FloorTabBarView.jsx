@@ -58,7 +58,7 @@ export default function FloorTabBarView({
                 onClick={async (e) => {
                   e.stopPropagation();
                   if (await showConfirm(`Delete ${levelName}?`)) {
-                    if (onDeletePage) onDeletePage(e, idx);
+                    if (onDeletePage) onDeletePage(idx);
                   }
                 }}
                 title="Delete Level"
