@@ -2763,6 +2763,7 @@ export default function CanvasView({
   isDrawingDoor,
   isDrawingRoof,
   roofInteractionState,
+  setRoofInteractionState,
   selectedRoofId,
   setSelectedRoofId,
   hoveredRoofTarget,
@@ -2770,6 +2771,7 @@ export default function CanvasView({
   updateRoofType,
   updateRoofEdgeAngle,
   updateRoofEdgeOverhang,
+  setRoofEdgeMode,
   toggleDutchEdge,
   updateDutchOverhang,
   updateDutchRakeOverhang,
@@ -2827,6 +2829,7 @@ export default function CanvasView({
   selectWall,
   cutPreviewPoint,
   interactionMode,
+  setInteractionMode,
   roiProgress,
   cacheStatus,
   inferenceTiming,
@@ -2859,34 +2862,33 @@ export default function CanvasView({
   hoveredSearchResultId = null,
   zoomToBbox,
   dragging,
-  showPDF,
+  showPDF = true,
   setShowPDF,
-  selectedWallVertex,
+  selectedWallVertex = null,
   extRectStart,
   setSelectedWallVertex,
-  drawingWall,
-  drawingWallEnd,
+  drawingWall = null,
+  drawingWallEnd = null,
   deleteWalls,
   autoMergeCollinearWalls,
   updateWallsProperty,
-  setInteractionMode,
   pullStepPreview,
   setPullStepInfo,
   handleWallDoubleClick,
-  isWallSnapEnabled,
+  isWallSnapEnabled = true,
   setIsWallSnapEnabled,
   setDrawingWall,
   setDrawingWallEnd,
   straightenWall,
-  vertexMenu,
+  vertexMenu = { visible: false, x: 0, y: 0, vertex: null },
   setVertexMenu,
-  wallBodyMenu,
+  wallBodyMenu = { visible: false, x: 0, y: 0, wall: null },
   setWallBodyMenu,
-  isWallMergeDisabled,
+  isWallMergeDisabled = false,
   setIsWallMergeDisabled,
   startDrawWallFromVertex,
   separateJunction,
-  selectedVertices,
+  selectedVertices = [],
   setSelectedVertices,
   startVertexMove,
   lintelController,
@@ -2934,6 +2936,14 @@ export default function CanvasView({
 
   const handleRoofContextMenu = (e, roof, edgeIndex) => {
     e.preventDefault();
+    e.stopPropagation();
+    if (setSelectedRoofId) setSelectedRoofId(roof.id);
+    if (setSelectedId) setSelectedId(roof.id);
+    if (setSelectedType) setSelectedType('roof');
+    if (setSelectedRoofEdgeIndex) setSelectedRoofEdgeIndex(edgeIndex);
+    if (roof.roofType === 'shed' && setRoofEaveEdge && edgeIndex !== undefined && edgeIndex !== null) {
+      setRoofEaveEdge(roof.id, edgeIndex);
+    }
     setRoofContextMenu({ visible: true, x: e.clientX, y: e.clientY, roof, edgeIndex });
   };
   const closeRoofContextMenu = () => {
@@ -4217,11 +4227,18 @@ export default function CanvasView({
                         const vertCoords = (face.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
                         if (vertCoords.length < 3) return null;
 
-                        const isFaceSelected = isSelected && selectedRoofEdgeIndex !== null && face.contour_edge_index !== undefined && selectedRoofEdgeIndex === face.contour_edge_index;
+                        const isFaceSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined && face.contour_edge_index !== undefined && selectedRoofEdgeIndex === face.contour_edge_index;
                         const isFaceHovered = isHovered && (
                           hoveredRoofTarget?.faceId === face.id ||
                           (hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null && face.contour_edge_index !== undefined && hoveredRoofTarget?.edgeIndex === face.contour_edge_index)
                         );
+
+                        const isDutchFace = (Array.isArray(roof.dutchEdges) && roof.dutchEdges.includes(face.contour_edge_index));
+                        const activeEdgeIdx = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined) ? selectedRoofEdgeIndex : roofInteractionState?.edgeIndex;
+                        const isDrawingDutchThisEdge = (interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") &&
+                                                      (selectedRoofId === roof.id || roofInteractionState?.roofId === roof.id) &&
+                                                      activeEdgeIdx !== null && activeEdgeIdx !== undefined &&
+                                                      activeEdgeIdx === face.contour_edge_index;
 
                         const FACE_COLORS = [
                           'rgba(245, 158, 11, 0.12)',
@@ -4238,7 +4255,15 @@ export default function CanvasView({
                         let stroke = "none";
                         let strokeWidth = 0;
 
-                        if (isFaceSelected) {
+                        if (isDrawingDutchThisEdge) {
+                          fill = "rgba(239, 68, 68, 0.25)";
+                          stroke = "#ef4444";
+                          strokeWidth = 3.0 / scale;
+                        } else if (isDutchFace) {
+                          fill = "rgba(244, 63, 94, 0.20)";
+                          stroke = "#f43f5e";
+                          strokeWidth = 2.4 / scale;
+                        } else if (isFaceSelected) {
                           fill = "rgba(245, 158, 11, 0.32)";
                           stroke = "#f59e0b";
                           strokeWidth = 2.0 / scale;
@@ -4277,7 +4302,7 @@ export default function CanvasView({
                         const p2 = getNodeCoord(edge.target);
                         if (!p1 || !p2) return null;
 
-                        const isEdgeRelated = isSelected && selectedRoofEdgeIndex !== null && edge.contour_edge_index === selectedRoofEdgeIndex;
+                        const isEdgeRelated = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined && edge.contour_edge_index === selectedRoofEdgeIndex;
                         const isHoverRelated = isHovered && hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null && edge.contour_edge_index === hoveredRoofTarget.edgeIndex;
                         const isHighlighted = isEdgeRelated || isHoverRelated;
 
@@ -4325,7 +4350,7 @@ export default function CanvasView({
 
                   {/* Active Selected / Hovered Edge Highlight (Dynamically mapped to outer eave contour on OVH) */}
                   {(roof.polygon || []).map((_, eIdx) => {
-                    const isEdgeSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex === eIdx;
+                    const isEdgeSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined && selectedRoofEdgeIndex === eIdx;
                     const isEdgeHovered = isHovered && (
                       (hoveredRoofTarget?.type === 'edge' && hoveredRoofTarget?.edgeIndex === eIdx) ||
                       (hoveredRoofTarget?.type === 'face' && hoveredRoofTarget?.edgeIndex === eIdx)
@@ -5401,13 +5426,23 @@ export default function CanvasView({
               return null;
             })()}
 
-            {interactionMode === "draw-dutch" && selectedRoofId && selectedRoofEdgeIndex !== null && currentMouse && (() => {
-              const roof = (roofs || []).find(r => r.id === selectedRoofId);
-              if (!roof || !roof.v3Data || !roof.v3Data.topology2D || !roof.v3Data.topology2D.faces) return null;
+            {(interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") &&
+             (selectedRoofId || roofInteractionState?.roofId) &&
+             currentMouse && (() => {
+              const targetRoofId = selectedRoofId || roofInteractionState?.roofId;
+              const rawEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
+                ? selectedRoofEdgeIndex
+                : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
+                ? roofInteractionState.edgeIndex
+                : null;
+              if (rawEdgeIndex === null || rawEdgeIndex === undefined || typeof rawEdgeIndex !== 'number') return null;
+              const targetEdgeIndex = rawEdgeIndex;
+              const roof = (roofs || []).find(r => r.id === targetRoofId);
+              if (!roof) return null;
               
-              const topo = roof.v3Data.topology2D;
-              const nodes = topo.nodes || [];
-              const faces = topo.faces || [];
+              const topo = roof.v3Data?.topology2D;
+              const nodes = topo?.nodes || [];
+              const faces = topo?.faces || [];
               const mmPerPx = (typeof realScale === 'number' && realScale > 0)
                       ? realScale
                       : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
@@ -5431,14 +5466,16 @@ export default function CanvasView({
 
               const poly = roof.polygon || [];
               const nPts = poly.length;
-              if (nPts < 3 || selectedRoofEdgeIndex < 0 || selectedRoofEdgeIndex >= nPts) return null;
+              if (nPts < 3 || targetEdgeIndex < 0 || targetEdgeIndex >= nPts) return null;
 
-              const eaveP1 = poly[selectedRoofEdgeIndex];
-              const eaveP2 = poly[(selectedRoofEdgeIndex + 1) % nPts];
-              const e1x = typeof eaveP1.x === 'number' ? eaveP1.x : eaveP1[0];
-              const e1y = typeof eaveP1.y === 'number' ? eaveP1.y : eaveP1[1];
-              const e2x = typeof eaveP2.x === 'number' ? eaveP2.x : eaveP2[0];
-              const e2y = typeof eaveP2.y === 'number' ? eaveP2.y : eaveP2[1];
+              const eaveP1 = poly[targetEdgeIndex];
+              const eaveP2 = poly[(targetEdgeIndex + 1) % nPts];
+              if (!eaveP1 || !eaveP2) return null;
+
+              const e1x = typeof eaveP1.x === 'number' ? eaveP1.x : (Array.isArray(eaveP1) ? eaveP1[0] : 0);
+              const e1y = typeof eaveP1.y === 'number' ? eaveP1.y : (Array.isArray(eaveP1) ? eaveP1[1] : 0);
+              const e2x = typeof eaveP2.x === 'number' ? eaveP2.x : (Array.isArray(eaveP2) ? eaveP2[0] : 0);
+              const e2y = typeof eaveP2.y === 'number' ? eaveP2.y : (Array.isArray(eaveP2) ? eaveP2[1] : 0);
 
               const eMidX = (e1x + e2x) / 2;
               const eMidY = (e1y + e2y) / 2;
@@ -5462,185 +5499,157 @@ export default function CanvasView({
                 iny = -iny;
               }
 
-              // Robust geometric matching for target face
+              // 1. Direct and exact target face matching
               let targetFace = null;
-              let bestScore = Infinity;
-
-              for (const f of faces) {
-                const vCoords = (f.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
-                if (vCoords.length < 3) continue;
-
-                let minSegDist = Infinity;
-                let bestAlign = 0;
-
-                for (let i = 0; i < vCoords.length; i++) {
-                  const vp1 = vCoords[i];
-                  const vp2 = vCoords[(i + 1) % vCoords.length];
-                  const segDx = vp2.x - vp1.x;
-                  const segDy = vp2.y - vp1.y;
-                  const segLen2 = segDx * segDx + segDy * segDy;
-                  if (segLen2 < 1e-4) continue;
-
-                  const segLen = Math.sqrt(segLen2);
-                  const align = Math.abs(ux * (segDx / segLen) + uy * (segDy / segLen));
-                  const t = Math.max(0, Math.min(1, ((eMidX - vp1.x) * segDx + (eMidY - vp1.y) * segDy) / segLen2));
-                  const projX = vp1.x + t * segDx;
-                  const projY = vp1.y + t * segDy;
-                  const d = Math.hypot(eMidX - projX, eMidY - projY);
-
-                  if (d < minSegDist) {
-                    minSegDist = d;
-                    bestAlign = align;
-                  }
-                }
-
-                const fCentroidX = vCoords.reduce((s, v) => s + v.x, 0) / vCoords.length;
-                const fCentroidY = vCoords.reduce((s, v) => s + v.y, 0) / vCoords.length;
-                const isInward = ((fCentroidX - eMidX) * inx + (fCentroidY - eMidY) * iny) >= -2;
-
-                let score = minSegDist;
-                if (!isInward) score += 5000;
-                if (bestAlign < 0.7) score += 2000;
-                if (f.contour_edge_index === selectedRoofEdgeIndex && minSegDist < 40) {
-                  score -= 10;
-                }
-
-                if (score < bestScore) {
-                  bestScore = score;
-                  targetFace = f;
-                }
+              if (faces && faces.length > 0) {
+                targetFace = faces.find(f => f.contour_edge_index === targetEdgeIndex);
               }
 
-              if (!targetFace) {
-                targetFace = faces.find(f => f.contour_edge_index === selectedRoofEdgeIndex) || faces[0];
+              let vertCoords = [];
+              if (targetFace && Array.isArray(targetFace.vertices) && targetFace.vertices.length >= 3) {
+                vertCoords = targetFace.vertices.map(vRef => getNodeCoord(vRef)).filter(Boolean);
+              }
+              if (vertCoords.length < 3) {
+                vertCoords = [
+                  { x: e1x, y: e1y },
+                  { x: e2x, y: e2y },
+                  { x: cPolyX, y: cPolyY }
+                ];
               }
 
-              if (!targetFace || !targetFace.vertices) return null;
+              // Face centroid for guidance badge
+              const fCentroidX = vertCoords.reduce((s, v) => s + v.x, 0) / vertCoords.length;
+              const fCentroidY = vertCoords.reduce((s, v) => s + v.y, 0) / vertCoords.length;
 
-              const vertCoords = targetFace.vertices.map(vRef => getNodeCoord(vRef)).filter(Boolean);
-              if (vertCoords.length < 3) return null;
+              // 2. Point in polygon test: Is mouse inside this target roof face?
+              let isMouseInside = false;
+              for (let i = 0, j = vertCoords.length - 1; i < vertCoords.length; j = i++) {
+                const xi = vertCoords[i].x, yi = vertCoords[i].y;
+                const xj = vertCoords[j].x, yj = vertCoords[j].y;
+                const intersect = ((yi > currentMouse.y) !== (yj > currentMouse.y))
+                    && (currentMouse.x < (xj - xi) * (currentMouse.y - yi) / (yj - yi) + xi);
+                if (intersect) isMouseInside = !isMouseInside;
+              }
 
-              // --- Magnetic Snap to Skeleton/Ridge vertices & lower apex nodes ---
-              const snapThreshold = 24 / scale;
+              // 3. Magnetic Snap to Ridge Apex vertices of this face
+              const snapThreshold = 32 / scale;
               let isSnapped = false;
               let snapVertex = null;
 
-              // 1. Check all vertices of targetFace (prioritizing skeleton/ridge nodes)
-              for (const vRef of (targetFace.vertices || [])) {
-                const coord = getNodeCoord(vRef);
-                if (!coord) continue;
-                let nodeObj = null;
-                if (typeof vRef === 'object' && vRef !== null) nodeObj = vRef;
-                else if (Array.isArray(nodes)) nodeObj = nodes[vRef] || nodes.find(n => n?.id === vRef);
-
-                const isSkeleton = nodeObj?.is_skeleton || !nodeObj?.is_contour;
-                const dist = Math.hypot(currentMouse.x - coord.x, currentMouse.y - coord.y);
-
+              for (const pt of vertCoords) {
+                const dist = Math.hypot(currentMouse.x - pt.x, currentMouse.y - pt.y);
                 if (dist < snapThreshold) {
-                  if (!snapVertex || dist < snapVertex.dist || (isSkeleton && !snapVertex.isSkeleton)) {
+                  if (!snapVertex || dist < snapVertex.dist) {
                     snapVertex = {
-                      x: coord.x,
-                      y: coord.y,
+                      x: pt.x,
+                      y: pt.y,
                       dist,
-                      id: nodeObj?.id,
-                      isSkeleton,
-                      label: isSkeleton ? "Ridge Apex" : "Corner"
+                      label: "Ridge Apex"
                     };
                     isSnapped = true;
                   }
                 }
               }
 
-              // 2. Also check other ridge/skeleton nodes across roof topology (e.g. lower ridge peak of complex roof)
-              if (!snapVertex) {
-                for (const node of nodes) {
-                  if (!node || node.is_contour) continue;
-                  const coord = getNodeCoord(node);
-                  if (!coord) continue;
-                  const dist = Math.hypot(currentMouse.x - coord.x, currentMouse.y - coord.y);
-                  if (dist < snapThreshold) {
-                    if (!snapVertex || dist < snapVertex.dist) {
-                      snapVertex = {
-                        x: coord.x,
-                        y: coord.y,
-                        dist,
-                        id: node.id,
-                        isSkeleton: true,
-                        label: "Ridge Apex"
-                      };
-                      isSnapped = true;
+              const isHoveringFace = isMouseInside || isSnapped;
+
+              // 4. Compute parallel cut line strictly inside target face
+              let cutLineP1 = null;
+              let cutLineP2 = null;
+              let closestPt = null;
+
+              if (isHoveringFace) {
+                const mouseX = isSnapped ? snapVertex.x : currentMouse.x;
+                const mouseY = isSnapped ? snapVertex.y : currentMouse.y;
+
+                const inx = -uy;
+                const iny = ux;
+
+                const intersections = [];
+                for (let i = 0; i < vertCoords.length; i++) {
+                  const p1 = vertCoords[i];
+                  const p2 = vertCoords[(i + 1) % vertCoords.length];
+                  const d1 = inx * (p1.x - mouseX) + iny * (p1.y - mouseY);
+                  const d2 = inx * (p2.x - mouseX) + iny * (p2.y - mouseY);
+
+                  if ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) {
+                    if (Math.abs(d1 - d2) > 1e-6) {
+                      const s = d1 / (d1 - d2);
+                      const ix = p1.x + s * (p2.x - p1.x);
+                      const iy = p1.y + s * (p2.y - p1.y);
+                      const tAlongU = (ix - eMidX) * ux + (iy - eMidY) * uy;
+                      intersections.push({ x: ix, y: iy, tAlongU });
                     }
                   }
                 }
-              }
 
-              // Find cut line segment clipped to target face polygon
-              const mouseX = isSnapped ? snapVertex.x : currentMouse.x;
-              const mouseY = isSnapped ? snapVertex.y : currentMouse.y;
-
-              const intersections = [];
-              for (let i = 0; i < vertCoords.length; i++) {
-                const p1 = vertCoords[i];
-                const p2 = vertCoords[(i + 1) % vertCoords.length];
-                const d1 = inx * (p1.x - mouseX) + iny * (p1.y - mouseY);
-                const d2 = inx * (p2.x - mouseX) + iny * (p2.y - mouseY);
-
-                if ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) {
-                  if (Math.abs(d1 - d2) > 1e-6) {
-                    const s = d1 / (d1 - d2);
-                    const ix = p1.x + s * (p2.x - p1.x);
-                    const iy = p1.y + s * (p2.y - p1.y);
-                    intersections.push({ x: ix, y: iy, tAlongU: (ix - eMidX) * ux + (iy - eMidY) * uy });
+                // Deduplicate intersections
+                const uniqueInts = [];
+                for (const pt of intersections) {
+                  if (!uniqueInts.some(u => Math.hypot(u.x - pt.x, u.y - pt.y) < 0.1)) {
+                    uniqueInts.push(pt);
                   }
+                }
+                uniqueInts.sort((a, b) => a.tAlongU - b.tAlongU);
+
+                if (uniqueInts.length >= 2) {
+                  cutLineP1 = uniqueInts[0];
+                  cutLineP2 = uniqueInts[uniqueInts.length - 1];
+                  closestPt = {
+                    x: isSnapped ? snapVertex.x : (cutLineP1.x + cutLineP2.x) / 2,
+                    y: isSnapped ? snapVertex.y : (cutLineP1.y + cutLineP2.y) / 2
+                  };
                 }
               }
 
-              intersections.sort((a, b) => a.tAlongU - b.tAlongU);
-
-              let cutLineP1, cutLineP2, closestPt;
-              if (intersections.length >= 2) {
-                cutLineP1 = intersections[0];
-                cutLineP2 = intersections[intersections.length - 1];
-                closestPt = {
-                  x: isSnapped ? snapVertex.x : (cutLineP1.x + cutLineP2.x) / 2,
-                  y: isSnapped ? snapVertex.y : (cutLineP1.y + cutLineP2.y) / 2
-                };
-              } else {
-                const cutExt = 4000;
-                closestPt = { x: mouseX, y: mouseY };
-                cutLineP1 = { x: mouseX - ux * cutExt, y: mouseY - uy * cutExt };
-                cutLineP2 = { x: mouseX + ux * cutExt, y: mouseY + uy * cutExt };
-              }
+              const commitCut = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (closestPt) {
+                  const targetPoint = isSnapped ? [snapVertex.x, snapVertex.y] : [closestPt.x, closestPt.y];
+                  if (updateDutchCutPoints) updateDutchCutPoints(targetRoofId, targetEdgeIndex, targetPoint);
+                }
+                if (setInteractionMode) setInteractionMode('select');
+                if (setRoofInteractionState) setRoofInteractionState(null);
+              };
 
               return (
                 <g style={{ pointerEvents: 'all' }}>
-                  {/* Highlight mặt mái được chọn */}
+                  {/* Highlight mặt mái được chọn (Tô viền đỏ bao quanh) */}
                   <polygon
                      points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
-                     fill="rgba(244, 63, 94, 0.28)"
-                     stroke="#f43f5e"
-                     strokeWidth={2.5 / scale}
-                     onMouseDown={(e) => {
-                         e.stopPropagation();
-                         e.preventDefault();
-                         updateDutchCutPoints && updateDutchCutPoints(selectedRoofId, selectedRoofEdgeIndex, [closestPt.x, closestPt.y]);
-                         if (setInteractionMode) setInteractionMode('select');
-                     }}
+                     fill={isHoveringFace ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.16)"}
+                     stroke="#ef4444"
+                     strokeWidth={(isHoveringFace ? 3.2 : 2.5) / scale}
+                     onMouseDown={commitCut}
                      style={{ cursor: "crosshair" }}
                   />
-                  {/* Đường preview vết cắt song song với eave edge */}
-                  <line
-                    x1={cutLineP1.x}
-                    y1={cutLineP1.y}
-                    x2={cutLineP2.x}
-                    y2={cutLineP2.y}
-                    stroke={isSnapped ? "#eab308" : "#f43f5e"}
-                    strokeWidth={(isSnapped ? 3.0 : 2.5) / scale}
-                    strokeDasharray={`${8 / scale},${6 / scale}`}
-                    pointerEvents="none"
-                  />
-                  {/* Điểm snap trên sống mái / viền */}
-                  <circle cx={closestPt.x} cy={closestPt.y} r={(isSnapped ? 7 : 6) / scale} fill={isSnapped ? "#eab308" : "#f43f5e"} stroke="#fff" strokeWidth={2/scale} pointerEvents="none" />
+
+                  {/* Đường preview vết cắt song song với eave edge (Chỉ render khi di chuột vào mặt mái) */}
+                  {isHoveringFace && cutLineP1 && cutLineP2 && (
+                    <>
+                      <line
+                        x1={cutLineP1.x}
+                        y1={cutLineP1.y}
+                        x2={cutLineP2.x}
+                        y2={cutLineP2.y}
+                        stroke={isSnapped ? "#fbbf24" : "#ef4444"}
+                        strokeWidth={(isSnapped ? 3.5 : 2.6) / scale}
+                        strokeDasharray={`${8 / scale},${5 / scale}`}
+                        pointerEvents="none"
+                      />
+                      {/* Điểm snap trên sống mái / viền */}
+                      <circle
+                        cx={closestPt.x}
+                        cy={closestPt.y}
+                        r={(isSnapped ? 7 : 5.5) / scale}
+                        fill={isSnapped ? "#fbbf24" : "#ef4444"}
+                        stroke="#fff"
+                        strokeWidth={2 / scale}
+                        pointerEvents="none"
+                      />
+                    </>
+                  )}
 
                   {/* Magnetic Snap Target Indicator */}
                   {isSnapped && snapVertex && (
@@ -5648,40 +5657,67 @@ export default function CanvasView({
                       <circle
                         cx={snapVertex.x}
                         cy={snapVertex.y}
-                        r={12 / scale}
+                        r={13 / scale}
                         fill="none"
-                        stroke="#eab308"
+                        stroke="#fbbf24"
                         strokeWidth={2.5 / scale}
                         strokeDasharray={`${4 / scale},${3 / scale}`}
                       />
                       <circle
                         cx={snapVertex.x}
                         cy={snapVertex.y}
-                        r={4.5 / scale}
-                        fill="#eab308"
+                        r={5 / scale}
+                        fill="#fbbf24"
                         stroke="#ffffff"
                         strokeWidth={1.5 / scale}
                       />
                       <rect
-                        x={snapVertex.x - 48 / scale}
-                        y={snapVertex.y - 28 / scale}
-                        width={96 / scale}
-                        height={18 / scale}
+                        x={snapVertex.x - 52 / scale}
+                        y={snapVertex.y - 30 / scale}
+                        width={104 / scale}
+                        height={20 / scale}
                         rx={4 / scale}
-                        fill="rgba(15, 23, 42, 0.88)"
-                        stroke="#eab308"
+                        fill="rgba(15, 23, 42, 0.92)"
+                        stroke="#fbbf24"
                         strokeWidth={1 / scale}
                       />
                       <text
                         x={snapVertex.x}
-                        y={snapVertex.y - 18 / scale}
-                        fill="#fde047"
-                        fontSize={10 / scale}
+                        y={snapVertex.y - 19 / scale}
+                        fill="#fef08a"
+                        fontSize={10.5 / scale}
                         fontWeight="bold"
                         textAnchor="middle"
                         dominantBaseline="central"
                       >
                         📍 Snap {snapVertex.label}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* Khi chuột chưa vào mặt mái: hiện gợi ý nhẹ tại tâm mặt mái */}
+                  {!isHoveringFace && (
+                    <g pointerEvents="none" opacity={0.85}>
+                      <rect
+                        x={fCentroidX - 58 / scale}
+                        y={fCentroidY - 12 / scale}
+                        width={116 / scale}
+                        height={24 / scale}
+                        rx={5 / scale}
+                        fill="rgba(15, 23, 42, 0.88)"
+                        stroke="#ef4444"
+                        strokeWidth={1 / scale}
+                      />
+                      <text
+                        x={fCentroidX}
+                        y={fCentroidY}
+                        fill="#fca5a5"
+                        fontSize={10 / scale}
+                        fontWeight="600"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                      >
+                        ✏️ Hover to draw cut
                       </text>
                     </g>
                   )}
@@ -5940,6 +5976,19 @@ export default function CanvasView({
         onClose={closeRoofContextMenu}
         onSetEaveEdge={setRoofEaveEdge}
         onUpdateEdgeAngle={updateRoofEdgeAngle}
+        onSetRoofEdgeMode={setRoofEdgeMode}
+        onToggleDutchEdge={toggleDutchEdge}
+        onStartDrawDutch={(roofId, edgeIdx) => {
+          if (setSelectedRoofId) setSelectedRoofId(roofId);
+          if (setSelectedRoofEdgeIndex) setSelectedRoofEdgeIndex(edgeIdx);
+          if (setInteractionMode) setInteractionMode('draw-dutch');
+          if (setRoofInteractionState) setRoofInteractionState({ type: 'draw-dutch', roofId, edgeIndex: edgeIdx });
+        }}
+        onCancelDrawDutch={() => {
+          if (setInteractionMode) setInteractionMode('select');
+          if (setRoofInteractionState) setRoofInteractionState(null);
+        }}
+        onUpdateRoofType={updateRoofType}
         onTrimEdge={trimRoofEdge}
         onDeleteRoof={deleteRoof}
       />

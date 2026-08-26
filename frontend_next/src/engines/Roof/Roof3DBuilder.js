@@ -165,7 +165,9 @@ export function buildRoof3DSceneObjects({
   enableShadows = true,
   roofColorMode = "palette", // "palette" | "single"
   singleRoofColor = "#334155", // default uniform color (or customizable)
-  showOutlines = true
+  showOutlines = true,
+  renderSampleWalls = true,
+  hasUserWalls = false
 }) {
   const createdObjects = [];
   if (!roof || !roof.v3Data) return createdObjects;
@@ -331,11 +333,12 @@ export function buildRoof3DSceneObjects({
     }
   }
 
-  // ── 3. RENDER 3D WALL SURFACES UNDER EAVES ──
+  // ── 3. RENDER 3D WALL SURFACES UNDER EAVES (SKIPPED IF USER HAS DRAWN WALLS) ──
+  const shouldRenderSampleWalls = renderSampleWalls && !hasUserWalls;
   const wVerts = wallMesh?.vertices || [];
   const wFaces = wallMesh?.faces || [];
 
-  if (wFaces.length > 0) {
+  if (shouldRenderSampleWalls && wFaces.length > 0) {
     const wPositions = [];
     wFaces.forEach(face => {
       if (!Array.isArray(face) || face.length < 3) return;

@@ -2127,18 +2127,30 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushRoofHistory(updated);
   }
 
-  function applyDefaultPitchToAll(roofId, pitch) {
-    if (!roofId || pitch === undefined) return;
+  function applyDefaultSettingsToAll(roofId, pitch, overhang) {
+    if (!roofId) return;
     const pageRoofs = roofsByPage[currentPage] || [];
-    const val = Math.max(1, Math.min(89.9, parseFloat(pitch) || 22.5));
+    const pitchVal = (pitch !== undefined && pitch !== null)
+      ? Math.max(1, Math.min(89.9, parseFloat(pitch) || 22.5))
+      : null;
+    const ovhVal = (overhang !== undefined && overhang !== null)
+      ? Math.max(0, parseFloat(overhang) || 0.0)
+      : null;
+
     const updated = pageRoofs.map(r => {
       if (r.id === roofId) {
         const n = r.polygon?.length || 0;
-        const newAngles = Array(n).fill(val);
+        const newAngles = pitchVal !== null
+          ? Array(n).fill(pitchVal)
+          : (Array.isArray(r.angles) && r.angles.length === n ? [...r.angles] : Array(n).fill(22.5));
+        const newOverhangs = ovhVal !== null
+          ? Array(n).fill(ovhVal)
+          : (Array.isArray(r.overhangs) && r.overhangs.length === n ? [...r.overhangs] : Array(n).fill(0.0));
         return {
           ...r,
           angles: newAngles,
-          pitchAngle: val,
+          pitchAngle: pitchVal !== null ? pitchVal : r.pitchAngle,
+          overhangs: newOverhangs,
           isDirty: true
         };
       }
@@ -2147,23 +2159,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushRoofHistory(updated);
   }
 
+  function applyDefaultPitchToAll(roofId, pitch) {
+    if (!roofId || pitch === undefined) return;
+    applyDefaultSettingsToAll(roofId, pitch, null);
+  }
+
   function applyDefaultOverhangToAll(roofId, overhang) {
     if (!roofId || overhang === undefined) return;
-    const pageRoofs = roofsByPage[currentPage] || [];
-    const val = Math.max(0, parseFloat(overhang) || 0.0);
-    const updated = pageRoofs.map(r => {
-      if (r.id === roofId) {
-        const n = r.polygon?.length || 0;
-        const newOverhangs = Array(n).fill(val);
-        return {
-          ...r,
-          overhangs: newOverhangs,
-          isDirty: true
-        };
-      }
-      return r;
-    });
-    pushRoofHistory(updated);
+    applyDefaultSettingsToAll(roofId, null, overhang);
   }
 
   function updateRoofEdgeAngle(roofId, edgeIndex, angle) {
@@ -2215,6 +2218,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const currentDutchOverhangs = Array.isArray(r.dutchOverhangs) && r.dutchOverhangs.length === n ? [...r.dutchOverhangs] : Array(n).fill(0.0);
         const currentDutchRakeOverhangs = Array.isArray(r.dutchRakeOverhangs) && r.dutchRakeOverhangs.length === n ? [...r.dutchRakeOverhangs] : Array(n).fill(0.0);
         const currentDutchCutPoints = Array.isArray(r.dutchCutPoints) && r.dutchCutPoints.length === n ? [...r.dutchCutPoints] : Array(n).fill(null);
+        const currentAngles = Array.isArray(r.angles) && r.angles.length === n ? [...r.angles] : Array(n).fill(r.pitchAngle || 22.5);
 
         const idx = currentDutchEdges.indexOf(edgeIndex);
         if (idx !== -1) {
@@ -2222,13 +2226,76 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           currentDutchCutPoints[edgeIndex] = null; // Clear drawn cut point if toggled off
         } else {
           currentDutchEdges.push(edgeIndex);
+          // If this edge was currently Gable (90°), restore pitch to r.pitchAngle (if not 90°) or default 22.5°
+          if (Math.abs(currentAngles[edgeIndex] - 90.0) < 1.0) {
+            const restoredPitch = (typeof r.pitchAngle === 'number' && r.pitchAngle > 0 && Math.abs(r.pitchAngle - 90.0) >= 1.0)
+              ? r.pitchAngle
+              : 22.5;
+            currentAngles[edgeIndex] = restoredPitch;
+          }
         }
         return {
           ...r,
+          angles: currentAngles,
           dutchEdges: currentDutchEdges,
           dutchOverhangs: currentDutchOverhangs,
           dutchRakeOverhangs: currentDutchRakeOverhangs,
           dutchCutPoints: currentDutchCutPoints,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function setRoofEdgeMode(roofId, edgeIndex, mode) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentAngles = Array.isArray(r.angles) && r.angles.length === n
+          ? [...r.angles]
+          : Array(n).fill(r.pitchAngle || 22.5);
+        const currentDutchEdges = Array.isArray(r.dutchEdges) ? [...r.dutchEdges] : [];
+        const currentDutchCutPoints = Array.isArray(r.dutchCutPoints) && r.dutchCutPoints.length === n
+          ? [...r.dutchCutPoints]
+          : Array(n).fill(null);
+        const currentDutchOverhangs = Array.isArray(r.dutchOverhangs) && r.dutchOverhangs.length === n
+          ? [...r.dutchOverhangs]
+          : Array(n).fill(0.0);
+        const currentDutchRakeOverhangs = Array.isArray(r.dutchRakeOverhangs) && r.dutchRakeOverhangs.length === n
+          ? [...r.dutchRakeOverhangs]
+          : Array(n).fill(0.0);
+
+        const restoredPitch = (typeof r.pitchAngle === 'number' && r.pitchAngle > 0 && Math.abs(r.pitchAngle - 90.0) >= 1.0)
+          ? r.pitchAngle
+          : 22.5;
+
+        const dIdx = currentDutchEdges.indexOf(edgeIndex);
+
+        if (mode === 'hip') {
+          currentAngles[edgeIndex] = restoredPitch;
+          if (dIdx !== -1) currentDutchEdges.splice(dIdx, 1);
+          currentDutchCutPoints[edgeIndex] = null;
+        } else if (mode === 'gable') {
+          currentAngles[edgeIndex] = 90.0;
+          if (dIdx !== -1) currentDutchEdges.splice(dIdx, 1);
+          currentDutchCutPoints[edgeIndex] = null;
+        } else if (mode === 'dutch') {
+          if (Math.abs(currentAngles[edgeIndex] - 90.0) < 1.0) {
+            currentAngles[edgeIndex] = restoredPitch;
+          }
+          if (dIdx === -1) currentDutchEdges.push(edgeIndex);
+        }
+
+        return {
+          ...r,
+          angles: currentAngles,
+          dutchEdges: currentDutchEdges,
+          dutchCutPoints: currentDutchCutPoints,
+          dutchOverhangs: currentDutchOverhangs,
+          dutchRakeOverhangs: currentDutchRakeOverhangs,
           isDirty: true
         };
       }
@@ -2377,8 +2444,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     pushRoofHistory([...pageRoofs, newRoof]);
     setSelectedRoofId(roofId);
+    setSelectedId(roofId);
+    setSelectedType("roof");
     setCurrentPoly([]);
     setIsDrawingRoof(false); // Kết thúc chế độ vẽ ngay khi hoàn thành mái
+    if (setInteractionMode) setInteractionMode("select");
   }
 
   async function computeSelectedRoof(roofId = selectedRoofId) {
@@ -2480,84 +2550,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushRoofHistory(updated);
   }
 
-  function toggleDutchEdge(roofId, edgeIndex) {
-    const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => {
-      if (r.id === roofId) {
-        const currentDutchEdges = Array.isArray(r.dutchEdges) ? [...r.dutchEdges] : [];
-        const exists = currentDutchEdges.includes(edgeIndex);
-        const newDutchEdges = exists
-          ? currentDutchEdges.filter(i => i !== edgeIndex)
-          : [...currentDutchEdges, edgeIndex];
 
-        return {
-          ...r,
-          dutchEdges: newDutchEdges,
-          isDirty: true
-        };
-      }
-      return r;
-    });
-    pushRoofHistory(updated);
-  }
-
-  function updateDutchOverhang(roofId, edgeIndex, value) {
-    const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => {
-      if (r.id === roofId) {
-        const ovhs = Array.isArray(r.dutchOverhangs) ? [...r.dutchOverhangs] : [];
-        ovhs[edgeIndex] = value;
-        return {
-          ...r,
-          dutchOverhangs: ovhs,
-          isDirty: true
-        };
-      }
-      return r;
-    });
-    pushRoofHistory(updated);
-  }
-
-  function updateDutchRakeOverhang(roofId, edgeIndex, value) {
-    const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => {
-      if (r.id === roofId) {
-        const rakeOvhs = Array.isArray(r.dutchRakeOverhangs) ? [...r.dutchRakeOverhangs] : [];
-        rakeOvhs[edgeIndex] = value;
-        return {
-          ...r,
-          dutchRakeOverhangs: rakeOvhs,
-          isDirty: true
-        };
-      }
-      return r;
-    });
-    pushRoofHistory(updated);
-  }
-
-  function updateDutchCutPoints(roofId, edgeIndex, pt) {
-    const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => {
-      if (r.id === roofId) {
-        const currentDutchEdges = Array.isArray(r.dutchEdges) ? [...r.dutchEdges] : [];
-        if (!currentDutchEdges.includes(edgeIndex)) {
-          currentDutchEdges.push(edgeIndex);
-        }
-
-        const cutPoints = Array.isArray(r.dutchCutPoints) ? [...r.dutchCutPoints] : [];
-        cutPoints[edgeIndex] = pt;
-
-        return {
-          ...r,
-          dutchEdges: currentDutchEdges,
-          dutchCutPoints: cutPoints,
-          isDirty: true
-        };
-      }
-      return r;
-    });
-    pushRoofHistory(updated);
-  }
 
   function finishDoor(points = currentDoor) {
     doorController.finishDoor(points);
@@ -3597,6 +3590,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const pageRoofs = roofsByPage[currentPage] || [];
       let foundHover = null;
 
+      const isDrawingDutchMode = (interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch");
+
       for (let i = pageRoofs.length - 1; i >= 0; i--) {
         const roof = pageRoofs[i];
         const bbox = getBoundingBox(roof.polygon);
@@ -3644,7 +3639,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                 faceId: face.id,
                 edgeIndex: eIdx >= 0 ? eIdx : null
               };
-              setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+              if (!isDrawingDutchMode) setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
               break;
             }
           }
@@ -3664,7 +3659,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
                   roofId: roof.id,
                   edgeIndex: cEdge.contour_edge_index !== undefined && cEdge.contour_edge_index >= 0 ? cEdge.contour_edge_index : null
                 };
-                setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+                if (!isDrawingDutchMode) setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
                 break;
               }
             }
@@ -3676,7 +3671,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const eHit = nearestEdge(roof.polygon, p, 10, scale);
           if (eHit) {
             foundHover = { type: 'edge', roofId: roof.id, edgeIndex: eHit.edgeIndex };
-            setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+            if (!isDrawingDutchMode) setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
             break;
           }
         }
@@ -3685,7 +3680,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       setHoveredRoofTarget(foundHover);
-      if (!foundHover && roofInteractionState !== RoofInteractionState.DRAWING_ROOF && roofInteractionState !== RoofInteractionState.PANNING) {
+      if (!isDrawingDutchMode && !foundHover && roofInteractionState !== RoofInteractionState.DRAWING_ROOF && roofInteractionState !== RoofInteractionState.PANNING) {
         setRoofInteractionState(RoofInteractionState.IDLE);
       }
     }
@@ -3750,11 +3745,41 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     const p = getMouse(e);
 
-    if (interactionMode === "draw-dutch" && e.button === 0) {
-      if (selectedRoofId && selectedRoofEdgeIndex !== null) {
-        updateDutchCutPoints(selectedRoofId, selectedRoofEdgeIndex, [p.x, p.y]);
+    if ((interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") && e.button === 0) {
+      const activeRoofId = selectedRoofId || roofInteractionState?.roofId;
+      const activeEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
+        ? selectedRoofEdgeIndex
+        : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
+        ? roofInteractionState.edgeIndex
+        : null;
+      if (activeRoofId && activeEdgeIndex !== null && activeEdgeIndex !== undefined && typeof activeEdgeIndex === 'number') {
+        let cutPoint = [p.x, p.y];
+        const pageRoofs = roofsByPage[currentPage] || [];
+        const roof = pageRoofs.find(r => r.id === activeRoofId);
+        if (roof?.v3Data?.topology2D) {
+          const topo = roof.v3Data.topology2D;
+          const nodes = topo.nodes || [];
+          const faces = topo.faces || [];
+          const mmPerPx = (typeof realScale === 'number' && realScale > 0) ? realScale : 20.0;
+          const targetFace = (faces || []).find(f => f.contour_edge_index === activeEdgeIndex);
+          const snapThreshold = 32 / scale;
+          if (targetFace?.vertices) {
+            for (const vRef of targetFace.vertices) {
+              const node = (typeof vRef === 'object' && vRef !== null) ? vRef : (Array.isArray(nodes) ? (nodes[vRef] || nodes.find(n => n?.id === vRef)) : null);
+              if (!node) continue;
+              const nx = (typeof node.x === 'number' ? node.x : node[0]) / mmPerPx;
+              const ny = (typeof node.y === 'number' ? node.y : node[1]) / mmPerPx;
+              if (Math.hypot(p.x - nx, p.y - ny) < snapThreshold) {
+                cutPoint = [nx, ny];
+                break;
+              }
+            }
+          }
+        }
+        if (updateDutchCutPoints) updateDutchCutPoints(activeRoofId, activeEdgeIndex, cutPoint);
       }
       setInteractionMode("select");
+      setRoofInteractionState(RoofInteractionState.IDLE);
       return;
     }
 
@@ -4338,7 +4363,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     hoveredRoofTarget, setHoveredRoofTarget,
     activeRoofDragTarget,
     roofHistory, roofFuture,
-    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    setRoofEdgeMode,
     exportRoofIO,
     toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,

@@ -872,6 +872,7 @@ export default function ThreeDView({
 
           // Case 1: Roof has V3 computed 3D Mesh
           if (roof.v3Data && (roof.v3Data.roofMesh || roof.v3Data.roof_mesh || roof.v3Data.mesh3D || roof.v3Data.mesh)) {
+            const hasUserWalls = Array.isArray(pageWalls) && pageWalls.length > 0;
             const roofObjects = buildRoof3DSceneObjects({
               roof,
               mmPerPx,
@@ -881,7 +882,9 @@ export default function ThreeDView({
               enableShadows,
               roofColorMode,
               singleRoofColor,
-              showOutlines: showRoofOutlines
+              showOutlines: showRoofOutlines,
+              hasUserWalls,
+              renderSampleWalls: !hasUserWalls
             });
 
             roofObjects.forEach(obj => {

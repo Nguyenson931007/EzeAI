@@ -310,7 +310,8 @@ export default function App() {
     selectedRoofId, setSelectedRoofId,
     selectedRoofEdgeIndex, setSelectedRoofEdgeIndex,
     hoveredRoofTarget, setHoveredRoofTarget,
-    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    setRoofEdgeMode,
     exportRoofIO,
     toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,
@@ -1540,8 +1541,17 @@ export default function App() {
                     hoveredRoofTarget={hoveredRoofTarget}
                     updateRoofPitch={updateRoofPitch}
                     updateRoofType={updateRoofType}
+                    updateRoofEdgeAngle={updateRoofEdgeAngle}
+                    updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                    setRoofEdgeMode={setRoofEdgeMode}
+                    toggleDutchEdge={toggleDutchEdge}
+                    updateDutchOverhang={updateDutchOverhang}
+                    updateDutchCutPoints={updateDutchCutPoints}
+                    trimRoofEdge={trimRoofEdge}
+                    setRoofInteractionState={setRoofInteractionState}
                     setRoofEaveEdge={setRoofEaveEdge}
                     deleteRoof={deleteRoof}
+                    roofs={roofsByPage[currentPage] || []}
                     currentPoly={currentPoly}
                     currentDoor={currentDoor}
                     currentMouse={currentMouse}
@@ -1797,7 +1807,9 @@ export default function App() {
                 updateRoofType={updateRoofType}
                 updateRoofEdgeAngle={updateRoofEdgeAngle}
                 updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                setRoofEdgeMode={setRoofEdgeMode}
                 toggleDutchEdge={toggleDutchEdge}
+                setRoofInteractionState={setRoofInteractionState}
                 updateDutchOverhang={updateDutchOverhang}
                 updateDutchRakeOverhang={updateDutchRakeOverhang}
                 updateDutchCutPoints={updateDutchCutPoints}
@@ -1809,6 +1821,7 @@ export default function App() {
                 setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
                 applyDefaultPitchToAll={applyDefaultPitchToAll}
                 applyDefaultOverhangToAll={applyDefaultOverhangToAll}
+                applyDefaultSettingsToAll={applyDefaultSettingsToAll}
                 deleteRoof={deleteRoof}
                 deleteRoofVertex={deleteRoofVertex}
                 exportRoofIO={exportRoofIO}

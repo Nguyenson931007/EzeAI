@@ -9,6 +9,11 @@ const RoofContextMenu = ({
   onClose,
   onSetEaveEdge,
   onUpdateEdgeAngle,
+  onSetRoofEdgeMode,
+  onToggleDutchEdge,
+  onStartDrawDutch,
+  onCancelDrawDutch,
+  onUpdateRoofType,
   onTrimEdge,
   onDeleteRoof
 }) => {
@@ -35,7 +40,19 @@ const RoofContextMenu = ({
   const currentAngle = Array.isArray(roof.angles) && roof.angles[edgeIndex] !== undefined
     ? roof.angles[edgeIndex]
     : 22.5;
-  const isGable = currentAngle === 90;
+  const isGable = Math.abs(currentAngle - 90.0) < 1.0;
+  const isDutch = Array.isArray(roof.dutchEdges) && roof.dutchEdges.includes(edgeIndex);
+  const isShed = roof.roofType === 'shed';
+  const isShedEave = isShed && (roof.eaveEdgeIndex === edgeIndex);
+
+  let edgeTypeLabel = "Hip";
+  if (isDutch) edgeTypeLabel = "Dutch Gable";
+  else if (isGable) edgeTypeLabel = "Gable 90°";
+  else if (isShed) edgeTypeLabel = isShedEave ? "Shed Eave Low" : "Shed Slope";
+
+  const normalPitch = (typeof roof.pitchAngle === 'number' && roof.pitchAngle > 0 && Math.abs(roof.pitchAngle - 90.0) >= 1.0)
+    ? roof.pitchAngle
+    : 22.5;
 
   return (
     <div
@@ -44,13 +61,13 @@ const RoofContextMenu = ({
         position: 'fixed',
         top: y,
         left: x,
-        backgroundColor: '#1e293b',
-        border: '1px solid #475569',
-        borderRadius: '6px',
-        padding: '4px 0',
-        zIndex: 9999,
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
-        minWidth: '180px',
+        backgroundColor: '#0f172a',
+        border: '1px solid #334155',
+        borderRadius: '8px',
+        padding: '5px 0',
+        zIndex: 99999,
+        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0,0,0,0.4)',
+        minWidth: '210px',
         color: '#f8fafc',
         fontSize: '12px',
         userSelect: 'none'
@@ -60,44 +77,164 @@ const RoofContextMenu = ({
         e.stopPropagation();
       }}
     >
-      <div style={{ padding: '4px 12px', fontSize: '11px', color: '#94a3b8', borderBottom: '1px solid #334155', fontWeight: 600 }}>
-        Edge #{edgeIndex} ({isGable ? 'Gable 90°' : `${currentAngle}°`})
+      <div style={{ padding: '6px 12px', fontSize: '11px', color: '#94a3b8', borderBottom: '1px solid #1e293b', fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>{roof.name || 'Roof'} (Edge #{edgeIndex})</span>
+        <span style={{ color: isDutch ? '#fb7185' : isGable ? '#c084fc' : isShed ? '#38bdf8' : '#34d399', fontSize: '10px' }}>
+          {edgeTypeLabel}
+        </span>
       </div>
 
-      {/* Toggle Gable 90° vs Hip 22.5° (Only for Gable / Dutch / Hip roofs) */}
-      {roof.roofType !== 'shed' && (
-        <div
-          style={{
-            padding: '8px 12px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#334155')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          onClick={(e) => {
-            e.stopPropagation();
-            onUpdateEdgeAngle?.(roof.id, edgeIndex, isGable ? 22.5 : 90);
-            onClose();
-          }}
-        >
-          <span>{isGable ? '🏠' : '🏛️'}</span>
-          <span>{isGable ? 'Switch to Hip (22.5°)' : 'Set as Gable Wall (90°)'}</span>
-        </div>
+      {!isShed ? (
+        <>
+          {/* 1. Set as Hip */}
+          <div
+            style={{
+              padding: '7px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              color: !isDutch && !isGable ? '#34d399' : '#f8fafc',
+              fontWeight: !isDutch && !isGable ? 700 : 400
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSetRoofEdgeMode) {
+                onSetRoofEdgeMode(roof.id, edgeIndex, 'hip');
+              } else {
+                if (isDutch && onToggleDutchEdge) onToggleDutchEdge(roof.id, edgeIndex);
+                if (onUpdateEdgeAngle) onUpdateEdgeAngle(roof.id, edgeIndex, normalPitch);
+              }
+              if (onCancelDrawDutch) onCancelDrawDutch();
+              onClose();
+            }}
+          >
+            <span>🏠</span>
+            <span>Set as Hip</span>
+          </div>
+
+          {/* 2. Set as Gable Wall */}
+          <div
+            style={{
+              padding: '7px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              color: isGable ? '#c084fc' : '#f8fafc',
+              fontWeight: isGable ? 700 : 400
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSetRoofEdgeMode) {
+                onSetRoofEdgeMode(roof.id, edgeIndex, 'gable');
+              } else {
+                if (isDutch && onToggleDutchEdge) onToggleDutchEdge(roof.id, edgeIndex);
+                if (onUpdateEdgeAngle) onUpdateEdgeAngle(roof.id, edgeIndex, 90.0);
+              }
+              if (onCancelDrawDutch) onCancelDrawDutch();
+              onClose();
+            }}
+          >
+            <span>🏛️</span>
+            <span>Set as Gable Wall</span>
+          </div>
+
+          {/* 3. Set as Dutch Gable (Draw Cut) */}
+          <div
+            style={{
+              padding: '7px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              color: isDutch ? '#fb7185' : '#f8fafc',
+              fontWeight: isDutch ? 700 : 400
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSetRoofEdgeMode) {
+                onSetRoofEdgeMode(roof.id, edgeIndex, 'dutch');
+              } else {
+                if (isGable && onUpdateEdgeAngle) onUpdateEdgeAngle(roof.id, edgeIndex, normalPitch);
+                if (!isDutch && onToggleDutchEdge) onToggleDutchEdge(roof.id, edgeIndex);
+              }
+              if (onStartDrawDutch) onStartDrawDutch(roof.id, edgeIndex);
+              onClose();
+            }}
+          >
+            <span>🎨</span>
+            <span>Set as Dutch Gable {isDutch ? '(Re-draw Cut)' : ''}</span>
+          </div>
+
+          {/* 4. Convert to Shed (using this edge as eave) */}
+          <div
+            style={{
+              padding: '7px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              borderTop: '1px solid #1e293b'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSetRoofEdgeMode) onSetRoofEdgeMode(roof.id, edgeIndex, 'hip');
+              if (onCancelDrawDutch) onCancelDrawDutch();
+              if (onUpdateRoofType) onUpdateRoofType(roof.id, 'shed', edgeIndex);
+              onClose();
+            }}
+          >
+            <span>📐</span>
+            <span>Convert to Shed Roof</span>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Shed mode: Convert back to Hip/Gable */}
+          <div
+            style={{
+              padding: '7px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onCancelDrawDutch) onCancelDrawDutch();
+              if (onUpdateRoofType) onUpdateRoofType(roof.id, 'hip_gable');
+              onClose();
+            }}
+          >
+            <span>🏠</span>
+            <span>Convert to Gable / Dutch / Hip</span>
+          </div>
+        </>
       )}
 
       {/* Trim Eave Overhang */}
       <div
         style={{
-          padding: '8px 12px',
+          padding: '7px 12px',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          color: '#f87171'
+          borderTop: '1px solid #1e293b',
+          color: '#cbd5e1'
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#334155')}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
         onClick={(e) => {
           e.stopPropagation();
@@ -109,42 +246,18 @@ const RoofContextMenu = ({
         <span>Trim Eave Overhang</span>
       </div>
 
-      {/* Set Low Eave for Shed Roof */}
-      {roof.roofType === 'shed' && (
-        <div
-          style={{
-            padding: '8px 12px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            color: (roof.eaveEdgeIndex || 0) === edgeIndex ? '#22d3ee' : '#f8fafc'
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#334155')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSetEaveEdge?.(roof.id, edgeIndex);
-            onClose();
-          }}
-        >
-          <span>📍</span>
-          <span>{(roof.eaveEdgeIndex || 0) === edgeIndex ? 'Current Low Eave (Eave Under)' : 'Set as Low Eave (Eave Under)'}</span>
-        </div>
-      )}
-
       {/* Delete Roof Action */}
       <div
         style={{
-          padding: '8px 12px',
+          padding: '7px 12px',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
           color: '#ef4444',
-          borderTop: '1px solid #334155'
+          borderTop: '1px solid #1e293b'
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#334155')}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
         onClick={(e) => {
           e.stopPropagation();
