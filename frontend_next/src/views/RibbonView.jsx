@@ -487,7 +487,7 @@ export default function RibbonView({
       try {
         const pendingEmsJobStr = (typeof window !== "undefined" ? (sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob")) : null);
         if (pendingEmsJobStr) pendingEmsJob = JSON.parse(pendingEmsJobStr);
-      } catch (e) {}
+      } catch (e) { }
 
       // Nếu pendingEmsJob chưa có hoặc không khớp với currentProjectName, tự động tra cứu từ cachedTaskListJobs
       if (!pendingEmsJob || (currentProjectName && pendingEmsJob.job_number !== currentProjectName && pendingEmsJob.job_num !== currentProjectName)) {
@@ -496,7 +496,7 @@ export default function RibbonView({
           if (cachedJobsStr) {
             const cachedJobs = JSON.parse(cachedJobsStr);
             if (Array.isArray(cachedJobs) && currentProjectName) {
-              const found = cachedJobs.find(t => 
+              const found = cachedJobs.find(t =>
                 (t.job_number && t.job_number.toLowerCase().trim() === currentProjectName.toLowerCase().trim()) ||
                 (t.job_num && t.job_num.toLowerCase().trim() === currentProjectName.toLowerCase().trim()) ||
                 (t.hw_id && String(t.hw_id) === currentProjectName) ||
@@ -507,39 +507,39 @@ export default function RibbonView({
                 try {
                   sessionStorage.setItem("pendingEmsJob", JSON.stringify(found));
                   localStorage.setItem("pendingEmsJob", JSON.stringify(found));
-                } catch (e) {}
+                } catch (e) { }
               }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
 
       // 1. Job Number (e.g. EZEFLO-13-7189542)
       const jobNum = cleanStr(pendingEmsJob?.job_number) ||
-                     cleanStr(pendingEmsJob?.job_num) ||
-                     (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName.trim() : null);
+        cleanStr(pendingEmsJob?.job_num) ||
+        (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName.trim() : null);
 
       // 2. EMS ID (Hỗ trợ cả UUID chuẩn, Web3 ID, NanoID, chuỗi mã TaskList, fallback sang jobNum)
       const emsId = cleanStr(urlJob) ||
-                    cleanStr(pendingEmsJob?.ems_id) ||
-                    cleanStr(pendingEmsJob?.id_job_ems) ||
-                    cleanStr(pendingEmsJob?.id_job) ||
-                    cleanStr(pendingEmsJob?.id_ems) ||
-                    cleanStr(pendingEmsJob?.id) ||
-                    cleanStr(pendingEmsJob?.Id) ||
-                    cleanStr(pendingEmsJob?.job_id) ||
-                    cleanStr(jobNum);
+        cleanStr(pendingEmsJob?.ems_id) ||
+        cleanStr(pendingEmsJob?.id_job_ems) ||
+        cleanStr(pendingEmsJob?.id_job) ||
+        cleanStr(pendingEmsJob?.id_ems) ||
+        cleanStr(pendingEmsJob?.id) ||
+        cleanStr(pendingEmsJob?.Id) ||
+        cleanStr(pendingEmsJob?.job_id) ||
+        cleanStr(jobNum);
 
       // 3. Hardware ID
       const idHW = cleanStr(pendingEmsJob?.id_HW) ||
-                   cleanStr(pendingEmsJob?.IdJob_HW) ||
-                   cleanStr(pendingEmsJob?.hw_id) ||
-                   cleanStr(pendingEmsJob?.id_hw) ||
-                   cleanStr(emsId) ||
-                   cleanStr(jobNum) ||
-                   cleanStr(currentJobId);
+        cleanStr(pendingEmsJob?.IdJob_HW) ||
+        cleanStr(pendingEmsJob?.hw_id) ||
+        cleanStr(pendingEmsJob?.id_hw) ||
+        cleanStr(emsId) ||
+        cleanStr(jobNum) ||
+        cleanStr(currentJobId);
 
       const finalDeepLinkJob = emsId || idHW || cleanStr(jobNum) || cleanStr(currentJobId);
 
@@ -594,7 +594,7 @@ export default function RibbonView({
           errorMsg = result.message;
         }
       } catch (fetchErr) {
-        console.warn("[Procurement] Lỗi khi gửi API:", fetchErr);
+        console.warn("[Procurement] Error sending API request:", fetchErr);
         errorMsg = fetchErr?.message || "Unknown API error";
       }
 
@@ -616,7 +616,7 @@ export default function RibbonView({
               effectiveMaNv = String(decoded.ma_nv).trim();
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       if (!effectiveMaNv || effectiveMaNv.toLowerCase() === "admin" || effectiveMaNv.toLowerCase() === "null") {
         effectiveMaNv = "EZE0052"; // Mã nhân viên mặc định hợp lệ trong bảng Account EMS
@@ -629,14 +629,14 @@ export default function RibbonView({
         if (ssoRes?.status === "success" && ssoRes.token) {
           toolAiJwt = ssoRes.token;
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (!toolAiJwt) {
         toolAiJwt = await createToolAiJwt(effectiveMaNv);
       }
 
       console.log(
-        "[Procurement SSO] Đang mở Procurement với Tool AI SSO Contract...",
+        "[Procurement SSO] Procurement is currently open for the AI ​​SSO Contract tool...",
         {
           target: target.toString(),
           ma_nv: effectiveMaNv,
@@ -647,7 +647,7 @@ export default function RibbonView({
       // 1. Mở Procurement bằng window.open để giữ window.opener
       const popup = window.open(target.toString(), "_blank");
       if (!popup) {
-        showAlert("Popup bị chặn. Vui lòng cho phép popup trên trình duyệt.", "Lỗi");
+        showAlert("Pop-up blocked. Please allow pop-ups in your browser.", "Lỗi");
         return;
       }
 
@@ -672,7 +672,7 @@ export default function RibbonView({
               target.origin
             );
           } catch (err) {
-            console.warn("[Procurement] Lỗi gửi Tool AI SSO Token:", err);
+            console.warn("[Procurement] Error sending AI Tool SSO Token:", err);
           }
         };
         timer = setInterval(sendSso, 200);
@@ -681,18 +681,18 @@ export default function RibbonView({
 
       if (sendSuccess) {
         showAlert(
-          "Đã mở Procurement và đồng bộ thông tin Job thành công!",
-          "Thông báo"
+          "Procurement opened and Job information synchronized successfully!",
+          "Notification"
         );
       } else {
         showAlert(
-          "Đã mở Procurement trên tab mới.",
-          "Thông báo"
+          "Procurement has been opened in a new tab.",
+          "Notification"
         );
       }
     } catch (err) {
-      console.error("[Procurement] Lỗi:", err);
-      showAlert("Có lỗi xảy ra khi đóng gói dữ liệu: " + err.message, "Lỗi");
+      console.error("[Procurement] Error:", err);
+      showAlert("An error occurred while packaging the data: " + err.message, "Error");
     } finally {
       setIsExportingProcurement(false);
     }
@@ -1112,7 +1112,7 @@ export default function RibbonView({
                   className="ribbon-btn accent"
                   onClick={() => {
                     if (!realScale || realScale === 1.0) {
-                      showAlert("bạn phải scale trước khi chạy AI");
+                      showAlert("You need to scale before running AI");
                       return;
                     }
                     setShowWallConfig(true);
@@ -1180,7 +1180,7 @@ export default function RibbonView({
                 <button
                   className={`ribbon-btn ${workspaceMode === "2d" ? "active" : ""}`}
                   onClick={() => setWorkspaceMode && setWorkspaceMode("2d")}
-                  title="2D Plan View (Chế độ xem 2D)"
+                  title="2D Plan View"
                 >
                   <span className="icon"><CAD_ICONS.TwoD /></span><span className="label">2D Plan</span>
                 </button>
@@ -1197,14 +1197,14 @@ export default function RibbonView({
                     }
                     if (setWorkspaceMode) setWorkspaceMode("2d");
                   }}
-                  title="Open 3D Studio in a separate window (Mở 3D ra cửa sổ riêng)"
+                  title="Open 3D Studio in a separate window"
                 >
                   <span className="icon"><CAD_ICONS.ThreeD /></span><span className="label">3D View</span>
                 </button>
                 <button
                   className={`ribbon-btn ${workspaceMode === "split" ? "active" : ""}`}
                   onClick={() => setWorkspaceMode && setWorkspaceMode(workspaceMode === "split" ? "2d" : "split")}
-                  title="Split View (Chế độ xem song song 2D & 3D)"
+                  title="Split View"
                 >
                   <span className="icon"><CAD_ICONS.Split /></span><span className="label">Split View</span>
                 </button>
@@ -1557,7 +1557,7 @@ export default function RibbonView({
                   className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
                   onClick={handleExportToProcurement}
                   disabled={isExportingProcurement}
-                  title="Gửi dữ liệu Job sang hệ thống Procurement (http://14.241.197.188:7642/)"
+                  title="Send job data to the system Procurement (http://14.241.197.188:7642/)"
                 >
                   <span className="icon"><CAD_ICONS.Procurement /></span><span className="label">Procurement</span>
                 </button>

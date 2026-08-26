@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { getWallClass } from '@/utils/geometry';
 
 /**
  * WallContextMenu — Simplified floating menu for wall body clicks.
@@ -24,7 +25,8 @@ export default function WallContextMenu({
   onDelete,
   onChangeClass,
   onAddPoint,
-  onToggleLock
+  onToggleLock,
+  onToggleLbw
 }) {
   const menuRef = useRef(null);
   const [showTypeSubmenu, setShowTypeSubmenu] = useState(false);
@@ -59,7 +61,7 @@ export default function WallContextMenu({
 
   // Clamp position to viewport
   const menuWidth = 220;
-  const menuHeight = 250;
+  const menuHeight = 270;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 10);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 10);
 
@@ -70,8 +72,12 @@ export default function WallContextMenu({
   const wallClasses = [
     { value: 'exterior_wall', label: '🏠 Exterior Wall (ext)' },
     { value: 'interior_wall', label: '🔲 Interior Wall (int)' },
-    { value: 'partition_wall', label: '🧱 Partition Wall (part)' }
+    { value: 'partition_wall', label: '🧱 Partition Wall (part)' },
+    { value: 'block_wall', label: '🧱 Block Wall (block)' }
   ];
+
+  const isPartWall = (getWallClass ? getWallClass(wall) === "partition_wall" : (wall.class_name === "partition_wall" || wall.wall_type === "part"));
+  const isLbw = Boolean(wall.is_lbw || wall.is_load_bearing || wall.lbw);
 
   return (
     <div
@@ -108,6 +114,27 @@ export default function WallContextMenu({
       }}>
         Wall Options
       </div>
+
+      {/* Item: Toggle Load-Bearing (LBW) — ONLY for Partition Walls */}
+      {isPartWall && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onToggleLbw) onToggleLbw();
+            onClose();
+          }}
+          style={btnStyle(false)}
+          onMouseOver={(e) => { setShowTypeSubmenu(false); hoverIn(e); }}
+          onMouseOut={hoverOut}
+        >
+          <span style={lblStyle()}>
+            <span style={iconStyle()}>⚡</span>
+            <span style={{ color: isLbw ? '#fb923c' : '#e2e8f0', fontWeight: isLbw ? 700 : 500 }}>
+              {isLbw ? 'Remove LBW Flag' : 'Mark as Load-Bearing (LBW)'}
+            </span>
+          </span>
+        </button>
+      )}
 
       {/* Item: Cut / Split Wall */}
       <button

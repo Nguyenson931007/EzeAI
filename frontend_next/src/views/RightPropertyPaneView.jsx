@@ -512,6 +512,41 @@ export default function RightPropertyPaneView({
     return () => clearTimeout(timer);
   }, [selectedId, selectedType, selectedWallIds, selectedRoofId, currentPage, doorsByPageProp, doors]);
 
+  // ── HOTKEY 'E' TO DIRECTLY OPEN PROPERTIES OF SELECTED LAYER / ITEM ──
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      const activeEl = document.activeElement;
+      const isEditingText = activeEl && (
+        activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        activeEl.tagName === "SELECT" ||
+        activeEl.isContentEditable
+      );
+      if (isEditingText) return;
+
+      if ((e.key === "e" || e.key === "E" || e.code === "KeyE") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const hasSelection = Boolean(
+          selectedId ||
+          selectedType ||
+          (selectedWallIds && selectedWallIds.length > 0) ||
+          (selectedDoorIds && selectedDoorIds.length > 0) ||
+          (selectedRoomIds && selectedRoomIds.length > 0) ||
+          (selectedLintelIds && selectedLintelIds.length > 0) ||
+          selectedRoofId
+        );
+
+        if (hasSelection) {
+          e.preventDefault();
+          setActivePaneTab("explorer");
+          setExplorerViewMode("properties");
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedId, selectedType, selectedWallIds, selectedDoorIds, selectedRoomIds, selectedLintelIds, selectedRoofId]);
+
   const toggleNode = React.useCallback((nodeId) => {
     setExpandedNodes(prev => {
       const next = new Set(prev);
@@ -605,7 +640,7 @@ export default function RightPropertyPaneView({
         setTaskListJobs(res.data);
         try {
           localStorage.setItem("cachedTaskListJobs", JSON.stringify(res.data));
-        } catch (e) {}
+        } catch (e) { }
       } else {
         setTaskListJobs([]);
       }
@@ -2851,7 +2886,7 @@ export default function RightPropertyPaneView({
               }}
             >
               <span style={{ fontSize: "14px", fontWeight: 900 }}>←</span>
-              <span>Quay lại Explorer / Layers</span>
+              <span>Come back Explorer / Layers</span>
             </button>
             <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", padding: "3px 8px", borderRadius: "12px", textTransform: "uppercase" }}>
               {selectedType ? selectedType.toUpperCase() : "PROPERTIES"}
@@ -3051,6 +3086,24 @@ export default function RightPropertyPaneView({
                       return selectedWall ? getWallClass(selectedWall) : "exterior_wall";
                     })();
 
+                    const isLbwSelected = (() => {
+                      if (selectedWallIds.length > 1) {
+                        return selectedWallIds.some(id => {
+                          const w = (walls || []).find(ww => ww.id === id);
+                          return w && Boolean(w.is_lbw || w.is_load_bearing || w.lbw);
+                        });
+                      }
+                      return Boolean(selectedWall?.is_lbw || selectedWall?.is_load_bearing || selectedWall?.lbw);
+                    })();
+
+                    const handleToggleLbw = (checked) => {
+                      const targetIds = selectedWallIds.length > 0 ? [...selectedWallIds] : (selectedWall ? [selectedWall.id] : []);
+                      if (targetIds.length === 0) return;
+                      if (updateWallsProperty) {
+                        updateWallsProperty(targetIds, "is_lbw", checked);
+                      }
+                    };
+
                     // Use button group for multi-wall selection (immune to React controlled select re-render issues)
                     if (selectedWallIds.length > 1) {
                       const typeOptions = [
@@ -3060,42 +3113,94 @@ export default function RightPropertyPaneView({
                         { value: "block_wall", label: "Block" },
                       ];
                       return (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4, background: "var(--bg-panel)", padding: 3, borderRadius: 6, border: "1px solid var(--border)" }}>
-                          {typeOptions.map(opt => (
-                            <button
-                              key={opt.value}
-                              style={{
-                                padding: "6px 4px",
-                                fontSize: 11,
-                                fontWeight: currentType === opt.value ? 700 : 500,
-                                background: currentType === opt.value ? "var(--blue)" : "transparent",
-                                color: currentType === opt.value ? "#ffffff" : "var(--text-dim)",
-                                border: currentType === opt.value ? "1px solid var(--blue)" : "1px solid transparent",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                                transition: "all 0.15s ease",
-                              }}
-                              onClick={() => handleTypeChange(opt.value)}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4, background: "var(--bg-panel)", padding: 3, borderRadius: 6, border: "1px solid var(--border)" }}>
+                            {typeOptions.map(opt => (
+                              <button
+                                key={opt.value}
+                                style={{
+                                  padding: "6px 4px",
+                                  fontSize: 11,
+                                  fontWeight: currentType === opt.value ? 700 : 500,
+                                  background: currentType === opt.value ? "var(--blue)" : "transparent",
+                                  color: currentType === opt.value ? "#ffffff" : "var(--text-dim)",
+                                  border: currentType === opt.value ? "1px solid transparent" : "1px solid transparent",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  transition: "all 0.15s ease",
+                                }}
+                                onClick={() => handleTypeChange(opt.value)}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* LBW Toggle for Multi-Wall (Only when partition walls are selected) */}
+                          {currentType === "partition_wall" && (
+                            <div style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: "6px 8px",
+                              marginTop: "6px",
+                              background: isLbwSelected ? "rgba(234, 88, 12, 0.08)" : "transparent",
+                              border: isLbwSelected ? "1px solid #fdba74" : "1px dashed var(--border)",
+                              borderRadius: "6px"
+                            }}>
+                              <span style={{ fontSize: "11px", fontWeight: 700, color: isLbwSelected ? "#c2410c" : "var(--text-main)" }}>
+                                ⚡ Load-Bearing (LBW)
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={isLbwSelected}
+                                onChange={(e) => handleToggleLbw(e.target.checked)}
+                                style={{ width: "15px", height: "15px", cursor: "pointer", accentColor: "#ea580c" }}
+                              />
+                            </div>
+                          )}
+                        </>
                       );
                     }
 
-                    // Single wall: use normal select
+                    // Single wall: use select + LBW toggle (only for partition wall)
                     return (
-                      <select
-                        className="panel-select"
-                        value={currentType}
-                        onChange={(e) => handleTypeChange(e.target.value)}
-                      >
-                        <option value="exterior_wall">Exterior Wall</option>
-                        <option value="interior_wall">Interior Wall</option>
-                        <option value="partition_wall">Partition Wall</option>
-                        <option value="block_wall">Block Wall</option>
-                      </select>
+                      <>
+                        <select
+                          className="panel-select"
+                          value={currentType}
+                          onChange={(e) => handleTypeChange(e.target.value)}
+                        >
+                          <option value="exterior_wall">Exterior Wall (ext)</option>
+                          <option value="interior_wall">Interior Wall (int)</option>
+                          <option value="partition_wall">Partition Wall (part)</option>
+                          <option value="block_wall">Block Wall (block)</option>
+                        </select>
+
+                        {/* LBW Toggle ONLY shown when user selects Partition Wall */}
+                        {currentType === "partition_wall" && (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "6px 8px",
+                            marginTop: "6px",
+                            background: isLbwSelected ? "rgba(234, 88, 12, 0.08)" : "transparent",
+                            border: isLbwSelected ? "1px solid #fdba74" : "1px dashed var(--border)",
+                            borderRadius: "6px"
+                          }}>
+                            <span style={{ fontSize: "11px", fontWeight: 700, color: isLbwSelected ? "#c2410c" : "var(--text-main)" }}>
+                              ⚡ Load-Bearing Wall (LBW)
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={isLbwSelected}
+                              onChange={(e) => handleToggleLbw(e.target.checked)}
+                              style={{ width: "15px", height: "15px", cursor: "pointer", accentColor: "#ea580c" }}
+                            />
+                          </div>
+                        )}
+                      </>
                     );
                   })()}
                 </div>
@@ -3109,7 +3214,7 @@ export default function RightPropertyPaneView({
                       if (val === "custom") {
                         setShowCustomThickness(true);
                         if (showPrompt) {
-                          const input = await showPrompt("Nhập độ dày tường tùy chỉnh (mm) [Wall Thickness]:", String(currentThickness !== "multiple" ? currentThickness : 90));
+                          const input = await showPrompt("Enter custom wall thickness (mm) [Wall Thickness]:", String(currentThickness !== "multiple" ? currentThickness : 90));
                           if (input && !isNaN(parseInt(input, 10)) && parseInt(input, 10) > 0) {
                             const num = parseInt(input, 10);
                             if (updateWallsProperty) updateWallsProperty(targetIds, "thickness", num);
@@ -3158,7 +3263,10 @@ export default function RightPropertyPaneView({
                           {[70, 75, 90, 100, 110, 120, 140, 150, 190, 200].map(v => (
                             <option key={v} value={v}>{v} mm</option>
                           ))}
-                          <option value="custom">{isCustom ? `Custom: ${currentThickness} mm` : "Custom..."}</option>
+                          {isCustom && (
+                            <option value={currentThickness}>{currentThickness} mm (Custom)</option>
+                          )}
+                          <option value="custom">Custom...</option>
                         </select>
                       </>
                     );
@@ -3174,7 +3282,7 @@ export default function RightPropertyPaneView({
                       if (val === "custom") {
                         setShowCustomHeight(true);
                         if (showPrompt) {
-                          const input = await showPrompt("Nhập chiều cao tường tùy chỉnh (mm) [Wall Height]:", String(currentHeight !== "multiple" ? currentHeight : 2700));
+                          const input = await showPrompt("Enter custom wall height (mm) [Wall Height]:", String(currentHeight !== "multiple" ? currentHeight : 2700));
                           if (input && !isNaN(parseInt(input, 10)) && parseInt(input, 10) > 0) {
                             const num = parseInt(input, 10);
                             if (updateWallsProperty) updateWallsProperty(targetIds, "height", num);
@@ -3223,7 +3331,10 @@ export default function RightPropertyPaneView({
                           {[2400, 2700, 3000, 3300, 3600].map(v => (
                             <option key={v} value={v}>{v} mm ({(v / 1000).toFixed(1)} m)</option>
                           ))}
-                          <option value="custom">{isCustom ? `Custom: ${currentHeight} mm` : "Custom..."}</option>
+                          {isCustom && (
+                            <option value={currentHeight}>{currentHeight} mm (Custom)</option>
+                          )}
+                          <option value="custom">Custom...</option>
                         </select>
                       </>
                     );
@@ -3778,57 +3889,6 @@ export default function RightPropertyPaneView({
                             <option value={1800}>1800</option>
                             <option value={2100}>2100</option>
                           </select>
-                        </div>
-                      </div>
-
-                      <div className="panel-field">
-                        <span className="panel-label">Rotate & Align</span>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                          <button
-                            className="rp-action-btn"
-                            style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                            onClick={() => {
-                              if (selectedDoor.points && selectedDoor.points.length === 2) {
-                                const newPoints = [selectedDoor.points[1], selectedDoor.points[0]];
-                                updateDoor && updateDoor({
-                                  ...selectedDoor,
-                                  points: newPoints
-                                });
-                              }
-                            }}
-                            title="Rotate window 180 degrees"
-                          >
-                            🔄 Đảo Đầu (180°)
-                          </button>
-                          <button
-                            className="rp-action-btn"
-                            style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
-                            onClick={() => {
-                              if (selectedDoor.points && selectedDoor.points.length === 2) {
-                                const p1 = selectedDoor.points[0];
-                                const p2 = selectedDoor.points[1];
-                                const dx = p2.x - p1.x;
-                                const dy = p2.y - p1.y;
-                                const angle = Math.atan2(dy, dx);
-                                const step = Math.PI / 2;
-                                const snappedAngle = Math.round(angle / step) * step;
-                                const dist = Math.hypot(dx, dy);
-                                const snappedP2 = {
-                                  x: p1.x + dist * Math.cos(snappedAngle),
-                                  y: p1.y + dist * Math.sin(snappedAngle)
-                                };
-                                updateDoor && updateDoor({
-                                  ...selectedDoor,
-                                  points: [p1, snappedP2],
-                                  polygon: null,
-                                  mask_polygon: null
-                                });
-                              }
-                            }}
-                            title="Align window straight on nearest 90 axis"
-                          >
-                            📐 Làm Thẳng 90°
-                          </button>
                         </div>
                       </div>
 

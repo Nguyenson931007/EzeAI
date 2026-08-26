@@ -23,7 +23,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
     const newName = await showPrompt("Nhập tên tầng (Floor Name):", currentDisplayName);
     if (newName !== null && setPages) {
       const classVal = convertNameToClass(newName, index);
-      setPages(prev => prev.map((p, i) => 
+      setPages(prev => prev.map((p, i) =>
         i === index ? { ...p, floor_name: classVal } : p
       ));
     }
@@ -52,7 +52,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
       {pages.map((p, i) => {
         const roomCount = (roomsByPage && roomsByPage[i]) ? roomsByPage[i].length : 0;
         const floorDisplayName = mapFloorName(p.floor_name, i);
-        
+
         return (
           <div
             key={i}
@@ -96,22 +96,22 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
               loading="eager"
               decoding="async"
             />
-             <div className="page-thumb-info" style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", padding: "4px 8px", width: "100%", boxSizing: "border-box" }}>
+            <div className="page-thumb-info" style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", padding: "4px 8px", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>
                 <span className="page-thumb-number" style={{ fontSize: 11, fontWeight: "bold" }}>{i + 1}</span>
-                <span 
+                <span
                   onClick={(e) => handleRenameFloor(e, i, p.floor_name)}
-                  style={{ 
-                    fontSize: 10, 
-                    color: "#9ca3af", 
-                    cursor: "pointer", 
+                  style={{
+                    fontSize: 10,
+                    color: "#9ca3af",
+                    cursor: "pointer",
                     textDecoration: "underline",
                     textOverflow: "ellipsis",
                     overflow: "hidden",
                     whiteSpace: "nowrap",
                     maxWidth: "70px"
                   }}
-                  title="Click để đổi tên tầng"
+                  title="Click to rename the floor"
                 >
                   {floorDisplayName} ✏️
                 </span>
@@ -120,7 +120,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
                 value={p.floor_name || `floor_${i}`}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setPages(prev => prev.map((pg, idx) => 
+                  setPages(prev => prev.map((pg, idx) =>
                     idx === i ? { ...pg, floor_name: val } : pg
                   ));
                 }}
@@ -159,7 +159,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
 
       {onAddPagesClick && (
         <label
-          title="Thêm trang từ file PDF mới"
+          title="Add pages from a new PDF file"
           style={{ display: "block" }}
         >
           <input

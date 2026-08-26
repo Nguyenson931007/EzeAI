@@ -757,8 +757,10 @@ export const useAIController = (
 
           if (event.walls) {
             let detectedWalls = event.walls.map(w => {
-              const class_name = getWallClass(w);
-              const wall_type = getWallType(w);
+              const rawCls = getWallClass(w);
+              // All internal walls default to partition_wall (non-LBW) until user activates LBW
+              const class_name = rawCls === "exterior_wall" ? "exterior_wall" : (rawCls === "block_wall" ? "block_wall" : "partition_wall");
+              const wall_type = class_name === "exterior_wall" ? "ext" : (class_name === "block_wall" ? "block" : "part");
               // Always use user-configured thickness based on frontend class determination
               // (backend may classify differently from getWallClass, causing mismatches)
               const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
@@ -777,6 +779,7 @@ export const useAIController = (
                 polygon: shiftedPoly,
                 wall_type: wall_type,
                 class_name: class_name,
+                is_lbw: false,
                 thickness: thickness,
                 thickness_px: thickness_px,
                 height: defaultHeight, // Per-wall height property
@@ -1581,12 +1584,14 @@ export const useAIController = (
         }
         setCacheStatus("completed");
       } else {
-        alert("Không tạo được phòng từ tường. Vui lòng kiểm tra lại thiết lập tường.");
+        const notify = showAlert || alert;
+        notify("Could not create rooms from walls. Please check your wall setup.");
         setCacheStatus("failed");
       }
     } catch (e) {
       console.error("[generateRoomsFromWalls] Error:", e);
-      alert(`Lỗi tạo phòng: ${e.message}`);
+      const notify = showAlert || alert;
+      notify(`Error creating rooms: ${e.message}`);
       setCacheStatus("failed");
     } finally {
       setIsDetecting(false);
@@ -1597,7 +1602,7 @@ export const useAIController = (
     console.log("[Roof AI] detectRoof triggered. currentPage:", currentPage, "hasImage:", !!image);
     if (!image) {
       const notify = showAlert || alert;
-      notify("Không thể lấy ảnh trang hiện tại để chạy Roof AI.");
+      notify("Cannot get image for the current page to run Roof AI.");
       return;
     }
 

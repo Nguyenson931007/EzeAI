@@ -72,7 +72,7 @@ export default function FloorTabBarView({
 
       {/* Add new floor / page button with file input */}
       <label
-        title="Thêm tầng từ file PDF hoặc Ảnh"
+        title="Add a layer from a PDF file or image"
         style={{ display: "flex", alignItems: "center", cursor: "pointer", margin: 0 }}
       >
         <input

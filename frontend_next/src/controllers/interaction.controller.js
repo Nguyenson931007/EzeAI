@@ -899,9 +899,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           } else if (value === "interior_wall" || value === "int") {
             class_name = "interior_wall";
             wall_type = "int";
+            newWall.is_lbw = true;
           } else if (value === "partition_wall" || value === "part") {
             class_name = "partition_wall";
             wall_type = "part";
+            newWall.is_lbw = false;
           } else {
             class_name = value;
             wall_type = value;
@@ -920,6 +922,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               newWall.polygon = newPoly.map(pt => [pt.x, pt.y]);
             }
           }
+        } else if (field === "is_lbw" || field === "is_load_bearing" || field === "lbw") {
+          const isLbwVal = Boolean(value);
+          newWall.is_lbw = isLbwVal;
+          newWall.is_load_bearing = isLbwVal;
+          newWall.lbw = isLbwVal;
         } else if (field === "thickness" || field === "thickness_mm") {
           const thicknessMm = Number(value);
           const thicknessPx = mmToPx(thicknessMm, realScale);
