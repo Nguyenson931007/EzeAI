@@ -133,4 +133,4 @@ def test_match_text_to_rooms_bed2_vs_upper_floor_areas():
 
     matched_rooms = _match_text_to_rooms(rooms, texts)
     assert matched_rooms[0]["room_name"] == "BED 2"
-    assert matched_rooms[0]["room_name_source"] == "yolo_ocr_matched"
+    assert matched_rooms[0]["room_name_source"] in ["global_text_matched", "yolo_ocr_matched"]

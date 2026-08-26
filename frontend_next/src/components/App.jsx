@@ -1185,7 +1185,10 @@ export default function App() {
     }
   };
 
-  const handleDeletePage = (pageIndexToDelete) => {
+  const handleDeletePage = (eOrIdx, maybeIdx) => {
+    const rawIdx = typeof eOrIdx === 'number' ? eOrIdx : (typeof maybeIdx === 'number' ? maybeIdx : parseInt(eOrIdx, 10));
+    const pageIndexToDelete = isNaN(rawIdx) ? 0 : rawIdx;
+
     if (pages.length <= 1) {
       // Clear project if deleting the last page
       setRoomsByPage({});

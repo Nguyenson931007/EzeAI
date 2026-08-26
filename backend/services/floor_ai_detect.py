@@ -224,6 +224,9 @@ def group_ocr_text_fragments(candidates: List[Dict[str, Any]]) -> List[Dict[str,
     if not candidates or len(candidates) <= 1:
         return candidates
 
+    def _get_bbox(item):
+        return item.get("global_bbox") or item.get("bbox") or {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
+
     by_angle = {}
     for c in candidates:
         ang = c.get("angle", 0)
@@ -232,17 +235,17 @@ def group_ocr_text_fragments(candidates: List[Dict[str, Any]]) -> List[Dict[str,
     grouped_results = []
 
     for ang, item_list in by_angle.items():
-        sorted_items = sorted(item_list, key=lambda i: (i["global_bbox"]["y"], i["global_bbox"]["x"]))
+        sorted_items = sorted(item_list, key=lambda i: (_get_bbox(i)["y"], _get_bbox(i)["x"]))
         clusters = []
 
         for item in sorted_items:
-            b = item["global_bbox"]
+            b = _get_bbox(item)
             cx = b["x"] + b["w"] / 2.0
             cy = b["y"] + b["h"] / 2.0
 
             merged = False
             for cluster in clusters:
-                ref_b = cluster[-1]["global_bbox"]
+                ref_b = _get_bbox(cluster[-1])
                 ref_cy = ref_b["y"] + ref_b["h"] / 2.0
                 avg_h = (b["h"] + ref_b["h"]) / 2.0
 
@@ -263,22 +266,25 @@ def group_ocr_text_fragments(candidates: List[Dict[str, Any]]) -> List[Dict[str,
                 combined_text = " ".join([i["text"] for i in cluster]).strip()
                 combined_text = re.sub(r"(?<=\b[A-Za-z])\s+(?=[A-Za-z]\b)", "", combined_text)
                 
-                min_x = min(i["global_bbox"]["x"] for i in cluster)
-                min_y = min(i["global_bbox"]["y"] for i in cluster)
-                max_x = max(i["global_bbox"]["x"] + i["global_bbox"]["w"] for i in cluster)
-                max_y = max(i["global_bbox"]["y"] + i["global_bbox"]["h"] for i in cluster)
+                min_x = min(_get_bbox(i)["x"] for i in cluster)
+                min_y = min(_get_bbox(i)["y"] for i in cluster)
+                max_x = max(_get_bbox(i)["x"] + _get_bbox(i)["w"] for i in cluster)
+                max_y = max(_get_bbox(i)["y"] + _get_bbox(i)["h"] for i in cluster)
                 avg_conf = sum(i.get("conf", 0.8) for i in cluster) / len(cluster)
+
+                merged_bbox = {
+                    "x": min_x,
+                    "y": min_y,
+                    "w": max_x - min_x,
+                    "h": max_y - min_y
+                }
 
                 grouped_results.append({
                     "text": combined_text,
                     "conf": avg_conf,
                     "angle": ang,
-                    "global_bbox": {
-                        "x": min_x,
-                        "y": min_y,
-                        "w": max_x - min_x,
-                        "h": max_y - min_y
-                    },
+                    "bbox": merged_bbox,
+                    "global_bbox": merged_bbox,
                     "source": "fragment_grouped"
                 })
 

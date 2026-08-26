@@ -806,7 +806,7 @@ const WallLayer = React.memo(({
         } else if (cls === "exterior_wall") {
           strokeColor = "#a855f7";
         } else if (cls === "interior_wall") {
-          strokeColor = "#ea580c";
+          strokeColor = "#f97316";
         } else if (cls === "partition_wall") {
           strokeColor = "#eab308";
         }
@@ -858,7 +858,7 @@ const WallLayer = React.memo(({
         } else if (cls === "exterior_wall") {
           fillColor = "rgba(168, 85, 247, 0.15)";
         } else if (cls === "interior_wall") {
-          fillColor = "rgba(234, 88, 12, 0.45)";
+          fillColor = "rgba(249, 115, 22, 0.25)";
         } else if (cls === "partition_wall") {
           fillColor = "rgba(234, 179, 8, 0.15)";
         }
