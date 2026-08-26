@@ -88,12 +88,13 @@ export const ApiService = {
     return res;
   },
 
-  async tasklistSSO(token) {
+  async tasklistSSO(payloadOrToken) {
+    const body = typeof payloadOrToken === "string" ? { token: payloadOrToken } : payloadOrToken;
     const res = await fetch(`${BASE_URL}/api/auth/tasklist-sso`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ token }),
+      body: JSON.stringify(body),
     });
     return res;
   },
@@ -106,7 +107,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async getTaskListJobs(maNv = null, search = null, limit = 150, forceRefresh = false) {
+  async getTaskListJobs(maNv = null, search = null, limit = 2000, forceRefresh = false) {
     const params = new URLSearchParams();
     if (maNv) params.append("ma_nv", maNv);
     if (search) params.append("search", search);
@@ -119,6 +120,45 @@ export const ApiService = {
     });
     return handleResponse(res);
   },
+
+  async fetchTaskListJobs(limit = 2000, forceRefresh = false) {
+    return this.getTaskListJobs(null, null, limit, forceRefresh);
+  },
+
+  async getJobProgressReport(params = {}) {
+    const qs = new URLSearchParams();
+    if (params.startDate) qs.append("start_date", params.startDate);
+    if (params.endDate) qs.append("end_date", params.endDate);
+    if (params.username) qs.append("username", params.username);
+    if (params.search) qs.append("search", params.search);
+    if (params.status) qs.append("status", params.status);
+    if (params.limit) qs.append("limit", params.limit);
+    const queryString = qs.toString() ? `?${qs.toString()}` : "";
+    const res = await fetch(`${BASE_URL}/jobs/progress-report${queryString}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+  // --- User Profile & Account ---
+  async getMyProfile() {
+    const res = await fetch(`${BASE_URL}/users/me`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async updateMyProfile(profileData) {
+    const res = await fetch(`${BASE_URL}/users/me`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(profileData),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   // --- User Management (Admin) ---
   async getUsers() {
     const res = await fetch(`${BASE_URL}/users`, {
@@ -186,6 +226,26 @@ export const ApiService = {
 
   async getSharedJob(token) {
     const res = await fetch(`${BASE_URL}/jobs/share/${token}`);
+    return res.json();
+  },
+
+  async exportProcurement(payload) {
+    const res = await fetch(`${BASE_URL}/jobs/export-procurement`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return res.json();
+  },
+
+  async getProcurementSsoToken(maNv = "EZE0090") {
+    const res = await fetch(`${BASE_URL}/api/auth/procurement-sso-token`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ ma_nv: maNv }),
+      credentials: "include"
+    });
     return res.json();
   },
 

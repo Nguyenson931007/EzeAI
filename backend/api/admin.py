@@ -25,6 +25,12 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[int] = None
     password: Optional[str] = None
+    full_name_en: Optional[str] = None
+    full_name_vi: Optional[str] = None
+    age: Optional[int] = None
+    position: Optional[str] = None
+    team: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -38,6 +44,12 @@ class UserResponse(BaseModel):
     status: str
     is_locked: int
     failed_attempts: int
+    full_name_en: Optional[str] = None
+    full_name_vi: Optional[str] = None
+    age: Optional[int] = None
+    position: Optional[str] = None
+    team: Optional[str] = None
+    phone: Optional[str] = None
 
 
 # ── API Endpoints (Các định tuyến giao tiếp quản trị) ──
@@ -53,7 +65,7 @@ def get_users():
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT id, username, email, role, is_active, is_online, status, is_locked, failed_attempts FROM users"
+            "SELECT id, username, email, role, is_active, is_online, status, is_locked, failed_attempts, full_name_en, full_name_vi, age, position, team, phone FROM users"
         )
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
@@ -141,6 +153,30 @@ def update_user(user_id: int, user_data: UserUpdate):
         if user_data.password is not None:
             updates.append("hashed_password = ?")
             params.append(get_password_hash(user_data.password))
+
+        if user_data.full_name_en is not None:
+            updates.append("full_name_en = ?")
+            params.append(user_data.full_name_en)
+
+        if user_data.full_name_vi is not None:
+            updates.append("full_name_vi = ?")
+            params.append(user_data.full_name_vi)
+
+        if user_data.age is not None:
+            updates.append("age = ?")
+            params.append(user_data.age)
+
+        if user_data.position is not None:
+            updates.append("position = ?")
+            params.append(user_data.position)
+
+        if user_data.team is not None:
+            updates.append("team = ?")
+            params.append(user_data.team)
+
+        if user_data.phone is not None:
+            updates.append("phone = ?")
+            params.append(user_data.phone)
 
         # Nếu không có thông tin cập nhật nào được gửi lên
         if not updates:

@@ -519,8 +519,9 @@ export function useDoorController({
     }
 
     // 2. Width change
-    if (updatedDoor.width_mm && updatedDoor.width_mm !== oldDoor.width_mm && realScale) {
-      const newWidthPx = updatedDoor.width_mm / realScale;
+    if (updatedDoor.width_mm && updatedDoor.width_mm !== oldDoor.width_mm) {
+      const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
+      const newWidthPx = updatedDoor.width_mm / effScale;
       updatedDoor = scaleDoorWidth(updatedDoor, newWidthPx);
     }
 
@@ -531,13 +532,13 @@ export function useDoorController({
       updatedDoor = moveDoorAlongWallByDistance(updatedDoor, healedWalls, realScale);
     }
 
-    // 4. Height recalculation if door type changed
+    // 4. Height recalculation if door type changed and no explicit height provided
     if (updatedDoor.doorTypeId && updatedDoor.doorTypeId !== oldDoor.doorTypeId) {
-      const parentWall = walls.find(w => w.id === updatedDoor.parentWallId);
-      const wallClass = parentWall?.class_name || 'interior_wall';
-      updatedDoor.height_mm = computeDoorHeight(wallClass, updatedDoor.doorTypeId, parentWall?.height);
-      updatedDoor.area_mm2 = updatedDoor.width_mm * updatedDoor.height_mm;
-      updatedDoor.perimeter_mm = 2 * (updatedDoor.width_mm + updatedDoor.height_mm);
+      if (!newDoorData.height_mm || newDoorData.height_mm === oldDoor.height_mm) {
+        const parentWall = walls.find(w => w.id === updatedDoor.parentWallId);
+        const wallClass = parentWall?.class_name || 'interior_wall';
+        updatedDoor.height_mm = computeDoorHeight(wallClass, updatedDoor.doorTypeId, parentWall?.height);
+      }
     }
 
     // 5. Update area/perimeter if dimensions changed

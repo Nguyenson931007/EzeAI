@@ -102,34 +102,37 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
 
   const selectStyle = {
     width: '100%',
-    padding: '8px 12px',
+    padding: '9px 12px',
     fontSize: 13,
-    background: '#1e2028',
-    color: '#e1e4ea',
-    border: '1px solid #3f4451',
-    borderRadius: 6,
+    fontWeight: 600,
+    background: '#ffffff',
+    color: '#0f172a',
+    border: '1px solid #cbd5e1',
+    borderRadius: 8,
     outline: 'none',
     cursor: 'pointer',
     appearance: 'none',
     WebkitAppearance: 'none',
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M3 5l3 3 3-3'/%3E%3C/svg%3E")`,
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M3 5l3 3 3-3'/%3E%3C/svg%3E")`,
     backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 10px center',
-    backgroundSize: '12px'
+    backgroundPosition: 'right 12px center',
+    backgroundSize: '12px',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+    transition: 'border-color 0.15s, box-shadow 0.15s'
   };
 
   const labelStyle = {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
-    color: '#9ca3af',
-    marginBottom: 4,
+    color: '#334155',
+    marginBottom: 6,
     display: 'flex',
     alignItems: 'center',
     gap: 6
   };
 
   const rowStyle = {
-    marginBottom: 14
+    marginBottom: 16
   };
 
   return (
@@ -139,8 +142,9 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(4px)',
+        background: 'rgba(15, 23, 42, 0.55)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -149,57 +153,58 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
       }}
     >
       <div style={{
-        background: '#1a1c24',
-        border: '1px solid #2a2d38',
-        borderRadius: 12,
+        background: '#ffffff',
+        border: '1px solid #e2e8f0',
+        borderRadius: 14,
         padding: '24px 28px',
-        minWidth: 340,
-        maxWidth: 400,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        animation: 'slideUp 0.2s ease-out'
+        minWidth: 360,
+        maxWidth: 420,
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.03)',
+        animation: 'slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
       }}>
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 20
+          marginBottom: 16
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 20 }}>🧱</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#e1e4ea' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>🧱</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
               Wall Configuration
             </span>
           </div>
           <button
             onClick={onClose}
             style={{
-              background: 'transparent', border: 'none', color: '#6b7280',
-              fontSize: 18, cursor: 'pointer', padding: '2px 6px',
-              borderRadius: 4, lineHeight: 1
+              background: 'transparent', border: 'none', color: '#94a3b8',
+              fontSize: 16, cursor: 'pointer', padding: '4px 8px',
+              borderRadius: 6, lineHeight: 1, transition: 'all 0.15s'
             }}
-            onMouseOver={e => e.target.style.color = '#ef4444'}
-            onMouseOut={e => e.target.style.color = '#6b7280'}
+            onMouseOver={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = '#fef2f2'; }}
+            onMouseOut={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'transparent'; }}
           >✕</button>
         </div>
 
         {/* Subtitle */}
         <div style={{
-          fontSize: 11, color: '#6b7280', marginBottom: 16,
-          padding: '8px 10px', background: 'rgba(59,130,246,0.08)',
-          border: '1px solid rgba(59,130,246,0.15)', borderRadius: 6
+          fontSize: 12, color: '#1e40af', marginBottom: 18,
+          padding: '10px 12px', background: '#eff6ff',
+          border: '1px solid #bfdbfe', borderRadius: 8,
+          lineHeight: '1.45'
         }}>
-          Choose wall thickness for each type. These will be applied to AI-detected walls.
+          💡 Choose wall thickness for each type. These will be applied to AI-detected walls.
         </div>
 
         {/* Thickness Section */}
         <div style={{
-          fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.5,
-          color: '#6b7280', marginBottom: 10, fontWeight: 600
+          fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
+          color: '#64748b', marginBottom: 12, fontWeight: 700
         }}>Wall Thickness (mm)</div>
 
         {/* Exterior */}
         <div style={rowStyle}>
           <div style={labelStyle}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#a855f7', display: 'inline-block' }} />
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6', display: 'inline-block' }} />
             Exterior Wall
           </div>
           <select
@@ -216,7 +221,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
         {/* Interior */}
         <div style={rowStyle}>
           <div style={labelStyle}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#b45309', display: 'inline-block' }} />
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ea580c', display: 'inline-block' }} />
             Interior Wall
           </div>
           <select
@@ -230,30 +235,13 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
           </select>
         </div>
 
-        {/* Partition */}
-        {/* <div style={rowStyle}>
-          <div style={labelStyle}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
-            Partition Wall
-          </div>
-          <select
-            style={selectStyle}
-            value={partThickness}
-            onChange={e => setPartThickness(Number(e.target.value))}
-          >
-            {WALL_THICKNESS_OPTIONS.map(v => (
-              <option key={v} value={v}>{v} mm</option>
-            ))}
-          </select>
-        </div> */}
-
         {/* Divider */}
-        <div style={{ height: 1, background: '#2a2d38', margin: '16px 0' }} />
+        <div style={{ height: 1, background: '#e2e8f0', margin: '18px 0' }} />
 
         {/* Default Height */}
         <div style={{
-          fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.5,
-          color: '#6b7280', marginBottom: 10, fontWeight: 600
+          fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
+          color: '#64748b', marginBottom: 12, fontWeight: 700
         }}>Default Wall Height (mm)</div>
 
         <div style={rowStyle}>
@@ -290,32 +278,33 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
         </div>
 
         {/* Actions */}
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
           <button
             onClick={onClose}
             style={{
-              flex: 1, padding: '10px 16px', fontSize: 12, fontWeight: 600,
-              background: '#2a2d38', color: '#9ca3af', border: '1px solid #3f4451',
+              flex: 1, padding: '10px 16px', fontSize: 13, fontWeight: 600,
+              background: '#f8fafc', color: '#475569', border: '1px solid #cbd5e1',
               borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s'
             }}
-            onMouseOver={e => { e.target.style.background = '#3f4451'; e.target.style.color = '#e1e4ea'; }}
-            onMouseOut={e => { e.target.style.background = '#2a2d38'; e.target.style.color = '#9ca3af'; }}
+            onMouseOver={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#1e293b'; }}
+            onMouseOut={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#475569'; }}
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             style={{
-              flex: 2, padding: '10px 16px', fontSize: 12, fontWeight: 700,
-              background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+              flex: 2, padding: '10px 16px', fontSize: 13, fontWeight: 700,
+              background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
               color: 'white', border: 'none',
               borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
-              boxShadow: '0 4px 12px rgba(59,130,246,0.3)'
+              boxShadow: '0 4px 12px rgba(37,99,235,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
             }}
-            onMouseOver={e => e.target.style.boxShadow = '0 4px 20px rgba(59,130,246,0.5)'}
-            onMouseOut={e => e.target.style.boxShadow = '0 4px 12px rgba(59,130,246,0.3)'}
+            onMouseOver={e => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(37,99,235,0.45)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseOut={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(37,99,235,0.3)'; e.currentTarget.style.transform = 'none'; }}
           >
-            🚀 Run Wall AI
+            <span>🚀</span> Run Wall AI
           </button>
         </div>
       </div>

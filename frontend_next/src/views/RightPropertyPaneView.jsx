@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, mapFloorName, convertNameToClass } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { ApiService, BASE_URL } from "@/models/api.service";
@@ -325,6 +325,66 @@ function PitchInput({ value, onChange, style, className }) {
   );
 }
 
+export function getDoorWindowDisplayWidthMm(d, realScale, scaleValue) {
+  if (!d) return 1200;
+
+  const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door" || d.type === "sliding" || (d.doorTypeId && d.doorTypeId.includes("sliding"));
+  const isWin = (d.class === 'window' || d.type === 'window' || d.is_window || (d.doorTypeId && d.doorTypeId.startsWith('win_')) || (d.door_name && d.door_name.startsWith('W-')) || (d.doorName && d.doorName.startsWith('W-'))) && !isSliding;
+
+  const effScale = (typeof realScale === 'number' && realScale > 0 && realScale !== 1.0)
+    ? realScale
+    : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 18.0);
+
+  let displayWidthMm = null;
+
+  // 1. Calculate from geometry (points / polygon / mask_polygon)
+  if (d.points && d.points.length >= 2) {
+    const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+    const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+    const lenPx = Math.hypot((p2.x || 0) - (p1.x || 0), (p2.y || 0) - (p1.y || 0));
+    if (lenPx > 0) {
+      displayWidthMm = Math.round(lenPx * effScale);
+    }
+  } else if (d.polygon || d.mask_polygon) {
+    const poly = d.polygon || d.mask_polygon;
+    const xs = poly.map(p => Array.isArray(p) ? p[0] : (p ? p.x : undefined)).filter(x => x !== undefined && !isNaN(x));
+    const ys = poly.map(p => Array.isArray(p) ? p[1] : (p ? p.y : undefined)).filter(y => y !== undefined && !isNaN(y));
+    if (xs.length >= 2 && ys.length >= 2) {
+      const lenPx = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      if (lenPx > 0) {
+        displayWidthMm = Math.round(lenPx * effScale);
+      }
+    }
+  }
+
+  // 2. Fallback to d.width_mm or defaults
+  if (!displayWidthMm || displayWidthMm <= 0) {
+    if (d.width_mm && d.width_mm > 0) {
+      displayWidthMm = d.width_mm;
+    } else {
+      displayWidthMm = isWin ? 1200 : 760;
+    }
+  }
+
+  // 3. Smart Architectural Dimension Snapping (FOR WINDOWS, identical to AIDoor.jsx)
+  if (isWin && displayWidthMm) {
+    const STANDARD_DIMENSIONS = [600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000, 3600, 4200, 4800];
+    for (const stdW of STANDARD_DIMENSIONS) {
+      const snapTol = Math.max(120, stdW * 0.10);
+      if (Math.abs(displayWidthMm - stdW) <= snapTol) {
+        displayWidthMm = stdW;
+        break;
+      }
+    }
+  }
+
+  if (d.width_source === "manual" && d.width_mm) {
+    return d.width_mm;
+  }
+
+  return displayWidthMm;
+}
+
 /* ================================================================
    MAIN PANEL
    ================================================================ */
@@ -332,6 +392,7 @@ export default function RightPropertyPaneView({
   selectedRoom, selectedWall, selectedDoor, selectedType, selectedPointIndex, updateRoom, updateDoor, deleteDoor, scaleValue, realScale, rooms,
   highlightType, setHighlightType,
   selectedWallIds = [], setSelectedWallIds, setSelectedType, setSelectedId, updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm,
+  selectedDoorIds = [], setSelectedDoorIds, selectedRoomIds = [], setSelectedRoomIds, selectedLintelIds = [], setSelectedLintelIds,
   autoMergeCollinearWalls,
   walls = [],
   doors = [],
@@ -361,10 +422,33 @@ export default function RightPropertyPaneView({
   updateDutchOverhang,
   updateDutchRakeOverhang,
   updateDutchCutPoints,
+  loadPDF,
+  setPendingPages,
+  setImportSelectedPages,
+  setIsAddingPagesMode,
+  setShowImportPageSelector,
+  pages = [],
+  currentPage: currentPageProp,
+  setCurrentPage: setCurrentPageProp,
+  goPage,
+  currentProjectName: currentProjectNameProp,
+  wallsByPage: wallsByPageProp = {},
+  doorsByPage: doorsByPageProp = {},
+  roomsByPage: roomsByPageProp = {},
+  setRoomsByPage,
+  lintelsByPage: lintelsByPageProp,
+  roofsByPage: roofsByPageProp,
+  hiddenItemIds = new Set(),
+  setHiddenItemIds,
+  toggleItemVisibility,
+  layerVisibility: layerVisibilityProp,
+  setLayerVisibility: setLayerVisibilityProp,
+  selectWall,
+  onEditDoor
 }) {
   const [defaultPitchInput, setDefaultPitchInput] = useState(22.5);
   const [defaultOverhangInput, setDefaultOverhangInput] = useState(0);
-  const { showConfirm } = useDialog();
+  const { showConfirm, showPrompt } = useDialog();
   const {
     wasteByPage, setWasteByPage,
     roofsByPage, setRoofsByPage,
@@ -376,11 +460,142 @@ export default function RightPropertyPaneView({
     lintelsByPage,
     setShowFrameworkModal,
     setShowAreaSummaryModal,
-    setShowInsulationModal
+    setShowInsulationModal,
+    setPages
   } = useAppModel();
 
-  // ── PANE TAB STATE ("properties" | "job_task") ──
-  const [activePaneTab, setActivePaneTab] = React.useState("properties");
+  // ── PANE TAB STATE ("explorer" | "summary" | "job_task") ──
+  const [activePaneTab, setActivePaneTab] = React.useState("explorer");
+  const [explorerViewMode, setExplorerViewMode] = React.useState("tree"); // "tree" | "properties"
+  const [explorerSearch, setExplorerSearch] = React.useState("");
+  const [showCustomThickness, setShowCustomThickness] = React.useState(false);
+  const [showCustomHeight, setShowCustomHeight] = React.useState(false);
+  const [expandedNodes, setExpandedNodes] = React.useState(() => new Set([
+    "root",
+    "floor_0"
+  ]));
+
+  // Auto-expand floor when switching pages
+  React.useEffect(() => {
+    if (currentPage !== undefined) {
+      setExpandedNodes(prev => {
+        const next = new Set(prev);
+        next.add("root");
+        next.add(`floor_${currentPage}`);
+        return next;
+      });
+    }
+  }, [currentPage]);
+
+  // Auto-expand group & scroll to selected element when user clicks any layer item on 2D/3D UI
+  React.useEffect(() => {
+    const targetId = selectedId || (selectedWallIds && selectedWallIds[0]) || selectedRoofId;
+    if (!targetId) return;
+
+    const pageIdx = currentPage !== undefined ? currentPage : 0;
+    const floorKey = `floor_${pageIdx}`;
+
+    setExpandedNodes(prev => {
+      const next = new Set(prev);
+      next.add("root");
+      next.add(floorKey);
+
+      if (selectedType === "wall" || (selectedWallIds && selectedWallIds.length > 0)) {
+        next.add(`${floorKey}_walls`);
+      } else if (selectedType === "door" || selectedType === "window") {
+        const pageDoors = doorsByPageProp[pageIdx] || (pageIdx === currentPage ? (doors || []) : []);
+        const targetDoor = pageDoors.find(d => d.id === targetId);
+        const isWin = selectedType === "window" || targetDoor?.is_window || targetDoor?.type === "window" || String(targetDoor?.id || "").startsWith("win_");
+        if (isWin) {
+          next.add(`${floorKey}_windows`);
+        } else {
+          next.add(`${floorKey}_doors`);
+        }
+      } else if (selectedType === "room") {
+        next.add(`${floorKey}_rooms`);
+      } else if (selectedType === "lintel") {
+        next.add(`${floorKey}_lintels`);
+      } else if (selectedType === "roof" || selectedRoofId) {
+        next.add(`${floorKey}_roofs`);
+      }
+      return next;
+    });
+
+    // Auto-scroll to selected element in Explorer tree with smooth transition & highlight
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`explorer-item-${targetId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [selectedId, selectedType, selectedWallIds, selectedRoofId, currentPage, doorsByPageProp, doors]);
+
+  const toggleNode = React.useCallback((nodeId) => {
+    setExpandedNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  }, []);
+
+  const expandAllNodes = React.useCallback(() => {
+    const all = new Set(["root"]);
+    const pageList = pages.length > 0 ? pages : [{ id: 0, name: "Ground Floor" }];
+    pageList.forEach((_, idx) => {
+      all.add(`floor_${idx}`);
+      all.add(`floor_${idx}_walls`);
+      all.add(`floor_${idx}_doors`);
+      all.add(`floor_${idx}_windows`);
+      all.add(`floor_${idx}_rooms`);
+      all.add(`floor_${idx}_lintels`);
+      all.add(`floor_${idx}_roofs`);
+    });
+    setExpandedNodes(all);
+  }, [pages]);
+
+  const collapseAllNodes = React.useCallback(() => {
+    setExpandedNodes(new Set(["root"]));
+  }, []);
+
+  const showAllHidden = React.useCallback(() => {
+    if (setHiddenItemIds) setHiddenItemIds(new Set());
+  }, [setHiddenItemIds]);
+
+  // ── RENAME FLOOR HANDLER ──
+  const handleRenameFloor = async (e, pageIdx, currentName) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const currentDisplayName = mapFloorName(currentName, pageIdx);
+    const newName = await showPrompt("Nhập tên tầng mới (Floor Name):", currentDisplayName);
+    if (newName !== null && newName.trim() && setPages) {
+      const trimmed = newName.trim();
+      const classVal = convertNameToClass(trimmed, pageIdx);
+      setPages(prev => prev.map((p, i) =>
+        i === pageIdx ? { ...p, floor_name: classVal, name: trimmed } : p
+      ));
+    }
+  };
+
+  // ── RENAME ROOM HANDLER ──
+  const handleRenameRoom = async (e, pageIdx, r) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const currentName = r.room_name || r.name || "Room";
+    const newName = await showPrompt("Nhập tên phòng mới (Room Name):", currentName);
+    if (newName !== null && newName.trim()) {
+      const trimmed = newName.trim();
+      if (setRoomsByPage) {
+        setRoomsByPage(prev => ({
+          ...prev,
+          [pageIdx]: (prev[pageIdx] || []).map(rm => rm.id === r.id ? { ...rm, room_name: trimmed, name: trimmed } : rm)
+        }));
+      }
+      if (updateRoom && selectedId === r.id) {
+        updateRoom("room_name", trimmed);
+      }
+    }
+  };
   const [taskListJobs, setTaskListJobs] = React.useState([]);
   const [taskLoading, setTaskLoading] = React.useState(false);
   const [taskError, setTaskError] = React.useState(null);
@@ -401,19 +616,23 @@ export default function RightPropertyPaneView({
   const hasFetchedTasksRef = React.useRef(false);
 
   // Tải danh sách Task Groups HW từ TaskList Web3 / Local DB
-  const fetchTasks = React.useCallback(async (force = false) => {
+  const fetchTasks = React.useCallback(async (forceRefresh = false) => {
     try {
       setTaskLoading(true);
       setTaskError(null);
-      const res = await ApiService.getTaskListJobs(null, null, 150, force);
+      const res = await ApiService.fetchTaskListJobs(2000, forceRefresh);
       if (res && res.status === "success" && Array.isArray(res.data)) {
         setTaskListJobs(res.data);
+        try {
+          localStorage.setItem("cachedTaskListJobs", JSON.stringify(res.data));
+        } catch (e) { }
       } else {
         setTaskListJobs([]);
       }
     } catch (err) {
       console.error("Error fetching Task Groups HW:", err);
       setTaskError(err.message || "Không thể tải danh sách Task Groups HW");
+      setTaskListJobs([]);
     } finally {
       setTaskLoading(false);
     }
@@ -430,9 +649,14 @@ export default function RightPropertyPaneView({
   // Xử lý mở/chọn 1 Job Task
   const handleOpenJobTask = async (task) => {
     if (!task) return;
-    const targetName = task.job_number || "Project";
+    const targetName = task.job_number || task.hw_id || "Project";
+
+    // Lưu thông tin pendingEmsJob vào sessionStorage và localStorage để đồng bộ SQL
+    sessionStorage.setItem("pendingEmsJob", JSON.stringify(task));
+    localStorage.setItem("pendingEmsJob", JSON.stringify(task));
 
     // 1. Nếu Job đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor
+    let loadedSuccess = false;
     if (task.has_local_job && task.local_job?.id) {
       try {
         setLoadingJobId(task.hw_id);
@@ -443,21 +667,54 @@ export default function RightPropertyPaneView({
             onLoadJob(parsed, task.local_job.project_name || targetName, task.local_job.id);
           }
           if (setActiveTab) setActiveTab("Home");
+          loadedSuccess = true;
         }
       } catch (err) {
-        console.error("Error loading job:", err);
+        console.warn("Could not load local job data, falling back to new project:", err);
       } finally {
         setLoadingJobId(null);
       }
-    } else {
-      // 2. Nếu chưa có bản vẽ, đặt tên dự án và chuyển sang tab Home/Editor để bắt đầu
+    }
+
+    if (!loadedSuccess) {
+      // 2. Nếu chưa có bản vẽ hoặc không tìm thấy: Đặt tên dự án theo job_number, chuyển tab Home và kích hoạt mở file picker
       if (setCurrentProjectName) setCurrentProjectName(targetName);
       if (setCurrentJobId) setCurrentJobId(null);
       if (setActiveTab) setActiveTab("Home");
-    }
 
-    // Lưu thông tin pendingEmsJob vào sessionStorage
-    sessionStorage.setItem("pendingEmsJob", JSON.stringify(task));
+      // Tự động kích hoạt chọn bản vẽ PDF / Ảnh để người dùng bắt đầu vẽ ngay
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".pdf,image/*";
+      fileInput.style.display = "none";
+      fileInput.onchange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Đảm bảo tên dự án luôn gắn chặt với job_number của Task HW để đồng bộ SQL
+        if (setCurrentProjectName) setCurrentProjectName(targetName);
+
+        if (file.type === "application/pdf") {
+          if (loadPDF) loadPDF(file);
+        } else {
+          const url = URL.createObjectURL(file);
+          const imgData = { image: url, w: 2000, h: 1500, fileName: targetName };
+          if (setPendingPages) setPendingPages([imgData]);
+          if (setImportSelectedPages) setImportSelectedPages([0]);
+          if (setIsAddingPagesMode) setIsAddingPagesMode(false);
+          if (setShowImportPageSelector) setShowImportPageSelector(true);
+        }
+      };
+      document.body.appendChild(fileInput);
+      fileInput.click();
+      setTimeout(() => {
+        try {
+          if (document.body.contains(fileInput)) {
+            document.body.removeChild(fileInput);
+          }
+        } catch (_) { }
+      }, 1000);
+    }
   };
 
   const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
@@ -791,18 +1048,26 @@ export default function RightPropertyPaneView({
         let t = d.penetration_type || d.penetrationType || "";
         let cls = d.class || "";
         let type = d.type || "";
-        const isWindow = (type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'))) && cls !== 'sliding_door' && type !== 'sliding';
+        let isWindow = (type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'))) && cls !== 'sliding_door' && type !== 'sliding';
         const isGarage = cls.includes("garage") || t.includes("garage") || type === "garage" || d.doorTypeId === "ext_garage" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || (d.doorName && d.doorName.toLowerCase().includes("garage"));
+
+        // Rule: Window on internal wall → Sliding Door
+        const parentWallForCheck = pageWalls.find(w => w.id === d.parentWallId);
+        const isParentExtForCheck = parentWallForCheck && (parentWallForCheck.class_name === 'exterior_wall' || parentWallForCheck.type === 'ext' || parentWallForCheck.is_ext || parentWallForCheck.is_exterior);
+        const windowOnIntWall = isWindow && parentWallForCheck && !isParentExtForCheck && parentWallForCheck.class_name !== 'block_wall';
+        if (windowOnIntWall) {
+          isWindow = false;
+        }
 
         let doorType = "Single Door";
         if (isWindow) {
           doorType = "Window";
         } else if (isGarage) {
           doorType = "Garage Door";
+        } else if (windowOnIntWall || cls.includes("sliding") || t.includes("sliding") || cls.includes("slider") || t.includes("slider") || type === "sliding" || type.includes("slider") || d.doorTypeId?.includes("sliding") || d.doorTypeId?.includes("slider") || (d.door_name || d.doorName || '').toLowerCase().includes('slider')) {
+          doorType = "Sliding Door";
         } else if (cls.includes("double") || t.includes("double")) {
           doorType = "Double Door";
-        } else if (cls.includes("sliding") || t.includes("sliding") || cls.includes("slider") || t.includes("slider")) {
-          doorType = "Sliding Door";
         }
 
         const parentWall = pageWalls.find(w => w.id === d.parentWallId);
@@ -832,11 +1097,28 @@ export default function RightPropertyPaneView({
           doorNameStr.includes('ENTRY')
         );
 
+        const isWin = isWindow || doorType === "Window";
+        const defaultW = isWin ? 1200 : (doorType === "Double Door" ? 1520 : (doorType === "Sliding Door" ? 810 : 760));
+        const defaultH = isWin ? 1200 : 1980;
+
+        let width_mm = d.width_mm;
+        if (!width_mm) {
+          if (d.points && d.points.length >= 2 && realScale) {
+            const p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+            const p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+            width_mm = Math.round(Math.hypot(p2.x - p1.x, p2.y - p1.y) * realScale);
+          }
+        }
+        if (!width_mm) width_mm = defaultW;
+
+        let height_mm = d.height_mm;
+        if (!height_mm) height_mm = defaultH;
+
         return {
           id: String(d.id),
           door_type: doorType,
-          width_mm: d.width_mm || 760,
-          height_mm: d.height_mm || 1980,
+          width_mm: Number(width_mm),
+          height_mm: Number(height_mm),
           qty: 1,
           block_work: isParentBlock ? "Yes" : (d.block_work || d.blockWork || "No"),
           is_ext: isExt,
@@ -956,11 +1238,11 @@ export default function RightPropertyPaneView({
 
   return (
     <div className="cad-panel" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* ── TOP MENU BAR: Properties / Job Task ── */}
+      {/* ── TOP MENU BAR: Explorer / Summary / Task HW ── */}
       <div style={{
         display: "flex",
-        borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
-        background: "rgba(15, 23, 42, 0.95)",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--bg-panel)",
         padding: "6px 8px",
         gap: "6px",
         position: "sticky",
@@ -969,55 +1251,84 @@ export default function RightPropertyPaneView({
         flexShrink: 0
       }}>
         <button
-          onClick={() => setActivePaneTab("properties")}
+          onClick={() => {
+            setActivePaneTab("explorer");
+          }}
           style={{
             flex: 1,
-            padding: "7px 10px",
-            fontSize: "12px",
-            fontWeight: activePaneTab === "properties" ? 700 : 500,
-            color: activePaneTab === "properties" ? "#ffffff" : "#94a3b8",
-            background: activePaneTab === "properties" ? "linear-gradient(135deg, #2563eb, #1d4ed8)" : "rgba(255,255,255,0.03)",
-            border: activePaneTab === "properties" ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.06)",
+            padding: "6px 6px",
+            fontSize: "11px",
+            fontWeight: activePaneTab === "explorer" ? 700 : 500,
+            color: activePaneTab === "explorer" ? "#ffffff" : "var(--text-dim)",
+            background: activePaneTab === "explorer" ? "var(--blue)" : "transparent",
+            border: activePaneTab === "explorer" ? "1px solid var(--blue)" : "1px solid transparent",
             borderRadius: "6px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "4px",
+            boxShadow: activePaneTab === "explorer" ? "0 2px 5px rgba(37,99,235,0.25)" : "none",
             transition: "all 0.15s ease"
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /><path d="M14 9h5" /><path d="M14 15h5" /></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
           Properties
         </button>
+
+        <button
+          onClick={() => setActivePaneTab("summary")}
+          style={{
+            flex: 1,
+            padding: "6px 6px",
+            fontSize: "11px",
+            fontWeight: activePaneTab === "summary" ? 700 : 500,
+            color: activePaneTab === "summary" ? "#ffffff" : "var(--text-dim)",
+            background: activePaneTab === "summary" ? "var(--blue)" : "transparent",
+            border: activePaneTab === "summary" ? "1px solid var(--blue)" : "1px solid transparent",
+            borderRadius: "6px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "4px",
+            boxShadow: activePaneTab === "summary" ? "0 2px 5px rgba(37,99,235,0.25)" : "none",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+          Summary
+        </button>
+
         <button
           onClick={() => setActivePaneTab("job_task")}
           style={{
             flex: 1,
-            padding: "7px 10px",
-            fontSize: "12px",
+            padding: "6px 4px",
+            fontSize: "11px",
             fontWeight: activePaneTab === "job_task" ? 700 : 500,
-            color: activePaneTab === "job_task" ? "#ffffff" : "#94a3b8",
-            background: activePaneTab === "job_task" ? "linear-gradient(135deg, #2563eb, #1d4ed8)" : "rgba(255,255,255,0.03)",
-            border: activePaneTab === "job_task" ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.06)",
+            color: activePaneTab === "job_task" ? "#ffffff" : "var(--text-dim)",
+            background: activePaneTab === "job_task" ? "var(--blue)" : "transparent",
+            border: activePaneTab === "job_task" ? "1px solid var(--blue)" : "1px solid transparent",
             borderRadius: "6px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "3px",
+            boxShadow: activePaneTab === "job_task" ? "0 2px 5px rgba(37,99,235,0.25)" : "none",
             transition: "all 0.15s ease"
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
-          Task Groups HW
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+          Task HW
           {taskListJobs.filter(t => t.has_local_job).length > 0 && (
             <span style={{
               background: "#10b981",
               color: "#fff",
-              fontSize: "10px",
-              padding: "1px 5px",
-              borderRadius: "10px",
+              fontSize: "9px",
+              padding: "1px 4px",
+              borderRadius: "8px",
               fontWeight: 800
             }}>
               {taskListJobs.filter(t => t.has_local_job).length}
@@ -1026,7 +1337,1160 @@ export default function RightPropertyPaneView({
         </button>
       </div>
 
-      {activePaneTab === "job_task" ? (
+      {activePaneTab === "explorer" && explorerViewMode === "tree" ? (
+        /* ══════════════════════════════════════════════════════
+           TAB: EXPLORER / LAYERS TREE VIEW
+           ══════════════════════════════════════════════════════ */
+        <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "10px", overflowY: "auto", flex: 1 }}>
+          {/* Project Title & Status Bar */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 800, color: "var(--blue)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              PROJECT: {currentProjectName || "Modern House"}
+            </div>
+          </div>
+
+          {/* Search Box */}
+          <div style={{ position: "relative" }}>
+            <input
+              type="text"
+              placeholder="🔍 Search (e.g. Wall #100, Living, Door...)"
+              value={explorerSearch}
+              onChange={(e) => setExplorerSearch(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "7px 24px 7px 9px",
+                background: "#ffffff",
+                border: "1px solid var(--border)",
+                borderRadius: "6px",
+                color: "var(--text)",
+                fontSize: "12px",
+                outline: "none",
+                boxSizing: "border-box",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.03)"
+              }}
+            />
+            {explorerSearch && (
+              <button
+                onClick={() => setExplorerSearch("")}
+                style={{
+                  position: "absolute",
+                  right: "6px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  cursor: "pointer",
+                  fontSize: "12px"
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Tree Action Controls */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", color: "var(--text-dim)", padding: "0 2px" }}>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={expandAllNodes}
+                style={{ background: "none", border: "none", color: "var(--blue)", cursor: "pointer", padding: 0, fontSize: "11px", fontWeight: 600 }}
+              >
+                Expand all
+              </button>
+              <span style={{ color: "var(--border)" }}>|</span>
+              <button
+                onClick={collapseAllNodes}
+                style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0, fontSize: "11px", fontWeight: 500 }}
+              >
+                Collapse all
+              </button>
+            </div>
+            {hiddenItemIds && hiddenItemIds.size > 0 && (
+              <button
+                onClick={showAllHidden}
+                style={{
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "4px",
+                  color: "#2563eb",
+                  cursor: "pointer",
+                  padding: "2px 6px",
+                  fontSize: "8px",
+                  fontWeight: 800
+                }}
+              >
+                👁️ Show all ({hiddenItemIds.size} hidden)
+              </button>
+            )}
+          </div>
+
+          {/* Explorer Tree Hierarchy */}
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "2px",
+            background: "#ffffff",
+            border: "1px solid var(--border)",
+            borderRadius: "8px",
+            padding: "8px 6px",
+            fontSize: "12px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+          }}>
+            {/* Level 0: Root Project Node */}
+            <div
+              onClick={() => toggleNode("root")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "5px 6px",
+                borderRadius: "5px",
+                cursor: "pointer",
+                fontWeight: 700,
+                color: "#0f172a",
+                userSelect: "none"
+              }}
+            >
+              <span style={{ fontSize: "10px", color: "#64748b", transition: "transform 0.15s ease", transform: expandedNodes.has("root") ? "rotate(90deg)" : "rotate(0deg)" }}>
+                ▶
+              </span>
+              <span>🏠</span>
+              <span style={{ flex: 1 }}>{currentProjectName || "Modern House"}</span>
+            </div>
+
+            {expandedNodes.has("root") && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "12px" }}>
+                {(pages.length > 0 ? pages : [{ id: 0, name: "Ground Floor" }]).map((page, pageIdx) => {
+                  const floorKey = `floor_${pageIdx}`;
+                  const isFloorExpanded = expandedNodes.has(floorKey);
+                  const isCurrentFloor = (currentPage || 0) === pageIdx;
+
+                  // Data for this floor
+                  const pageWalls = wallsByPageProp[pageIdx] || (pageIdx === currentPage ? (walls || []) : []);
+                  const pageRawDoors = doorsByPageProp[pageIdx] || (pageIdx === currentPage ? (doors || []) : []);
+                  const pageDoors = pageRawDoors.filter(d => {
+                    const isWinClass = d.is_window || d.type === 'window' || d.id?.startsWith('win_');
+                    if (!isWinClass) return true; // non-window items always go to doors list
+                    // Window on internal wall → treat as door (sliding)
+                    const pw = pageWalls.find(w => w.id === d.parentWallId);
+                    const isParentExt = pw && (pw.class_name === 'exterior_wall' || pw.type === 'ext' || pw.is_ext || pw.is_exterior);
+                    return pw && !isParentExt && pw.class_name !== 'block_wall'; // window on internal wall → shows in doors
+                  });
+                  const pageWindows = pageRawDoors.filter(d => {
+                    const isWinClass = d.is_window || d.type === 'window' || d.id?.startsWith('win_');
+                    if (!isWinClass) return false; // non-window items never go to windows list
+                    // Window on external wall → stays as window
+                    const pw = pageWalls.find(w => w.id === d.parentWallId);
+                    const isParentExt = pw && (pw.class_name === 'exterior_wall' || pw.type === 'ext' || pw.is_ext || pw.is_exterior);
+                    return !pw || isParentExt || pw.class_name === 'block_wall'; // window on ext wall or no wall → stays as window
+                  });
+                  const pageRooms = roomsByPageProp[pageIdx] || (pageIdx === currentPage ? (rooms || []) : []);
+                  const pageLintels = lintelsByPageProp ? (lintelsByPageProp[pageIdx] || []) : (lintelsByPage ? (lintelsByPage[pageIdx] || []) : []);
+                  const pageRoofs = roofsByPageProp ? (roofsByPageProp[pageIdx] || []) : (roofsByPage ? (roofsByPage[pageIdx] || []) : []);
+
+                  // Filter by search query
+                  const q = explorerSearch.trim().toLowerCase();
+                  const filterMatch = (item, type, label) => {
+                    if (!q) return true;
+                    const idStr = String(item.id || "").toLowerCase();
+                    const labelStr = String(label || "").toLowerCase();
+                    const typeStr = String(type || "").toLowerCase();
+                    return idStr.includes(q) || labelStr.includes(q) || typeStr.includes(q);
+                  };
+
+                  const stripLeadingZero = (name) => {
+                    if (!name || typeof name !== 'string') return name;
+                    // Converts D-001 -> D-01, W-001 -> W-01, SD-001 -> SD-01, door_001 -> door_01
+                    return name.replace(/^([A-Za-z]+[-_])0+(\d{2,})$/, '$1$2');
+                  };
+
+                  const getWallLabel = (w, idx) => {
+                    if (w.name) return stripLeadingZero(w.name);
+                    if (w.userLabel) return stripLeadingZero(w.userLabel);
+                    if (w.id) {
+                      const strId = String(w.id);
+                      if (!strId.startsWith("man_wall_") && !strId.startsWith("wall-topo-") && !strId.startsWith("wall-") && !strId.startsWith("wall_") && strId.length <= 10) {
+                        return stripLeadingZero(strId);
+                      }
+                    }
+                    return `W-${idx + 1}`;
+                  };
+
+                  const getDoorLabel = (d, idx) => {
+                    let raw = d.doorName || d.door_name || d.name;
+                    if (raw) return stripLeadingZero(raw);
+                    const isConvertedWindow = d.is_window || d.type === 'window' || d.id?.startsWith('win_') || d.windowConvertedToSliding;
+                    const isSlidingDoor = d.class === 'sliding_door' || d.class === 'double_sliding_door' || d.type === 'sliding' || d.doorTypeId?.includes('sliding');
+                    if (d.id) {
+                      const strId = String(d.id);
+                      if (!strId.startsWith("man_door_") && !strId.startsWith("door_") && !strId.startsWith("door-") && strId.length <= 10) {
+                        return stripLeadingZero(strId);
+                      }
+                    }
+                    const prefix = (isConvertedWindow || isSlidingDoor) ? "SD" : "D";
+                    return `${prefix}-${String(idx + 1).padStart(2, '0')}`;
+                  };
+
+                  const getWindowLabel = (win, idx) => {
+                    let raw = win.doorName || win.door_name || win.name;
+                    if (raw) return stripLeadingZero(raw);
+                    if (win.id) {
+                      const strId = String(win.id);
+                      if (!strId.startsWith("man_win_") && !strId.startsWith("win_") && !strId.startsWith("win-") && !strId.startsWith("window_") && strId.length <= 10) {
+                        return stripLeadingZero(strId);
+                      }
+                    }
+                    return `W-${String(idx + 1).padStart(2, '0')}`;
+                  };
+
+                  const getRoomLabel = (r, idx) => {
+                    if (r.room_name) return r.room_name;
+                    if (r.name) return r.name;
+                    if (r.id) {
+                      const strId = String(r.id);
+                      if (!strId.startsWith("room_") && !strId.startsWith("rm_") && strId.length <= 10) {
+                        return strId;
+                      }
+                    }
+                    return `Room ${idx + 1}`;
+                  };
+
+                  const filteredWalls = pageWalls.filter((w, idx) => filterMatch(w, "wall", getWallLabel(w, idx)));
+                  const filteredDoors = pageDoors.filter((d, idx) => filterMatch(d, "door", getDoorLabel(d, idx)));
+                  const filteredWindows = pageWindows.filter((w, idx) => filterMatch(w, "window", getWindowLabel(w, idx)));
+                  const filteredRooms = pageRooms.filter((r, idx) => filterMatch(r, "room", getRoomLabel(r, idx)));
+                  const filteredLintels = pageLintels.filter((l, idx) => filterMatch(l, "lintel", l.description || `Lintel #${idx + 1}`));
+                  const filteredRoofs = pageRoofs.filter((rf, idx) => filterMatch(rf, "roof", rf.name || `Roof #${idx + 1}`));
+
+                  const floorTitle = mapFloorName(page.floor_name || page.name, pageIdx) || `Level ${pageIdx + 1}`;
+
+                  return (
+                    <div key={floorKey} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      {/* Level 1: Floor / Page Node */}
+                      <div
+                        onClick={() => {
+                          toggleNode(floorKey);
+                          if (goPage) goPage(pageIdx);
+                          else if (setCurrentPageProp) setCurrentPageProp(pageIdx);
+                        }}
+                        onDoubleClick={(e) => handleRenameFloor(e, pageIdx, page.floor_name || page.name)}
+                        title="Nhấp đúp để đổi tên tầng (Double-click to rename floor)"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "5px 6px",
+                          borderRadius: "5px",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                          color: isCurrentFloor ? "var(--blue)" : "#334155",
+                          background: isCurrentFloor ? "#eff6ff" : "transparent",
+                          userSelect: "none"
+                        }}
+                      >
+                        <span style={{ fontSize: "9px", color: "#94a3b8", transition: "transform 0.15s ease", transform: isFloorExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                          ▶
+                        </span>
+                        <span>🏢</span>
+                        <span style={{ flex: 1, fontWeight: 700 }}>{floorTitle}</span>
+                        <button
+                          title="Đổi tên tầng (Rename floor)"
+                          onClick={(e) => handleRenameFloor(e, pageIdx, page.floor_name || page.name)}
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: 0.7, padding: "0 2px" }}
+                        >
+                          ✏️
+                        </button>
+                        {isCurrentFloor && (
+                          <span style={{ fontSize: "9px", background: "var(--blue)", color: "#fff", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+
+                      {isFloorExpanded && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "14px" }}>
+                          {/* ── WALLS GROUP ── */}
+                          {pageWalls.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                              <div
+                                onClick={() => toggleNode(`${floorKey}_walls`)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 6px",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  userSelect: "none"
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                  <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_walls`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                                  <span>🧱</span>
+                                  <span>Walls</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageWalls.length})</span>
+                                  <button
+                                    title="Toggle all walls visibility"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) {
+                                        const allHidden = pageWalls.every(w => hiddenItemIds?.has(w.id));
+                                        if (setHiddenItemIds) {
+                                          setHiddenItemIds(prev => {
+                                            const next = new Set(prev);
+                                            pageWalls.forEach(w => allHidden ? next.delete(w.id) : next.add(w.id));
+                                            return next;
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "var(--blue)", padding: "0 2px" }}
+                                  >
+                                    {pageWalls.every(w => hiddenItemIds?.has(w.id)) ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedNodes.has(`${floorKey}_walls`) && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                                  {filteredWalls.map((w, idx) => {
+                                    const isSelected = selectedId === w.id || (selectedWallIds && selectedWallIds.includes(w.id));
+                                    const isHidden = hiddenItemIds?.has(w.id);
+                                    const c = w.centerline;
+                                    let lengthStr = "";
+                                    if (c && c.length === 2 && scaleValue) {
+                                      const lenPx = Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]);
+                                      lengthStr = `${(lenPx * scaleValue).toFixed(1)}m`;
+                                    }
+
+                                    return (
+                                      <div
+                                        key={w.id ? `w_${w.id}_${idx}` : `wall_${idx}`}
+                                        id={w.id ? `explorer-item-${w.id}` : undefined}
+                                        onClick={(e) => {
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          if (e.ctrlKey || e.shiftKey) {
+                                            if (selectedWallIds.includes(w.id)) {
+                                              setSelectedWallIds(selectedWallIds.filter(id => id !== w.id));
+                                            } else {
+                                              setSelectedWallIds([...selectedWallIds, w.id]);
+                                            }
+                                          } else {
+                                            setSelectedId(w.id);
+                                            setSelectedType("wall");
+                                            setSelectedWallIds([w.id]);
+                                            if (selectWall) selectWall(w.id);
+                                          }
+                                        }}
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(w.id);
+                                          setSelectedType("wall");
+                                          setSelectedWallIds([w.id]);
+                                          if (selectWall) selectWall(w.id);
+                                          setExplorerViewMode("properties");
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "4px 8px",
+                                          borderRadius: "5px",
+                                          cursor: "pointer",
+                                          fontSize: "12px",
+                                          background: isSelected ? "#eff6ff" : "transparent",
+                                          border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                          color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                          fontWeight: isSelected ? 700 : 500,
+                                          textDecoration: isHidden ? "line-through" : "none",
+                                          opacity: isHidden ? 0.6 : 1,
+                                          transition: "all 0.12s ease"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden", flex: 1, marginRight: "4px", whiteSpace: "nowrap" }}>
+                                          <span style={{ fontSize: "11px", opacity: 0.8, flexShrink: 0 }}>🧱</span>
+                                          <span style={{ fontWeight: isSelected ? 700 : 600, whiteSpace: "nowrap" }}>{getWallLabel(w, idx)}</span>
+                                          {lengthStr && (
+                                            <span style={{ fontSize: "10px", color: isSelected ? "#3b82f6" : "#64748b", fontWeight: 400, whiteSpace: "nowrap", flexShrink: 0 }}>
+                                              ({lengthStr})
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0, marginLeft: "auto" }}>
+                                          {/* Quick Edit */}
+                                          <button
+                                            title="Edit wall properties"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                              setSelectedId(w.id);
+                                              setSelectedType("wall");
+                                              setSelectedWallIds([w.id]);
+                                              if (selectWall) selectWall(w.id);
+                                              setExplorerViewMode("properties");
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          {/* Delete Wall */}
+                                          {deleteWalls && (
+                                            <button
+                                              title="Delete wall"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteWalls([w.id]);
+                                              }}
+                                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#ef4444", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
+                                            >
+                                              🗑️
+                                            </button>
+                                          )}
+                                          {/* Visibility Toggle Eye Icon */}
+                                          <button
+                                            title={isHidden ? "Show wall" : "Hide wall"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (toggleItemVisibility) toggleItemVisibility(w.id);
+                                            }}
+                                            style={{
+                                              background: "none",
+                                              border: "none",
+                                              cursor: "pointer",
+                                              fontSize: "12px",
+                                              color: isHidden ? "#94a3b8" : "var(--blue)",
+                                              fontWeight: 700,
+                                              padding: "0 2px"
+                                            }}
+                                          >
+                                            {isHidden ? "⊘" : "⊚"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── DOORS GROUP ── */}
+                          {pageDoors.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                              <div
+                                onClick={() => toggleNode(`${floorKey}_doors`)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 6px",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  userSelect: "none"
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                  <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_doors`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                                  <span>🚪</span>
+                                  <span>Doors</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 600 }}>({pageDoors.length})</span>
+                                  <button
+                                    title="Toggle all doors visibility"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) {
+                                        const allHidden = pageDoors.every(d => hiddenItemIds?.has(d.id));
+                                        if (setHiddenItemIds) {
+                                          setHiddenItemIds(prev => {
+                                            const next = new Set(prev);
+                                            pageDoors.forEach(d => allHidden ? next.delete(d.id) : next.add(d.id));
+                                            return next;
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "var(--blue)", padding: "0 2px" }}
+                                  >
+                                    {pageDoors.every(d => hiddenItemIds?.has(d.id)) ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedNodes.has(`${floorKey}_doors`) && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                                  {filteredDoors.map((d, idx) => {
+                                    const isSelected = (selectedId === d.id && selectedType === "door") || (selectedDoorIds && selectedDoorIds.includes(d.id));
+                                    const isHidden = hiddenItemIds?.has(d.id);
+                                    const label = d.hardware_type || d.type || `Door #${idx + 1}`;
+
+                                    return (
+                                      <div
+                                        key={d.id ? `d_${d.id}_${idx}` : `door_${idx}`}
+                                        id={d.id ? `explorer-item-${d.id}` : undefined}
+                                        onClick={() => {
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(d.id);
+                                          setSelectedType("door");
+                                        }}
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(d.id);
+                                          setSelectedType("door");
+                                          setExplorerViewMode("properties");
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "4px 8px",
+                                          borderRadius: "5px",
+                                          cursor: "pointer",
+                                          fontSize: "12px",
+                                          background: isSelected ? "#eff6ff" : "transparent",
+                                          border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                          color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                          fontWeight: isSelected ? 700 : 500,
+                                          textDecoration: isHidden ? "line-through" : "none",
+                                          opacity: isHidden ? 0.6 : 1,
+                                          transition: "all 0.12s ease"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden", flex: 1, marginRight: "4px", whiteSpace: "nowrap" }}>
+                                          {(() => {
+                                            const isConvertedWindow = d.is_window || d.type === 'window' || d.id?.startsWith('win_') || d.windowConvertedToSliding;
+                                            const isSlidingDoor = d.class === 'sliding_door' || d.class === 'double_sliding_door' || d.type === 'sliding' || d.doorTypeId?.includes('sliding');
+                                            const icon = isConvertedWindow ? "↔️" : isSlidingDoor ? "↔️" : "🚪";
+                                            const label = getDoorLabel(d, idx);
+                                            return (
+                                              <>
+                                                <span style={{ flexShrink: 0 }}>{icon}</span>
+                                                <span style={{ fontWeight: isSelected ? 700 : 600, whiteSpace: "nowrap" }}>{label}</span>
+                                              </>
+                                            );
+                                          })()}
+                                          {(() => {
+                                            const dWidth = getDoorWindowDisplayWidthMm(d, realScale, scaleValue);
+                                            return dWidth ? (
+                                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 400, whiteSpace: "nowrap", flexShrink: 0 }}>({dWidth}mm)</span>
+                                            ) : null;
+                                          })()}
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0, marginLeft: "auto" }}>
+                                          <button
+                                            title="Edit door properties"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                              setSelectedId(d.id);
+                                              setSelectedType("door");
+                                              setExplorerViewMode("properties");
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          {deleteDoor && (
+                                            <button
+                                              title="Delete door"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteDoor(d.id);
+                                              }}
+                                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#ef4444", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
+                                            >
+                                              🗑️
+                                            </button>
+                                          )}
+                                          <button
+                                            title={isHidden ? "Show door" : "Hide door"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (toggleItemVisibility) toggleItemVisibility(d.id);
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)", fontWeight: 700, padding: "0 2px" }}
+                                          >
+                                            {isHidden ? "⊘" : "⊚"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── WINDOWS GROUP ── */}
+                          {pageWindows.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                              <div
+                                onClick={() => toggleNode(`${floorKey}_windows`)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 6px",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  userSelect: "none"
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                  <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_windows`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                                  <span>🪟</span>
+                                  <span>Windows</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageWindows.length})</span>
+                                  <button
+                                    title="Toggle all windows visibility"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) {
+                                        const allHidden = pageWindows.every(w => hiddenItemIds?.has(w.id));
+                                        if (setHiddenItemIds) {
+                                          setHiddenItemIds(prev => {
+                                            const next = new Set(prev);
+                                            pageWindows.forEach(w => allHidden ? next.delete(w.id) : next.add(w.id));
+                                            return next;
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "var(--blue)", padding: "0 2px" }}
+                                  >
+                                    {pageWindows.every(w => hiddenItemIds?.has(w.id)) ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedNodes.has(`${floorKey}_windows`) && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                                  {filteredWindows.map((win, idx) => {
+                                    const isSelected = (selectedId === win.id && (selectedType === "window" || selectedType === "door")) || (selectedDoorIds && selectedDoorIds.includes(win.id));
+                                    const isHidden = hiddenItemIds?.has(win.id);
+
+                                    return (
+                                      <div
+                                        key={win.id ? `win_${win.id}_${idx}` : `window_${idx}`}
+                                        id={win.id ? `explorer-item-${win.id}` : undefined}
+                                        onClick={() => {
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(win.id);
+                                          setSelectedType("door");
+                                        }}
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(win.id);
+                                          setSelectedType("door");
+                                          setExplorerViewMode("properties");
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "4px 8px",
+                                          borderRadius: "5px",
+                                          cursor: "pointer",
+                                          fontSize: "12px",
+                                          background: isSelected ? "#eff6ff" : "transparent",
+                                          border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                          color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                          fontWeight: isSelected ? 700 : 500,
+                                          textDecoration: isHidden ? "line-through" : "none",
+                                          opacity: isHidden ? 0.6 : 1,
+                                          transition: "all 0.12s ease"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden", flex: 1, marginRight: "4px", whiteSpace: "nowrap" }}>
+                                          <span style={{ flexShrink: 0 }}>🪟</span>
+                                          <span style={{ fontWeight: isSelected ? 700 : 600, whiteSpace: "nowrap" }}>{getWindowLabel(win, idx)}</span>
+                                          {(() => {
+                                            const winWidth = getDoorWindowDisplayWidthMm(win, realScale, scaleValue);
+                                            return winWidth ? (
+                                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 400, whiteSpace: "nowrap", flexShrink: 0 }}>({winWidth}mm)</span>
+                                            ) : null;
+                                          })()}
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0, marginLeft: "auto" }}>
+                                          <button
+                                            title="Edit window properties"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                              setSelectedId(win.id);
+                                              setSelectedType("door");
+                                              setExplorerViewMode("properties");
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          {deleteDoor && (
+                                            <button
+                                              title="Delete window"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteDoor(win.id);
+                                              }}
+                                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#ef4444", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
+                                            >
+                                              🗑️
+                                            </button>
+                                          )}
+                                          <button
+                                            title={isHidden ? "Show window" : "Hide window"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (toggleItemVisibility) toggleItemVisibility(win.id);
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)", fontWeight: 700, padding: "0 2px" }}
+                                          >
+                                            {isHidden ? "⊘" : "⊚"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── ROOMS GROUP ── */}
+                          {pageRooms.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                              <div
+                                onClick={() => toggleNode(`${floorKey}_rooms`)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 6px",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  userSelect: "none"
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                  <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_rooms`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                                  <span>📐</span>
+                                  <span>Rooms</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageRooms.length})</span>
+                                  <button
+                                    title="Toggle all rooms visibility"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) {
+                                        const allHidden = pageRooms.every(r => hiddenItemIds?.has(r.id));
+                                        if (setHiddenItemIds) {
+                                          setHiddenItemIds(prev => {
+                                            const next = new Set(prev);
+                                            pageRooms.forEach(r => allHidden ? next.delete(r.id) : next.add(r.id));
+                                            return next;
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "var(--blue)", padding: "0 2px" }}
+                                  >
+                                    {pageRooms.every(r => hiddenItemIds?.has(r.id)) ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedNodes.has(`${floorKey}_rooms`) && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                                  {filteredRooms.map((r, idx) => {
+                                    const isSelected = (selectedId === r.id && selectedType === "room") || (selectedRoomIds && selectedRoomIds.includes(r.id));
+                                    const isHidden = hiddenItemIds?.has(r.id);
+                                    const roomName = getRoomLabel(r, idx);
+
+                                    return (
+                                      <div
+                                        key={r.id ? `rm_${r.id}_${idx}` : `room_${idx}`}
+                                        id={r.id ? `explorer-item-${r.id}` : undefined}
+                                        onClick={() => {
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(r.id);
+                                          setSelectedType("room");
+                                        }}
+                                        onDoubleClick={(e) => handleRenameRoom(e, pageIdx, r)}
+                                        title="Nhấp đúp để đổi tên phòng (Double-click to rename room)"
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "4px 8px",
+                                          borderRadius: "5px",
+                                          cursor: "pointer",
+                                          fontSize: "12px",
+                                          background: isSelected ? "#eff6ff" : "transparent",
+                                          border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                          color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                          fontWeight: isSelected ? 700 : 500,
+                                          textDecoration: isHidden ? "line-through" : "none",
+                                          opacity: isHidden ? 0.6 : 1,
+                                          transition: "all 0.12s ease"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0, whiteSpace: "nowrap" }}>
+                                          <span style={{ flexShrink: 0 }}>📐</span>
+                                          <span style={{ fontWeight: isSelected ? 700 : 600, whiteSpace: "nowrap" }}>{roomName}</span>
+                                          {r.areaM2 && (
+                                            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 400, whiteSpace: "nowrap", flexShrink: 0 }}>({r.areaM2.toFixed(1)} m²)</span>
+                                          )}
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                                          <button
+                                            title="Mở thuộc tính phòng (Edit room properties)"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                              setSelectedId(r.id);
+                                              setSelectedType("room");
+                                              setExplorerViewMode("properties");
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6 }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          {/* Delete Room */}
+                                          {setRoomsByPage && (
+                                            <button
+                                              title="Delete room"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setRoomsByPage(prev => ({
+                                                  ...prev,
+                                                  [pageIdx]: (prev[pageIdx] || []).filter(rm => rm.id !== r.id)
+                                                }));
+                                              }}
+                                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#ef4444", opacity: isSelected ? 1 : 0.4 }}
+                                            >
+                                              🗑️
+                                            </button>
+                                          )}
+                                          <button
+                                            title={isHidden ? "Show room" : "Hide room"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (toggleItemVisibility) toggleItemVisibility(r.id);
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)", fontWeight: 700 }}
+                                          >
+                                            {isHidden ? "⊘" : "⊚"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── LINTELS GROUP ── */}
+                          {pageLintels.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                              <div
+                                onClick={() => toggleNode(`${floorKey}_lintels`)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 6px",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  userSelect: "none"
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                  <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_lintels`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                                  <span>🏗️</span>
+                                  <span>Lintels</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageLintels.length})</span>
+                                  <button
+                                    title="Toggle all lintels visibility"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) {
+                                        const allHidden = pageLintels.every(l => hiddenItemIds?.has(l.id));
+                                        if (setHiddenItemIds) {
+                                          setHiddenItemIds(prev => {
+                                            const next = new Set(prev);
+                                            pageLintels.forEach(l => allHidden ? next.delete(l.id) : next.add(l.id));
+                                            return next;
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "var(--blue)", padding: "0 2px" }}
+                                  >
+                                    {pageLintels.every(l => hiddenItemIds?.has(l.id)) ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedNodes.has(`${floorKey}_lintels`) && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                                  {filteredLintels.map((l, idx) => {
+                                    const isSelected = (selectedId === l.id && selectedType === "lintel") || (selectedLintelIds && selectedLintelIds.includes(l.id));
+                                    const isHidden = hiddenItemIds?.has(l.id);
+
+                                    return (
+                                      <div
+                                        key={l.id ? `lin_${l.id}_${idx}` : `lintel_${idx}`}
+                                        id={l.id ? `explorer-item-${l.id}` : undefined}
+                                        onClick={() => {
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(l.id);
+                                          setSelectedType("lintel");
+                                        }}
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          setSelectedId(l.id);
+                                          setSelectedType("lintel");
+                                          setExplorerViewMode("properties");
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "4px 8px",
+                                          borderRadius: "5px",
+                                          cursor: "pointer",
+                                          fontSize: "12px",
+                                          background: isSelected ? "#eff6ff" : "transparent",
+                                          border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                          color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                          fontWeight: isSelected ? 700 : 500,
+                                          textDecoration: isHidden ? "line-through" : "none",
+                                          opacity: isHidden ? 0.6 : 1,
+                                          transition: "all 0.12s ease"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0, whiteSpace: "nowrap" }}>
+                                          <span style={{ flexShrink: 0 }}>🏗️</span>
+                                          <span style={{ fontWeight: isSelected ? 700 : 600, whiteSpace: "nowrap" }}>{l.description || `Lintel #${idx + 1}`}</span>
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                                          <button
+                                            title="Edit lintel properties"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                              setSelectedId(l.id);
+                                              setSelectedType("lintel");
+                                              setExplorerViewMode("properties");
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.4 }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          <button
+                                            title={isHidden ? "Show lintel" : "Hide lintel"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (toggleItemVisibility) toggleItemVisibility(l.id);
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)", fontWeight: 700 }}
+                                          >
+                                            {isHidden ? "⊘" : "⊚"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── ROOFS GROUP ── */}
+                          {pageRoofs.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                              <div
+                                onClick={() => toggleNode(`${floorKey}_roofs`)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 6px",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  userSelect: "none"
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                  <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_roofs`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                                  <span>🏠</span>
+                                  <span>Roofs</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageRoofs.length})</span>
+                                  <button
+                                    title="Toggle all roofs visibility"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) {
+                                        const allHidden = pageRoofs.every(rf => hiddenItemIds?.has(rf.id));
+                                        if (setHiddenItemIds) {
+                                          setHiddenItemIds(prev => {
+                                            const next = new Set(prev);
+                                            pageRoofs.forEach(rf => allHidden ? next.delete(rf.id) : next.add(rf.id));
+                                            return next;
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "var(--blue)", padding: "0 2px" }}
+                                  >
+                                    {pageRoofs.every(rf => hiddenItemIds?.has(rf.id)) ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedNodes.has(`${floorKey}_roofs`) && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                                  {filteredRoofs.map((rf, idx) => {
+                                    const isSelected = selectedRoofId === rf.id || selectedId === rf.id;
+                                    const isHidden = hiddenItemIds?.has(rf.id);
+
+                                    return (
+                                      <div
+                                        key={rf.id ? `rf_${rf.id}_${idx}` : `roof_${idx}`}
+                                        id={rf.id ? `explorer-item-${rf.id}` : undefined}
+                                        onClick={() => {
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          if (setSelectedRoofId) setSelectedRoofId(rf.id);
+                                          setSelectedId(rf.id);
+                                          setSelectedType("roof");
+                                        }}
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                          if (setSelectedRoofId) setSelectedRoofId(rf.id);
+                                          setSelectedId(rf.id);
+                                          setSelectedType("roof");
+                                          setExplorerViewMode("properties");
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          padding: "4px 8px",
+                                          borderRadius: "5px",
+                                          cursor: "pointer",
+                                          fontSize: "12px",
+                                          background: isSelected ? "#eff6ff" : "transparent",
+                                          border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                          color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                          fontWeight: isSelected ? 700 : 500,
+                                          textDecoration: isHidden ? "line-through" : "none",
+                                          opacity: isHidden ? 0.6 : 1,
+                                          transition: "all 0.12s ease"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0, whiteSpace: "nowrap" }}>
+                                          <span style={{ flexShrink: 0 }}>🏠</span>
+                                          <span style={{ fontWeight: isSelected ? 700 : 600, whiteSpace: "nowrap" }}>{rf.name || `Roof #${idx + 1}`}</span>
+                                          {rf.pitchAngle !== undefined && (
+                                            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 400, whiteSpace: "nowrap", flexShrink: 0 }}>({rf.pitchAngle}°)</span>
+                                          )}
+                                        </div>
+
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                                          <button
+                                            title="Edit roof properties"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
+                                              if (setSelectedRoofId) setSelectedRoofId(rf.id);
+                                              setSelectedId(rf.id);
+                                              setSelectedType("roof");
+                                              setExplorerViewMode("properties");
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.4 }}
+                                          >
+                                            ✏️
+                                          </button>
+                                          {deleteRoof && (
+                                            <button
+                                              title="Delete roof"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteRoof(rf.id);
+                                              }}
+                                              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#ef4444", opacity: isSelected ? 1 : 0.4 }}
+                                            >
+                                              🗑️
+                                            </button>
+                                          )}
+                                          <button
+                                            title={isHidden ? "Show roof" : "Hide roof"}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (toggleItemVisibility) toggleItemVisibility(rf.id);
+                                            }}
+                                            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)", fontWeight: 700 }}
+                                          >
+                                            {isHidden ? "⊘" : "⊚"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : activePaneTab === "job_task" ? (
         /* ══════════════════════════════════════════════════════
            TAB: TASK GROUPS HW (TaskList Web3 + Tích xanh hoàn thành)
            ══════════════════════════════════════════════════════ */
@@ -1059,7 +2523,7 @@ export default function RightPropertyPaneView({
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
               </svg>
-              {taskLoading ? "Đang tải..." : "Refresh"}
+              {taskLoading ? "Loading..." : "Refresh"}
             </button>
           </div>
 
@@ -1075,14 +2539,15 @@ export default function RightPropertyPaneView({
               }}
               style={{
                 width: "100%",
-                padding: "7px 26px 7px 9px",
-                background: "rgba(15, 23, 42, 0.8)",
-                border: "1px solid rgba(255,255,255,0.15)",
+                padding: "8px 26px 8px 10px",
+                background: "#ffffff",
+                border: "1px solid var(--border)",
                 borderRadius: "6px",
-                color: "#fff",
+                color: "var(--text)",
                 fontSize: "12px",
                 outline: "none",
-                boxSizing: "border-box"
+                boxSizing: "border-box",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.03)"
               }}
             />
             {taskSearch && (
@@ -1106,22 +2571,24 @@ export default function RightPropertyPaneView({
           </div>
 
           {/* Scope Toggle: Task Của Tôi vs Tất Cả */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
             <button
               onClick={() => { setStaffScope("my"); setTaskDisplayLimit(30); }}
               style={{
-                padding: "6px 4px",
+                padding: "7px 6px",
                 fontSize: "11px",
                 fontWeight: staffScope === "my" ? 700 : 500,
-                color: staffScope === "my" ? "#ffffff" : "#94a3b8",
-                background: staffScope === "my" ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "rgba(255,255,255,0.03)",
-                border: staffScope === "my" ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.06)",
+                color: staffScope === "my" ? "#ffffff" : "var(--text)",
+                background: staffScope === "my" ? "var(--blue)" : "#ffffff",
+                border: staffScope === "my" ? "1px solid var(--blue)" : "1px solid var(--border)",
                 borderRadius: "6px",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "4px"
+                gap: "5px",
+                boxShadow: staffScope === "my" ? "0 1px 4px rgba(37,99,235,0.25)" : "none",
+                transition: "all 0.15s ease"
               }}
             >
               <span>👤 My Tasks ({myStaffCode})</span>
@@ -1129,18 +2596,20 @@ export default function RightPropertyPaneView({
             <button
               onClick={() => { setStaffScope("all"); setTaskDisplayLimit(30); }}
               style={{
-                padding: "6px 4px",
+                padding: "7px 6px",
                 fontSize: "11px",
                 fontWeight: staffScope === "all" ? 700 : 500,
-                color: staffScope === "all" ? "#ffffff" : "#94a3b8",
-                background: staffScope === "all" ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "rgba(255,255,255,0.03)",
-                border: staffScope === "all" ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.06)",
+                color: staffScope === "all" ? "#ffffff" : "var(--text)",
+                background: staffScope === "all" ? "var(--blue)" : "#ffffff",
+                border: staffScope === "all" ? "1px solid var(--blue)" : "1px solid var(--border)",
                 borderRadius: "6px",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "4px"
+                gap: "5px",
+                boxShadow: staffScope === "all" ? "0 1px 4px rgba(37,99,235,0.25)" : "none",
+                transition: "all 0.15s ease"
               }}
             >
               <span>🌐 All HW Tasks</span>
@@ -1152,14 +2621,15 @@ export default function RightPropertyPaneView({
             <button
               onClick={() => { setTaskFilter("all"); setTaskDisplayLimit(30); }}
               style={{
-                padding: "5px 2px",
+                padding: "6px 2px",
                 fontSize: "11px",
                 fontWeight: taskFilter === "all" ? 700 : 500,
-                color: taskFilter === "all" ? "#fff" : "#94a3b8",
-                background: taskFilter === "all" ? "rgba(59, 130, 246, 0.3)" : "rgba(255,255,255,0.03)",
-                border: taskFilter === "all" ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "5px",
-                cursor: "pointer"
+                color: taskFilter === "all" ? "#1d4ed8" : "var(--text-dim)",
+                background: taskFilter === "all" ? "#eff6ff" : "#ffffff",
+                border: taskFilter === "all" ? "1px solid #93c5fd" : "1px solid var(--border)",
+                borderRadius: "6px",
+                cursor: "pointer",
+                transition: "all 0.15s ease"
               }}
             >
               All ({filteredTasks.length})
@@ -1167,14 +2637,15 @@ export default function RightPropertyPaneView({
             <button
               onClick={() => { setTaskFilter("completed"); setTaskDisplayLimit(30); }}
               style={{
-                padding: "5px 2px",
+                padding: "6px 2px",
                 fontSize: "11px",
                 fontWeight: taskFilter === "completed" ? 700 : 500,
-                color: taskFilter === "completed" ? "#10b981" : "#94a3b8",
-                background: taskFilter === "completed" ? "rgba(16, 185, 129, 0.2)" : "rgba(255,255,255,0.03)",
-                border: taskFilter === "completed" ? "1px solid #10b981" : "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "5px",
-                cursor: "pointer"
+                color: taskFilter === "completed" ? "#059669" : "var(--text-dim)",
+                background: taskFilter === "completed" ? "#ecfdf5" : "#ffffff",
+                border: taskFilter === "completed" ? "1px solid #a7f3d0" : "1px solid var(--border)",
+                borderRadius: "6px",
+                cursor: "pointer",
+                transition: "all 0.15s ease"
               }}
             >
               ✅ Available ({filteredTasks.filter(t => t.has_local_job).length})
@@ -1182,14 +2653,15 @@ export default function RightPropertyPaneView({
             <button
               onClick={() => { setTaskFilter("pending"); setTaskDisplayLimit(30); }}
               style={{
-                padding: "5px 2px",
+                padding: "6px 2px",
                 fontSize: "11px",
                 fontWeight: taskFilter === "pending" ? 700 : 500,
-                color: taskFilter === "pending" ? "#f59e0b" : "#94a3b8",
-                background: taskFilter === "pending" ? "rgba(245, 158, 11, 0.2)" : "rgba(255,255,255,0.03)",
-                border: taskFilter === "pending" ? "1px solid #f59e0b" : "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "5px",
-                cursor: "pointer"
+                color: taskFilter === "pending" ? "#d97706" : "var(--text-dim)",
+                background: taskFilter === "pending" ? "#fef3c7" : "#ffffff",
+                border: taskFilter === "pending" ? "1px solid #fde68a" : "1px solid var(--border)",
+                borderRadius: "6px",
+                cursor: "pointer",
+                transition: "all 0.15s ease"
               }}
             >
               ⏳ Pending ({filteredTasks.filter(t => !t.has_local_job).length})
@@ -1198,44 +2670,45 @@ export default function RightPropertyPaneView({
 
           {/* Job Task List */}
           {taskLoading ? (
-            <div style={{ textAlign: "center", padding: "40px 10px", color: "#94a3b8", fontSize: "13px" }}>
+            <div style={{ textAlign: "center", padding: "40px 10px", color: "var(--text-dim)", fontSize: "13px" }}>
               <div style={{ marginBottom: "8px" }}>⏳ Loading Task Groups HW...</div>
             </div>
           ) : taskError ? (
-            <div style={{ padding: "12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "6px", color: "#f87171", fontSize: "12px" }}>
+            <div style={{ padding: "12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", color: "#dc2626", fontSize: "12px" }}>
               ⚠️ {taskError}
-              <button onClick={() => fetchTasks(true)} style={{ marginTop: "6px", display: "block", color: "#38bdf8", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Retry</button>
+              <button onClick={() => fetchTasks(true)} style={{ marginTop: "6px", display: "block", color: "var(--blue)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontWeight: 600 }}>Retry</button>
             </div>
           ) : filteredTasks.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 10px", color: "#64748b", fontSize: "13px" }}>
+            <div style={{ textAlign: "center", padding: "40px 10px", color: "var(--text-dim)", fontSize: "13px" }}>
               No matching Job Tasks found.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {filteredTasks.slice(0, taskDisplayLimit).map((task) => {
+              {filteredTasks.slice(0, taskDisplayLimit).map((task, idx) => {
                 const isActiveJob = currentProjectName && task.job_number && currentProjectName.toLowerCase().trim() === task.job_number.toLowerCase().trim();
                 const isLoadingThis = loadingJobId === task.hw_id;
 
                 return (
                   <div
-                    key={task.hw_id || task.id_job_ems || Math.random()}
+                    key={`task_${task.hw_id || task.id_job_ems || idx}_${idx}`}
                     style={{
-                      background: isActiveJob ? "rgba(59, 130, 246, 0.15)" : "rgba(30, 41, 59, 0.6)",
-                      border: isActiveJob ? "1.5px solid #3b82f6" : (task.has_local_job ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(255,255,255,0.08)"),
+                      background: isActiveJob ? "#eff6ff" : "#ffffff",
+                      border: isActiveJob ? "1.5px solid var(--blue)" : "1px solid var(--border)",
                       borderRadius: "8px",
-                      padding: "10px",
+                      padding: "12px",
                       display: "flex",
                       flexDirection: "column",
                       gap: "6px",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                       transition: "all 0.15s ease"
                     }}
                   >
                     {/* Header Row: Job Number & Checkmark Status */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-                      <div style={{ fontWeight: 800, fontSize: "13px", color: isActiveJob ? "#60a5fa" : "#ffffff", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <div style={{ fontWeight: 800, fontSize: "13px", color: isActiveJob ? "var(--blue)" : "var(--text)", display: "flex", alignItems: "center", gap: "6px" }}>
                         {task.job_number || "No Job Number"}
                         {isActiveJob && (
-                          <span style={{ fontSize: "9px", background: "#3b82f6", color: "#fff", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
+                          <span style={{ fontSize: "9px", background: "var(--blue)", color: "#fff", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
                             ACTIVE
                           </span>
                         )}
@@ -1249,16 +2722,16 @@ export default function RightPropertyPaneView({
                             display: "flex",
                             alignItems: "center",
                             gap: "4px",
-                            background: "rgba(16, 185, 129, 0.18)",
-                            color: "#10b981",
-                            border: "1px solid rgba(16, 185, 129, 0.4)",
+                            background: "#ecfdf5",
+                            color: "#059669",
+                            border: "1px solid #a7f3d0",
                             borderRadius: "4px",
                             padding: "2px 6px",
                             fontSize: "11px",
                             fontWeight: 700
                           }}
                         >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                           <span>Available</span>
@@ -1267,13 +2740,13 @@ export default function RightPropertyPaneView({
                         <div
                           title="Task HW does not have takeoff drawing in EzeFloor yet"
                           style={{
-                            background: "rgba(148, 163, 184, 0.1)",
+                            background: "#f1f5f9",
                             color: "#64748b",
-                            border: "1px solid rgba(148, 163, 184, 0.2)",
+                            border: "1px solid #e2e8f0",
                             borderRadius: "4px",
                             padding: "2px 6px",
                             fontSize: "10px",
-                            fontWeight: 500
+                            fontWeight: 600
                           }}
                         >
                           Pending
@@ -1282,17 +2755,17 @@ export default function RightPropertyPaneView({
                     </div>
 
                     {/* Metadata */}
-                    <div style={{ fontSize: "11px", color: "#94a3b8", display: "flex", flexDirection: "column", gap: "2px" }}>
+                    <div style={{ fontSize: "11px", color: "var(--text-dim)", display: "flex", flexDirection: "column", gap: "3px" }}>
                       {task.client && (
-                        <div><strong style={{ color: "#cbd5e1" }}>Client:</strong> {task.client}</div>
+                        <div><strong style={{ color: "var(--text)" }}>Client:</strong> {task.client}</div>
                       )}
                       {task.builder && (
-                        <div><strong style={{ color: "#cbd5e1" }}>Builder:</strong> {task.builder}</div>
+                        <div><strong style={{ color: "var(--text)" }}>Builder:</strong> {task.builder}</div>
                       )}
                       <div style={{ display: "flex", justifyContent: "space-between", marginTop: "2px", color: "#64748b", fontSize: "10px" }}>
-                        {task.ma_nv && <span>Staff: <strong style={{ color: "#94a3b8" }}>{task.ma_nv}</strong></span>}
+                        {task.ma_nv && <span>Staff: <strong style={{ color: "var(--text)" }}>{task.ma_nv}</strong></span>}
                         {task.local_job?.room_count !== undefined && (
-                          <span style={{ color: "#10b981", fontWeight: 600 }}>{task.local_job.room_count} rooms ({(task.local_job.total_area || 0).toFixed(1)} m²)</span>
+                          <span style={{ color: "#059669", fontWeight: 700 }}>{task.local_job.room_count} rooms ({(task.local_job.total_area || 0).toFixed(1)} m²)</span>
                         )}
                       </div>
                     </div>
@@ -1302,21 +2775,22 @@ export default function RightPropertyPaneView({
                       onClick={() => handleOpenJobTask(task)}
                       disabled={isLoadingThis}
                       style={{
-                        marginTop: "4px",
-                        padding: "6px 10px",
+                        marginTop: "6px",
+                        padding: "7px 10px",
                         fontSize: "11px",
                         fontWeight: 700,
-                        borderRadius: "5px",
+                        borderRadius: "6px",
                         border: "none",
                         cursor: isLoadingThis ? "not-allowed" : "pointer",
                         background: task.has_local_job
-                          ? "linear-gradient(135deg, #059669, #10b981)"
-                          : "linear-gradient(135deg, #2563eb, #3b82f6)",
+                          ? "#10b981"
+                          : "var(--blue)",
                         color: "#fff",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                         gap: "6px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
                         transition: "all 0.15s ease"
                       }}
                     >
@@ -1330,7 +2804,7 @@ export default function RightPropertyPaneView({
                       ) : (
                         <>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                          Bắt đầu bóc tách
+                          Start Takeoff
                         </>
                       )}
                     </button>
@@ -1341,30 +2815,69 @@ export default function RightPropertyPaneView({
               {/* Load More Button */}
               {filteredTasks.length > taskDisplayLimit && (
                 <button
-                  onClick={() => setTaskDisplayLimit(prev => prev + 30)}
+                  onClick={() => setTaskDisplayLimit(prev => prev + 50)}
                   style={{
                     padding: "8px 12px",
-                    background: "rgba(59, 130, 246, 0.15)",
-                    border: "1px dashed rgba(59, 130, 246, 0.4)",
+                    background: "#eff6ff",
+                    border: "1px dashed #93c5fd",
                     borderRadius: "6px",
-                    color: "#60a5fa",
+                    color: "var(--blue)",
                     fontSize: "11px",
                     fontWeight: 700,
                     cursor: "pointer",
-                    marginTop: "4px"
+                    marginTop: "4px",
+                    transition: "all 0.15s ease"
                   }}
                 >
-                  ⬇️ Load more (+30 HW Tasks)...
+                  ⬇️ Load more (+50 HW Tasks)... ({filteredTasks.length - taskDisplayLimit} remaining)
                 </button>
               )}
             </div>
           )}
         </div>
-      ) : (
+      ) : (activePaneTab === "explorer" && explorerViewMode === "properties") || activePaneTab === "properties" ? (
         /* ══════════════════════════════════════════════════════
-           TAB: PROPERTIES (Thuộc tính đối tượng hiện tại)
+           TAB: PROPERTIES (Thuộc tính đối tượng hiện tại + Nút quay lại Explorer)
            ══════════════════════════════════════════════════════ */
-        <div style={{ overflowY: "auto", flex: 1, paddingBottom: "20px" }}>
+        <div style={{ overflowY: "auto", flex: 1, paddingBottom: "20px", display: "flex", flexDirection: "column" }}>
+          {/* ── BACK BUTTON TO EXPLORER / LAYERS ── */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            background: "#eff6ff",
+            borderBottom: "1px solid #bfdbfe",
+            position: "sticky",
+            top: 0,
+            zIndex: 25
+          }}>
+            <button
+              onClick={() => setExplorerViewMode("tree")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "#ffffff",
+                border: "1px solid #bfdbfe",
+                borderRadius: "6px",
+                padding: "5px 12px",
+                color: "var(--blue)",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 1px 3px rgba(37,99,235,0.12)",
+                transition: "all 0.15s ease"
+              }}
+            >
+              <span style={{ fontSize: "14px", fontWeight: 900 }}>←</span>
+              <span>Quay lại Explorer / Layers</span>
+            </button>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", padding: "3px 8px", borderRadius: "12px", textTransform: "uppercase" }}>
+              {selectedType ? selectedType.toUpperCase() : "PROPERTIES"}
+            </span>
+          </div>
+
           {/* ── PROPERTIES ── */}
           <div className="panel-section">
             <div className="panel-title">Properties</div>
@@ -1502,9 +3015,11 @@ export default function RightPropertyPaneView({
                             padding: "7px 12px",
                             fontSize: "12px",
                             fontWeight: 700,
-                            background: allAlreadySelected ? "#10b981" : typeInfo.color,
+                            background: allAlreadySelected ? "#10b981" : "var(--blue)",
+                            color: "#ffffff",
                             width: "100%",
-                            borderRadius: 8,
+                            borderRadius: 6,
+                            boxShadow: "0 2px 4px rgba(37,99,235,0.2)",
                             transition: "all 0.15s ease",
                           }}
                           onClick={() => {
@@ -1559,27 +3074,26 @@ export default function RightPropertyPaneView({
                     // Use button group for multi-wall selection (immune to React controlled select re-render issues)
                     if (selectedWallIds.length > 1) {
                       const typeOptions = [
-                        { value: "exterior_wall", label: "Ext", color: "#0284c7" },
-                        { value: "interior_wall", label: "Int", color: "#6366f1" },
-                        { value: "partition_wall", label: "Part", color: "#8b5cf6" },
-                        { value: "block_wall", label: "Block", color: "#64748b" },
+                        { value: "exterior_wall", label: "Ext" },
+                        { value: "interior_wall", label: "Int" },
+                        { value: "partition_wall", label: "Part" },
+                        { value: "block_wall", label: "Block" },
                       ];
                       return (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4, background: "var(--bg-panel)", padding: 3, borderRadius: 6, border: "1px solid var(--border)" }}>
                           {typeOptions.map(opt => (
                             <button
                               key={opt.value}
                               style={{
                                 padding: "6px 4px",
                                 fontSize: 11,
-                                fontWeight: currentType === opt.value ? 800 : 600,
-                                background: currentType === opt.value ? opt.color : "#1e293b",
-                                color: "#fff",
-                                border: currentType === opt.value ? `2px solid ${opt.color}` : "1px solid #334155",
-                                borderRadius: 6,
+                                fontWeight: currentType === opt.value ? 700 : 500,
+                                background: currentType === opt.value ? "var(--blue)" : "transparent",
+                                color: currentType === opt.value ? "#ffffff" : "var(--text-dim)",
+                                border: currentType === opt.value ? "1px solid var(--blue)" : "1px solid transparent",
+                                borderRadius: 4,
                                 cursor: "pointer",
                                 transition: "all 0.15s ease",
-                                opacity: currentType === opt.value ? 1 : 0.7,
                               }}
                               onClick={() => handleTypeChange(opt.value)}
                             >
@@ -1608,54 +3122,125 @@ export default function RightPropertyPaneView({
 
                 <div className="panel-field">
                   <span className="panel-label">Wall Thickness</span>
-                  <select
-                    className="panel-select"
-                    value={
-                      selectedWallIds.length > 1
-                        ? "multiple"
-                        : (selectedWall?.thickness ?? (selectedWall && pxToMm ? Math.round(pxToMm(selectedWall.thickness_px, realScale)) : 70))
-                    }
-                    onChange={(e) => {
-                      if (e.target.value === "multiple") return;
-                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                      updateWallsProperty && updateWallsProperty(targetIds, "thickness", Number(e.target.value));
-                    }}
-                  >
-                    {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Thicknesses --</option>}
-                    <option value={70}>70 mm</option>
-                    <option value={90}>90 mm</option>
-                    <option value={140}>140 mm</option>
-                    <option value={180}>180 mm</option>
-                    <option value={200}>200 mm</option>
-                  </select>
+                  {(() => {
+                    const handleThicknessChange = async (val) => {
+                      const targetIds = selectedWallIds.length > 0 ? [...selectedWallIds] : (selectedWall ? [selectedWall.id] : []);
+                      if (targetIds.length === 0) return;
+                      if (val === "custom") {
+                        setShowCustomThickness(true);
+                        if (showPrompt) {
+                          const input = await showPrompt("Nhập độ dày tường tùy chỉnh (mm) [Wall Thickness]:", String(currentThickness !== "multiple" ? currentThickness : 90));
+                          if (input && !isNaN(parseInt(input, 10)) && parseInt(input, 10) > 0) {
+                            const num = parseInt(input, 10);
+                            if (updateWallsProperty) updateWallsProperty(targetIds, "thickness", num);
+                          }
+                        }
+                        return;
+                      }
+                      setShowCustomThickness(false);
+                      const numVal = parseInt(val, 10);
+                      if (updateWallsProperty) {
+                        updateWallsProperty(targetIds, "thickness", numVal);
+                      }
+                    };
+
+                    const currentThickness = (() => {
+                      if (selectedWallIds.length > 1) {
+                        const vals = new Set();
+                        for (const id of selectedWallIds) {
+                          const w = (walls || []).find(ww => ww.id === id);
+                          if (w) vals.add(w.thickness ?? 90);
+                          else {
+                            const bId = getBaseWallId ? getBaseWallId(id) : id;
+                            const found = (walls || []).find(ww => (getBaseWallId ? getBaseWallId(ww.id) : ww.id) === bId);
+                            if (found) vals.add(found.thickness ?? 90);
+                          }
+                        }
+                        if (vals.size === 0) return 90;
+                        if (vals.size === 1) return [...vals][0];
+                        return "multiple";
+                      }
+                      return selectedWall?.thickness ?? 90;
+                    })();
+
+                    const isCustom = typeof currentThickness === "number" && ![70, 75, 90, 100, 110, 120, 140, 150, 190, 200].includes(currentThickness);
+
+                    return (
+                      <>
+                        <select
+                          className="panel-select"
+                          value={currentThickness}
+                          onChange={(e) => handleThicknessChange(e.target.value)}
+                        >
+                          {currentThickness === "multiple" && (
+                            <option value="multiple" disabled>(Multiple thicknesses)</option>
+                          )}
+                          {[70, 75, 90, 100, 110, 120, 140, 150, 190, 200].map(v => (
+                            <option key={v} value={v}>{v} mm</option>
+                          ))}
+                          <option value="custom">{isCustom ? `Custom: ${currentThickness} mm` : "Custom..."}</option>
+                        </select>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="panel-field">
                   <span className="panel-label">Wall Height</span>
                   {(() => {
-                    const currentHeight = selectedWallIds.length > 1 ? "multiple" : (selectedWall?.height ?? savedDefault);
-                    const isCustom = currentHeight !== "multiple" && !WALL_HEIGHT_OPTIONS.includes(Number(currentHeight));
+                    const handleHeightChange = async (val) => {
+                      const targetIds = selectedWallIds.length > 0 ? [...selectedWallIds] : (selectedWall ? [selectedWall.id] : []);
+                      if (targetIds.length === 0) return;
+                      if (val === "custom") {
+                        setShowCustomHeight(true);
+                        if (showPrompt) {
+                          const input = await showPrompt("Nhập chiều cao tường tùy chỉnh (mm) [Wall Height]:", String(currentHeight !== "multiple" ? currentHeight : 2700));
+                          if (input && !isNaN(parseInt(input, 10)) && parseInt(input, 10) > 0) {
+                            const num = parseInt(input, 10);
+                            if (updateWallsProperty) updateWallsProperty(targetIds, "height", num);
+                          }
+                        }
+                        return;
+                      }
+                      setShowCustomHeight(false);
+                      const numVal = parseInt(val, 10);
+                      if (updateWallsProperty) {
+                        updateWallsProperty(targetIds, "height", numVal);
+                      }
+                    };
+
+                    const currentHeight = (() => {
+                      if (selectedWallIds.length > 1) {
+                        const vals = new Set();
+                        for (const id of selectedWallIds) {
+                          const w = (walls || []).find(ww => ww.id === id);
+                          if (w) vals.add(w.height ?? savedDefault);
+                          else {
+                            const bId = getBaseWallId ? getBaseWallId(id) : id;
+                            const found = (walls || []).find(ww => (getBaseWallId ? getBaseWallId(ww.id) : ww.id) === bId);
+                            if (found) vals.add(found.height ?? savedDefault);
+                          }
+                        }
+                        if (vals.size === 0) return savedDefault;
+                        if (vals.size === 1) return [...vals][0];
+                        return "multiple";
+                      }
+                      return selectedWall?.height ?? savedDefault;
+                    })();
+
+                    const isCustom = typeof currentHeight === "number" && ![2400, 2700, 3000, 3300, 3600].includes(currentHeight);
+
                     return (
                       <>
                         <select
                           className="panel-select"
-                          value={isCustom ? "custom" : currentHeight}
-                          onChange={(e) => {
-                            if (e.target.value === "multiple") return;
-                            const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                            if (e.target.value === "custom") {
-                              // Prompt for custom value
-                              const val = prompt("Enter custom wall height (mm):", String(currentHeight));
-                              if (val && !isNaN(Number(val)) && Number(val) > 0) {
-                                updateWallsProperty && updateWallsProperty(targetIds, "height", Number(val));
-                              }
-                            } else {
-                              updateWallsProperty && updateWallsProperty(targetIds, "height", Number(e.target.value));
-                            }
-                          }}
+                          value={currentHeight}
+                          onChange={(e) => handleHeightChange(e.target.value)}
                         >
-                          {selectedWallIds.length > 1 && <option value="multiple" disabled>-- Multiple Heights --</option>}
-                          {WALL_HEIGHT_OPTIONS.map(v => (
+                          {currentHeight === "multiple" && (
+                            <option value="multiple" disabled>(Multiple heights)</option>
+                          )}
+                          {[2400, 2700, 3000, 3300, 3600].map(v => (
                             <option key={v} value={v}>{v} mm ({(v / 1000).toFixed(1)} m)</option>
                           ))}
                           <option value="custom">{isCustom ? `Custom: ${currentHeight} mm` : "Custom..."}</option>
@@ -1667,7 +3252,7 @@ export default function RightPropertyPaneView({
 
                 {/* FLOOR BASE TYPE SELECTOR (Slab Floor vs Timber Floor) */}
                 <div style={{ marginTop: 12, marginBottom: 8 }}>
-                  <span className="panel-label" style={{ fontWeight: 700, color: "#38bdf8", marginBottom: 6, display: "block" }}>
+                  <span className="panel-label" style={{ fontWeight: 700, color: "var(--blue-700)", marginBottom: 6, display: "block" }}>
                     🪵 FLOOR BASE TYPE
                   </span>
                   {(() => {
@@ -1678,13 +3263,13 @@ export default function RightPropertyPaneView({
                     const currentFloorType = isMixed ? "multiple" : firstType;
 
                     const floorOptions = [
-                      { value: "Timber", label: "Timber Floor", color: "#eab308" },
-                      { value: "Slab", label: "Concrete Slab", color: "#0284c7" }
+                      { value: "Timber", label: "Timber Floor" },
+                      { value: "Slab", label: "Concrete Slab" }
                     ];
 
                     return (
                       <div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, background: "var(--bg-panel)", padding: 3, borderRadius: 6, border: "1px solid var(--border)" }}>
                           {floorOptions.map(opt => {
                             const isActive = currentFloorType === opt.value;
                             return (
@@ -1692,14 +3277,15 @@ export default function RightPropertyPaneView({
                                 key={opt.value}
                                 type="button"
                                 style={{
-                                  padding: "8px 6px",
+                                  padding: "7px 6px",
                                   fontSize: 12,
-                                  fontWeight: isActive ? 800 : 600,
-                                  background: isActive ? opt.color : "#1e293b",
-                                  color: isActive ? "#0f172a" : "#cbd5e1",
-                                  border: isActive ? `2px solid ${opt.color}` : "1px solid #334155",
-                                  borderRadius: 6,
+                                  fontWeight: isActive ? 700 : 500,
+                                  background: isActive ? "var(--blue)" : "transparent",
+                                  color: isActive ? "#ffffff" : "var(--text-dim)",
+                                  border: isActive ? "1px solid var(--blue)" : "1px solid transparent",
+                                  borderRadius: 4,
                                   cursor: "pointer",
+                                  boxShadow: isActive ? "0 1px 4px rgba(37,99,235,0.25)" : "none",
                                   transition: "all 0.15s ease",
                                 }}
                                 onClick={() => {
@@ -1714,7 +3300,7 @@ export default function RightPropertyPaneView({
                           })}
                         </div>
                         {isMixed && (
-                          <div style={{ fontSize: 10, color: "#cbd5e1", marginTop: 4, fontStyle: "italic", textAlign: "center" }}>
+                          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 4, fontStyle: "italic", textAlign: "center" }}>
                             Multiple Floor Types selected. Click a floor type above to unify.
                           </div>
                         )}
@@ -1726,15 +3312,15 @@ export default function RightPropertyPaneView({
                 {selectedWallIds.length === 1 && selectedWall && selectedWallLengthM !== null && (
                   <div className="panel-field">
                     <span className="panel-label">Wall Length</span>
-                    <div className="panel-value" style={{ fontSize: 13, color: "#e1e4ea" }}>
+                    <div className="panel-value" style={{ fontSize: 13, color: "var(--text)" }}>
                       <b>{selectedWallLengthM.toFixed(2)}</b> m
                     </div>
                   </div>
                 )}
 
                 {/* DUAL-FACE WALL FINISHES & SKIRTING PROPERTIES (CAD/BIM FEATURE 4) */}
-                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--blue-700)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                     <span>🧱 SURFACE FINISH & SKIRTING SYSTEM</span>
                   </div>
 
@@ -1821,9 +3407,9 @@ export default function RightPropertyPaneView({
                       <>
                         {/* Side A Card */}
                         {!isSideAHidden && (
-                          <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                          <div style={{ background: "var(--bg-panel)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid var(--border)" }}>
                             <div style={{ marginBottom: 8 }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8" }}>{sideATitle}</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--blue-700)" }}>{sideATitle}</span>
                             </div>
 
                             {/* Row 1: Type (Finish Type) */}
@@ -1851,7 +3437,7 @@ export default function RightPropertyPaneView({
                                 <input
                                   type="number"
                                   className="panel-input"
-                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid var(--border)", background: "#ffffff", color: "var(--text)", boxSizing: "border-box" }}
                                   value={selectedWall?.skirting?.sideA?.height ?? selectedWall?.skirting?.height ?? 100}
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
@@ -1868,7 +3454,7 @@ export default function RightPropertyPaneView({
                                 <input
                                   type="number"
                                   className="panel-input"
-                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid var(--border)", background: "#ffffff", color: "var(--text)", boxSizing: "border-box" }}
                                   value={selectedWall?.skirting?.sideA?.thickness ?? selectedWall?.skirting?.thickness ?? 15}
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
@@ -1884,7 +3470,7 @@ export default function RightPropertyPaneView({
                                 <span className="panel-label">color</span>
                                 <input
                                   type="color"
-                                  style={{ width: "100%", height: "30px", padding: "2px 4px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "4px", cursor: "pointer", background: "#0f172a", boxSizing: "border-box" }}
+                                  style={{ width: "100%", height: "30px", padding: "2px 4px", border: "1px solid var(--border)", borderRadius: "4px", cursor: "pointer", background: "#ffffff", boxSizing: "border-box" }}
                                   value={selectedWall?.skirting?.sideA?.color || selectedWall?.skirting?.color || "#854d0e"}
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
@@ -1900,9 +3486,9 @@ export default function RightPropertyPaneView({
 
                         {/* Side B Card */}
                         {!isSideBHidden && (
-                          <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                          <div style={{ background: "var(--bg-panel)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid var(--border)" }}>
                             <div style={{ marginBottom: 8 }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8" }}>{sideBTitle}</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--blue-700)" }}>{sideBTitle}</span>
                             </div>
 
                             {/* Row 1: Type (Finish Type) */}
@@ -1930,7 +3516,7 @@ export default function RightPropertyPaneView({
                                 <input
                                   type="number"
                                   className="panel-input"
-                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid var(--border)", background: "#ffffff", color: "var(--text)", boxSizing: "border-box" }}
                                   value={selectedWall?.skirting?.sideB?.height ?? selectedWall?.skirting?.height ?? 100}
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
@@ -1947,7 +3533,7 @@ export default function RightPropertyPaneView({
                                 <input
                                   type="number"
                                   className="panel-input"
-                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.15)", background: "#0f172a", color: "#fff", boxSizing: "border-box" }}
+                                  style={{ width: "100%", height: "30px", padding: "4px 6px", fontSize: "12px", borderRadius: "4px", border: "1px solid var(--border)", background: "#ffffff", color: "var(--text)", boxSizing: "border-box" }}
                                   value={selectedWall?.skirting?.sideB?.thickness ?? selectedWall?.skirting?.thickness ?? 15}
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
@@ -1963,7 +3549,7 @@ export default function RightPropertyPaneView({
                                 <span className="panel-label">color</span>
                                 <input
                                   type="color"
-                                  style={{ width: "100%", height: "30px", padding: "2px 4px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "4px", cursor: "pointer", background: "#0f172a", boxSizing: "border-box" }}
+                                  style={{ width: "100%", height: "30px", padding: "2px 4px", border: "1px solid var(--border)", borderRadius: "4px", cursor: "pointer", background: "#ffffff", boxSizing: "border-box" }}
                                   value={selectedWall?.skirting?.sideB?.color || selectedWall?.skirting?.color || "#854d0e"}
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => e.stopPropagation()}
@@ -1981,21 +3567,24 @@ export default function RightPropertyPaneView({
                   })()}
 
                   {/* GLOBAL SKIRTING SETTINGS & BULK EDIT */}
-                  <div style={{ background: "rgba(15, 23, 42, 0.6)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+                  <div style={{ background: "var(--bg-panel)", padding: "10px 12px", borderRadius: "6px", marginBottom: 10, border: "1px solid var(--border)" }}>
                     {/* BULK SELECTION & QUICK PRESETS BAR */}
-                    <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       <button
                         className="rp-action-btn"
                         style={{
-                          background: (selectedWallIds.length === (walls || []).length && (walls || []).length > 0) ? "#10b981" : "#0284c7",
-                          padding: "6px 8px",
+                          background: (selectedWallIds.length === (walls || []).length && (walls || []).length > 0) ? "#10b981" : "var(--blue)",
+                          color: "#ffffff",
+                          padding: "7px 8px",
                           fontSize: "11px",
                           fontWeight: 700,
                           width: "100%",
+                          borderRadius: 6,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          gap: 6
+                          gap: 6,
+                          boxShadow: "0 2px 4px rgba(37,99,235,0.2)"
                         }}
                         onClick={() => {
                           const isAllSelected = selectedWallIds.length === (walls || []).length && (walls || []).length > 0;
@@ -2026,7 +3615,7 @@ export default function RightPropertyPaneView({
                       </button>
 
                       {selectedWallIds.length > 1 && (
-                        <div style={{ background: "rgba(16, 185, 129, 0.15)", padding: "6px 8px", borderRadius: "4px", border: "1px solid rgba(16, 185, 129, 0.4)", fontSize: "10px", color: "#34d399" }}>
+                        <div style={{ background: "rgba(16, 185, 129, 0.12)", padding: "6px 8px", borderRadius: "4px", border: "1px solid rgba(16, 185, 129, 0.3)", fontSize: "10px", color: "var(--green)" }}>
                           ⚡ Bulk editing <b>{selectedWallIds.length}</b> skirtings simultaneously.
                         </div>
                       )}
@@ -2035,21 +3624,21 @@ export default function RightPropertyPaneView({
 
                   {/* CALCULATED METRICS CARD */}
                   {selectedWallIds.length === 1 && selectedWallMetrics && (
-                    <div style={{ background: "rgba(30, 41, 59, 0.7)", padding: "10px 12px", borderRadius: "6px", marginTop: 10, border: "1px solid #38bdf8" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6 }}>📏 CALCULATED METRICS (BOQ)</div>
-                      <div style={{ fontSize: 11, color: "#cbd5e1", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <div style={{ background: "#eff6ff", padding: "10px 12px", borderRadius: "6px", marginTop: 10, border: "1px solid #bfdbfe" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", marginBottom: 6 }}>📏 CALCULATED METRICS (BOQ)</div>
+                      <div style={{ fontSize: 11, color: "#334155", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                         <span>Skirting (2-Face + Open Ends):</span>
-                        <b style={{ color: "#facc15" }}>{selectedWallMetrics.skirtingLengthLm.toFixed(2)} m</b>
+                        <b style={{ color: "#b45309" }}>{selectedWallMetrics.skirtingLengthLm.toFixed(2)} m</b>
                       </div>
                       {selectedWallMetrics.freeEndsCount > 0 && (
-                        <div style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic", marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, color: "#64748b", fontStyle: "italic", marginBottom: 4 }}>
                           (Includes {selectedWallMetrics.freeEndsCount} open ends +{selectedWallMetrics.endCapsLengthMm}mm)
                         </div>
                       )}
                       {selectedWallMetrics.sideA.finishType !== "none" && (
-                        <div style={{ fontSize: 11, color: "#cbd5e1", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <div style={{ fontSize: 11, color: "#334155", display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span>Side A ({selectedWallMetrics.sideA.finishType}):</span>
-                          <b style={{ color: "#38bdf8" }}>{selectedWallMetrics.sideA.netAreaM2.toFixed(2)} m²</b>
+                          <b style={{ color: "#1d4ed8" }}>{selectedWallMetrics.sideA.netAreaM2.toFixed(2)} m²</b>
                         </div>
                       )}
                       {selectedWallMetrics.sideB.finishType !== "none" && (
@@ -2062,60 +3651,7 @@ export default function RightPropertyPaneView({
                   )}
                 </div>
 
-                {selectedWallIds.length === 1 && selectedWall && (
-                  <div style={{ marginTop: 12 }}>
-                    <button
-                      className="rp-action-btn"
-                      style={{
-                        background: interactionMode === "cut-wall" ? "#dc2626" : "#3b82f6",
-                      }}
-                      onClick={() => {
-                        setInteractionMode && setInteractionMode((prev) => (prev === "cut-wall" ? "select" : "cut-wall"));
-                      }}
-                    >
-                      {interactionMode === "cut-wall" ? "Cancel Cut Mode" : "Cut/Split Wall"}
-                    </button>
-                  </div>
-                )}
 
-                <div style={{ marginTop: 8 }}>
-                  <button
-                    className="rp-action-btn"
-                    style={{
-                      background: interactionMode === "draw-wall" ? "#dc2626" : "#8b5cf6",
-                    }}
-                    onClick={() => {
-                      setInteractionMode && setInteractionMode((prev) => (prev === "draw-wall" ? "select" : "draw-wall"));
-                    }}
-                  >
-                    {interactionMode === "draw-wall" ? "Hủy Chế Độ Vẽ Tường" : "🧱 Vẽ Tường Mới"}
-                  </button>
-                </div>
-
-                <div style={{ marginTop: 4 }}>
-                  <button
-                    className="rp-action-btn"
-                    style={{ background: "#10b981" }}
-                    onClick={() => {
-                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
-                      autoMergeCollinearWalls && autoMergeCollinearWalls(targetIds);
-                    }}
-                  >
-                    Merge Aligned Walls
-                  </button>
-                </div>
-
-                <div style={{ marginTop: 4 }}>
-                  <button
-                    className="rp-action-btn rp-action-btn--danger"
-                    onClick={() => {
-                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                      deleteWalls && deleteWalls(targetIds);
-                    }}
-                  >
-                    Delete Selected Wall(s)
-                  </button>
-                </div>
               </>
             ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
               (() => {
@@ -2126,6 +3662,10 @@ export default function RightPropertyPaneView({
                   selectedDoor.class !== 'sliding_door' && selectedDoor.type !== 'sliding';
 
                 if (isSelectedWindow) {
+                  const effectiveWindowWidthMm = getDoorWindowDisplayWidthMm(selectedDoor, realScale, scaleValue);
+
+                  const effectiveWindowHeightMm = selectedDoor.height_mm || 1200;
+
                   return (
                     <>
                       <div className="panel-field">
@@ -2203,16 +3743,16 @@ export default function RightPropertyPaneView({
                             type="number"
                             className="panel-input"
                             style={{ flex: 1 }}
-                            value={selectedDoor.width_mm || 1200}
-                            onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
+                            value={effectiveWindowWidthMm}
+                            onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value), width_source: "manual" })}
                           />
                           <select
                             className="panel-select"
                             style={{ width: '100px' }}
-                            value={selectedDoor.width_mm || ""}
+                            value={effectiveWindowWidthMm || ""}
                             onChange={(e) => {
                               if (e.target.value) {
-                                updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) });
+                                updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value), width_source: "manual" });
                               }
                             }}
                           >
@@ -2222,7 +3762,10 @@ export default function RightPropertyPaneView({
                             <option value={1200}>1200</option>
                             <option value={1500}>1500</option>
                             <option value={1800}>1800</option>
+                            <option value={2100}>2100</option>
                             <option value={2400}>2400</option>
+                            <option value={2700}>2700</option>
+                            <option value={3000}>3000</option>
                           </select>
                         </div>
                       </div>
@@ -2234,13 +3777,13 @@ export default function RightPropertyPaneView({
                             type="number"
                             className="panel-input"
                             style={{ flex: 1 }}
-                            value={selectedDoor.height_mm || 1200}
+                            value={effectiveWindowHeightMm}
                             onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
                           />
                           <select
                             className="panel-select"
                             style={{ width: '100px' }}
-                            value={selectedDoor.height_mm || ""}
+                            value={effectiveWindowHeightMm || ""}
                             onChange={(e) => {
                               if (e.target.value) {
                                 updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) });
@@ -2331,9 +3874,19 @@ export default function RightPropertyPaneView({
                   (selectedDoor.class || '').includes('ext') || (selectedDoor.door_name || selectedDoor.doorName || '').toLowerCase().includes('external')
                 );
                 const category = isExt ? 'external' : 'internal';
+                const isSlidingClass = selectedDoor.type === 'sliding' ||
+                  (selectedDoor.class && (selectedDoor.class.includes('sliding') || selectedDoor.class.includes('slider'))) ||
+                  (selectedDoor.penetration_type && (selectedDoor.penetration_type.includes('sliding') || selectedDoor.penetration_type.includes('slider'))) ||
+                  (selectedDoor.door_name || selectedDoor.doorName || '').toLowerCase().includes('slider');
 
-                const rawTypeId = selectedDoor.doorTypeId || selectedDoor.penetration_type || selectedDoor.penetrationType || selectedDoor.class || 'int_hinged_single';
-                const activeDoorTypeId = (DOOR_TYPE_REGISTRY[rawTypeId] ? rawTypeId : resolveDoorTypeId(rawTypeId, category));
+                let activeDoorTypeId = selectedDoor.doorTypeId;
+                if (!activeDoorTypeId || !DOOR_TYPE_REGISTRY[activeDoorTypeId] || (isSlidingClass && activeDoorTypeId.includes('hinged'))) {
+                  activeDoorTypeId = resolveDoorTypeId(isSlidingClass ? 'sliding' : (selectedDoor.doorTypeId || selectedDoor.class || selectedDoor.type || selectedDoor.penetration_type), category);
+                }
+
+                const effectiveDoorWidthMm = getDoorWindowDisplayWidthMm(selectedDoor, realScale, scaleValue);
+
+                const effectiveDoorHeightMm = selectedDoor.height_mm || 1980;
 
                 return (
                   <>
@@ -2454,16 +4007,16 @@ export default function RightPropertyPaneView({
                           type="number"
                           className="panel-input"
                           style={{ flex: 1 }}
-                          value={selectedDoor.width_mm || 760}
-                          onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) })}
+                          value={effectiveDoorWidthMm}
+                          onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value), width_source: "manual" })}
                         />
                         <select
                           className="panel-select"
                           style={{ width: '100px' }}
-                          value={selectedDoor.width_mm || ""}
+                          value={effectiveDoorWidthMm || ""}
                           onChange={(e) => {
                             if (e.target.value) {
-                              updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value) });
+                              updateDoor && updateDoor({ ...selectedDoor, width_mm: Number(e.target.value), width_source: "manual" });
                             }
                           }}
                         >
@@ -2492,13 +4045,13 @@ export default function RightPropertyPaneView({
                           type="number"
                           className="panel-input"
                           style={{ flex: 1 }}
-                          value={selectedDoor.height_mm || 1980}
+                          value={effectiveDoorHeightMm}
                           onChange={(e) => updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) })}
                         />
                         <select
                           className="panel-select"
                           style={{ width: '100px' }}
-                          value={selectedDoor.height_mm || ""}
+                          value={effectiveDoorHeightMm || ""}
                           onChange={(e) => {
                             if (e.target.value) {
                               updateDoor && updateDoor({ ...selectedDoor, height_mm: Number(e.target.value) });
@@ -2540,220 +4093,7 @@ export default function RightPropertyPaneView({
                       </select>
                     </div>
 
-                    <div className="panel-field">
-                      <span className="panel-label">Xoay & Lật Cửa (Rotate & Flip)</span>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                        <button
-                          className="rp-action-btn"
-                          style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                          onClick={() => {
-                            let p1 = null, p2 = null;
-                            if (selectedDoor.points && selectedDoor.points.length >= 2) {
-                              p1 = Array.isArray(selectedDoor.points[0]) ? { x: selectedDoor.points[0][0], y: selectedDoor.points[0][1] } : selectedDoor.points[0];
-                              p2 = Array.isArray(selectedDoor.points[1]) ? { x: selectedDoor.points[1][0], y: selectedDoor.points[1][1] } : selectedDoor.points[1];
-                            }
-                            const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
-                            const maskPoly = selectedDoor.polygon || selectedDoor.mask_polygon || [];
 
-                            if (isVertical) {
-                              // For vertical door, Left/Right is across the wall line
-                              const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
-                              const nextSwing = currentSwing === "inward" ? "outward" : "inward";
-                              let newPoly = maskPoly;
-                              if (p1 && p2 && maskPoly.length > 0) {
-                                newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-                              }
-                              updateDoor && updateDoor({
-                                ...selectedDoor,
-                                swing_direction: nextSwing,
-                                swing: nextSwing,
-                                polygon: newPoly,
-                                mask_polygon: newPoly
-                              });
-                            } else {
-                              // For horizontal door, Left/Right is along the wall line (hinge flip)
-                              const currentHinge = selectedDoor.hing_side || selectedDoor.hingeSide || selectedDoor.hinge_side || "left";
-                              const nextHinge = currentHinge === "left" ? "right" : "left";
-                              let newPoly = maskPoly;
-                              if (p1 && p2 && maskPoly.length > 0) {
-                                newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-                              }
-                              updateDoor && updateDoor({
-                                ...selectedDoor,
-                                hinge_side: nextHinge,
-                                hingeSide: nextHinge,
-                                polygon: newPoly,
-                                mask_polygon: newPoly
-                              });
-                            }
-                          }}
-                          title="Lật cửa Trái ↔ Phải"
-                        >
-                          ↔️ Lật Trái/Phải
-                        </button>
-                        <button
-                          className="rp-action-btn"
-                          style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                          onClick={() => {
-                            let p1 = null, p2 = null;
-                            if (selectedDoor.points && selectedDoor.points.length >= 2) {
-                              p1 = Array.isArray(selectedDoor.points[0]) ? { x: selectedDoor.points[0][0], y: selectedDoor.points[0][1] } : selectedDoor.points[0];
-                              p2 = Array.isArray(selectedDoor.points[1]) ? { x: selectedDoor.points[1][0], y: selectedDoor.points[1][1] } : selectedDoor.points[1];
-                            }
-                            const isVertical = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
-                            const maskPoly = selectedDoor.polygon || selectedDoor.mask_polygon || [];
-
-                            if (isVertical) {
-                              // For vertical door, Up/Down is along the wall line (hinge flip)
-                              const currentHinge = selectedDoor.hing_side || selectedDoor.hingeSide || selectedDoor.hinge_side || "left";
-                              const nextHinge = currentHinge === "left" ? "right" : "left";
-                              let newPoly = maskPoly;
-                              if (p1 && p2 && maskPoly.length > 0) {
-                                newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-                              }
-                              updateDoor && updateDoor({
-                                ...selectedDoor,
-                                hinge_side: nextHinge,
-                                hingeSide: nextHinge,
-                                polygon: newPoly,
-                                mask_polygon: newPoly
-                              });
-                            } else {
-                              // For horizontal door, Up/Down is across the wall line (swing flip)
-                              const currentSwing = selectedDoor.swing_direction || selectedDoor.swing || "inward";
-                              const nextSwing = currentSwing === "inward" ? "outward" : "inward";
-                              let newPoly = maskPoly;
-                              if (p1 && p2 && maskPoly.length > 0) {
-                                newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-                              }
-                              updateDoor && updateDoor({
-                                ...selectedDoor,
-                                swing_direction: nextSwing,
-                                swing: nextSwing,
-                                polygon: newPoly,
-                                mask_polygon: newPoly
-                              });
-                            }
-                          }}
-                          title="Lật cửa Trên ↕ Dưới"
-                        >
-                          ↕️ Lật Trên/Dưới
-                        </button>
-                        <button
-                          className="rp-action-btn"
-                          style={{ padding: '6px 8px', fontSize: '11px', background: '#3b82f6', marginBottom: 0 }}
-                          onClick={() => {
-                            if (selectedDoor.points && selectedDoor.points.length === 2) {
-                              const newPoints = [selectedDoor.points[1], selectedDoor.points[0]];
-                              updateDoor && updateDoor({
-                                ...selectedDoor,
-                                points: newPoints
-                              });
-                            }
-                          }}
-                          title="Xoay cửa 180 độ bằng cách đảo ngược hai điểm đầu cuối"
-                        >
-                          🔄 Đảo Đầu (180°)
-                        </button>
-                        <button
-                          className="rp-action-btn"
-                          style={{ padding: '6px 8px', fontSize: '11px', background: '#10b981', marginBottom: 0 }}
-                          onClick={() => {
-                            if (selectedDoor.points && selectedDoor.points.length === 2) {
-                              const pts = selectedDoor.points.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
-                              const rawP1 = pts[0];
-                              const rawP2 = pts[1];
-
-                              const poly = selectedDoor.polygon || selectedDoor.mask_polygon;
-                              let hinge = rawP1;
-                              let frameEnd = rawP2;
-                              let determinedSwing = selectedDoor.swing || selectedDoor.swing_direction || selectedDoor.swingDirection || 'inward';
-
-                              if (poly && poly.length >= 3) {
-                                // 1. Find the apex point in poly furthest from the frame line rawP1 -> rawP2
-                                const lineDx = rawP2.x - rawP1.x;
-                                const lineDy = rawP2.y - rawP1.y;
-                                const lineLen = Math.hypot(lineDx, lineDy);
-                                let maxPerpDist = -1;
-                                let apex = null;
-
-                                if (lineLen > 1e-3) {
-                                  for (const pt of poly) {
-                                    const px = Array.isArray(pt) ? pt[0] : pt.x;
-                                    const py = Array.isArray(pt) ? pt[1] : pt.y;
-                                    const dist = Math.abs(lineDx * (py - rawP1.y) - lineDy * (px - rawP1.x)) / lineLen;
-                                    if (dist > maxPerpDist) {
-                                      maxPerpDist = dist;
-                                      apex = { x: px, y: py };
-                                    }
-                                  }
-                                }
-
-                                if (apex && maxPerpDist > 5) {
-                                  // 2. Identify hinge point: distance(apex, Hinge) is smaller than distance(apex, FrameEnd)
-                                  const distToP1 = Math.hypot(apex.x - rawP1.x, apex.y - rawP1.y);
-                                  const distToP2 = Math.hypot(apex.x - rawP2.x, apex.y - rawP2.y);
-                                  if (distToP1 <= distToP2) {
-                                    hinge = rawP1;
-                                    frameEnd = rawP2;
-                                  } else {
-                                    hinge = rawP2;
-                                    frameEnd = rawP1;
-                                  }
-
-                                  // 3. Compute swing direction relative to hinge -> frameEnd vector in 2D SVG space (+Y down)
-                                  const vFrame = { x: frameEnd.x - hinge.x, y: frameEnd.y - hinge.y };
-                                  const vLeaf = { x: apex.x - hinge.x, y: apex.y - hinge.y };
-                                  const vInward = { x: -vFrame.y, y: vFrame.x };
-                                  const dotInward = vLeaf.x * vInward.x + vLeaf.y * vInward.y;
-                                  determinedSwing = dotInward > 0 ? 'inward' : 'outward';
-                                }
-                              }
-
-                              // Snap frameEnd to nearest 90-degree axis relative to hinge, preserving original width_mm
-                              const dx = frameEnd.x - hinge.x;
-                              const dy = frameEnd.y - hinge.y;
-                              const angle = Math.atan2(dy, dx);
-                              const step = Math.PI / 2;
-                              const snappedAngle = Math.round(angle / step) * step;
-                              const dist = (selectedDoor.width_mm && realScale) ? (selectedDoor.width_mm / realScale) : Math.hypot(dx, dy);
-                              const snappedFrameEnd = {
-                                x: hinge.x + dist * Math.cos(snappedAngle),
-                                y: hinge.y + dist * Math.sin(snappedAngle)
-                              };
-
-                              updateDoor && updateDoor({
-                                ...selectedDoor,
-                                points: [hinge, snappedFrameEnd],
-                                width_mm: selectedDoor.width_mm || (realScale ? Math.round(dist * realScale) : undefined),
-                                hingeSide: 'left',
-                                hinge_side: 'left',
-                                swing: determinedSwing,
-                                swingDirection: determinedSwing,
-                                swing_direction: determinedSwing,
-                                polygon: null,
-                                mask_polygon: null
-                              });
-                            }
-                          }}
-                          title="Làm thẳng cửa theo trục 90 độ gần nhất"
-                        >
-                          📐 Làm Thẳng 90°
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: 12 }}>
-                      <button className="rp-action-btn rp-action-btn--danger" onClick={async (e) => {
-                        e.stopPropagation();
-                        if (await showConfirm("Are you sure you want to delete this door?")) {
-                          deleteDoor && deleteDoor(selectedDoor.id);
-                        }
-                      }}
-                      >
-                        Delete Selected Door
-                      </button>
-                    </div>
                   </>
                 );
               })()
@@ -2905,7 +4245,12 @@ export default function RightPropertyPaneView({
               <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, or lintel to edit properties.</div>
             )}
           </div>
-
+        </div>
+      ) : activePaneTab === "summary" ? (
+        /* ══════════════════════════════════════════════════════
+           TAB: SUMMARY (Tổng hợp Wall, Floor, Roof, Door, Skirting, Window & Export)
+           ══════════════════════════════════════════════════════ */
+        <div style={{ overflowY: "auto", flex: 1, paddingBottom: "20px" }}>
           {/* ── WALL SUMMARY COLLAPSIBLE GROUP ── */}
           <CollapsibleSection
             title="Wall Summary"
@@ -2916,29 +4261,31 @@ export default function RightPropertyPaneView({
             {totalWallCount > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 {/* Wall Calculation Option Controls */}
+                {/* Wall Calculation Option Controls */}
                 <div style={{
-                  background: "#1e293b",
+                  background: "var(--bg-panel)",
                   borderRadius: "8px",
                   padding: "10px 12px",
                   display: "flex",
                   flexDirection: "column",
                   gap: "8px",
-                  border: "1px solid rgba(255, 255, 255, 0.08)"
+                  border: "1px solid var(--border)"
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>WALL SIDES:</span>
-                    <div style={{ display: "flex", gap: "4px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-dim)" }}>WALL SIDES:</span>
+                    <div style={{ display: "flex", background: "#ffffff", padding: "2px", borderRadius: "6px", border: "1px solid var(--border)", gap: "2px" }}>
                       <button
                         onClick={() => setWallSides(2)}
                         style={{
-                          padding: "3px 8px",
+                          padding: "4px 10px",
                           fontSize: "11px",
                           borderRadius: "4px",
                           border: "none",
-                          background: wallSides === 2 ? "#10b981" : "#334155",
-                          color: "#fff",
-                          fontWeight: wallSides === 2 ? "bold" : "normal",
-                          cursor: "pointer"
+                          background: wallSides === 2 ? "var(--blue)" : "transparent",
+                          color: wallSides === 2 ? "#ffffff" : "var(--text)",
+                          fontWeight: wallSides === 2 ? "700" : "500",
+                          cursor: "pointer",
+                          boxShadow: wallSides === 2 ? "0 1px 3px rgba(37, 99, 235, 0.2)" : "none"
                         }}
                       >
                         2 Sides (Default)
@@ -2946,14 +4293,15 @@ export default function RightPropertyPaneView({
                       <button
                         onClick={() => setWallSides(1)}
                         style={{
-                          padding: "3px 8px",
+                          padding: "4px 10px",
                           fontSize: "11px",
                           borderRadius: "4px",
                           border: "none",
-                          background: wallSides === 1 ? "#10b981" : "#334155",
-                          color: "#fff",
-                          fontWeight: wallSides === 1 ? "bold" : "normal",
-                          cursor: "pointer"
+                          background: wallSides === 1 ? "var(--blue)" : "transparent",
+                          color: wallSides === 1 ? "#ffffff" : "var(--text)",
+                          fontWeight: wallSides === 1 ? "700" : "500",
+                          cursor: "pointer",
+                          boxShadow: wallSides === 1 ? "0 1px 3px rgba(37, 99, 235, 0.2)" : "none"
                         }}
                       >
                         1 Side
@@ -2962,19 +4310,20 @@ export default function RightPropertyPaneView({
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: "11px", fontWeight: "600", color: "#94a3b8" }}>DOOR OPENINGS:</span>
-                    <div style={{ display: "flex", gap: "4px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-dim)" }}>DOOR OPENINGS:</span>
+                    <div style={{ display: "flex", background: "#ffffff", padding: "2px", borderRadius: "6px", border: "1px solid var(--border)", gap: "2px" }}>
                       <button
                         onClick={() => setDeductDoors(false)}
                         style={{
-                          padding: "3px 8px",
+                          padding: "4px 10px",
                           fontSize: "11px",
                           borderRadius: "4px",
                           border: "none",
-                          background: !deductDoors ? "#3b82f6" : "#334155",
-                          color: "#fff",
-                          fontWeight: !deductDoors ? "bold" : "normal",
-                          cursor: "pointer"
+                          background: !deductDoors ? "var(--blue)" : "transparent",
+                          color: !deductDoors ? "#ffffff" : "var(--text)",
+                          fontWeight: !deductDoors ? "700" : "500",
+                          cursor: "pointer",
+                          boxShadow: !deductDoors ? "0 1px 3px rgba(37, 99, 235, 0.2)" : "none"
                         }}
                       >
                         Gross Area
@@ -2982,14 +4331,15 @@ export default function RightPropertyPaneView({
                       <button
                         onClick={() => setDeductDoors(true)}
                         style={{
-                          padding: "3px 8px",
+                          padding: "4px 10px",
                           fontSize: "11px",
                           borderRadius: "4px",
                           border: "none",
-                          background: deductDoors ? "#3b82f6" : "#334155",
-                          color: "#fff",
-                          fontWeight: deductDoors ? "bold" : "normal",
-                          cursor: "pointer"
+                          background: deductDoors ? "var(--blue)" : "transparent",
+                          color: deductDoors ? "#ffffff" : "var(--text)",
+                          fontWeight: deductDoors ? "700" : "500",
+                          cursor: "pointer",
+                          boxShadow: deductDoors ? "0 1px 3px rgba(37, 99, 235, 0.2)" : "none"
                         }}
                       >
                         Net Area
@@ -3027,23 +4377,21 @@ export default function RightPropertyPaneView({
                     <KPICard
                       value={wallData.interior_wall.walls.length}
                       label="Walls"
-                      color="#e1e4ea"
                     />
                     <KPICard
                       value={scaleValue ? sumOf(wallData.interior_wall, "lengthM").toFixed(1) : "—"}
                       label="Length"
                       unit={scaleValue ? " m" : ""}
-                      color="#e1e4ea"
                     />
                     <KPICard
                       value={scaleValue ? sumOf(wallData.interior_wall, "areaM2").toFixed(1) : "—"}
                       label="Area"
                       unit={scaleValue ? " m²" : ""}
-                      color="#3b82f6"
+                      color="#2563eb"
                     />
                   </KPIRow>
                   {scaleValue && sumOf(wallData.interior_wall, "areaM2") > 0 && (
-                    <MiniBar ratio={sumOf(wallData.interior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#3b82f6" />
+                    <MiniBar ratio={sumOf(wallData.interior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#2563eb" />
                   )}
                 </div>
 
@@ -3054,23 +4402,21 @@ export default function RightPropertyPaneView({
                     <KPICard
                       value={wallData.exterior_wall.walls.length}
                       label="Walls"
-                      color="#e1e4ea"
                     />
                     <KPICard
                       value={scaleValue ? sumOf(wallData.exterior_wall, "lengthM").toFixed(1) : "—"}
                       label="Length"
                       unit={scaleValue ? " m" : ""}
-                      color="#e1e4ea"
                     />
                     <KPICard
                       value={scaleValue ? sumOf(wallData.exterior_wall, "areaM2").toFixed(1) : "—"}
                       label="Area"
                       unit={scaleValue ? " m²" : ""}
-                      color="#f59e0b"
+                      color="#d97706"
                     />
                   </KPIRow>
                   {scaleValue && sumOf(wallData.exterior_wall, "areaM2") > 0 && (
-                    <MiniBar ratio={sumOf(wallData.exterior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#f59e0b" />
+                    <MiniBar ratio={sumOf(wallData.exterior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#d97706" />
                   )}
                 </div>
 
@@ -3082,23 +4428,21 @@ export default function RightPropertyPaneView({
                       <KPICard
                         value={wallData.partition_wall.walls.length}
                         label="Walls"
-                        color="#e1e4ea"
                       />
                       <KPICard
                         value={scaleValue ? sumOf(wallData.partition_wall, "lengthM").toFixed(1) : "—"}
                         label="Length"
                         unit={scaleValue ? " m" : ""}
-                        color="#e1e4ea"
                       />
                       <KPICard
                         value={scaleValue ? sumOf(wallData.partition_wall, "areaM2").toFixed(1) : "—"}
                         label="Area"
                         unit={scaleValue ? " m²" : ""}
-                        color="#8b5cf6"
+                        color="#7c3aed"
                       />
                     </KPIRow>
                     {scaleValue && sumOf(wallData.partition_wall, "areaM2") > 0 && (
-                      <MiniBar ratio={sumOf(wallData.partition_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#8b5cf6" />
+                      <MiniBar ratio={sumOf(wallData.partition_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#7c3aed" />
                     )}
                   </div>
                 )}
@@ -3111,32 +4455,27 @@ export default function RightPropertyPaneView({
                       <KPICard
                         value={wallData.block_wall.walls.length}
                         label="Walls"
-                        color="#e1e4ea"
                       />
                       <KPICard
                         value={scaleValue ? sumOf(wallData.block_wall, "lengthM").toFixed(1) : "—"}
                         label="Length"
                         unit={scaleValue ? " m" : ""}
-                        color="#e1e4ea"
                       />
                       <KPICard
                         value={scaleValue ? sumOf(wallData.block_wall, "areaM2").toFixed(1) : "—"}
                         label="Area"
                         unit={scaleValue ? " m²" : ""}
-                        color="#78716c"
+                        color="#57534e"
                       />
                     </KPIRow>
                     {scaleValue && sumOf(wallData.block_wall, "areaM2") > 0 && (
-                      <MiniBar ratio={sumOf(wallData.block_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#78716c" />
+                      <MiniBar ratio={sumOf(wallData.block_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#57534e" />
                     )}
                   </div>
                 )}
 
                 {/* Export */}
                 <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {/* <ExportButton onClick={exportWallExcel} disabled={!scaleValue}>
-                📥 Export Wall Summary (.xlsx)
-              </ExportButton> */}
                   <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
                     📊 Export Takeoff Form (.xlsx)
                   </ExportButton>
@@ -3149,13 +4488,14 @@ export default function RightPropertyPaneView({
                       style={{
                         flex: 1,
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: "3px", padding: "8px 4px", background: "rgba(255, 255, 255, 0.04)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "8px",
-                        color: "#f8fafc", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                        gap: "3px", padding: "8px 4px", background: "#ffffff",
+                        border: "1px solid var(--border)", borderRadius: "8px",
+                        color: "var(--text)", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                         transition: "all 0.15s ease"
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.18)"; e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#93c5fd"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "var(--border)"; }}
                     >
                       <span style={{ fontSize: "16px" }}>🏗️</span>
                       <span>FrameWork</span>
@@ -3167,16 +4507,17 @@ export default function RightPropertyPaneView({
                       style={{
                         flex: 1,
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: "3px", padding: "8px 4px", background: "rgba(255, 255, 255, 0.04)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "8px",
-                        color: "#f8fafc", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                        gap: "3px", padding: "8px 4px", background: "#ffffff",
+                        border: "1px solid var(--border)", borderRadius: "8px",
+                        color: "var(--text)", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                         transition: "all 0.15s ease"
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.18)"; e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#93c5fd"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "var(--border)"; }}
                     >
                       <span style={{ fontSize: "16px" }}>📐</span>
-                      <span>Area Summary</span>
+                      <span>Area</span>
                     </button>
 
                     <button
@@ -3185,13 +4526,14 @@ export default function RightPropertyPaneView({
                       style={{
                         flex: 1,
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: "3px", padding: "8px 4px", background: "rgba(255, 255, 255, 0.04)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "8px",
-                        color: "#f8fafc", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                        gap: "3px", padding: "8px 4px", background: "#ffffff",
+                        border: "1px solid var(--border)", borderRadius: "8px",
+                        color: "var(--text)", cursor: "pointer", fontSize: "10px", fontWeight: "700",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                         transition: "all 0.15s ease"
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.18)"; e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)"; e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#93c5fd"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "var(--border)"; }}
                     >
                       <span style={{ fontSize: "16px" }}>🧱</span>
                       <span>Insulation</span>
@@ -3234,7 +4576,7 @@ export default function RightPropertyPaneView({
                   <AreaCard
                     label="Dry"
                     value={`${dry.toFixed(2)} m²`}
-                    dotColor="#2196F3"
+                    dotColor="#ef4444"
                     ratio={totalInternal > 0 ? dry / totalInternal : 0}
                     parentLabel="internal"
                     isActive={highlightType === "dry"}
@@ -3245,7 +4587,7 @@ export default function RightPropertyPaneView({
                   <AreaCard
                     label="Wet"
                     value={`${wet.toFixed(2)} m²`}
-                    dotColor="#ef4444"
+                    dotColor="#2196F3"
                     ratio={totalInternal > 0 ? wet / totalInternal : 0}
                     parentLabel="internal"
                     isActive={highlightType === "wet"}
@@ -3327,439 +4669,49 @@ export default function RightPropertyPaneView({
           >
             {pageRoofs.length > 0 ? (
               <div className="rp-floor-container">
-                {pageRoofs.map((roof, idx) => {
-                  const isSelected = selectedRoofId === roof.id;
-                  const isShed = roof.roofType === 'shed';
+                <div className="rp-floor-title">
+                  <span style={{ fontSize: "14px" }}>🏠</span>
+                  <span>Roof Area Summary</span>
+                </div>
 
+                {roofCalculations.map((roof, idx) => {
+                  const isSelected = selectedRoofId === roof.id;
                   return (
                     <div
-                      key={roof.id}
-                      style={{
-                        background: "#0d1527",
-                        border: isSelected ? "1.5px solid #22c55e" : "1px solid #1e293b",
-                        borderRadius: "10px",
-                        padding: "12px 14px",
-                        marginBottom: "12px",
-                        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.45)",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease"
-                      }}
+                      key={roof.id || idx}
+                      className={`rp-area-card${isSelected ? " rp-area-card--active" : ""}`}
                       onClick={() => setSelectedRoofId && setSelectedRoofId(isSelected ? null : roof.id)}
+                      style={{ cursor: "pointer", borderLeft: isSelected ? "4px solid #f59e0b" : undefined }}
                     >
-                      {/* Header: Roof Name + Engine Badge + Collapse Icon */}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontWeight: 700, fontSize: "14px", color: "#f8fafc", display: "flex", alignItems: "center", gap: "6px" }}>
-                            {roof.name || `Roof ${String.fromCharCode(65 + idx)}`}
-                          </span>
-                        </div>
-                        <span style={{ color: "#64748b", fontSize: "13px", fontWeight: "bold" }}>
-                          {isSelected ? "▲" : "▼"}
-                        </span>
-                      </div>
-
-                      {/* Segmented Toggle: Hip / Gable (Edit by Code) vs Shed (Edit by Macro) */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "12px" }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateRoofType && updateRoofType(roof.id, 'hip_gable');
-                          }}
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            padding: "8px 10px",
-                            borderRadius: "6px",
-                            border: !isShed ? "1.5px solid #0284c7" : "1px solid #1e293b",
-                            background: !isShed ? "#0284c7" : "rgba(15, 23, 42, 0.6)",
-                            color: !isShed ? "#ffffff" : "#94a3b8",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            transition: "all 0.15s ease",
-                            boxShadow: !isShed ? "0 4px 12px rgba(2, 132, 199, 0.35)" : "none"
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, fontSize: "12px" }}>
-                            <span>Gable / Dutch / Hip</span>
-                          </div>
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateRoofType && updateRoofType(roof.id, 'shed');
-                          }}
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            padding: "8px 10px",
-                            borderRadius: "6px",
-                            border: isShed ? "1.5px solid #0284c7" : "1px solid #1e293b",
-                            background: isShed ? "#0284c7" : "rgba(15, 23, 42, 0.6)",
-                            color: isShed ? "#ffffff" : "#94a3b8",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            transition: "all 0.15s ease",
-                            boxShadow: isShed ? "0 4px 12px rgba(2, 132, 199, 0.35)" : "none"
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, fontSize: "12px" }}>
-                            <span>Shed</span>
-                          </div>
-                        </button>
-                      </div>
-
-                      {/* Global Defaults: Pitch & Overhang with [Apply to All] Buttons */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "8px 0", borderTop: "1px dashed rgba(255,255,255,0.08)", fontSize: "11px" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span style={{ color: "#94a3b8", width: "75px" }}>Default Pitch</span>
-                            <input
-                              type="number"
-                              placeholder="22.5"
-                              value={defaultPitchInput !== undefined ? defaultPitchInput : 22.5}
-                              onChange={(e) => setDefaultPitchInput(parseFloat(e.target.value) || 0)}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{
-                                width: "52px",
-                                background: "#1e293b",
-                                border: "1px solid #334155",
-                                borderRadius: "4px",
-                                color: "#f8fafc",
-                                fontSize: "11px",
-                                padding: "3px 6px",
-                                textAlign: "center"
-                              }}
-                            />
-                            <span style={{ color: "#64748b" }}>°</span>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              applyDefaultPitchToAll && applyDefaultPitchToAll(roof.id, defaultPitchInput);
-                            }}
-                            style={{
-                              background: "rgba(34, 197, 94, 0.12)",
-                              border: "1px solid rgba(34, 197, 94, 0.4)",
-                              color: "#4ade80",
-                              borderRadius: "4px",
-                              padding: "4px 8px",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              cursor: "pointer"
-                            }}
-                            title="Apply this pitch to all edges"
-                          >
-                            Apply to All
-                          </button>
-                        </div>
-
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span style={{ color: "#94a3b8", width: "75px" }}>Default OVH</span>
-                            <input
-                              type="number"
-                              placeholder="0"
-                              value={defaultOverhangInput !== undefined ? defaultOverhangInput : 0}
-                              onChange={(e) => setDefaultOverhangInput(parseFloat(e.target.value) || 0)}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{
-                                width: "52px",
-                                background: "#1e293b",
-                                border: "1px solid #334155",
-                                borderRadius: "4px",
-                                color: "#f8fafc",
-                                fontSize: "11px",
-                                padding: "3px 6px",
-                                textAlign: "center"
-                              }}
-                            />
-                            <span style={{ color: "#64748b" }}>mm</span>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              applyDefaultOverhangToAll && applyDefaultOverhangToAll(roof.id, defaultOverhangInput);
-                            }}
-                            style={{
-                              background: "rgba(34, 197, 94, 0.12)",
-                              border: "1px solid rgba(34, 197, 94, 0.4)",
-                              color: "#4ade80",
-                              borderRadius: "4px",
-                              padding: "4px 8px",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              cursor: "pointer"
-                            }}
-                            title="Apply this overhang to all edges"
-                          >
-                            Apply to All
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Building Contour / Edge Parameters Table */}
-                      {isSelected && roof.polygon && roof.polygon.length >= 3 && (
-                        <div style={{ marginTop: "10px", background: "rgba(15, 23, 42, 0.75)", borderRadius: "8px", padding: "8px", border: "1px solid #1e293b" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                            <span style={{ fontSize: "12px", fontWeight: 700, color: "#f8fafc" }}>
-                              Building Contour ({roof.polygon.length} edges)
+                      <div className="rp-area-card__top">
+                        <div className="rp-area-card__left">
+                          <span className="rp-area-card__dot" style={{ background: "#f59e0b" }} />
+                          <div className="rp-area-card__label-container">
+                            <span className="rp-area-card__label" style={{ fontWeight: 700 }}>
+                              {roof.name || `Roof ${idx + 1}`}
+                            </span>
+                            <span className="rp-area-card__sublabel">
+                              Footprint: {scaleValue ? `${roof.footprintM2.toFixed(2)} m²` : "No Scale"}
                             </span>
                           </div>
-
-                          <table style={{ width: "100%", fontSize: "11px", borderCollapse: "collapse" }}>
-                            <thead>
-                              <tr style={{ color: "#64748b", textAlign: "left", borderBottom: "1px solid #334155" }}>
-                                <th style={{ padding: "4px 6px" }}>#</th>
-                                <th style={{ padding: "4px 6px" }}>Pitch (°)</th>
-                                <th style={{ padding: "4px 6px" }}>OVH (mm)</th>
-                                <th style={{ padding: "4px 6px", textAlign: "right" }}>Type</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {roof.polygon.map((_, eIdx) => {
-                                const angle = Array.isArray(roof.angles) && roof.angles[eIdx] !== undefined ? roof.angles[eIdx] : 22.5;
-                                const ovh = Array.isArray(roof.overhangs) && roof.overhangs[eIdx] !== undefined ? roof.overhangs[eIdx] : 0;
-                                const isGable = angle === 90;
-                                const isDutch = roof.roofType !== 'shed' && Array.isArray(roof.dutchEdges) && roof.dutchEdges.includes(eIdx);
-                                const isShedEave = roof.roofType === 'shed' && (roof.eaveEdgeIndex || 0) === eIdx;
-                                const isRowActive = selectedRoofEdgeIndex === eIdx;
-
-                                return (
-                                  <React.Fragment key={`e-${roof.id}-${eIdx}`}>
-                                    <tr
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedRoofEdgeIndex && setSelectedRoofEdgeIndex(eIdx);
-                                      }}
-                                      style={{
-                                        borderBottom: "1px solid rgba(255,255,255,0.04)",
-                                        background: isRowActive ? "rgba(245, 158, 11, 0.18)" : (isShedEave ? "rgba(6, 182, 212, 0.12)" : (isDutch ? "rgba(244, 63, 94, 0.12)" : "transparent")),
-                                        borderLeft: isRowActive ? "3px solid #f59e0b" : (isShedEave ? "3px solid #06b6d4" : (isDutch ? "3px solid #f43f5e" : "3px solid transparent")),
-                                        cursor: "pointer",
-                                        transition: "all 0.1s"
-                                      }}
-                                    >
-                                      <td style={{ padding: "5px 6px", fontWeight: 700, color: isRowActive ? "#fcd34d" : (isShedEave ? "#22d3ee" : "#cbd5e1") }}>
-                                        #{eIdx}
-                                        {isShedEave && (
-                                          <span style={{ marginLeft: "4px", fontSize: "8px", background: "#06b6d4", color: "#000", padding: "1px 3px", borderRadius: "2px", fontWeight: "bold", verticalAlign: "middle" }}>
-                                            UNDER
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td style={{ padding: "5px 6px" }}>
-                                        {roof.roofType !== 'shed' ? (
-                                          <input
-                                            type="number"
-                                            value={angle}
-                                            disabled={isGable}
-                                            onChange={(e) => updateRoofEdgeAngle && updateRoofEdgeAngle(roof.id, eIdx, parseFloat(e.target.value) || 0)}
-                                            onClick={(e) => e.stopPropagation()}
-                                            style={{
-                                              width: "48px",
-                                              background: isGable ? "transparent" : "#1e293b",
-                                              border: isGable ? "1px solid transparent" : "1px solid #334155",
-                                              borderRadius: "4px",
-                                              color: isGable ? "#c084fc" : "#f8fafc",
-                                              fontSize: "11px",
-                                              padding: "2px 4px",
-                                              textAlign: "center"
-                                            }}
-                                          />
-                                        ) : (
-                                          <span style={{ color: isShedEave ? "#22d3ee" : "#94a3b8", fontWeight: isShedEave ? 600 : 400 }}>{roof.pitchAngle || 22.5}°</span>
-                                        )}
-                                      </td>
-                                      <td style={{ padding: "5px 6px" }}>
-                                        <input
-                                          type="number"
-                                          value={ovh}
-                                          onChange={(e) => updateRoofEdgeOverhang && updateRoofEdgeOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
-                                          onClick={(e) => e.stopPropagation()}
-                                          style={{
-                                            width: "48px",
-                                            background: "#1e293b",
-                                            border: "1px solid #334155",
-                                            borderRadius: "4px",
-                                            color: isShedEave ? "#22d3ee" : "#f8fafc",
-                                            fontSize: "11px",
-                                            padding: "2px 4px",
-                                            textAlign: "center"
-                                          }}
-                                        />
-                                      </td>
-                                      <td style={{ padding: "5px 6px", textAlign: "right" }}>
-                                        {roof.roofType === 'shed' ? (
-                                          <button
-                                            title={isShedEave ? "Current Low Eave (Eave Under)" : "Set as Low Eave (Eave Under)"}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setRoofEaveEdge && setRoofEaveEdge(roof.id, eIdx);
-                                            }}
-                                            style={{
-                                              background: isShedEave ? "rgba(6, 182, 212, 0.35)" : "#1e293b",
-                                              border: isShedEave ? "1px solid #06b6d4" : "1px solid #334155",
-                                              color: isShedEave ? "#22d3ee" : "#94a3b8",
-                                              borderRadius: "4px",
-                                              padding: "3px 6px",
-                                              fontSize: "10px",
-                                              fontWeight: isShedEave ? "bold" : "normal",
-                                              cursor: "pointer",
-                                              whiteSpace: "nowrap",
-                                              marginRight: "4px"
-                                            }}
-                                          >
-                                            {isShedEave ? "📍 Eave Under" : "Set Under"}
-                                          </button>
-                                        ) : (
-                                          <>
-                                            <button
-                                              title={isGable ? "Switch to Hip pitch" : "Set as 90° Gable Wall"}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                updateRoofEdgeAngle && updateRoofEdgeAngle(roof.id, eIdx, isGable ? 22.5 : 90);
-                                              }}
-                                              style={{
-                                                background: isGable ? "rgba(168, 85, 247, 0.25)" : "#1e293b",
-                                                border: isGable ? "1px solid #a855f7" : "1px solid #334155",
-                                                color: isGable ? "#c084fc" : "#94a3b8",
-                                                borderRadius: "4px",
-                                                padding: "3px 6px",
-                                                fontSize: "10px",
-                                                cursor: "pointer",
-                                                marginRight: "4px"
-                                              }}
-                                            >
-                                              {isGable ? "🏛️ 90°" : "Hip"}
-                                            </button>
-                                            <button
-                                              title={isDutch ? "Remove Dutch Cut" : "Add Dutch Cut"}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                toggleDutchEdge && toggleDutchEdge(roof.id, eIdx);
-                                              }}
-                                              style={{
-                                                background: isDutch ? "rgba(244, 63, 94, 0.25)" : "#1e293b",
-                                                border: isDutch ? "1px solid #f43f5e" : "1px solid #334155",
-                                                color: isDutch ? "#fb7185" : "#94a3b8",
-                                                borderRadius: "4px",
-                                                padding: "3px 6px",
-                                                fontSize: "10px",
-                                                cursor: "pointer",
-                                                marginRight: "4px"
-                                              }}
-                                            >
-                                              {isDutch ? "🇳🇱 Dutch" : "Dutch"}
-                                            </button>
-                                          </>
-                                        )}
-
-                                        <button
-                                          title="Trim Eave Overhang"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            trimRoofEdge && trimRoofEdge(roof.id, eIdx);
-                                          }}
-                                          style={{
-                                            background: "rgba(239, 68, 68, 0.15)",
-                                            color: "#f87171",
-                                            border: "1px solid rgba(239, 68, 68, 0.4)",
-                                            borderRadius: "4px",
-                                            padding: "3px 6px",
-                                            fontSize: "10px",
-                                            cursor: "pointer"
-                                          }}
-                                        >
-                                          ✂️
-                                        </button>
-                                      </td>
-                                    </tr>
-                                    {isDutch && (
-                                      <tr style={{ background: "rgba(244, 63, 94, 0.05)", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                                        <td colSpan={4} style={{ padding: "8px" }}>
-                                          <div style={{ display: "flex", gap: "8px", alignItems: "center", justifyContent: "space-between" }}>
-                                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                              <label style={{ fontSize: "10px", color: "#cbd5e1" }}>Front OVH</label>
-                                              <input
-                                                type="number"
-                                                value={Array.isArray(roof.dutchOverhangs) && roof.dutchOverhangs[eIdx] !== undefined ? roof.dutchOverhangs[eIdx] : 0}
-                                                onChange={(e) => updateDutchOverhang && updateDutchOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
-                                                style={{ width: "50px", background: "#0f172a", border: "1px solid #334155", color: "#fff", padding: "2px", fontSize: "11px", borderRadius: "4px" }}
-                                              />
-                                            </div>
-                                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                              <label style={{ fontSize: "10px", color: "#cbd5e1" }}>Rake OVH</label>
-                                              <input
-                                                type="number"
-                                                value={Array.isArray(roof.dutchRakeOverhangs) && roof.dutchRakeOverhangs[eIdx] !== undefined ? roof.dutchRakeOverhangs[eIdx] : 0}
-                                                onChange={(e) => updateDutchRakeOverhang && updateDutchRakeOverhang(roof.id, eIdx, parseFloat(e.target.value) || 0)}
-                                                style={{ width: "50px", background: "#0f172a", border: "1px solid #334155", color: "#fff", padding: "2px", fontSize: "11px", borderRadius: "4px" }}
-                                              />
-                                            </div>
-                                            <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
-                                              <label style={{ fontSize: "10px", color: "#cbd5e1" }}>Cut Line</label>
-                                              <button
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  // Trigger drawing mode for this dutch edge
-                                                  setInteractionMode && setInteractionMode('draw-dutch');
-                                                  setSelectedRoofEdgeIndex && setSelectedRoofEdgeIndex(eIdx);
-                                                  setSelectedRoofId && setSelectedRoofId(roof.id);
-                                                }}
-                                                style={{
-                                                  background: "rgba(244, 63, 94, 0.2)",
-                                                  border: "1px solid #f43f5e",
-                                                  color: "#fb7185",
-                                                  borderRadius: "4px",
-                                                  padding: "3px 8px",
-                                                  fontSize: "10px",
-                                                  cursor: "pointer"
-                                                }}
-                                              >
-                                                ✏️ Draw Cut
-                                              </button>
-                                            </div>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </React.Fragment>
-                                );
-                              })}
-                            </tbody>
-                          </table>
                         </div>
-                      )}
-
-                      {/* V3 Roof Diagnostics / 3D Summary */}
-                      {roof.v3Data && (
-                        <div style={{ marginTop: "10px", background: "rgba(15, 23, 42, 0.85)", borderRadius: "8px", padding: "10px", border: "1px solid #1e293b" }}>
-                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#22c55e", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
-                            <span>✨ 3D Planarity:</span>
-                            <span>{roof.v3Data.maxPlanarityErrorMm != null && roof.v3Data.maxPlanarityErrorMm < 0.001 ? "0.0000 mm" : `${(roof.v3Data.maxPlanarityErrorMm || 0).toFixed(3)} mm`}</span>
-                          </div>
-                          <div style={{ fontSize: "11px", color: "#94a3b8", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                              <span style={{ color: "#3b82f6" }}>●</span> Eaves: <strong style={{ color: "#38bdf8" }}>{(roof.v3Data.topology2D?.edges || []).filter(e => e.edge_type === 'eave' || !e.is_bisector).length}</strong>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                              <span style={{ color: "#8b5cf6" }}>◆</span> Hips: <strong style={{ color: "#a78bfa" }}>{(roof.v3Data.topology2D?.edges || []).filter(e => e.edge_type === 'hip').length}</strong>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                              <span style={{ color: "#ef4444" }}>●</span> Ridges: <strong style={{ color: "#f87171" }}>{(roof.v3Data.topology2D?.edges || []).filter(e => e.edge_type === 'ridge').length}</strong>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                              <span style={{ color: "#f59e0b" }}>▼</span> Valleys: <strong style={{ color: "#fbbf24" }}>{(roof.v3Data.topology2D?.edges || []).filter(e => e.edge_type === 'valley').length}</strong>
-                            </div>
-                          </div>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                          <span className="rp-area-card__value" style={{ fontSize: "15px", fontWeight: 800, color: "#f59e0b" }}>
+                            {scaleValue ? `${roof.trueAreaM2.toFixed(2)} m²` : "No Scale"}
+                          </span>
                         </div>
-                      )}
+                      </div>
 
-                      {/* Action Buttons Bar */}
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "12px", gap: "8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px", paddingTop: "6px", borderTop: "1px dashed rgba(255,255,255,0.08)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+                          <span>Pitch Slope:</span>
+                          <PitchInput
+                            value={roof.pitchAngle || 0}
+                            onChange={(val) => updateRoofPitch && updateRoofPitch(roof.id, val)}
+                          />
+                          <span>°</span>
+                        </div>
+
                         {deleteRoof && (
                           <button
                             title="Delete Roof"
@@ -3772,85 +4724,28 @@ export default function RightPropertyPaneView({
                               border: "none",
                               color: "#ef4444",
                               cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              opacity: 0.85
+                              fontSize: "13px",
+                              opacity: 0.8
                             }}
                           >
                             🗑️ Delete
                           </button>
                         )}
-
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
-                          {/* {exportRoofIO && (
-                            <button
-                              title="Export 2D & 3D Input / Output data as JSON"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                exportRoofIO(roof.id);
-                              }}
-                              style={{
-                                background: "rgba(59, 130, 246, 0.15)",
-                                border: "1px solid rgba(59, 130, 246, 0.4)",
-                                color: "#60a5fa",
-                                borderRadius: "6px",
-                                padding: "6px 10px",
-                                fontSize: "12px",
-                                fontWeight: 600,
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                transition: "all 0.15s ease"
-                              }}
-                            >
-                              📤 Export I/O
-                            </button>
-                          )} */}
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              computeSelectedRoof && computeSelectedRoof(roof.id);
-                            }}
-                            disabled={isComputingRoof}
-                            style={{
-                              background: (roof.isDirty || !roof.v3Data) ? "#22c55e" : "#10b981",
-                              color: "#000000",
-                              border: "none",
-                              borderRadius: "6px",
-                              padding: "6px 14px",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              boxShadow: "0 4px 14px rgba(34, 197, 94, 0.4)"
-                            }}
-                          >
-                            {isComputingRoof ? "⏳ Calculating..." : "▶ Compute Roof (V3)"}
-                          </button>
-                        </div>
                       </div>
                     </div>
                   );
                 })}
 
-                {/* Temporarily Hidden Area Summary Card per User Request */}
-                {/*
-            <div className="rp-totals-card" style={{ background: "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.25)" }}>
-              <div className="rp-totals-row rp-totals-row--grand">
-                <span className="rp-totals-row__icon" style={{ color: "#f59e0b" }}>🏠</span>
-                <span className="rp-totals-row__value" style={{ color: "#f59e0b", fontSize: "18px" }}>
-                  {scaleValue ? `${totalRoofArea.toFixed(2)} m²` : "No Scale"}
-                </span>
-              </div>
-            </div>
-            */}
+                {/* Total Roof Area Card */}
+                <div className="rp-totals-card" style={{ background: "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.25)" }}>
+                  <div className="rp-totals-row rp-totals-row--grand">
+                    <span className="rp-totals-row__icon" style={{ color: "#f59e0b" }}>🏠</span>
+                    <span className="rp-totals-row__label" style={{ fontWeight: 800 }}>Total Roof Area</span>
+                    <span className="rp-totals-row__value" style={{ color: "#f59e0b", fontSize: "18px" }}>
+                      {scaleValue ? `${totalRoofArea.toFixed(2)} m²` : "No Scale"}
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="panel-hint" style={{ padding: "8px 0" }}>No roofs drawn yet. Click 'Roof' in the top Ribbon to draw.</div>
@@ -3879,12 +4774,10 @@ export default function RightPropertyPaneView({
                     <StatRow
                       label="Total Door Length"
                       value={`${doorMetrics.totalLengthM} m`}
-                      color="#e1e4ea"
                     />
                     <StatRow
                       label="Total Door Perimeter"
                       value={`${doorMetrics.totalPerimeterM} m`}
-                      color="#e1e4ea"
                     />
                   </SummaryCard>
                 </div>
@@ -3897,8 +4790,8 @@ export default function RightPropertyPaneView({
                     if (count === 0) return null;
                     return (
                       <div key={key} style={{ marginBottom: "8px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#e1e4ea", marginBottom: "2px" }}>
-                          <span style={{ textTransform: "capitalize" }}>{group.label}</span>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text)", marginBottom: "2px" }}>
+                          <span style={{ textTransform: "capitalize", color: "var(--text-dim)" }}>{group.label}</span>
                           <b>{count}</b>
                         </div>
                         <MiniBar ratio={count / Math.max(totalDoorCount, 1)} color={group.color} />
@@ -3948,8 +4841,8 @@ export default function RightPropertyPaneView({
                   <SectionHeader>Profile Breakdowns</SectionHeader>
                   {Object.entries(skirtingSummaryMetrics.materialMap).map(([mat, lm]) => (
                     <div key={mat} style={{ marginBottom: "8px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#e1e4ea", marginBottom: "2px" }}>
-                        <span>{mat}</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text)", marginBottom: "2px" }}>
+                        <span style={{ color: "var(--text-dim)" }}>{mat}</span>
                         <b>{lm.toFixed(2)} m</b>
                       </div>
                       <MiniBar ratio={lm / Math.max(skirtingSummaryMetrics.totalSkirtingLm, 1)} color="#38bdf8" />
@@ -3982,12 +4875,10 @@ export default function RightPropertyPaneView({
                     <StatRow
                       label="Total Window Length"
                       value={`${windowMetrics.totalLengthM} m`}
-                      color="#e1e4ea"
                     />
                     <StatRow
                       label="Total Window Perimeter"
                       value={`${windowMetrics.totalPerimeterM} m`}
-                      color="#e1e4ea"
                     />
                   </SummaryCard>
                 </div>
@@ -3997,45 +4888,46 @@ export default function RightPropertyPaneView({
             )}
           </CollapsibleSection>
         </div>
-      )}
+      ) : null}
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
       {showTakeoffModal && (
         <div style={{
           position: "fixed",
           top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: "rgba(0, 0, 0, 0.7)",
+          backgroundColor: "rgba(15, 23, 42, 0.5)",
+          backdropFilter: "blur(4px)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           zIndex: 9999
         }}>
           <div style={{
-            background: "#181a20",
-            border: "1px solid #2d3139",
+            background: "#ffffff",
+            border: "1px solid var(--border)",
             borderRadius: "12px",
             padding: "24px",
             width: "400px",
             maxWidth: "90%",
-            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
-            color: "#e1e4ea"
+            boxShadow: "0 20px 50px rgba(15, 23, 42, 0.15)",
+            color: "var(--text)"
           }}>
-            <h3 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: "bold", borderBottom: "1px solid #2d3139", paddingBottom: "12px" }}>
+            <h3 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: "700", color: "#0f172a", borderBottom: "1px solid #f1f5f9", paddingBottom: "12px" }}>
               📋 Export Takeoff Excel Form
             </h3>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Project Name</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>Project Name</label>
                 <input
                   type="text"
                   value={takeoffForm.projectName}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, projectName: e.target.value }))}
                   style={{
                     padding: "8px 12px",
-                    background: "#1e2028",
-                    color: "#e1e4ea",
-                    border: "1px solid #3f4451",
+                    background: "#ffffff",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
                     borderRadius: "6px",
                     fontSize: "13px",
                     outline: "none"
@@ -4044,16 +4936,16 @@ export default function RightPropertyPaneView({
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Client Name</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>Client Name</label>
                 <input
                   type="text"
                   value={takeoffForm.clientName}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, clientName: e.target.value }))}
                   style={{
                     padding: "8px 12px",
-                    background: "#1e2028",
-                    color: "#e1e4ea",
-                    border: "1px solid #3f4451",
+                    background: "#ffffff",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
                     borderRadius: "6px",
                     fontSize: "13px",
                     outline: "none"
@@ -4062,16 +4954,16 @@ export default function RightPropertyPaneView({
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Detailer Name</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>Detailer Name</label>
                 <input
                   type="text"
                   value={takeoffForm.detailerName}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, detailerName: e.target.value }))}
                   style={{
                     padding: "8px 12px",
-                    background: "#1e2028",
-                    color: "#e1e4ea",
-                    border: "1px solid #3f4451",
+                    background: "#ffffff",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
                     borderRadius: "6px",
                     fontSize: "13px",
                     outline: "none"
@@ -4080,16 +4972,16 @@ export default function RightPropertyPaneView({
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Job No</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>Job No</label>
                 <input
                   type="text"
                   value={takeoffForm.jobNo}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, jobNo: e.target.value }))}
                   style={{
                     padding: "8px 12px",
-                    background: "#1e2028",
-                    color: "#e1e4ea",
-                    border: "1px solid #3f4451",
+                    background: "#ffffff",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
                     borderRadius: "6px",
                     fontSize: "13px",
                     outline: "none"
@@ -4098,16 +4990,16 @@ export default function RightPropertyPaneView({
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#9ca3af" }}>Date</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#475569" }}>Date</label>
                 <input
                   type="text"
                   value={takeoffForm.date}
                   onChange={e => setTakeoffForm(prev => ({ ...prev, date: e.target.value }))}
                   style={{
                     padding: "8px 12px",
-                    background: "#1e2028",
-                    color: "#e1e4ea",
-                    border: "1px solid #3f4451",
+                    background: "#ffffff",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
                     borderRadius: "6px",
                     fontSize: "13px",
                     outline: "none"
@@ -4122,11 +5014,12 @@ export default function RightPropertyPaneView({
                 disabled={isExporting}
                 style={{
                   padding: "8px 16px",
-                  background: "transparent",
-                  color: "#e1e4ea",
-                  border: "1px solid #3f4451",
+                  background: "#f1f5f9",
+                  color: "#475569",
+                  border: "1px solid var(--border)",
                   borderRadius: "6px",
                   fontSize: "13px",
+                  fontWeight: 600,
                   cursor: "pointer"
                 }}
               >

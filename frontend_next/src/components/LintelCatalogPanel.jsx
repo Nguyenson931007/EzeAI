@@ -43,22 +43,22 @@ export default function LintelCatalogPanel({
     <div
       style={{
         width: '280px',
-        background: '#0f172a',
-        borderRight: '1px solid rgba(255,255,255,0.06)',
+        background: '#ffffff',
+        borderRight: '1px solid #e2e8f0',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        color: '#f8fafc',
+        color: '#1e293b',
         fontFamily: "'Inter', 'Outfit', sans-serif",
         boxSizing: 'border-box'
       }}
     >
       {/* Panel Header */}
-      <div style={{ padding: '16px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 600, color: '#e2e8f0' }}>
+      <div style={{ padding: '16px 14px 10px', borderBottom: '1px solid #e2e8f0' }}>
+        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
           Lintel Catalog
         </h3>
-        <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#94a3b8' }}>
+        <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#64748b' }}>
           Select a catalog size to assign to the active lintel
         </p>
         <div style={{ position: 'relative' }}>
@@ -69,20 +69,20 @@ export default function LintelCatalogPanel({
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
               width: '100%',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
               borderRadius: '6px',
               padding: '6px 10px 6px 28px',
-              color: '#fff',
+              color: '#1e293b',
               fontSize: '12px',
               outline: 'none',
               transition: 'border-color 0.2s',
               boxSizing: 'border-box'
             }}
-            onFocus={(e) => e.target.style.borderColor = '#f59e0b'}
-            onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+            onFocus={(e) => e.target.style.borderColor = '#2563eb'}
+            onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
           />
-          <span style={{ position: 'absolute', left: '10px', top: '7px', fontSize: '12px', color: '#64748b' }}>
+          <span style={{ position: 'absolute', left: '10px', top: '7px', fontSize: '12px', color: '#94a3b8' }}>
             🔍
           </span>
         </div>
@@ -115,43 +115,44 @@ export default function LintelCatalogPanel({
                     });
                   }}
                   style={{
-                    background: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.02)',
-                    border: isSelected ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.05)',
-                    borderRadius: '6px',
+                    background: isSelected ? '#eff6ff' : '#f8fafc',
+                    border: isSelected ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                    borderRadius: '8px',
                     padding: '10px 12px',
                     cursor: isLocked ? 'not-allowed' : 'pointer',
                     opacity: isLocked ? 0.5 : 1,
-                    transition: 'all 0.2s ease',
+                    transition: 'all 0.15s ease',
+                    boxShadow: isSelected ? '0 2px 8px rgba(37, 99, 235, 0.15)' : 'none'
                   }}
                   onMouseEnter={(e) => {
                     if (!isSelected && !isLocked) {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isSelected && !isLocked) {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.background = '#f8fafc';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
                     }
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: isSelected ? '#f59e0b' : '#f1f5f9' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: isSelected ? '#2563eb' : '#1e293b' }}>
                       {item.height}x{item.width} {item.description}
                     </span>
-                    <span style={{ fontSize: '10px', background: '#334155', color: '#cbd5e1', padding: '2px 6px', borderRadius: '4px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 600, background: isSelected ? '#dbeafe' : '#e2e8f0', color: isSelected ? '#1d4ed8' : '#475569', padding: '2px 6px', borderRadius: '4px' }}>
                       {item.type}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#94a3b8' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#64748b' }}>
                       <span>Code: {item.id}</span>
                       <span>Unit: {item.unit}</span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ fontSize: '10px', color: '#94a3b8' }}>Ply:</span>
+                      <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>Ply:</span>
                       <input
                         type="number"
                         min="1"
@@ -183,11 +184,12 @@ export default function LintelCatalogPanel({
                         }}
                         style={{
                           width: '46px',
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '2px solid rgba(255,255,255,0.1)',
+                          background: '#ffffff',
+                          border: '1px solid #cbd5e1',
                           borderRadius: '6px',
-                          color: '#f8fafc',
+                          color: '#1e293b',
                           fontSize: '12px',
+                          fontWeight: 'bold',
                           padding: '4px 6px',
                           textAlign: 'center',
                           outline: 'none',

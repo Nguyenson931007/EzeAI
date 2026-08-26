@@ -54,12 +54,24 @@ const REVIEW_COLORS = {
 
 const roomSemanticStyleMap = {
   dry: {
-    stroke: "#38BDF8",
-    fill: "rgba(56,189,248,0.08)"
+    stroke: "#dc2626",
+    fill: "rgba(239, 68, 68, 0.15)"
   },
   wet: {
-    stroke: "#EF4444",
-    fill: "rgba(239,68,68,0.10)"
+    stroke: "#0284c7",
+    fill: "rgba(56, 189, 248, 0.14)"
+  },
+  timber_deck: {
+    stroke: "#d97706",
+    fill: "rgba(217, 119, 6, 0.18)"
+  },
+  tile_deck: {
+    stroke: "#059669",
+    fill: "rgba(16, 185, 129, 0.16)"
+  },
+  deck: {
+    stroke: "#d97706",
+    fill: "rgba(217, 119, 6, 0.18)"
   }
 };
 
@@ -127,6 +139,7 @@ const LintelsLayer = React.memo(({
   layerVisibility,
   selectedId,
   selectedType,
+  selectedLintelIds = [],
   setSelectedId,
   setSelectedType,
   setHoverId,
@@ -137,7 +150,7 @@ const LintelsLayer = React.memo(({
   return (
     <g id="LintelLayer">
       {lintels.map((l) => {
-        const isSelected = selectedId === l.id && selectedType === "lintel";
+        const isSelected = (selectedId === l.id && selectedType === "lintel") || (selectedLintelIds && selectedLintelIds.includes(l.id));
         const isHovered = l.id === hoverId;
 
         // Resolve lintel start/end coordinates
@@ -346,6 +359,7 @@ const RoomPolygonLayer = React.memo(({
   scaleValue,
   highlightType,
   selectedId,
+  selectedRoomIds = [],
   hoverId,
   setHoverId,
   setSelectedId,
@@ -371,27 +385,18 @@ const RoomPolygonLayer = React.memo(({
     <g id="RoomPolygonLayer">
       {rooms.map(r => {
         const isText = r.id && String(r.id).startsWith("text-");
-        const isSelected = r.id === selectedId;
+        const isSelected = r.id === selectedId || (selectedRoomIds && selectedRoomIds.includes(r.id));
         const isHovered = r.id === hoverId;
         const isDraggingThis = dragging && dragging.id === r.id;
         const style = getRoomStyle(r);
 
-        // Determine confidence/review color overlay
+        // Determine confidence/review state
         const isLowConfidence = r.conf !== undefined && r.conf < (config?.rooms ?? 0.55);
-        const reviewState = r.correction_source || (isLowConfidence ? "low_confidence" : "AI_GENERATED");
-        const revStyle = REVIEW_COLORS[reviewState];
 
         let stroke = isSelected ? "#f59e0b" : (isHovered ? "#fbbf24" : style.stroke);
-        let strokeWidth = isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 3 : 1.2));
-        let opacity = isSelected ? 0.8 : (isHovered ? 0.7 : 1);
-        let fill = isSelected ? "rgba(245,158,11,0.15)" : style.fill;
-
-        // If verified or corrected, boost stroke outline (Requirement 8)
-        if (revStyle && !isSelected && !isHovered && !isDraggingThis) {
-          stroke = revStyle.stroke;
-          strokeWidth = 1.5;
-          fill = revStyle.fill;
-        }
+        let strokeWidth = isDraggingThis ? 0.8 : (isSelected ? 2.5 : (isHovered ? 3 : 1.5));
+        let opacity = isSelected ? 0.85 : (isHovered ? 0.75 : 1);
+        let fill = isSelected ? "rgba(245,158,11,0.2)" : style.fill;
 
         // Apply visual heatmap outlining for low confidence rooms
         if (heatmapMode && isLowConfidence && !isSelected && !isHovered && !isDraggingThis) {
@@ -1087,19 +1092,21 @@ const WallLayer = React.memo(({
 
       {/* 2. Render invisible wall hitboxes on top for hover and click interaction */}
       {(walls || []).map((w, idx) => {
-        const isSelected = selectedWallIds.some(id => id === w.id || getBaseWallId(id) === getBaseWallId(w.id));
-        const isHovered = w.id === hoverId || getBaseWallId(w.id) === getBaseWallId(hoverId);
-        const isDraggingThis = dragging && (dragging.id === w.id || getBaseWallId(dragging.id) === getBaseWallId(w.id));
+        const isSelected = selectedWallIds.some(id => id === w.id || (getBaseWallId && getBaseWallId(id) === getBaseWallId(w.id))) ||
+          selectedId === w.id || (getBaseWallId && getBaseWallId(selectedId) === getBaseWallId(w.id));
+        const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
+        const isDraggingThis = dragging && (dragging.id === w.id || (getBaseWallId && getBaseWallId(dragging.id) === getBaseWallId(w.id)));
         const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
 
         let fillColor = "rgba(0, 0, 0, 0)"; // fully transparent for hit test
         let strokeColor = "none";
 
         if (isSelected) {
-          strokeColor = "#38bdf8"; // highlight selected wall in blue
-          fillColor = "rgba(56, 189, 248, 0.25)";
+          strokeColor = "#0284c7"; // bold CAD sky blue
+          fillColor = "rgba(2, 132, 199, 0.45)"; // vibrant translucent blue fill
         } else if (isHovered) {
-          fillColor = "rgba(168, 85, 247, 0.05)";
+          fillColor = "rgba(56, 189, 248, 0.15)";
+          strokeColor = "#38bdf8";
         }
 
         return (
@@ -1149,16 +1156,19 @@ const WallLayer = React.memo(({
               />
             )}
 
-            {/* Wall Polygon Hitbox */}
+            {/* Wall Polygon Hitbox & Highlight Outline */}
             <polygon
               key={`hitbox-${w.id}-${idx}`}
               points={pointsStr}
               fill={fillColor}
               stroke={strokeColor}
-              strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 0)}
+              strokeWidth={isDraggingThis ? 1.2 : (isSelected ? 4.5 : (isHovered ? 2 : 0))}
+              strokeLinejoin="round"
+              strokeLinecap="round"
               style={{
                 cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
-                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
+                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto",
+                filter: isSelected ? "drop-shadow(0 0 6px rgba(2, 132, 199, 0.85))" : undefined
               }}
               onMouseEnter={() => setHoverId(w.id)}
               onMouseLeave={() => setHoverId(null)}
@@ -1194,6 +1204,21 @@ const WallLayer = React.memo(({
                 }
               }}
             />
+
+            {/* Prominent Selection Centerline Indicator */}
+            {isSelected && w.centerline && w.centerline.length === 2 && (
+              <line
+                x1={w.centerline[0][0]}
+                y1={w.centerline[0][1]}
+                x2={w.centerline[1][0]}
+                y2={w.centerline[1][1]}
+                stroke="#38bdf8"
+                strokeWidth={2.5}
+                strokeDasharray="6,3"
+                strokeLinecap="round"
+                style={{ pointerEvents: 'none' }}
+              />
+            )}
           </g>
         );
       })}
@@ -1441,6 +1466,7 @@ const DoorLayer = React.memo(({
   isDistancing,
   setSelectedId,
   setSelectedType,
+  selectedDoorIds = [],
   startDrag,
   updateDoor,
   dragging,
@@ -1459,7 +1485,7 @@ const DoorLayer = React.memo(({
     <g id="DoorLayer">
       {(doors || []).map((d, idx) => {
         try {
-          const isSelected = selectedId === d.id && selectedType === "door";
+          const isSelected = (selectedId === d.id && (selectedType === "door" || selectedType === "window")) || (selectedDoorIds && selectedDoorIds.includes(d.id));
           const isHovered = d.id === hoverId;
           const isDraggingThis = dragging && dragging.id === d.id;
           const isAIDoor = !!((d.polygon && d.polygon.length >= 3) || (d.mask_polygon && d.mask_polygon.length >= 3));
@@ -2732,6 +2758,7 @@ export default function CanvasView({
   imgSize,
   offset,
   scale,
+  fitToScreen,
   drawing,
   isDrawingDoor,
   isDrawingRoof,
@@ -2791,6 +2818,12 @@ export default function CanvasView({
   roiRect,
   selectedWallIds = [],
   setSelectedWallIds,
+  selectedDoorIds = [],
+  setSelectedDoorIds,
+  selectedRoomIds = [],
+  setSelectedRoomIds,
+  selectedLintelIds = [],
+  setSelectedLintelIds,
   selectWall,
   cutPreviewPoint,
   interactionMode,
@@ -2817,6 +2850,7 @@ export default function CanvasView({
   startDrag,
   pushHistory,
   layerVisibility = { floor: true, wall: true, door: true, ocr: true },
+  hiddenItemIds,
   updateDoor,
   deleteDoor,
   doorController,
@@ -2869,8 +2903,24 @@ export default function CanvasView({
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
-    return layerVisibility?.wall === false ? [] : (walls || []);
-  }, [walls, layerVisibility]);
+    if (layerVisibility?.wall === false) return [];
+    return (walls || []).filter(w => !hiddenItemIds?.has(w.id));
+  }, [walls, layerVisibility, hiddenItemIds]);
+
+  const displayRooms = useMemo(() => {
+    if (layerVisibility?.floor === false) return [];
+    return (rooms || []).filter(r => !hiddenItemIds?.has(r.id));
+  }, [rooms, layerVisibility, hiddenItemIds]);
+
+  const displayDoors = useMemo(() => {
+    if (layerVisibility?.door === false) return [];
+    return (doors || []).filter(d => !hiddenItemIds?.has(d.id));
+  }, [doors, layerVisibility, hiddenItemIds]);
+
+  const displayLintels = useMemo(() => {
+    if (layerVisibility?.lintel === false) return [];
+    return (lintelsByPage[currentPage] || []).filter(l => !hiddenItemIds?.has(l.id));
+  }, [lintelsByPage, currentPage, layerVisibility, hiddenItemIds]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -3423,10 +3473,26 @@ export default function CanvasView({
   }, [svgRef, onWheel]);
 
   const getRoomStyle = (room) => {
-    const w = room.wetness || room.type || "dry";
-    const type = w === "wet" ? "wet" : "dry";
-    if (highlightType && highlightType !== w) {
-      return { stroke: "rgba(200,200,200,0.1)", fill: "rgba(200,200,200,0.05)" };
+    const rawType = room.type || room.wetness || room.zone || "dry";
+    const roomName = String(room.name || room.room_name || "").toLowerCase();
+    let type = "dry";
+
+    if (rawType === "wet" || rawType === "bath" || rawType === "ensuite" || rawType === "wc" || rawType === "laundry") {
+      type = "wet";
+    } else if (rawType === "timber_deck" || (rawType === "deck" && !roomName.includes("tile")) || /(deck.*timber|timber.*deck|balcony)/i.test(roomName)) {
+      type = "timber_deck";
+    } else if (rawType === "tile_deck" || (rawType === "deck" && roomName.includes("tile")) || /(deck.*tile|tile.*deck|patio|alfresco|porch|verandah)/i.test(roomName)) {
+      type = "tile_deck";
+    } else if (rawType === "deck") {
+      type = "timber_deck";
+    } else if (/(bath|ens|ensuite|wc|powder|toilet|l'dry|laundry|utility|shower)/i.test(roomName)) {
+      type = "wet";
+    } else {
+      type = "dry";
+    }
+
+    if (highlightType && highlightType !== type && highlightType !== rawType) {
+      return { stroke: "rgba(200,200,200,0.12)", fill: "rgba(200,200,200,0.04)" };
     }
     return roomSemanticStyleMap[type] || roomSemanticStyleMap.dry;
   };
@@ -3502,6 +3568,31 @@ export default function CanvasView({
     });
   };
 
+  // Zoom change centered at viewport center
+  const handleZoomSliderChange = (newPct) => {
+    const newScale = Math.max(0.05, Math.min(5.0, newPct / 100));
+    const container = containerRef.current || { clientWidth: 800, clientHeight: 600 };
+    const cw = container.clientWidth || 800;
+    const ch = container.clientHeight || 600;
+    const cx = cw / 2;
+    const cy = ch / 2;
+
+    const imgX = (cx - offset.x) / scale;
+    const imgY = (cy - offset.y) / scale;
+
+    const newOffsetX = cx - imgX * newScale;
+    const newOffsetY = cy - imgY * newScale;
+
+    if (setScale) setScale(newScale);
+    if (setOffset) setOffset({ x: newOffsetX, y: newOffsetY });
+  };
+
+  const zoomStep = (delta) => {
+    const curPct = Math.round(scale * 100);
+    const targetPct = Math.max(10, Math.min(400, curPct + delta));
+    handleZoomSliderChange(targetPct);
+  };
+
   const scanStyles = `
     @keyframes sweep {
       0% { top: 0%; }
@@ -3529,14 +3620,14 @@ export default function CanvasView({
       bottom: 24px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(15, 23, 42, 0.9);
+      background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(16px);
-      border: 1px solid rgba(59, 130, 246, 0.4);
+      border: 1px solid #cbd5e1;
       border-radius: 16px;
       padding: 18px 24px;
       width: 380px;
-      color: white;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      color: #1e293b;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
       z-index: 999;
       animation: pulseGlow 2s infinite ease-in-out;
       font-family: 'Outfit', 'Inter', sans-serif;
@@ -3545,7 +3636,7 @@ export default function CanvasView({
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid #e2e8f0;
       padding-bottom: 8px;
       margin-bottom: 12px;
     }
@@ -3555,7 +3646,7 @@ export default function CanvasView({
       gap: 6px;
       font-size: 11px;
       font-weight: 800;
-      color: #60a5fa;
+      color: #2563eb;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
@@ -3573,20 +3664,21 @@ export default function CanvasView({
     }
     .scanner-progress-text {
       font-size: 11px;
-      color: #94a3b8;
-      font-weight: 600;
+      color: #64748b;
+      font-weight: 700;
     }
     .scanner-target-title {
       font-size: 10px;
-      color: #94a3b8;
+      color: #64748b;
       margin-bottom: 4px;
-      font-weight: 600;
+      font-weight: 700;
+      letter-spacing: 0.5px;
     }
     .scanner-target-name {
       font-size: 24px;
       font-weight: 800;
-      color: #fff;
-      background: linear-gradient(135deg, #60a5fa 0%, #a855f7 100%);
+      color: #1e293b;
+      background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       margin-bottom: 14px;
@@ -3609,30 +3701,30 @@ export default function CanvasView({
       display: flex;
       justify-content: space-between;
       font-size: 12px;
-      background: rgba(255, 255, 255, 0.04);
+      background: #f8fafc;
       padding: 6px 10px;
       border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.03);
+      border: 1px solid #e2e8f0;
     }
     .scanner-cand-name {
       font-weight: 700;
-      color: #e2e8f0;
+      color: #1e293b;
     }
     .scanner-cand-score {
       font-weight: 700;
-      color: #10b981;
+      color: #059669;
     }
     .scanner-bar-container {
       margin-top: 14px;
       height: 6px;
       width: 100%;
-      background: rgba(255, 255, 255, 0.05);
+      background: #e2e8f0;
       border-radius: 3px;
       overflow: hidden;
     }
     .scanner-bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, #3b82f6 0%, #a855f7 100%);
+      background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
       border-radius: 3px;
       transition: width 0.3s ease;
     }
@@ -3659,17 +3751,17 @@ export default function CanvasView({
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              padding: "6px 12px",
+              padding: "5px 10px",
               borderRadius: "8px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              background: "rgba(15, 23, 42, 0.65)",
+              border: "1px solid var(--border)",
+              background: "rgba(255, 255, 255, 0.94)",
               backdropFilter: "blur(12px)",
               WebkitBackdropFilter: "blur(12px)",
-              boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.3)",
+              boxShadow: "0 4px 16px rgba(15, 23, 42, 0.08)",
               userSelect: "none"
             }}
           >
-            <span style={{ fontSize: "10px", fontWeight: "800", color: "rgba(255, 255, 255, 0.8)", fontFamily: "Inter, sans-serif", letterSpacing: "0.8px" }}>
+            <span style={{ fontSize: "10px", fontWeight: "700", color: "var(--text-dim)", fontFamily: "Inter, sans-serif", letterSpacing: "0.5px" }}>
               PDF BACKGROUND
             </span>
             <button
@@ -3678,16 +3770,16 @@ export default function CanvasView({
                 setShowPDF(!showPDF);
               }}
               style={{
-                background: showPDF ? "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)" : "rgba(255, 255, 255, 0.1)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: "#ffffff",
-                padding: "4px 10px",
-                borderRadius: "6px",
+                background: showPDF ? "var(--blue)" : "#f1f5f9",
+                border: showPDF ? "1px solid var(--blue)" : "1px solid var(--border)",
+                color: showPDF ? "#ffffff" : "var(--text-dim)",
+                padding: "3px 8px",
+                borderRadius: "5px",
                 fontSize: "11px",
-                fontWeight: "800",
+                fontWeight: "700",
                 cursor: "pointer",
-                transition: "all 0.2s ease-in-out",
-                boxShadow: showPDF ? "0 0 10px rgba(59, 130, 246, 0.4)" : "none"
+                transition: "all 0.15s ease-in-out",
+                boxShadow: showPDF ? "0 1px 4px rgba(37, 99, 235, 0.3)" : "none"
               }}
             >
               {showPDF ? "ON" : "OFF"}
@@ -3700,16 +3792,16 @@ export default function CanvasView({
                 }
               }}
               style={{
-                background: interactionMode === "align-pdf" ? "linear-gradient(135deg, #eab308 0%, #ca8a04 100%)" : "rgba(255, 255, 255, 0.1)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: "#ffffff",
-                padding: "4px 10px",
-                borderRadius: "6px",
+                background: interactionMode === "align-pdf" ? "#eab308" : "#f8fafc",
+                border: interactionMode === "align-pdf" ? "1px solid #ca8a04" : "1px solid var(--border)",
+                color: interactionMode === "align-pdf" ? "#ffffff" : "var(--text)",
+                padding: "3px 8px",
+                borderRadius: "5px",
                 fontSize: "11px",
-                fontWeight: "800",
+                fontWeight: "700",
                 cursor: "pointer",
-                transition: "all 0.2s ease-in-out",
-                boxShadow: interactionMode === "align-pdf" ? "0 0 10px rgba(234, 179, 8, 0.4)" : "none"
+                transition: "all 0.15s ease-in-out",
+                boxShadow: interactionMode === "align-pdf" ? "0 1px 4px rgba(234, 179, 8, 0.3)" : "none"
               }}
             >
               {interactionMode === "align-pdf" ? "ALIGNING" : "ALIGN"}
@@ -3719,7 +3811,6 @@ export default function CanvasView({
 
         {interactionMode === "align-pdf" && (
           <div
-            className="glassmorphic"
             style={{
               position: "absolute",
               top: "20px",
@@ -3728,13 +3819,13 @@ export default function CanvasView({
               zIndex: 100,
               padding: "8px 16px",
               borderRadius: "8px",
-              border: "1px solid rgba(234, 179, 8, 0.3)",
-              background: "rgba(251, 191, 36, 0.15)",
-              color: "#fef08a",
+              border: "1px solid #fde68a",
+              background: "rgba(254, 243, 199, 0.95)",
+              color: "#92400e",
               fontWeight: "600",
               fontSize: "12px",
               backdropFilter: "blur(8px)",
-              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.2)"
+              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.08)"
             }}
           >
             ✋ Drag anywhere to align PDF background with walls
@@ -3752,20 +3843,21 @@ export default function CanvasView({
               zIndex: 100,
               padding: "8px 18px",
               borderRadius: "8px",
-              border: "1px solid rgba(59, 130, 246, 0.4)",
-              background: "rgba(37, 99, 235, 0.25)",
-              color: "#93c5fd",
+              border: "1px solid #bfdbfe",
+              background: "rgba(239, 246, 255, 0.95)",
+              color: "#1d4ed8",
               fontWeight: "600",
               fontSize: "12px",
               backdropFilter: "blur(8px)",
-              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)"
+              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.08)"
             }}
           >
-            🧱 <b>Đang vẽ tường:</b> Click chọn điểm | Giữ <b>Shift</b> để di chuyển tự do | Nhấn <b>Esc</b> / <b>Enter</b> hoặc chạm tường khác để dừng
+            🧱 <b>Drawing Walls:</b> Click to place points | Hold <b>Shift</b> for free angle | Press <b>Esc</b> / <b>Enter</b> or touch another wall to finish
           </div>
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
 
+        {/* ── LIVE AI ROOM SCANNER STATUS PANEL ── */}
         {activeScanRoom && (
           <div className="scanner-panel">
             <div className="scanner-header">
@@ -3809,10 +3901,10 @@ export default function CanvasView({
         )}
 
         {isDetecting && !activeScanRoom && (
-          <div className="scanner-panel" style={{ border: '1px solid rgba(99, 102, 241, 0.4)' }}>
+          <div className="scanner-panel" style={{ border: '1px solid #cbd5e1' }}>
             <div className="scanner-header">
-              <div className="scanner-live-badge" style={{ color: '#a5b4fc' }}>
-                <span className="live-dot" style={{ backgroundColor: '#6366f1', boxR: '0 0 8px #6366f1' }} />
+              <div className="scanner-live-badge" style={{ color: '#2563eb' }}>
+                <span className="live-dot" style={{ backgroundColor: '#2563eb', boxShadow: '0 0 8px #2563eb' }} />
                 AI Inference Running
               </div>
               <span className="scanner-progress-text">
@@ -3821,7 +3913,7 @@ export default function CanvasView({
             </div>
 
             <div className="scanner-target-title">ACTIVE PIPELINE PROCESS</div>
-            <div className="scanner-target-name" style={{ fontSize: '16px', background: 'linear-gradient(135deg, #a5b4fc 0%, #3b82f6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.4' }}>
+            <div className="scanner-target-name" style={{ fontSize: '16px', background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.4' }}>
               {cacheStatus === "processing" ? "Analyzing Architectural Drawings..." : cacheStatus}
             </div>
 
@@ -3830,7 +3922,7 @@ export default function CanvasView({
                 className="scanner-bar-fill"
                 style={{
                   width: `${roiProgress}%`,
-                  background: 'linear-gradient(90deg, #6366f1, #3b82f6)'
+                  background: 'linear-gradient(90deg, #2563eb, #3b82f6)'
                 }}
               />
             </div>
@@ -3839,9 +3931,9 @@ export default function CanvasView({
               <button
                 onClick={cancelROI}
                 style={{
-                  background: 'rgba(239, 68, 68, 0.2)',
-                  border: '1px solid rgba(239, 68, 68, 0.4)',
-                  color: '#fca5a5',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  color: '#dc2626',
                   borderRadius: '6px',
                   padding: '4px 12px',
                   fontSize: '11px',
@@ -3849,10 +3941,10 @@ export default function CanvasView({
                   fontWeight: '600',
                   transition: 'all 0.2s'
                 }}
-                onMouseEnter={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.3)'}
-                onMouseLeave={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.2)'}
+                onMouseEnter={(e) => e.target.style.background = '#fee2e2'}
+                onMouseLeave={(e) => e.target.style.background = '#fef2f2'}
               >
-                🛑 Hủy quét (Cancel)
+                🛑 Cancel Scanning
               </button>
             </div>
           </div>
@@ -3863,15 +3955,10 @@ export default function CanvasView({
           style={{
             width: "100%",
             height: "100%",
-            cursor: isPanning ? "grab"
-              : drawing ? "crosshair"
-                : isDrawingRoof ? "crosshair"
-                  : isDistancing ? "crosshair"
-                    : isMeasuring ? "crosshair"
-                      : isAddingPoint ? "crosshair"
-                        : interactionMode === "draw-ext-rect" ? "crosshair"
-                          : interactionMode === "align-pdf" ? "move"
-                            : "default"
+            cursor: (isPanning || interactionMode === "pan") ? "grab"
+              : (drawing || isDrawingRoof || isDistancing || isMeasuring || isAddingPoint || interactionMode === "draw-ext-rect" || interactionMode === "draw-wall" || interactionMode === "fill-room") ? "crosshair"
+              : interactionMode === "align-pdf" ? "move"
+              : "default"
           }}
           onClick={(e) => {
             if (editingRoomId) return;
@@ -3880,10 +3967,23 @@ export default function CanvasView({
             closeWallContextMenu();
             closeRoofContextMenu();
             if (setVertexMenu) setVertexMenu({ visible: false, x: 0, y: 0, vertex: null });
-            if (e.target === svgRef.current || e.target.tagName === 'svg') {
+            
+            const isBg = e.target === svgRef.current || 
+              e.target.tagName === 'svg' || 
+              e.target.tagName === 'image' || 
+              e.target.id === 'pdf-background-image' ||
+              (e.target.classList && e.target.classList.contains('canvas-background'));
+
+            if (isBg) {
               if (isDrawingLintel) return; // Don't deselect during lintel draw mode
               if (setSelectedId) setSelectedId(null);
               if (setSelectedType) setSelectedType(null);
+              if (setSelectedWallIds) setSelectedWallIds([]);
+              if (setSelectedDoorIds) setSelectedDoorIds([]);
+              if (setSelectedRoomIds) setSelectedRoomIds([]);
+              if (setSelectedLintelIds) setSelectedLintelIds([]);
+              if (setSelectedRoofId) setSelectedRoofId(null);
+              if (setSelectedWallVertex) setSelectedWallVertex(null);
             }
           }}
           onDoubleClick={(e) => {
@@ -3935,9 +4035,9 @@ export default function CanvasView({
             <UnderlayWallLayer walls={underlayWalls} />
 
             {/* Snap Guides */}
-            {(isShiftDown || isSnapMode) && currentMouse && (() => {
+            {((isShiftDown && drawing) || ((isShiftDown || isSnapMode) && !drawing)) && currentMouse && (() => {
               let snapBase = null;
-              if (drawing && currentPoly.length > 0) snapBase = currentPoly[currentPoly.length - 1];
+              if (isShiftDown && drawing && currentPoly.length > 0) snapBase = currentPoly[currentPoly.length - 1];
               else if (isMeasuring && measurePoints.length === 1) snapBase = measurePoints[0];
               else if (isDistancing && distancePoints.length === 1) snapBase = distancePoints[0];
               else if (interactionMode === "draw-wall" && drawingWall) snapBase = { x: drawingWall.startX, y: drawingWall.startY };
@@ -4425,11 +4525,12 @@ export default function CanvasView({
             {/* Memoized Layer 2: Room Polygons */}
             {layerVisibility?.floor && (
               <RoomPolygonLayer
-                rooms={rooms}
+                rooms={displayRooms}
                 layerVisibility={layerVisibility}
                 scaleValue={scaleValue}
                 highlightType={highlightType}
                 selectedId={selectedId}
+                selectedRoomIds={selectedRoomIds}
                 hoverId={hoverId}
                 setHoverId={setHoverId}
                 setSelectedId={setSelectedId}
@@ -4454,7 +4555,7 @@ export default function CanvasView({
             {layerVisibility?.wall && (
               <WallLayer
                 walls={displayWalls}
-                rooms={rooms}
+                rooms={displayRooms}
                 layerVisibility={layerVisibility}
                 selectedId={selectedId}
                 selectedType={selectedType}
@@ -4488,11 +4589,12 @@ export default function CanvasView({
             {/* Memoized Layer 4: Doors */}
             {layerVisibility?.door && (
               <DoorLayer
-                walls={walls}
-                doors={doors}
+                walls={displayWalls}
+                doors={displayDoors}
                 layerVisibility={layerVisibility}
                 selectedId={selectedId}
                 selectedType={selectedType}
+                selectedDoorIds={selectedDoorIds}
                 realScale={realScale}
                 drawing={drawing}
                 isDrawingDoor={isDrawingDoor}
@@ -4514,12 +4616,13 @@ export default function CanvasView({
 
             {/* Lintel Layer */}
             <LintelsLayer
-              lintels={lintelsByPage[currentPage] || []}
-              walls={walls}
-              rooms={rooms}
+              lintels={displayLintels}
+              walls={displayWalls}
+              rooms={displayRooms}
               layerVisibility={layerVisibility}
               selectedId={selectedId}
               selectedType={selectedType}
+              selectedLintelIds={selectedLintelIds}
               setSelectedId={setSelectedId}
               setSelectedType={setSelectedType}
               setHoverId={setHoverId}
@@ -4530,7 +4633,7 @@ export default function CanvasView({
             {layerVisibility?.wall && (
               <WallHandlesLayer
                 walls={displayWalls}
-                doors={doors}
+                doors={displayDoors}
                 layerVisibility={layerVisibility}
                 selectedId={selectedId}
                 selectedWallIds={selectedWallIds}
@@ -5589,20 +5692,21 @@ export default function CanvasView({
           </g>
         </svg>
 
-        {/* ===== FLOATING INTERACTIVE MINIMAP (Requirement 3) ===== */}
+        {/* ===== FLOATING INTERACTIVE MINIMAP WITH ZOOM SLIDER ===== */}
         {image && (
-          <div className="cad-minimap glassmorphic" onClick={handleMinimapInteraction}>
-            <div className="minimap-title">🗺 MINIMAP</div>
+          <div className="cad-minimap" onClick={(e) => e.stopPropagation()}>
             <div
               className="minimap-canvas-wrapper"
+              onClick={handleMinimapInteraction}
               style={{
                 width: minimapInfo.w,
                 height: minimapInfo.h,
                 position: "relative",
-                background: "#0d0f13",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: "6px",
-                overflow: "hidden"
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "4px",
+                overflow: "hidden",
+                cursor: "pointer"
               }}
             >
               <img
@@ -5612,7 +5716,7 @@ export default function CanvasView({
                   width: "100%",
                   height: "100%",
                   objectFit: "contain",
-                  opacity: 0.45,
+                  opacity: 0.85,
                   pointerEvents: "none",
                   userSelect: "none"
                 }}
@@ -5652,21 +5756,100 @@ export default function CanvasView({
                   />
                 );
               })}
-              {/* Viewport rectangle (Requirement 3) */}
+              {/* Viewport rectangle */}
               <div
                 style={{
                   position: "absolute",
                   left: minimapInfo.box.x,
                   top: minimapInfo.box.y,
-                  width: Math.max(12, minimapInfo.box.w),
-                  height: Math.max(12, minimapInfo.box.h),
-                  border: "1.5px solid #00f2fe",
-                  background: "rgba(0, 242, 254, 0.08)",
-                  boxShadow: "0 0 8px rgba(0, 242, 254, 0.3)",
-                  cursor: "move",
+                  width: Math.max(10, minimapInfo.box.w),
+                  height: Math.max(10, minimapInfo.box.h),
+                  border: "1.5px solid #2563eb",
+                  background: "rgba(37, 99, 235, 0.08)",
+                  boxShadow: "0 0 6px rgba(37, 99, 235, 0.3)",
                   pointerEvents: "none"
                 }}
               />
+            </div>
+
+            {/* Bottom Zoom Slider Bar */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              marginTop: "6px",
+              padding: "0 2px"
+            }}>
+              <button
+                type="button"
+                onClick={() => zoomStep(-10)}
+                title="Zoom Out"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#64748b",
+                  fontSize: "14px",
+                  fontWeight: "800",
+                  cursor: "pointer",
+                  padding: "0 2px",
+                  lineHeight: 1
+                }}
+              >
+                –
+              </button>
+
+              {(() => {
+                const curPct = Math.max(10, Math.min(400, Math.round(scale * 100)));
+                const fillPct = Math.max(0, Math.min(100, ((curPct - 10) / (400 - 10)) * 100));
+                return (
+                  <input
+                    type="range"
+                    min={10}
+                    max={400}
+                    step={5}
+                    value={curPct}
+                    onChange={(e) => handleZoomSliderChange(Number(e.target.value))}
+                    className="minimap-zoom-slider"
+                    style={{
+                      flex: 1,
+                      background: `linear-gradient(to right, #2563eb 0%, #2563eb ${fillPct}%, #e2e8f0 ${fillPct}%, #e2e8f0 100%)`
+                    }}
+                    title={`Zoom: ${curPct}%`}
+                  />
+                );
+              })()}
+
+              <span style={{
+                fontSize: "11px",
+                fontWeight: "600",
+                color: "#475569",
+                minWidth: "32px",
+                textAlign: "right"
+              }}>
+                {Math.round(scale * 100)}%
+              </span>
+
+              {fitToScreen && (
+                <button
+                  type="button"
+                  onClick={fitToScreen}
+                  title="Fit to Screen"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#64748b",
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    display: "flex",
+                    alignItems: "center",
+                    lineHeight: 1
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         )}

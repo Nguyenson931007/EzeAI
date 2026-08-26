@@ -543,6 +543,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return "";
   }
 
+  /** Lấy chiều dài dạng Mét (m) để hiển thị trên bảng số liệu */
+  function getDisplayLengthInMeters(row) {
+    const rawVal = getDisplayLength(row);
+    if (rawVal === "" || rawVal === null || rawVal === undefined) return "";
+    const num = parseFloat(rawVal);
+    if (isNaN(num) || num <= 0) return "";
+    return (num / 1000).toFixed(2);
+  }
+
   /** Chỉnh sửa chiều cao cho 1 sub-row (Hỗ trợ chọn chiều cao tùy chỉnh Custom...) */
   function handleHeightChange(row, value) {
     if (value === "CUSTOM") {
@@ -568,11 +577,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     }));
   }
 
-  /** Chỉnh sửa chiều dài cho 1 sub-row */
-  function handleLengthChange(row, value) {
+  /** Chỉnh sửa chiều dài cho 1 sub-row (Nhập bằng Mét, lưu trữ dạng mm) */
+  function handleLengthChange(row, meterValue) {
+    const num = parseFloat(meterValue);
+    const mmVal = isNaN(num) ? "" : Math.round(num * 1000);
     setEditedData(prev => ({
       ...prev,
-      [row.rowKey]: { ...prev[row.rowKey], wall_length: value }
+      [row.rowKey]: { ...prev[row.rowKey], wall_length: mmVal }
     }));
   }
 
@@ -732,7 +743,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       <div
         onClick={onClose}
         style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)",
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
           zIndex: 9998, backdropFilter: "blur(4px)"
         }}
       />
@@ -740,35 +751,35 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       <div style={{
         position: "fixed", top: "50%", left: "50%",
         transform: "translate(-50%, -50%)",
-        background: "linear-gradient(145deg, #181b22 0%, #0f1117 100%)",
-        border: "1px solid rgba(59,130,246,0.3)",
+        background: "#ffffff",
+        border: "1px solid #cbd5e1",
         borderRadius: 16, padding: 0, zIndex: 9999,
         width: "92vw", maxWidth: 1120, maxHeight: "88vh",
-        boxShadow: "0 25px 60px rgba(0,0,0,0.7), 0 0 40px rgba(59,130,246,0.12)",
+        boxShadow: "0 25px 60px rgba(0,0,0,0.18)",
         display: "flex", flexDirection: "column",
-        overflow: "hidden", color: "#e1e4ea",
+        overflow: "hidden", color: "#1e293b",
         fontFamily: "Inter, system-ui, sans-serif"
       }}>
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "14px 24px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(59,130,246,0.08)"
+          borderBottom: "1px solid #e2e8f0",
+          background: "#f8fafc"
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 22 }}>🏗️</span>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
                 FrameWork Jobs — Floor Takeoff
               </h3>
-              <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>
+              <span style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>
                 📌 Active Job: {currentStep === 1 ? "Jobs List" : (selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs")}
               </span>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {currentStep === 2 && isAdmin && (
-              <button onClick={() => setCurrentStep(1)} style={btnStyle("#94a3b8")}>← Back to Jobs</button>
+              <button onClick={() => setCurrentStep(1)} style={btnStyle("#64748b")}>← Back to Jobs</button>
             )}
             {currentStep === 2 && (
               <>
@@ -778,7 +789,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
                     border: "none", color: "#fff", borderRadius: 8, padding: "6px 14px",
                     fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    boxShadow: "0 2px 10px rgba(139,92,246,0.3)",
+                    boxShadow: "0 2px 8px rgba(139,92,246,0.3)",
                     transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
                   }}
                   title="Xem chi tiết bóc tách khối lượng tường của tất cả các tầng"
@@ -792,7 +803,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
                     border: "none", color: "#fff", borderRadius: 8, padding: "6px 16px",
                     fontSize: 12, fontWeight: 700, cursor: isSavingAll ? "wait" : "pointer",
-                    boxShadow: "0 2px 10px rgba(34,197,94,0.3)",
+                    boxShadow: "0 2px 8px rgba(34,197,94,0.3)",
                     transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
                   }}
                 >
@@ -800,10 +811,10 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 </button>
               </>
             )}
-            <button onClick={loadJobsList} disabled={loading} style={btnStyle("#3b82f6")}>
+            <button onClick={loadJobsList} disabled={loading} style={btnStyle("#2563eb")}>
               {loading ? "⏳ Loading..." : "🔄 Refresh"}
             </button>
-            <button onClick={onClose} style={btnStyle("#ef4444")}>✕</button>
+            <button onClick={onClose} style={btnStyle("#64748b")}>✕</button>
           </div>
         </div>
 
@@ -811,8 +822,8 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         {isAdmin && (
           <div style={{
             padding: "12px 24px",
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
-            background: "rgba(255,255,255,0.02)",
+            borderBottom: "1px solid #e2e8f0",
+            background: "#f8fafc",
             display: "flex", gap: 16, alignItems: "center"
           }}>
             <div style={{ flex: currentStep === 1 ? 0.8 : 1, minWidth: 200 }}>
@@ -825,15 +836,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 }}
                 style={{
                   width: "100%", padding: "8px 12px", fontSize: 13, fontWeight: 700,
-                  background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.4)",
-                  borderRadius: 8, color: "#93c5fd", outline: "none", cursor: "pointer"
+                  background: "#ffffff", border: "1px solid #cbd5e1",
+                  borderRadius: 8, color: "#2563eb", outline: "none", cursor: "pointer"
                 }}
               >
-                <option value="ALL" style={{ background: "#1a1d25", color: "#fff" }}>
+                <option value="ALL" style={{ background: "#ffffff", color: "#1e293b" }}>
                   📂 All Jobs ({uniqueJobsList.length})
                 </option>
                 {uniqueJobsList.map(j => (
-                  <option key={j.job_number} value={j.job_number} style={{ background: "#1a1d25", color: "#fff" }}>
+                  <option key={j.job_number} value={j.job_number} style={{ background: "#ffffff", color: "#1e293b" }}>
                     📌 {j.job_number}
                   </option>
                 ))}
@@ -847,9 +858,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={{
                   width: "100%", padding: "8px 12px", fontSize: 13,
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 8, color: "#e2e8f0", outline: "none",
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: 8, color: "#1e293b", outline: "none",
                   boxSizing: "border-box"
                 }}
               />
@@ -860,7 +871,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         {currentStep === 1 && (
           <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
             {loading && (
-              <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
                 <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
                 <div style={{ fontSize: 14 }}>Loading jobs from MSSQL...</div>
               </div>
@@ -874,7 +885,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
             {!loading && !error && filteredJobsListStep1.length > 0 && (
               <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12, fontSize: 13 }}>
                 <thead>
-                  <tr style={{ background: "rgba(59,130,246,0.1)", borderBottom: "2px solid rgba(59,130,246,0.2)" }}>
+                  <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
                     <th style={thStyle}>#</th>
                     <th style={thStyle}>JOB NUMBER</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>ACTION</th>
@@ -884,19 +895,19 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                   {filteredJobsListStep1.map((item, idx) => (
                     <tr
                       key={item.job_number}
-                      style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", cursor: "pointer", transition: "background 0.15s" }}
+                      style={{ borderBottom: "1px solid #f1f5f9", cursor: "pointer", transition: "background 0.15s" }}
                       onClick={() => handleSelectJob(item.job_number)}
-                      onMouseEnter={(e) => e.currentTarget.style.background = "rgba(59,130,246,0.08)"}
+                      onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
                       onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                     >
                       <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12, width: 60 }}>{idx + 1}</td>
-                      <td style={{ padding: "12px 14px", color: "#60a5fa", fontWeight: 700, fontSize: 13 }}>{item.job_number}</td>
+                      <td style={{ padding: "12px 14px", color: "#2563eb", fontWeight: 700, fontSize: 13 }}>{item.job_number}</td>
                       <td style={{ padding: "12px 14px", textAlign: "right" }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleSelectJob(item.job_number); }}
                           style={{
-                            background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)",
-                            color: "#93c5fd", borderRadius: 6, padding: "5px 14px",
+                            background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)",
+                            color: "#2563eb", borderRadius: 6, padding: "5px 14px",
                             fontSize: 12, fontWeight: 700, cursor: "pointer"
                           }}
                         >
@@ -916,29 +927,29 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
             {!loading && !error && groupedJobRows.length > 0 && (
               <div style={{
                 display: "flex", gap: 12, padding: "10px 0", alignItems: "stretch",
-                borderBottom: "1px solid rgba(255,255,255,0.05)", flexWrap: "wrap"
+                borderBottom: "1px solid #e2e8f0", flexWrap: "wrap"
               }}>
                 <StatCard color="#eab308" flex="1">
                   <div style={{ fontSize: 14, marginBottom: 2 }}>🪵</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#fbbf24" }}>{summary.timberMeters} m</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#d97706" }}>{summary.timberMeters} m</div>
                   <div style={statLabel}>Timber Floor</div>
                 </StatCard>
                 <StatCard color="#0284c7" flex="1">
                   <div style={{ fontSize: 14, marginBottom: 2 }}>🧱</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#38bdf8" }}>{summary.slabMeters} m</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#0284c7" }}>{summary.slabMeters} m</div>
                   <div style={statLabel}>Concrete Slab</div>
                 </StatCard>
-                <StatCard color="#34d399" flex="1">
+                <StatCard color="#16a34a" flex="1">
                   <div style={{ fontSize: 14, marginBottom: 2 }}>📏</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#34d399" }}>{summary.grandTotalMeters} m</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#16a34a" }}>{summary.grandTotalMeters} m</div>
                   <div style={statLabel}>Total Length</div>
                 </StatCard>
                 {hasAICanvasWalls && (
                   <StatCard color="#6366f1" flex="1.5">
-                    <div style={{ fontSize: 10, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>
+                    <div style={{ fontSize: 10, color: "#6366f1", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, fontWeight: 700 }}>
                       ⚡ AI Canvas (Grouped by Height)
                     </div>
-                    <div style={{ fontSize: 10, color: "#cbd5e1", marginBottom: 4 }}>
+                    <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontWeight: 600 }}>
                       {aiTimberTotalMm > 0 && <>🪵 Timber: {(aiTimberTotalMm / 1000).toFixed(1)}m</>}
                       {aiTimberTotalMm > 0 && aiSlabTotalMm > 0 && " - "}
                       {aiSlabTotalMm > 0 && <>🧱 Slab: {(aiSlabTotalMm / 1000).toFixed(1)}m</>}
@@ -951,7 +962,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                         border: "none", color: "#fff", borderRadius: 6,
                         padding: "5px 10px", fontSize: 11, fontWeight: 700,
                         cursor: "pointer", width: "100%",
-                        boxShadow: "0 2px 8px rgba(99,102,241,0.3)"
+                        boxShadow: "0 2px 6px rgba(99,102,241,0.25)"
                       }}
                     >
                       ⚡ Auto-Calculate & Fill
@@ -963,7 +974,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
             {/* BẢNG CHI TIẾT */}
             {loading && (
-              <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
                 <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
                 <div style={{ fontSize: 14 }}>Loading details from MSSQL...</div>
               </div>
@@ -971,7 +982,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
             {error && (
               <div style={{
-                textAlign: "center", padding: "30px 0", color: "#fca5a5",
+                textAlign: "center", padding: "30px 0", color: "#dc2626",
                 background: "rgba(239,68,68,0.08)", borderRadius: 8, margin: "16px 0"
               }}>
                 <div style={{ fontSize: 24, marginBottom: 8 }}>⚠️</div>
@@ -992,16 +1003,16 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                   <div style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     margin: "8px 0 4px", padding: "6px 12px", borderRadius: 8,
-                    background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)"
+                    background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.25)"
                   }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#a5b4fc" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#6366f1" }}>
                       🏢 Multi-floor breakdown active: {perPageBreakdown.map((p, i) => `Floor ${i + 1}`).join(" + ")} = Total {perPageBreakdown.length} floors
                     </span>
                     <button
                       onClick={() => setIsAccumulatedView(false)}
                       style={{
-                        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
-                        color: "#cbd5e1", borderRadius: 5, padding: "2px 8px", fontSize: 10, cursor: "pointer"
+                        background: "#ffffff", border: "1px solid #cbd5e1",
+                        color: "#475569", borderRadius: 5, padding: "2px 8px", fontSize: 10, cursor: "pointer"
                       }}
                     >
                       ✕ Normal View
@@ -1012,8 +1023,8 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 6, fontSize: 12 }}>
                   <thead>
                     <tr style={{
-                      background: "rgba(59,130,246,0.1)",
-                      borderBottom: "2px solid rgba(59,130,246,0.2)"
+                      background: "#f1f5f9",
+                      borderBottom: "2px solid #e2e8f0"
                     }}>
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>SOURCE</th>
@@ -1025,11 +1036,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                         <>
                           {perPageBreakdown.map((p, pIdx) => {
                             const colors = [
-                              { main: "#60a5fa", border: "#3b82f6" },
-                              { main: "#c084fc", border: "#a855f7" },
-                              { main: "#38bdf8", border: "#0ea5e9" },
-                              { main: "#fbbf24", border: "#f59e0b" },
-                              { main: "#f472b6", border: "#ec4899" }
+                              { main: "#2563eb", border: "#93c5fd" },
+                              { main: "#7c3aed", border: "#c4b5fd" },
+                              { main: "#0284c7", border: "#7dd3fc" },
+                              { main: "#d97706", border: "#fde68a" },
+                              { main: "#db2777", border: "#fbcfe8" }
                             ];
                             const theme = colors[pIdx % colors.length];
 
@@ -1040,9 +1051,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                               </th>
                             );
                           })}
-                          <th style={{ ...thStyle, color: "#4ade80", borderBottom: "2px solid #22c55e" }}>
+                          <th style={{ ...thStyle, color: "#059669", borderBottom: "2px solid #86efac" }}>
                             TOTAL WALL LENGTH (MM)<br />
-                            <span style={{ fontSize: 9, color: "#86efac" }}>Total {perPageBreakdown.length} floors</span>
+                            <span style={{ fontSize: 9, color: "#059669" }}>Total {perPageBreakdown.length} floors</span>
                           </th>
                         </>
                       ) : (
@@ -1064,14 +1075,14 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                             const hasVal = parseFloat(getDisplayLength(row)) > 0;
                             const currentHeight = getDisplayHeight(row);
                             const isSlab = row.floorType === "Slab";
-                            const badgeColor = isSlab ? "#0284c7" : "#eab308";
-                            const bgHover = isSlab ? "rgba(2,132,199,0.08)" : "rgba(234,179,8,0.08)";
+                            const badgeColor = isSlab ? "#0284c7" : "#d97706";
+                            const bgHover = isSlab ? "rgba(2,132,199,0.04)" : "rgba(217,119,6,0.04)";
 
                             return (
                               <tr
                                 key={row.rowKey}
                                 style={{
-                                  borderBottom: sIdx === rowCount - 1 ? "2px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.03)",
+                                  borderBottom: sIdx === rowCount - 1 ? "2px solid #e2e8f0" : "1px solid #f1f5f9",
                                   background: sIdx % 2 === 1 ? bgHover : "transparent",
                                   transition: "background 0.15s"
                                 }}
@@ -1089,9 +1100,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 <td style={{ padding: "6px 10px", verticalAlign: "middle" }}>
                                   {row.framework_id ? (
                                     <span style={{
-                                      background: "rgba(59,130,246,0.15)",
-                                      border: "1px solid rgba(59,130,246,0.4)",
-                                      color: "#60a5fa",
+                                      background: "rgba(59,130,246,0.1)",
+                                      border: "1px solid rgba(59,130,246,0.3)",
+                                      color: "#2563eb",
                                       padding: "3px 8px",
                                       borderRadius: 6,
                                       fontSize: 10,
@@ -1100,13 +1111,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                       alignItems: "center",
                                       gap: 4
                                     }}>
-                                      📦 Saved
+                                      <span>📦</span> Saved
                                     </span>
                                   ) : (
                                     <span style={{
-                                      background: "rgba(234,179,8,0.15)",
-                                      border: "1px solid rgba(234,179,8,0.4)",
-                                      color: "#facc15",
+                                      background: "rgba(124,58,237,0.1)",
+                                      border: "1px solid rgba(124,58,237,0.3)",
+                                      color: "#7c3aed",
                                       padding: "3px 8px",
                                       borderRadius: 6,
                                       fontSize: 10,
@@ -1115,7 +1126,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                       alignItems: "center",
                                       gap: 4
                                     }}>
-                                      ⚡ New
+                                      <span>⚡</span> New
                                     </span>
                                   )}
                                 </td>
@@ -1123,11 +1134,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 {/* Job Number */}
                                 {sIdx === 0 && (
                                   <td rowSpan={rowCount} style={{ padding: "8px 10px", verticalAlign: "middle" }}>
-                                    <div style={{ color: "#60a5fa", fontWeight: 700, fontSize: 12 }}>
-                                      {jobGroup.job_number || "—"}
+                                    <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 13 }}>
+                                      {jobGroup.JobNumber || "—"}
                                     </div>
-                                    <div style={{ color: "#64748b", fontSize: 10, marginTop: 2 }}>
-                                      {jobGroup.job_status || ""}
+                                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                                      ID: {jobGroup.IDJob_HW}
                                     </div>
                                   </td>
                                 )}
@@ -1135,56 +1146,48 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 {/* Floor Type ([The Wall Above]) */}
                                 <td style={{ padding: "6px 10px" }}>
                                   <span style={{
-                                    display: "inline-block", padding: "3px 10px",
-                                    borderRadius: 5, fontSize: 11, fontWeight: 700,
-                                    background: `${badgeColor}22`,
-                                    color: badgeColor, border: `1px solid ${badgeColor}44`,
-                                    whiteSpace: "nowrap"
+                                    display: "inline-block",
+                                    padding: "3px 8px",
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: badgeColor,
+                                    background: isSlab ? "rgba(2,132,199,0.1)" : "rgba(217,119,6,0.1)",
+                                    border: `1px solid ${isSlab ? "rgba(2,132,199,0.3)" : "rgba(217,119,6,0.3)"}`
                                   }}>
-                                    {isSlab ? "🧱 Slab" : "🪵 Timber"}
+                                    {row.floorType}
                                   </span>
-                                  {row.framework_id && (
-                                    <span style={{ fontSize: 9, color: "#475569", marginLeft: 6 }}>
-                                      ID: {row.framework_id}
-                                    </span>
-                                  )}
                                 </td>
 
                                 {/* Wall Height */}
                                 <td style={{ padding: "4px 6px" }}>
-                                  {(() => {
-                                    const standardHeights = [2100, 2400, 2700, 3000, 3300, 3600];
-                                    const numH = Number(currentHeight);
-                                    const isCustomH = numH > 0 && !standardHeights.includes(numH);
-
-                                    return (
-                                      <select
-                                        value={currentHeight}
-                                        onChange={(e) => handleHeightChange(row, e.target.value)}
-                                        style={{
-                                          background: isCustomH ? "rgba(245,158,11,0.18)" : "rgba(139,92,246,0.12)",
-                                          border: isCustomH ? "1px solid rgba(245,158,11,0.5)" : "1px solid rgba(139,92,246,0.3)",
-                                          borderRadius: 5, color: isCustomH ? "#fde047" : "#c4b5fd",
-                                          fontSize: 11, fontWeight: 700,
-                                          padding: "3px 6px", outline: "none", cursor: "pointer"
-                                        }}
-                                      >
-                                        {standardHeights.map(h => (
-                                          <option key={h} value={h} style={{ background: "#1a1d25", color: "#fff" }}>
-                                            {h} mm ({(h / 1000).toFixed(1)} m)
-                                          </option>
-                                        ))}
-                                        {isCustomH && (
-                                          <option value={numH} style={{ background: "#1a1d25", color: "#fde047" }}>
-                                            {numH} mm ({(numH / 1000).toFixed(2)} m)
-                                          </option>
-                                        )}
-                                        <option value="CUSTOM" style={{ background: "#1a1d25", color: "#38bdf8", fontWeight: "bold" }}>
-                                          Custom...
-                                        </option>
-                                      </select>
-                                    );
-                                  })()}
+                                  <select
+                                    value={currentHeight}
+                                    onChange={(e) => handleHeightChange(row, e.target.value)}
+                                    style={{
+                                      width: 140,
+                                      padding: "5px 8px",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      background: "#ffffff",
+                                      border: "1px solid #cbd5e1",
+                                      borderRadius: 6,
+                                      color: "#1e293b",
+                                      outline: "none",
+                                      cursor: "pointer"
+                                    }}
+                                  >
+                                    <option value="2100">2100 mm (2.1 m)</option>
+                                    <option value="2400">2400 mm (2.4 m)</option>
+                                    <option value="2590">2590 mm (2.59 m)</option>
+                                    <option value="2700">2700 mm (2.7 m)</option>
+                                    <option value="3000">3000 mm (3.0 m)</option>
+                                    <option value="3300">3300 mm (3.3 m)</option>
+                                    <option value="3600">3600 mm (3.6 m)</option>
+                                    <option value="CUSTOM" style={{ background: "#ffffff", color: "#2563eb", fontWeight: "bold" }}>
+                                      Custom...
+                                    </option>
+                                  </select>
                                 </td>
 
                                 {/* DYNAMIC WALL LENGTH COLUMNS FOR ALL FLOORS */}
@@ -1192,11 +1195,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                   <>
                                     {perPageBreakdown.map((p, pIdx) => {
                                       const colors = [
-                                        { color: "#60a5fa", border: "rgba(59,130,246,0.4)", bg: "rgba(59,130,246,0.1)" },
-                                        { color: "#c084fc", border: "rgba(168,85,247,0.4)", bg: "rgba(168,85,247,0.1)" },
-                                        { color: "#38bdf8", border: "rgba(14,165,233,0.4)", bg: "rgba(14,165,233,0.1)" },
-                                        { color: "#fbbf24", border: "rgba(245,158,11,0.4)", bg: "rgba(245,158,11,0.1)" },
-                                        { color: "#f472b6", border: "rgba(236,72,153,0.4)", bg: "rgba(236,72,153,0.1)" }
+                                        { color: "#2563eb", border: "rgba(59,130,246,0.3)", bg: "rgba(59,130,246,0.06)" },
+                                        { color: "#7c3aed", border: "rgba(168,85,247,0.3)", bg: "rgba(168,85,247,0.06)" },
+                                        { color: "#0284c7", border: "rgba(14,165,233,0.3)", bg: "rgba(14,165,233,0.06)" },
+                                        { color: "#d97706", border: "rgba(245,158,11,0.3)", bg: "rgba(245,158,11,0.06)" },
+                                        { color: "#db2777", border: "rgba(236,72,153,0.3)", bg: "rgba(236,72,153,0.06)" }
                                       ];
                                       const theme = colors[pIdx % colors.length];
 
@@ -1214,7 +1217,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                             border: `1px solid ${theme.border}`,
                                             borderRadius: 6, color: theme.color, textAlign: "center"
                                           }}>
-                                            {floorMm > 0 ? floorMm : "—"}
+                                            {floorMm > 0 ? (floorMm / 1000).toFixed(2) : "—"}
                                           </div>
                                         </td>
                                       );
@@ -1224,14 +1227,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                     <td style={{ padding: "4px 6px" }}>
                                       <input
                                         type="number"
-                                        value={getDisplayLength(row)}
+                                        step="0.01"
+                                        value={getDisplayLengthInMeters(row)}
                                         onChange={(e) => handleLengthChange(row, e.target.value)}
-                                        placeholder="0"
+                                        placeholder="0.00"
                                         style={{
                                           width: 100, padding: "5px 6px", fontSize: 11, fontWeight: 800,
-                                          background: "rgba(34,197,94,0.12)",
-                                          border: "1px solid rgba(34,197,94,0.5)",
-                                          borderRadius: 6, color: "#34d399", outline: "none",
+                                          background: "rgba(34,197,94,0.08)",
+                                          border: "1px solid rgba(34,197,94,0.4)",
+                                          borderRadius: 6, color: "#059669", outline: "none",
                                           textAlign: "center"
                                         }}
                                       />
@@ -1242,14 +1246,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                   <td style={{ padding: "4px 6px" }}>
                                     <input
                                       type="number"
-                                      value={getDisplayLength(row)}
+                                      step="0.01"
+                                      value={getDisplayLengthInMeters(row)}
                                       onChange={(e) => handleLengthChange(row, e.target.value)}
-                                      placeholder="0"
+                                      placeholder="0.00"
                                       style={{
                                         width: 110, padding: "5px 8px", fontSize: 11, fontWeight: 700,
-                                        background: "rgba(255,255,255,0.06)",
-                                        border: `1px solid ${badgeColor}44`,
-                                        borderRadius: 6, color: badgeColor, outline: "none",
+                                        background: "#ffffff",
+                                        border: "1px solid #cbd5e1",
+                                        borderRadius: 6, color: "#1e293b", outline: "none",
                                         textAlign: "center"
                                       }}
                                     />
@@ -1275,28 +1280,28 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       {showMultiFloorModal && (
         <div style={{
           position: "fixed", inset: 0, zIndex: 10000,
-          background: "rgba(0, 0, 0, 0.75)", backdropFilter: "blur(6px)",
+          background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
           display: "flex", alignItems: "center", justifyContent: "center"
         }}>
           <div style={{
-            background: "#12151c", border: "1px solid rgba(139,92,246,0.3)",
+            background: "#ffffff", border: "1px solid #cbd5e1",
             borderRadius: 14, width: 960, maxWidth: "94vw", maxHeight: "90vh",
-            display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.8)",
+            display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.18)",
             overflow: "hidden"
           }}>
             {/* Header */}
             <div style={{
-              padding: "14px 24px", background: "rgba(139,92,246,0.12)",
-              borderBottom: "1px solid rgba(139,92,246,0.3)",
+              padding: "14px 24px", background: "#f8fafc",
+              borderBottom: "1px solid #e2e8f0",
               display: "flex", alignItems: "center", justifyContent: "space-between"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 24 }}>🏢</span>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
                     Per-Floor Wall Takeoff Breakdown
                   </h3>
-                  <span style={{ fontSize: 11, color: "#c4b5fd" }}>
+                  <span style={{ fontSize: 11, color: "#6366f1" }}>
                     Independent per-floor wall takeoff breakdown ({grandTotalAllFloorsSummary.pageCount} Floors / Pages)
                   </span>
                 </div>
@@ -1305,14 +1310,14 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {/* View Mode Switcher */}
                 <div style={{
-                  display: "flex", background: "rgba(0,0,0,0.35)",
-                  borderRadius: 8, padding: 3, border: "1px solid rgba(255,255,255,0.1)"
+                  display: "flex", background: "#f1f5f9",
+                  borderRadius: 8, padding: 3, border: "1px solid #e2e8f0"
                 }}>
                   <button
                     onClick={() => setMultiFloorViewMode("matrix")}
                     style={{
-                      background: multiFloorViewMode === "matrix" ? "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)" : "transparent",
-                      border: "none", color: multiFloorViewMode === "matrix" ? "#fff" : "#94a3b8",
+                      background: multiFloorViewMode === "matrix" ? "#2563eb" : "transparent",
+                      border: "none", color: multiFloorViewMode === "matrix" ? "#fff" : "#64748b",
                       borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
                       transition: "all 0.2s"
                     }}
@@ -1322,8 +1327,8 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                   <button
                     onClick={() => setMultiFloorViewMode("byFloor")}
                     style={{
-                      background: multiFloorViewMode === "byFloor" ? "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)" : "transparent",
-                      border: "none", color: multiFloorViewMode === "byFloor" ? "#fff" : "#94a3b8",
+                      background: multiFloorViewMode === "byFloor" ? "#2563eb" : "transparent",
+                      border: "none", color: multiFloorViewMode === "byFloor" ? "#fff" : "#64748b",
                       borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
                       transition: "all 0.2s"
                     }}
@@ -1335,8 +1340,8 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 <button
                   onClick={() => setShowMultiFloorModal(false)}
                   style={{
-                    background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
-                    color: "#fff", borderRadius: 6, width: 30, height: 30, cursor: "pointer",
+                    background: "#f1f5f9", border: "1px solid #e2e8f0",
+                    color: "#64748b", borderRadius: 6, width: 30, height: 30, cursor: "pointer",
                     fontWeight: 700
                   }}
                 >
@@ -1351,13 +1356,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 /* Matrix View */
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
-                    <tr style={{ background: "rgba(139,92,246,0.12)", borderBottom: "2px solid rgba(139,92,246,0.3)" }}>
+                    <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>FLOOR TYPE & HEIGHT (GROUPED HEIGHT)</th>
                       {perPageBreakdown.map((p, pIdx) => {
                         const colors = [
-                          { main: "#60a5fa" }, { main: "#c084fc" },
-                          { main: "#38bdf8" }, { main: "#fbbf24" }, { main: "#f472b6" }
+                          { main: "#2563eb" }, { main: "#7c3aed" },
+                          { main: "#0284c7" }, { main: "#d97706" }, { main: "#db2777" }
                         ];
                         const theme = colors[pIdx % colors.length];
                         const floorHeaderTitle = p.pageName || `FLOOR ${pIdx + 1} (PAGE ${pIdx + 1})`;
@@ -1370,19 +1375,18 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                           </th>
                         );
                       })}
-                      <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>GRAND TOTAL (ALL FLOORS)</th>
+                      <th style={{ ...thStyle, color: "#059669", textAlign: "right" }}>GRAND TOTAL (ALL FLOORS)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allHeightGroupRows.map((g, gIdx) => {
                       const isSlab = g.floorType === "Slab";
-                      const badgeColor = isSlab ? "#0284c7" : "#eab308";
-                      const textColor = isSlab ? "#38bdf8" : "#fbbf24";
+                      const badgeColor = isSlab ? "#0284c7" : "#d97706";
 
                       return (
                         <tr key={g.key} style={{
-                          borderBottom: "1px solid rgba(255,255,255,0.05)",
-                          background: gIdx % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"
+                          borderBottom: "1px solid #e2e8f0",
+                          background: gIdx % 2 === 1 ? "#f8fafc" : "transparent"
                         }}>
                           <td style={{ padding: "12px 10px", color: "#64748b", fontWeight: 700 }}>
                             {gIdx + 1}
@@ -1392,30 +1396,21 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                               <span style={{
                                 display: "inline-block", padding: "3px 10px",
                                 borderRadius: 5, fontSize: 11, fontWeight: 700,
-                                background: `${badgeColor}22`, color: badgeColor,
-                                border: `1px solid ${badgeColor}44`
+                                background: isSlab ? "rgba(2,132,199,0.08)" : "rgba(217,119,6,0.08)", color: badgeColor,
+                                border: `1px solid ${isSlab ? "#bae6fd" : "#fde68a"}`
                               }}>
                                 {isSlab ? "🧱 Slab" : "🪵 Timber"}
                               </span>
-                              <strong style={{ color: "#fff", fontSize: 13 }}>
-                                {g.height} mm
+                              <strong style={{ color: "#1e293b", fontSize: 13 }}>
+                                {g.height} mm ({(g.height / 1000).toFixed(1)} m)
                               </strong>
                             </div>
                           </td>
-
-                          {/* Render columns for each floor page */}
-                          {perPageBreakdown.map(p => {
-                            const mm = g.pageLengthsMm[p.pageIndex] || 0;
+                          {perPageBreakdown.map((p) => {
+                            const val = (p.groupsMap && p.groupsMap[g.key]) ? p.groupsMap[g.key] : 0;
                             return (
-                              <td key={p.pageIndex} style={{ padding: "12px 10px", textAlign: "right" }}>
-                                {mm > 0 ? (
-                                  <>
-                                    <span style={{ color: textColor, fontWeight: 700 }}>{(mm / 1000).toFixed(2)} m</span>
-                                    <span style={{ fontSize: 10, color: "#94a3b8", display: "block" }}>({mm.toLocaleString()} mm)</span>
-                                  </>
-                                ) : (
-                                  <span style={{ color: "#475569" }}>—</span>
-                                )}
+                              <td key={p.pageIndex} style={{ padding: "12px 10px", textAlign: "right", fontWeight: 700, color: val > 0 ? "#1e293b" : "#94a3b8" }}>
+                                {val > 0 ? val.toLocaleString() : "—"}
                               </td>
                             );
                           })}

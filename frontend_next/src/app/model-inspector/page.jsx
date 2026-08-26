@@ -2,9 +2,9 @@
 
 import React, { useState, useRef } from "react";
 import Link from "next/link";
-import { getHeaders } from "@/models/api.service";
+import { getHeaders, BASE_URL } from "@/models/api.service";
 
-const API_BASE = "http://localhost:8090";
+const API_BASE = BASE_URL;
 
 export default function ModelInspectorPage() {
   const [imageSrc, setImageSrc] = useState(null);

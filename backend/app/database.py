@@ -163,7 +163,13 @@ def init_db():
                 session_token VARCHAR(255),
                 last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 failed_attempts INT DEFAULT 0,
-                is_locked TINYINT NOT NULL DEFAULT 0
+                is_locked TINYINT NOT NULL DEFAULT 0,
+                full_name_en VARCHAR(255),
+                full_name_vi VARCHAR(255),
+                age INT,
+                position VARCHAR(255),
+                team VARCHAR(255),
+                phone VARCHAR(50)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
         cursor.execute('''
@@ -243,6 +249,18 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0")
         if 'is_locked' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0")
+        if 'full_name_en' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN full_name_en TEXT")
+        if 'full_name_vi' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN full_name_vi TEXT")
+        if 'age' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
+        if 'position' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN position TEXT")
+        if 'team' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN team TEXT")
+        if 'phone' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS jobs (

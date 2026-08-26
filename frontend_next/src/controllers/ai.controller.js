@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, isWindowOnWall, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
@@ -229,36 +229,79 @@ function _mergeOverlappingDoors(existingDoors, newDoors) {
 }
 
 /**
- * Ensures all doors in array have 100% unique doorName/door_name labels.
+ * Ensures all doors and windows in array have 100% unique IDs and doorName/door_name labels.
  */
 function _deduplicateDoorNames(doors) {
   if (!doors || doors.length === 0) return doors;
 
+  const usedIds = new Set();
   const usedNames = new Set();
-  let maxNum = 0;
+  let maxDoorNum = 0;
+  let maxWinNum = 0;
 
   doors.forEach(d => {
     const name = d.doorName || d.door_name || '';
-    const match = name.match(/D-(\d+)/i);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num > maxNum) maxNum = num;
+    const dMatch = name.match(/D-(\d+)/i);
+    if (dMatch) {
+      const num = parseInt(dMatch[1], 10);
+      if (num > maxDoorNum) maxDoorNum = num;
+    }
+    const wMatch = name.match(/W-(\d+)/i);
+    if (wMatch) {
+      const num = parseInt(wMatch[1], 10);
+      if (num > maxWinNum) maxWinNum = num;
+    }
+    if (d.id) {
+      const idDMatch = String(d.id).match(/door_(\d+)/i);
+      if (idDMatch) {
+        const num = parseInt(idDMatch[1], 10);
+        if (num > maxDoorNum) maxDoorNum = num;
+      }
+      const idWMatch = String(d.id).match(/window_(\d+)/i);
+      if (idWMatch) {
+        const num = parseInt(idWMatch[1], 10);
+        if (num > maxWinNum) maxWinNum = num;
+      }
     }
   });
 
-  return doors.map(d => {
-    let name = d.doorName || d.door_name;
-    if (!name || name === 'Internal Door' || name === 'External Door') {
-      maxNum++;
-      name = `D-${String(maxNum).padStart(3, '0')}`;
-    } else if (usedNames.has(name.toUpperCase())) {
-      maxNum++;
-      name = `D-${String(maxNum).padStart(3, '0')}`;
-    }
+  return doors.map((d, index) => {
+    const isWindow = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || (d.id && String(d.id).startsWith('window_')) || (d.doorName && String(d.doorName).startsWith('W-'));
 
+    // Ensure unique ID
+    let objId = d.id;
+    if (!objId || usedIds.has(objId)) {
+      if (isWindow) {
+        maxWinNum++;
+        objId = `window_${String(maxWinNum).padStart(2, '0')}`;
+      } else {
+        maxDoorNum++;
+        objId = `door_${String(maxDoorNum).padStart(2, '0')}`;
+      }
+      if (usedIds.has(objId)) {
+        objId = `${objId}_${index}`;
+      }
+    }
+    usedIds.add(objId);
+
+    // Ensure unique label
+    let name = d.doorName || d.door_name;
+    if (isWindow) {
+      if (!name || name === 'Window' || name === 'win_standard' || usedNames.has(name.toUpperCase())) {
+        maxWinNum++;
+        name = `W-${String(maxWinNum).padStart(2, '0')}`;
+      }
+    } else {
+      if (!name || name === 'Internal Door' || name === 'External Door' || usedNames.has(name.toUpperCase())) {
+        maxDoorNum++;
+        name = `D-${String(maxDoorNum).padStart(2, '0')}`;
+      }
+    }
     usedNames.add(name.toUpperCase());
+
     return {
       ...d,
+      id: objId,
       doorName: name,
       door_name: name
     };
@@ -768,6 +811,12 @@ export const useAIController = (
                 if (pw) snapped.parentWallId = pw.id;
               }
               return snapped;
+            }).filter(d => {
+              const isWin = d.is_window || d.type === "window" || d.class === "window" || String(d.id || "").startsWith("win_");
+              if (isWin && mergedWalls.length > 0) {
+                return isWindowOnWall(d, mergedWalls, 80);
+              }
+              return true;
             });
             if (setDoorsByPage) {
               setDoorsByPage(prev => ({
@@ -979,43 +1028,6 @@ export const useAIController = (
         // Merge cut walls back into continuous segments so snap can find walls
         // even when the door midpoint sits in the gap between two cut segments.
         const uncutWalls = currentWalls.length > 0 ? mergeCollinearWalls([...currentWalls], 12, 0.98, 600, true) : [];
-        // Find maximum door sequence number among non-converted real doors
-        const existingPageDoors = (doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [];
-        const allDoorsBeforeConversion = [...existingPageDoors, ...detectedDoors];
-        let maxRealDoorNum = 0;
-        allDoorsBeforeConversion.forEach(d => {
-          const isWinObj = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || d.id?.startsWith('window_');
-          if (!isWinObj) {
-            const name = d.doorName || d.door_name || '';
-            const match = name.match(/D-(\d+)/i);
-            if (match) {
-              const num = parseInt(match[1], 10);
-              if (num > maxRealDoorNum) maxRealDoorNum = num;
-            }
-          }
-        });
-
-        let nextConvertedSeq = maxRealDoorNum + 1;
-
-        const processWindowConversion = (d) => {
-          const isWin = d.class === 'window' || d.type === 'window' || d.doorTypeId === 'win_standard' || d.id?.startsWith('window_');
-          const nameLower = (d.doorName || d.door_name || d.ocr_text || '').toLowerCase();
-          const isInternalName = nameLower.includes('internal') || nameLower.includes('cs') || nameLower.includes('slider');
-
-          if (isWin && isInternalName) {
-            const newSeqName = `D-${String(nextConvertedSeq).padStart(3, '0')}`;
-            nextConvertedSeq++;
-            return {
-              ...d,
-              class: 'sliding_door',
-              type: 'sliding',
-              doorTypeId: 'int_sliding',
-              doorName: newSeqName,
-              door_name: newSeqName
-            };
-          }
-          return d;
-        };
 
         const snappedDoors = uncutWalls.length > 0
           ? detectedDoors.map(d => {
@@ -1032,12 +1044,20 @@ export const useAIController = (
               pw = findParentWall(center, uncutWalls);
               if (pw) snapped.parentWallId = pw.id;
             }
-
-            return processWindowConversion(snapped);
+            return snapped;
           })
-          : detectedDoors.map(d => processWindowConversion(d));
+          : detectedDoors;
 
-        const rawMergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], snappedDoors);
+        // Filter out any detected windows that do not sit on a wall
+        const validDoors = snappedDoors.filter(d => {
+          const isWin = d.is_window || d.type === "window" || d.class === "window" || String(d.id || "").startsWith("win_");
+          if (isWin && uncutWalls.length > 0) {
+            return isWindowOnWall(d, uncutWalls, 80);
+          }
+          return true;
+        });
+
+        const rawMergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], validDoors);
         const mergedDoors = _deduplicateDoorNames(rawMergedDoors);
 
         if (setDoorsByPage) {
@@ -1294,6 +1314,12 @@ export const useAIController = (
               if (pw) snapped.parentWallId = pw.id;
             }
             return snapped;
+          }).filter(d => {
+            const isWin = d.is_window || d.type === "window" || d.class === "window" || String(d.id || "").startsWith("win_");
+            if (isWin && mergedWalls.length > 0) {
+              return isWindowOnWall(d, mergedWalls, 80);
+            }
+            return true;
           });
           detectedDoors = snappedDoors;
 

@@ -664,16 +664,13 @@ export default function AIDoor({
           const n1 = { x: -u_frame.y, y: u_frame.x };
           const n2 = { x: u_frame.y, y: -u_frame.x };
 
-          const rawDx2 = o2.x - hingeX;
-          const rawDy2 = o2.y - hingeY;
-          const dot1 = rawDx2 * n1.x + rawDy2 * n1.y;
-          const dot2 = rawDx2 * n2.x + rawDy2 * n2.y;
-          let norm = dot1 >= dot2 ? n1 : n2;
+          // Use the door segmentation polygon centroid as ground truth for swing direction
+          const polyCentroidX = polyPoints.reduce((sum, p) => sum + p.x, 0) / polyPoints.length;
+          const polyCentroidY = polyPoints.reduce((sum, p) => sum + p.y, 0) / polyPoints.length;
+          const dotCentroid1 = (polyCentroidX - hingeX) * n1.x + (polyCentroidY - hingeY) * n1.y;
+          const dotCentroid2 = (polyCentroidX - hingeX) * n2.x + (polyCentroidY - hingeY) * n2.y;
 
-          const currentSwing = d.swing || d.swing_direction;
-          if (currentSwing === "outward") {
-            norm = (norm === n1) ? n2 : n1;
-          }
+          const norm = dotCentroid1 >= dotCentroid2 ? n1 : n2;
 
           const o2_proj = {
             x: hingeX + r * norm.x,
@@ -1112,17 +1109,6 @@ export default function AIDoor({
         }}
       />
 
-      {/* Render raw model-detected polygon area (translucent fill and dashed border) */}
-      <polygon
-        points={polyPoints.map(p => `${p.x},${p.y}`).join(" ")}
-        fill={isSelected ? "rgba(255, 87, 34, 0.12)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(168, 85, 247, 0.06)")}
-        stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
-        strokeWidth={1}
-        strokeDasharray="3,3"
-        opacity={0.65}
-        style={{ pointerEvents: 'none' }}
-      />
-
       {/* For Sliding Doors: Render 1 rectangular box with length following model and width following nearest wall */}
       {isSliding && (
         <rect
@@ -1377,24 +1363,24 @@ export default function AIDoor({
               }}
             >
               <rect
-                x={cxAvg - 23}
-                y={cyAvg - 7}
-                width={46}
-                height={14}
-                rx={3}
-                fill="rgba(15, 23, 42, 0.88)"
-                stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#6b7280")}
-                strokeWidth={1}
-                style={{ pointerEvents: 'none' }}
+                x={cxAvg - 34}
+                y={cyAvg - 11}
+                width={68}
+                height={22}
+                rx={5}
+                fill="rgba(15, 23, 42, 0.92)"
+                stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#64748b")}
+                strokeWidth={1.5}
+                style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }}
               />
               <text
                 x={cxAvg}
-                y={cyAvg}
-                fontSize="9"
+                y={cyAvg + 1}
+                fontSize="12"
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#9ca3af")}
-                fontWeight="600"
+                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#e2e8f0")}
+                fontWeight="700"
                 fontFamily="Inter, monospace"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
               >
@@ -1405,29 +1391,30 @@ export default function AIDoor({
 
           {/* Door Class Name / Door ID Label */}
           <g 
-            transform={`translate(${cxAvg}, ${cyAvg - 15})`} 
+            transform={`translate(${cxAvg}, ${cyAvg - 26})`} 
             style={{ pointerEvents: 'none' }}
           >
             {isSelected && (
               <rect
-                x={-28}
-                y={-8}
-                width={56}
-                height={16}
-                rx={4}
+                x={-38}
+                y={-12}
+                width={76}
+                height={24}
+                rx={5}
                 fill="#FF5722"
                 opacity={0.95}
+                filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
               />
             )}
             <text
               x={0}
-              y={0}
-              fill={isSelected ? "#ffffff" : "#1e293b"}
-              fontSize={10}
-              fontWeight="600"
+              y={1}
+              fill={isSelected ? "#ffffff" : "#0f172a"}
+              fontSize={12}
+              fontWeight="700"
               textAnchor="middle"
               alignmentBaseline="middle"
-              style={{ textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white', userSelect: 'none' }}
+              style={{ textShadow: isSelected ? 'none' : '0 0 4px white, 0 0 4px white', userSelect: 'none' }}
             >
               {d.doorName || d.door_name || (d.class ? d.class.replace('_door', '') : 'Door')}
             </text>
@@ -1450,6 +1437,7 @@ export default function AIDoor({
 
         const handleHorizontalFlip = (e) => {
           e.stopPropagation();
+          e.preventDefault();
           if (isVerticalDoor) {
             // For vertical door, Horizontal Flip (Left ↔ Right) is across the wall line (Swing flip)
             const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
@@ -1484,8 +1472,10 @@ export default function AIDoor({
                 return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
               });
             }
+            const newPoints = (d.points && d.points.length >= 2) ? [d.points[1], d.points[0]] : d.points;
             updateDoor({
               ...d,
+              points: newPoints,
               hingeSide: newHinge,
               hinge_side: newHinge,
               polygon: newPoly,
@@ -1496,6 +1486,7 @@ export default function AIDoor({
 
         const handleVerticalFlip = (e) => {
           e.stopPropagation();
+          e.preventDefault();
           if (isVerticalDoor) {
             // For vertical door, Vertical Flip (Up ↕ Down) is along the wall (Hinge flip)
             const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
@@ -1509,8 +1500,10 @@ export default function AIDoor({
                 return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
               });
             }
+            const newPoints = (d.points && d.points.length >= 2) ? [d.points[1], d.points[0]] : d.points;
             updateDoor({
               ...d,
+              points: newPoints,
               hingeSide: newHinge,
               hinge_side: newHinge,
               polygon: newPoly,
@@ -1540,26 +1533,98 @@ export default function AIDoor({
           }
         };
 
+        // Tính hệ số phóng to button linh hoạt theo tỷ lệ scale thực tế (realScale) và chiều dài cửa
+        let scaleFactor = 1.5;
+        if (realScale && typeof realScale === 'number' && realScale > 0) {
+          scaleFactor = Math.max(1.3, Math.min(2.6, realScale > 20 ? realScale / 35 : realScale / 4.5));
+        } else if (p1 && p2) {
+          const doorLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          scaleFactor = Math.max(1.3, Math.min(2.4, doorLen / 45));
+        }
+
+        const btnW = Math.round(36 * scaleFactor);
+        const btnH = Math.round(32 * scaleFactor);
+        const halfW = btnW / 2;
+        const halfH = btnH / 2;
+        const btnRx = Math.round(7 * scaleFactor);
+        const iconSize = Math.round(18 * scaleFactor);
+        const strokeW = Math.max(1.5, 1.8 * scaleFactor);
+
+        const offsetXVert = Math.round(36 * scaleFactor);
+        const offsetYVert = Math.round(20 * scaleFactor);
+        const offsetXHoriz = Math.round(22 * scaleFactor);
+        const offsetYHoriz = Math.round(34 * scaleFactor);
+
         return (
-          <g style={{ pointerEvents: 'auto' }}>
+          <g 
+            style={{ pointerEvents: 'auto' }}
+            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+            onPointerDown={(e) => { e.stopPropagation(); }}
+          >
             {/* Horizontal Flip Button (Left ↔ Right on Screen) */}
             <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + 15}, ${cyAvg - 12})` : `translate(${cxAvg - 15}, ${cyAvg + 15})`} 
+              transform={isVerticalDoor ? `translate(${cxAvg + offsetXVert}, ${cyAvg - offsetYVert})` : `translate(${cxAvg - offsetXHoriz}, ${cyAvg + offsetYHoriz})`} 
               style={{ cursor: 'pointer' }}
+              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+              onPointerDown={(e) => { e.stopPropagation(); }}
               onClick={handleHorizontalFlip}
             >
-              <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
-              <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↔</text>
+              <rect 
+                x={-halfW} 
+                y={-halfH} 
+                width={btnW} 
+                height={btnH} 
+                rx={btnRx} 
+                fill="#0f172a" 
+                stroke="#38bdf8" 
+                strokeWidth={strokeW} 
+                filter="drop-shadow(0 3px 6px rgba(0,0,0,0.45))" 
+              />
+              <text 
+                x="0" 
+                y={Math.round(2 * scaleFactor)} 
+                fontSize={iconSize} 
+                fontWeight="bold" 
+                fill="#38bdf8" 
+                textAnchor="middle" 
+                dominantBaseline="middle"
+                style={{ userSelect: 'none' }}
+              >
+                ↔
+              </text>
             </g>
             
             {/* Vertical Flip Button (Up ↕ Down on Screen) */}
             <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + 15}, ${cyAvg + 12})` : `translate(${cxAvg + 15}, ${cyAvg + 15})`} 
+              transform={isVerticalDoor ? `translate(${cxAvg + offsetXVert}, ${cyAvg + offsetYVert})` : `translate(${cxAvg + offsetXHoriz}, ${cyAvg + offsetYHoriz})`} 
               style={{ cursor: 'pointer' }}
+              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+              onPointerDown={(e) => { e.stopPropagation(); }}
               onClick={handleVerticalFlip}
             >
-              <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#1e293b" stroke="#475569" />
-              <text x="0" y="3" fontSize="12" fill="#fff" textAnchor="middle" dominantBaseline="middle">↕</text>
+              <rect 
+                x={-halfW} 
+                y={-halfH} 
+                width={btnW} 
+                height={btnH} 
+                rx={btnRx} 
+                fill="#0f172a" 
+                stroke="#38bdf8" 
+                strokeWidth={strokeW} 
+                filter="drop-shadow(0 3px 6px rgba(0,0,0,0.45))" 
+              />
+              <text 
+                x="0" 
+                y={Math.round(2 * scaleFactor)} 
+                fontSize={iconSize} 
+                fontWeight="bold" 
+                fill="#38bdf8" 
+                textAnchor="middle" 
+                dominantBaseline="middle"
+                style={{ userSelect: 'none' }}
+              >
+                ↕
+              </text>
             </g>
           </g>
         );

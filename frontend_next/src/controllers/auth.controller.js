@@ -19,12 +19,16 @@ export const useAuthController = (user, setUser, setIsLoggedIn) => {
         const userData = { 
           username: data.username, 
           role: data.role,
+          ma_nv: data.manv || data.ma_nv || data.MaNV || "",
           session_token: data.session_token
         };
         setIsLoggedIn(true);
         setUser(userData);
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("user", JSON.stringify(userData));
+        if (authData.password) {
+          sessionStorage.setItem("session_auth_key", authData.password);
+        }
         return { success: true };
       } else {
         if (data.detail && data.detail.includes("quá số lần")) {

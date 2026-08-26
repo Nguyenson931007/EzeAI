@@ -52,6 +52,16 @@ export const AppProvider = ({ children }) => {
           localStorage.removeItem("isLoggedIn");
           localStorage.removeItem("user");
           localStorage.removeItem("activeTab");
+        } else {
+          const sessionData = await res.json();
+          if (sessionData && (sessionData.manv || sessionData.ma_nv)) {
+            const updatedManv = sessionData.manv || sessionData.ma_nv;
+            setUser(prev => {
+              const updated = { ...prev, ma_nv: updatedManv };
+              localStorage.setItem("user", JSON.stringify(updated));
+              return updated;
+            });
+          }
         }
       } catch (err) {
         // Network error (backend unreachable) — don't forcefully log out,

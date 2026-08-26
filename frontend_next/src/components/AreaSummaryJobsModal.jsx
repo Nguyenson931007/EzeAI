@@ -400,29 +400,29 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
-      background: "rgba(10, 12, 16, 0.82)", backdropFilter: "blur(8px)",
+      background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
       display: "flex", alignItems: "center", justifyContent: "center"
     }}>
       <div style={{
-        background: "linear-gradient(145deg, #141720 0%, #0d0f15 100%)",
-        border: "1px solid rgba(59,130,246,0.3)",
+        background: "#ffffff",
+        border: "1px solid #cbd5e1",
         borderRadius: 16, width: 1120, maxWidth: "96vw", maxHeight: "92vh",
-        display: "flex", flexDirection: "column", boxShadow: "0 25px 60px rgba(0,0,0,0.85)",
+        display: "flex", flexDirection: "column", boxShadow: "0 25px 60px rgba(0,0,0,0.18)",
         overflow: "hidden"
       }}>
         {/* Header */}
         <div style={{
-          padding: "16px 24px", background: "rgba(59,130,246,0.08)",
-          borderBottom: "1px solid rgba(59,130,246,0.2)",
+          padding: "16px 24px", background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
           display: "flex", alignItems: "center", justifyContent: "space-between"
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 26, filter: "drop-shadow(0 0 8px rgba(59,130,246,0.5))" }}>📐</span>
+            <span style={{ fontSize: 26 }}>📐</span>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#fff", letterSpacing: "0.5px" }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e293b", letterSpacing: "0.5px" }}>
                 Area Summary Takeoff & Management
               </h2>
-              <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>
+              <span style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>
                 📌 Active Job: {selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs"}
               </span>
             </div>
@@ -430,14 +430,14 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {currentStep === 2 && isAdmin && (
-              <button onClick={() => setCurrentStep(1)} style={btnStyle("#60a5fa")}>
+              <button onClick={() => setCurrentStep(1)} style={btnStyle("#2563eb")}>
                 ← Back To Jobs List
               </button>
             )}
             <button onClick={onClose} style={{
-              background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
-              color: "#fff", borderRadius: 8, width: 32, height: 32, cursor: "pointer",
-              fontWeight: 700, fontSize: 14
+              background: "#f1f5f9", border: "1px solid #e2e8f0",
+              color: "#64748b", borderRadius: 8, width: 32, height: 32, cursor: "pointer",
+              fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center"
             }}>
               ✕
             </button>
@@ -447,8 +447,8 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
         {/* Sub-Header Toolbar (Chỉ Admin mới có quyền thấy và chọn/tìm kiếm Job khác) */}
         {isAdmin && (
           <div style={{
-            padding: "10px 24px", background: "rgba(255,255,255,0.02)",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
+            padding: "10px 24px", background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
             display: "flex", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 12
           }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -459,8 +459,8 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
                   if (currentStep === 1) setCurrentStep(2);
                 }}
                 style={{
-                  background: "#1a1d25", border: "1px solid rgba(59,130,246,0.4)",
-                  borderRadius: 8, color: "#93c5fd", padding: "6px 12px", fontSize: 12, fontWeight: 700
+                  background: "#ffffff", border: "1px solid #cbd5e1",
+                  borderRadius: 8, color: "#2563eb", padding: "6px 12px", fontSize: 12, fontWeight: 700
                 }}
               >
                 <option value="ALL">📂 All Jobs ({uniqueJobsList.length})</option>
@@ -475,8 +475,8 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={{
-                  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 8, color: "#e2e8f0", padding: "6px 12px", fontSize: 12, outline: "none"
+                  background: "#ffffff", border: "1px solid #cbd5e1",
+                  borderRadius: 8, color: "#1e293b", padding: "6px 12px", fontSize: 12, outline: "none"
                 }}
               />
             </div>
@@ -487,8 +487,8 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
         <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>
           {error && (
             <div style={{
-              padding: "12px 16px", background: "rgba(239,68,68,0.15)",
-              border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: "#fca5a5", fontSize: 13, marginBottom: 16
+              padding: "12px 16px", background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: "#dc2626", fontSize: 13, marginBottom: 16
             }}>
               ⚠️ {error}
             </div>
@@ -498,14 +498,14 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
             /* STEP 1: JOB SELECTION LIST */
             <div>
               {loading ? (
-                <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
                   <div style={{ fontSize: 28, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
                   <div>Loading AreaSummary jobs from MSSQL...</div>
                 </div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: "rgba(59,130,246,0.1)", borderBottom: "2px solid rgba(59,130,246,0.2)" }}>
+                    <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>JOB NUMBER</th>
                       <th style={thStyle}>STATUS</th>
@@ -516,16 +516,16 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
                     {filteredJobsListStep1.map((item, idx) => (
                       <tr
                         key={item.job_number}
-                        style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", cursor: "pointer" }}
+                        style={{ borderBottom: "1px solid #f1f5f9", cursor: "pointer" }}
                         onClick={() => handleSelectJob(item.job_number)}
                       >
                         <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12 }}>{idx + 1}</td>
-                        <td style={{ padding: "12px 14px", color: "#60a5fa", fontWeight: 700 }}>{item.job_number}</td>
-                        <td style={{ padding: "12px 14px", color: "#94a3b8" }}>{item.job_status}</td>
+                        <td style={{ padding: "12px 14px", color: "#2563eb", fontWeight: 700 }}>{item.job_number}</td>
+                        <td style={{ padding: "12px 14px", color: "#64748b" }}>{item.job_status}</td>
                         <td style={{ padding: "12px 14px", textAlign: "right" }}>
                           <button style={{
-                            background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)",
-                            color: "#93c5fd", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer"
+                            background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)",
+                            color: "#2563eb", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer"
                           }}>
                             Select Job →
                           </button>
@@ -543,51 +543,52 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
                 <div style={{ display: "flex", gap: 10 }}>
                   <button onClick={applyAIRoomsToAll} style={{
                     background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-                    border: "none", color: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer"
+                    border: "none", color: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(99, 102, 241, 0.3)"
                   }}>
                     ⚡ Auto-Calculate & Fill AI Rooms ({groupedAIRooms.length})
                   </button>
                   <button onClick={() => { setCustomRows([]); setEditedData({}); setSavedKeys(new Set()); loadJobsList(); }} style={{
-                    background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.4)",
-                    color: "#34d399", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)",
+                    color: "#059669", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 5
                   }}>
                     🔄 Refresh
                   </button>
                 </div>
 
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                <div style={{ fontSize: 12, color: "#64748b" }}>
                   Showing <strong>{groupedJobRows.length}</strong> area summary rows
                 </div>
               </div>
 
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: "rgba(59,130,246,0.12)", borderBottom: "2px solid rgba(59,130,246,0.3)" }}>
+                  <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
                     <th style={thStyle}>#</th>
                     <th style={thStyle}>SOURCE</th>
                     <th style={thStyle}>JOB NUMBER</th>
                     <th style={thStyle}>FLOOR LEVEL</th>
                     <th style={thStyle}>AREA TYPE</th>
-                    <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>NET AREA (M²)</th>
+                    <th style={{ ...thStyle, color: "#059669", textAlign: "right" }}>NET AREA (M²)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {groupedJobRows.map((row, sIdx) => {
                     return (
                       <tr key={row.rowKey} style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.05)",
-                        background: row.source === "db" ? "rgba(59,130,246,0.04)" : "rgba(139,92,246,0.06)"
+                        borderBottom: "1px solid #e2e8f0",
+                        background: row.source === "db" ? "rgba(59,130,246,0.03)" : "rgba(139,92,246,0.04)"
                       }}>
                         <td style={{ padding: "8px 10px", color: "#64748b" }}>{sIdx + 1}</td>
                         <td style={{ padding: "8px 10px" }}>
                           {row.source === "db" ? (
-                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(59,130,246,0.15)", color: "#60a5fa", fontWeight: 700 }}>📦 Saved</span>
+                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(59,130,246,0.1)", color: "#2563eb", fontWeight: 700 }}>📦 Saved</span>
                           ) : (
-                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(139,92,246,0.15)", color: "#a78bfa", fontWeight: 700 }}>⚡ New</span>
+                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(139,92,246,0.1)", color: "#7c3aed", fontWeight: 700 }}>⚡ New</span>
                           )}
                         </td>
-                        <td style={{ padding: "8px 10px", color: "#60a5fa", fontWeight: 700 }}>{row.job_number}</td>
+                        <td style={{ padding: "8px 10px", color: "#2563eb", fontWeight: 700 }}>{row.job_number}</td>
 
                         {/* Floor Level */}
                         <td style={{ padding: "4px 6px" }}>
@@ -622,7 +623,7 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
                             step="0.01"
                             value={getFieldValue(row, "net_area")}
                             onChange={(e) => handleFieldChange(row, "net_area", e.target.value)}
-                            style={{ ...inputStyle, textAlign: "right", width: 85, color: "#34d399", fontWeight: 800, fontSize: 13 }}
+                            style={{ ...inputStyle, textAlign: "right", width: 85, color: "#059669", fontWeight: 800, fontSize: 13 }}
                           />
                         </td>
                       </tr>
@@ -636,12 +637,12 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
 
         {/* Footer Actions */}
         <div style={{
-          padding: "14px 24px", background: "rgba(255,255,255,0.03)",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
+          padding: "14px 24px", background: "#f8fafc",
+          borderTop: "1px solid #e2e8f0",
           display: "flex", alignItems: "center", justifyContent: "space-between"
         }}>
-          <div style={{ fontSize: 12, color: "#94a3b8" }}>
-            Total Rooms: <strong>{groupedJobRows.length}</strong> | Grand Area: <strong style={{ color: "#34d399" }}>{totalsSummary.grandTotalM2} m²</strong>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            Total Rooms: <strong>{groupedJobRows.length}</strong> | Grand Area: <strong style={{ color: "#059669" }}>{totalsSummary.grandTotalM2} m²</strong>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
@@ -650,16 +651,16 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
                 onClick={saveAllJobs}
                 disabled={loading}
                 style={{
-                  background: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
+                  background: "#2563eb",
                   border: "none", color: "#fff", borderRadius: 8, padding: "8px 18px",
                   fontSize: 12, fontWeight: 700, cursor: "pointer",
-                  boxShadow: "0 2px 10px rgba(59,130,246,0.3)"
+                  boxShadow: "0 2px 8px rgba(37,99,235,0.3)"
                 }}
               >
                 {loading ? "⏳ Saving..." : "💾 Save All AreaSummary"}
               </button>
             )}
-            <button onClick={onClose} style={btnStyle("#94a3b8")}>
+            <button onClick={onClose} style={btnStyle("#64748b")}>
               Close
             </button>
           </div>
@@ -673,7 +674,7 @@ function StatCard({ children, color }) {
   return (
     <div style={{
       padding: "6px 14px", borderRadius: 8,
-      background: "rgba(255,255,255,0.03)",
+      background: "#f8fafc",
       border: `1px solid ${color}44`,
       textAlign: "center", display: "flex", flexDirection: "column"
     }}>
@@ -684,28 +685,28 @@ function StatCard({ children, color }) {
 
 const thStyle = {
   padding: "8px 10px", textAlign: "left", fontWeight: 700,
-  color: "#93c5fd", fontSize: 10, textTransform: "uppercase",
+  color: "#475569", fontSize: 10, textTransform: "uppercase",
   whiteSpace: "nowrap"
 };
 
 const statLabel = {
-  fontSize: 9, color: "#94a3b8", textTransform: "uppercase", marginTop: 2
+  fontSize: 9, color: "#64748b", textTransform: "uppercase", marginTop: 2
 };
 
 const inputStyle = {
-  width: "100%", background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6,
-  color: "#e2e8f0", padding: "4px 8px", fontSize: 11, outline: "none"
+  width: "100%", background: "#ffffff",
+  border: "1px solid #cbd5e1", borderRadius: 6,
+  color: "#1e293b", padding: "4px 8px", fontSize: 11, outline: "none"
 };
 
 const selectStyle = {
-  background: "#1a1d25", border: "1px solid rgba(255,255,255,0.15)",
-  borderRadius: 6, color: "#e2e8f0", padding: "4px 6px", fontSize: 11, outline: "none"
+  background: "#ffffff", border: "1px solid #cbd5e1",
+  borderRadius: 6, color: "#1e293b", padding: "4px 6px", fontSize: 11, outline: "none"
 };
 
 function btnStyle(color) {
   return {
-    background: `${color}22`, border: `1px solid ${color}55`,
+    background: "#f1f5f9", border: "1px solid #cbd5e1",
     color: color, borderRadius: 8, padding: "6px 12px",
     fontSize: 11, fontWeight: 700, cursor: "pointer"
   };

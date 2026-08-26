@@ -5,7 +5,20 @@ import { useAppModel } from "@/models/app.context";
 /**
  * InsulationJobsModal – Modal bóc tách diện tích cách nhiệt tường Insulation (MSSQL emsflow.dbo.Insulation)
  */
-export default function InsulationJobsModal({ visible, onClose, rooms = [], walls = [], doors = [], scaleValue = 1.0, realScale, pages = [], currentPage = 0, wallsByPage, doorsByPage, activeJobNumber }) {
+export default function InsulationJobsModal({
+  visible,
+  onClose,
+  rooms = [],
+  walls = [],
+  doors = [],
+  scaleValue = 1.0,
+  realScale,
+  pages = [],
+  currentPage = 0,
+  wallsByPage,
+  doorsByPage,
+  activeJobNumber
+}) {
   const { user } = useAppModel();
   const isAdmin = user?.role === "admin";
 
@@ -409,35 +422,34 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
-      background: "rgba(10, 12, 16, 0.82)", backdropFilter: "blur(8px)",
+      background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
       display: "flex", alignItems: "center", justifyContent: "center"
     }}>
       <div style={{
-        background: "linear-gradient(145deg, #141720 0%, #0d0f15 100%)",
-        border: "1px solid rgba(59,130,246,0.3)",
-        borderRadius: 14, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.7)",
-        width: "92%", maxWidth: 1100, maxHeight: "88vh",
-        display: "flex", flexDirection: "column", overflow: "hidden", color: "#e2e8f0"
+        background: "#ffffff", border: "1px solid #cbd5e1",
+        borderRadius: 16, width: 1180, maxWidth: "96vw", maxHeight: "90vh",
+        boxShadow: "0 25px 60px rgba(0,0,0,0.18)",
+        display: "flex", flexDirection: "column", overflow: "hidden", color: "#1e293b"
       }}>
         {/* Header */}
         <div style={{
-          padding: "16px 24px", background: "rgba(255,255,255,0.03)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          padding: "16px 24px", background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
           display: "flex", alignItems: "center", justifyContent: "space-between"
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 10,
-              background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)",
+              background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)",
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18
             }}>
               🧱
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#f8fafc" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
                 Insulation Wall Measurements
               </h3>
-              <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>
+              <span style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>
                 📌 Active Job: {selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs"}
               </span>
             </div>
@@ -446,7 +458,7 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {/* Step indicators (Chỉ Admin mới thấy và bấm chuyển chọn Job) */}
             {isAdmin && (
-              <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.3)", padding: 4, borderRadius: 8 }}>
+              <div style={{ display: "flex", gap: 6, background: "#f1f5f9", padding: 4, borderRadius: 8 }}>
                 <button
                   onClick={() => setCurrentStep(1)}
                   style={stepBtnStyle(currentStep === 1)}
@@ -464,8 +476,8 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
         <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
           {error && (
             <div style={{
-              background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
-              color: "#fca5a5", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14
+              background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
+              color: "#dc2626", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14
             }}>
               ⚠️ {error}
             </div>
@@ -485,38 +497,40 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
               </div>
 
               {loading ? (
-                <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontSize: 13 }}>
                   Loading Insulation jobs from MSSQL...
                 </div>
               ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: "rgba(59,130,246,0.12)", borderBottom: "2px solid rgba(59,130,246,0.3)" }}>
-                      <th style={thStyle}>#</th>
-                      <th style={thStyle}>JOB NUMBER</th>
-                      <th style={thStyle}>ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredJobsStep1.map((j, idx) => (
-                      <tr key={j.job_number + idx} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                        <td style={{ padding: "10px 12px", color: "#64748b" }}>{idx + 1}</td>
-                        <td style={{ padding: "10px 12px", color: "#60a5fa", fontWeight: 700 }}>{j.job_number}</td>
-                        <td style={{ padding: "10px 12px" }}>
-                          <button
-                            onClick={() => handleSelectJob(j.job_number)}
-                            style={{
-                              background: "#3b82f6", border: "none", color: "#fff",
-                              padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer"
-                            }}
-                          >
-                            Select Job →
-                          </button>
-                        </td>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
+                        <th style={thStyle}>#</th>
+                        <th style={thStyle}>JOB NUMBER</th>
+                        <th style={thStyle}>ACTION</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredJobsStep1.map((j, idx) => (
+                        <tr key={j.job_number + idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                          <td style={{ padding: "10px 12px", color: "#64748b" }}>{idx + 1}</td>
+                          <td style={{ padding: "10px 12px", color: "#2563eb", fontWeight: 700 }}>{j.job_number}</td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <button
+                              onClick={() => handleSelectJob(j.job_number)}
+                              style={{
+                                background: "#2563eb", border: "none", color: "#fff",
+                                padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer"
+                              }}
+                            >
+                              Select Job →
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           ) : (
@@ -525,168 +539,171 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div style={{ display: "flex", gap: 10 }}>
                   <button onClick={applyAIInsulationToAll} disabled={loading} style={{
-                    background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                    background: "linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)",
                     border: "none", color: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    opacity: loading ? 0.6 : 1
+                    opacity: loading ? 0.6 : 1,
+                    boxShadow: "0 2px 8px rgba(37, 99, 235, 0.25)"
                   }}>
                     {loading ? "⏳ Calculating..." : `⚡ Auto-Calculate & Fill Insulation (${(walls || []).length} walls)`}
                   </button>
                   <button onClick={() => { setCustomRows([]); setEditedData({}); loadJobsList(); }} style={{
-                    background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.4)",
-                    color: "#60a5fa", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    background: "#f1f5f9", border: "1px solid #cbd5e1",
+                    color: "#2563eb", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 5
                   }}>
                     🔄 Refresh
                   </button>
                 </div>
 
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                <div style={{ fontSize: 12, color: "#64748b" }}>
                   Showing <strong>{groupedJobRows.length}</strong> insulation rows
                 </div>
               </div>
 
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: "rgba(59,130,246,0.12)", borderBottom: "2px solid rgba(59,130,246,0.3)" }}>
-                    <th style={thStyle}>#</th>
-                    <th style={thStyle}>SOURCE</th>
-                    <th style={thStyle}>JOB NUMBER</th>
-                    <th style={thStyle}>WALL TYPE*</th>
-                    <th style={thStyle}>WALL HEIGHT (mm)*</th>
-                    <th style={thStyle}>WALL LENGTH (mm)*</th>
-                    <th style={thStyle}>TOTAL AREA RAKED WALL (m²)*</th>
-                    <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>TOTAL AREA DOOR (m²)*</th>
-                    <th style={{ ...thStyle, textAlign: "center" }}>VIEW BREAKDOWN</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupedJobRows.map((row, sIdx) => (
-                    <tr key={row.rowKey} style={{
-                      borderBottom: "1px solid rgba(255,255,255,0.05)",
-                      background: row.source === "db" ? "rgba(59,130,246,0.04)" : "rgba(139,92,246,0.06)"
-                    }}>
-                      <td style={{ padding: "8px 10px", color: "#64748b" }}>{sIdx + 1}</td>
-                      <td style={{ padding: "8px 10px" }}>
-                        {row.source === "db" ? (
-                          <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(59,130,246,0.15)", color: "#60a5fa", fontWeight: 700 }}>📦 Saved</span>
-                        ) : (
-                          <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(139,92,246,0.15)", color: "#a78bfa", fontWeight: 700 }}>⚡ New</span>
-                        )}
-                      </td>
-                      <td style={{ padding: "8px 10px", color: "#60a5fa", fontWeight: 700 }}>{row.job_number}</td>
-
-                      {/* Wall Type */}
-                      <td style={{ padding: "4px 6px" }}>
-                        <select
-                          value={getFieldValue(row, "wall_type")}
-                          onChange={(e) => handleFieldChange(row, "wall_type", e.target.value)}
-                          style={selectStyle}
-                        >
-                          <option value="Ext wall">Ext wall</option>
-                          <option value="Int Wall">Int Wall</option>
-                          <option value="Partial wall">Partial wall</option>
-                        </select>
-                      </td>
-
-                      {/* Wall Height */}
-                      <td style={{ padding: "4px 6px" }}>
-                        <input
-                          type="number"
-                          step="10"
-                          value={getFieldValue(row, "wall_height")}
-                          onChange={(e) => handleFieldChange(row, "wall_height", e.target.value)}
-                          style={inputStyle}
-                        />
-                      </td>
-
-                      {/* Wall Length */}
-                      <td style={{ padding: "4px 6px" }}>
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={getFieldValue(row, "wall_length")}
-                          onChange={(e) => handleFieldChange(row, "wall_length", e.target.value)}
-                          style={inputStyle}
-                        />
-                      </td>
-
-                      {/* Total Area Raked Wall */}
-                      <td style={{ padding: "4px 6px" }}>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={getFieldValue(row, "total_area_raked")}
-                          onChange={(e) => handleFieldChange(row, "total_area_raked", e.target.value)}
-                          style={inputStyle}
-                        />
-                      </td>
-
-                      {/* Total Area Door */}
-                      <td style={{ padding: "4px 6px" }}>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={getFieldValue(row, "total_area_door")}
-                          onChange={(e) => handleFieldChange(row, "total_area_door", e.target.value)}
-                          style={{ ...inputStyle, textAlign: "right", color: "#34d399", fontWeight: 800 }}
-                        />
-                      </td>
-
-                      {/* View Floor Breakdown Button */}
-                      <td style={{ padding: "4px 6px", textAlign: "center" }}>
-                        {(() => {
-                          const pb = getFieldValue(row, "page_breakdown") || row.page_breakdown;
-                          if (pb && pb.length > 0) {
-                            const updatedRow = {
-                              ...row,
-                              wall_type: getFieldValue(row, "wall_type"),
-                              wall_height: getFieldValue(row, "wall_height"),
-                              wall_length: getFieldValue(row, "wall_length"),
-                              total_area_raked: getFieldValue(row, "total_area_raked"),
-                              total_area_door: getFieldValue(row, "total_area_door"),
-                              page_breakdown: pb
-                            };
-                            return (
-                              <button
-                                onClick={() => setViewingBreakdownRow(updatedRow)}
-                                title="Xem chi tiết phân tách theo từng tầng"
-                                style={{
-                                  background: "rgba(59,130,246,0.15)",
-                                  border: "1px solid rgba(59,130,246,0.4)",
-                                  color: "#60a5fa",
-                                  padding: "4px 10px",
-                                  borderRadius: 6,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 4
-                                }}
-                              >
-                                👁️ View ({pb.length})
-                              </button>
-                            );
-                          }
-                          return <span style={{ color: "#64748b", fontSize: 11 }}>—</span>;
-                        })()}
-                      </td>
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>SOURCE</th>
+                      <th style={thStyle}>JOB NUMBER</th>
+                      <th style={thStyle}>WALL TYPE*</th>
+                      <th style={thStyle}>WALL HEIGHT (mm)*</th>
+                      <th style={thStyle}>WALL LENGTH (mm)*</th>
+                      <th style={thStyle}>TOTAL AREA RAKED WALL (m²)*</th>
+                      <th style={{ ...thStyle, color: "#059669", textAlign: "right" }}>TOTAL AREA DOOR (m²)*</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>VIEW BREAKDOWN</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {groupedJobRows.map((row, sIdx) => (
+                      <tr key={row.rowKey} style={{
+                        borderBottom: "1px solid #e2e8f0",
+                        background: row.source === "db" ? "rgba(59,130,246,0.02)" : "rgba(139,92,246,0.03)"
+                      }}>
+                        <td style={{ padding: "8px 10px", color: "#64748b" }}>{sIdx + 1}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {row.source === "db" ? (
+                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(37,99,235,0.08)", border: "1px solid #bfdbfe", color: "#2563eb", fontWeight: 700 }}>📦 Saved</span>
+                          ) : (
+                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(124,58,237,0.08)", border: "1px solid #ddd6fe", color: "#7c3aed", fontWeight: 700 }}>⚡ New</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#2563eb", fontWeight: 700 }}>{row.job_number}</td>
+
+                        {/* Wall Type */}
+                        <td style={{ padding: "4px 6px" }}>
+                          <select
+                            value={getFieldValue(row, "wall_type")}
+                            onChange={(e) => handleFieldChange(row, "wall_type", e.target.value)}
+                            style={selectStyle}
+                          >
+                            <option value="Ext wall">Ext wall</option>
+                            <option value="Int Wall">Int Wall</option>
+                            <option value="Partial wall">Partial wall</option>
+                          </select>
+                        </td>
+
+                        {/* Wall Height */}
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            step="10"
+                            value={getFieldValue(row, "wall_height")}
+                            onChange={(e) => handleFieldChange(row, "wall_height", e.target.value)}
+                            style={inputStyle}
+                          />
+                        </td>
+
+                        {/* Wall Length */}
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            step="0.0001"
+                            value={getFieldValue(row, "wall_length")}
+                            onChange={(e) => handleFieldChange(row, "wall_length", e.target.value)}
+                            style={inputStyle}
+                          />
+                        </td>
+
+                        {/* Total Area Raked Wall */}
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={getFieldValue(row, "total_area_raked")}
+                            onChange={(e) => handleFieldChange(row, "total_area_raked", e.target.value)}
+                            style={inputStyle}
+                          />
+                        </td>
+
+                        {/* Total Area Door */}
+                        <td style={{ padding: "4px 6px" }}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={getFieldValue(row, "total_area_door")}
+                            onChange={(e) => handleFieldChange(row, "total_area_door", e.target.value)}
+                            style={{ ...inputStyle, textAlign: "right", color: "#059669", fontWeight: 800 }}
+                          />
+                        </td>
+
+                        {/* View Floor Breakdown Button */}
+                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                          {(() => {
+                            const pb = getFieldValue(row, "page_breakdown") || row.page_breakdown;
+                            if (pb && pb.length > 0) {
+                              const updatedRow = {
+                                ...row,
+                                wall_type: getFieldValue(row, "wall_type"),
+                                wall_height: getFieldValue(row, "wall_height"),
+                                wall_length: getFieldValue(row, "wall_length"),
+                                total_area_raked: getFieldValue(row, "total_area_raked"),
+                                total_area_door: getFieldValue(row, "total_area_door"),
+                                page_breakdown: pb
+                              };
+                              return (
+                                <button
+                                  onClick={() => setViewingBreakdownRow(updatedRow)}
+                                  title="Xem chi tiết phân tách theo từng tầng"
+                                  style={{
+                                    background: "#f1f5f9",
+                                    border: "1px solid #cbd5e1",
+                                    color: "#2563eb",
+                                    padding: "4px 10px",
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4
+                                  }}
+                                >
+                                  👁️ View ({pb.length})
+                                </button>
+                              );
+                            }
+                            return <span style={{ color: "#64748b", fontSize: 11 }}>—</span>;
+                          })()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
         <div style={{
-          padding: "14px 24px", background: "rgba(255,255,255,0.03)",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
+          padding: "14px 24px", background: "#f8fafc",
+          borderTop: "1px solid #e2e8f0",
           display: "flex", alignItems: "center", justifyContent: "space-between"
         }}>
-          <div style={{ fontSize: 12, color: "#94a3b8" }}>
-            Total Rows: <strong>{groupedJobRows.length}</strong> | Total Length: <strong style={{ color: "#34d399" }}>{totalsSummary.totalLengthM} m</strong>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            Total Rows: <strong>{groupedJobRows.length}</strong> | Total Length: <strong style={{ color: "#059669" }}>{totalsSummary.totalLengthM} m</strong>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
@@ -695,15 +712,15 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
                 onClick={saveAllJobs}
                 disabled={loading}
                 style={{
-                  ...btnStyle("#3b82f6"),
+                  ...btnStyle("#2563eb"),
                   padding: "8px 20px", fontSize: 13, fontWeight: 700,
-                  boxShadow: "0 2px 10px rgba(59,130,246,0.3)"
+                  boxShadow: "0 2px 8px rgba(37, 99, 235, 0.3)"
                 }}
               >
                 {loading ? "⏳ Saving..." : "💾 Save All Insulation"}
               </button>
             )}
-            <button onClick={onClose} style={btnStyle("#94a3b8")}>
+            <button onClick={onClose} style={btnStyle("#64748b")}>
               Close
             </button>
           </div>
@@ -714,49 +731,49 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
       {viewingBreakdownRow && (
         <div style={{
           position: "fixed", inset: 0, zIndex: 10000,
-          background: "rgba(0, 0, 0, 0.75)", backdropFilter: "blur(6px)",
+          background: "rgba(15, 23, 42, 0.5)", backdropFilter: "blur(4px)",
           display: "flex", alignItems: "center", justifyContent: "center"
         }}>
           <div style={{
-            background: "#0f172a", border: "1px solid rgba(59,130,246,0.4)",
+            background: "#ffffff", border: "1px solid #cbd5e1",
             borderRadius: 12, width: 580, maxWidth: "90vw", padding: 22,
-            boxShadow: "0 15px 40px rgba(0,0,0,0.6)", color: "#f8fafc"
+            boxShadow: "0 15px 40px rgba(0,0,0,0.18)", color: "#1e293b"
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
               <div>
-                <h4 style={{ margin: 0, fontSize: 16, color: "#60a5fa", fontWeight: 700 }}>
+                <h4 style={{ margin: 0, fontSize: 16, color: "#2563eb", fontWeight: 700 }}>
                   📊 Floor Breakdown Details
                 </h4>
-                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                  Type: <strong style={{ color: "#f8fafc" }}>{viewingBreakdownRow.wall_type}</strong> | Height: <strong style={{ color: "#f8fafc" }}>{viewingBreakdownRow.wall_height} mm</strong>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
+                  Type: <strong style={{ color: "#1e293b" }}>{viewingBreakdownRow.wall_type}</strong> | Height: <strong style={{ color: "#1e293b" }}>{viewingBreakdownRow.wall_height} mm</strong>
                 </div>
               </div>
-              <button onClick={() => setViewingBreakdownRow(null)} style={{ background: "rgba(255,255,255,0.05)", border: "none", color: "#94a3b8", width: 30, height: 30, borderRadius: 6, fontSize: 16, cursor: "pointer" }}>✕</button>
+              <button onClick={() => setViewingBreakdownRow(null)} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#64748b", width: 30, height: 30, borderRadius: 6, fontSize: 16, cursor: "pointer" }}>✕</button>
             </div>
 
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 16 }}>
               <thead>
-                <tr style={{ background: "rgba(59,130,246,0.15)", borderBottom: "2px solid rgba(59,130,246,0.3)" }}>
-                  <th style={{ padding: "8px 12px", textAlign: "left", color: "#cbd5e1" }}>FLOOR / PAGE</th>
-                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#cbd5e1" }}>WALL LENGTH (mm)</th>
-                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#cbd5e1" }}>RAKED AREA (m²)</th>
-                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#34d399" }}>DOOR AREA (m²)</th>
+                <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #e2e8f0" }}>
+                  <th style={{ padding: "8px 12px", textAlign: "left", color: "#475569" }}>FLOOR / PAGE</th>
+                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>WALL LENGTH (mm)</th>
+                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>RAKED AREA (m²)</th>
+                  <th style={{ padding: "8px 12px", textAlign: "right", color: "#059669" }}>DOOR AREA (m²)</th>
                 </tr>
               </thead>
               <tbody>
                 {(viewingBreakdownRow.page_breakdown || []).map((p, idx) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 700, color: "#60a5fa" }}>{p.page_name}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#f8fafc", fontFamily: "monospace" }}>{p.wall_length}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#f8fafc", fontFamily: "monospace" }}>{p.total_area_raked}</td>
-                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#34d399", fontWeight: 700, fontFamily: "monospace" }}>{p.total_area_door}</td>
+                  <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 700, color: "#2563eb" }}>{p.page_name}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e293b", fontFamily: "monospace" }}>{p.wall_length}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e293b", fontFamily: "monospace" }}>{p.total_area_raked}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#059669", fontWeight: 700, fontFamily: "monospace" }}>{p.total_area_door}</td>
                   </tr>
                 ))}
-                <tr style={{ background: "rgba(59,130,246,0.1)", fontWeight: 700, borderTop: "2px solid rgba(59,130,246,0.3)" }}>
-                  <td style={{ padding: "10px 12px", color: "#f8fafc" }}>TOTAL COMBINED</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#60a5fa", fontFamily: "monospace" }}>{viewingBreakdownRow.wall_length}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#f8fafc", fontFamily: "monospace" }}>{viewingBreakdownRow.total_area_raked}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#34d399", fontFamily: "monospace" }}>{viewingBreakdownRow.total_area_door}</td>
+                <tr style={{ background: "#f8fafc", fontWeight: 700, borderTop: "2px solid #e2e8f0" }}>
+                  <td style={{ padding: "10px 12px", color: "#1e293b" }}>TOTAL COMBINED</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#2563eb", fontFamily: "monospace" }}>{viewingBreakdownRow.wall_length}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#1e293b", fontFamily: "monospace" }}>{viewingBreakdownRow.total_area_raked}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "#059669", fontFamily: "monospace" }}>{viewingBreakdownRow.total_area_door}</td>
                 </tr>
               </tbody>
             </table>
@@ -764,7 +781,7 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button
                 onClick={() => setViewingBreakdownRow(null)}
-                style={{ background: "#3b82f6", color: "#fff", border: "none", padding: "7px 18px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                style={{ background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", padding: "7px 18px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
               >
                 Close
               </button>
@@ -776,40 +793,41 @@ export default function InsulationJobsModal({ visible, onClose, rooms = [], wall
   );
 }
 
-// Inline Style Objects
 const thStyle = {
-  padding: "10px 12px", textAlign: "left", color: "#cbd5e1",
+  padding: "10px 12px", textAlign: "left", color: "#475569",
   fontWeight: 700, fontSize: 11, letterSpacing: "0.5px"
 };
 
 const inputStyle = {
-  width: "100%", background: "#1e293b", border: "1px solid #334155",
-  color: "#f8fafc", padding: "6px 8px", borderRadius: 6, fontSize: 12, outline: "none"
+  width: "100%", background: "#ffffff", border: "1px solid #cbd5e1",
+  color: "#1e293b", padding: "6px 8px", borderRadius: 6, fontSize: 12, outline: "none"
 };
 
 const selectStyle = {
-  width: "100%", background: "#1e293b", border: "1px solid #334155",
-  color: "#f8fafc", padding: "6px 8px", borderRadius: 6, fontSize: 12, outline: "none"
+  width: "100%", background: "#ffffff", border: "1px solid #cbd5e1",
+  color: "#1e293b", padding: "6px 8px", borderRadius: 6, fontSize: 12, outline: "none"
 };
 
 const inputSearchStyle = {
-  width: 280, background: "#1e293b", border: "1px solid #334155",
-  color: "#f8fafc", padding: "8px 12px", borderRadius: 8, fontSize: 12, outline: "none"
+  width: 280, background: "#ffffff", border: "1px solid #cbd5e1",
+  color: "#1e293b", padding: "8px 12px", borderRadius: 8, fontSize: 12, outline: "none"
 };
 
 const stepBtnStyle = (active) => ({
-  background: active ? "#3b82f6" : "transparent",
-  border: "none", color: active ? "#fff" : "#94a3b8",
+  background: active ? "#2563eb" : "transparent",
+  border: "none", color: active ? "#fff" : "#64748b",
   padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer"
 });
 
 const btnStyle = (bg) => ({
-  background: bg, border: "none", color: "#fff",
+  background: bg === "#64748b" ? "#f1f5f9" : bg,
+  border: bg === "#64748b" ? "1px solid #cbd5e1" : "none",
+  color: bg === "#64748b" ? "#475569" : "#fff",
   padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer"
 });
 
 const closeBtnStyle = {
-  background: "rgba(255,255,255,0.05)", border: "none", color: "#94a3b8",
+  background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#64748b",
   width: 32, height: 32, borderRadius: 8, fontSize: 16, cursor: "pointer",
   display: "flex", alignItems: "center", justifyContent: "center"
 };

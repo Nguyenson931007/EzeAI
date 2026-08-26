@@ -15,12 +15,13 @@ const JobHistory = ({ username, onLoadJob }) => {
 
   const fetchTotalCount = async () => {
     try {
-      const data = await ApiService.getJobsCount();
+      const data = await ApiService.getJobsCount(username);
       if (data && typeof data.count === 'number') {
         setTotalCount(data.count);
       }
     } catch (err) {
-      console.error('Error fetching count:', err);
+      console.warn('Error fetching count (fallback to 0):', err?.message || err);
+      setTotalCount(0);
     }
   };
 
@@ -200,8 +201,8 @@ const JobHistory = ({ username, onLoadJob }) => {
         ) : (
           <>
             <div className="job-grid">
-              {filteredJobs.map(job => (
-                <div key={job.id} className="job-card" onClick={() => handleLoad(job.id, job.project_name)}>
+              {filteredJobs.map((job, idx) => (
+                <div key={`job_${job.id || idx}_${idx}`} className="job-card" onClick={() => handleLoad(job.id, job.project_name)}>
                   
                   <div className="job-thumbnail">
                     {job.thumbnail ? (
@@ -290,7 +291,10 @@ const JobHistory = ({ username, onLoadJob }) => {
         <div className="history-modal-overlay" onClick={() => setShowHistory(false)}>
           <div className="history-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Project Ownership History</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '18px' }}>📜</span>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Project Ownership History</h3>
+              </div>
               <button className="btn-close" onClick={() => setShowHistory(false)}>×</button>
             </div>
             <div className="modal-body">
@@ -304,14 +308,14 @@ const JobHistory = ({ username, onLoadJob }) => {
                 </thead>
                 <tbody>
                   {(!Array.isArray(history) || history.length === 0) ? (
-                    <tr><td colSpan="3" style={{ textAlign: 'center', padding: '20px' }}>No history yet</td></tr>
+                    <tr><td colSpan="3" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No ownership history recorded yet.</td></tr>
                   ) : history.map((item, idx) => (
                     <tr key={idx}>
-                      <td style={{ fontWeight: 'bold', color: '#818cf8' }}>{item?.project_name || 'N/A'}</td>
+                      <td style={{ fontWeight: 700, color: '#2563eb' }}>{item?.project_name || 'N/A'}</td>
                       <td>
-                        <span style={{ color: '#f87171' }}>{item?.old_user || 'Unknown'}</span>
-                        <span style={{ margin: '0 8px', opacity: 0.5 }}>→</span>
-                        <span style={{ color: '#4ade80' }}>{item?.new_user || 'Unknown'}</span>
+                        <span style={{ color: '#dc2626', fontWeight: 600 }}>{item?.old_user || 'Unknown'}</span>
+                        <span style={{ margin: '0 8px', color: '#94a3b8' }}>→</span>
+                        <span style={{ color: '#16a34a', fontWeight: 600 }}>{item?.new_user || 'Unknown'}</span>
                       </td>
                       <td style={{ fontSize: '12px', color: '#64748b' }}>
                         {item?.changed_at ? new Date(item.changed_at).toLocaleString() : 'N/A'}
@@ -327,10 +331,10 @@ const JobHistory = ({ username, onLoadJob }) => {
 
       <style dangerouslySetInnerHTML={{ __html: `
         .history-container {
-          padding: 40px;
-          color: #e2e8f0;
-          background: #0f172a;
-          height: calc(100vh - 86px);
+          padding: 32px 40px;
+          color: var(--text, #101a33);
+          background: var(--bg-canvas, #eef2fc);
+          height: calc(100vh - 92px);
           overflow-y: auto;
           flex: 1;
           position: relative;
@@ -340,83 +344,91 @@ const JobHistory = ({ username, onLoadJob }) => {
           display: flex;
           justify-content: space-between;
           align-items: flex-end;
-          margin-bottom: 40px;
-          border-bottom: 1px solid rgba(255,255,255,0.05);
-          padding-bottom: 20px;
+          margin-bottom: 24px;
+          border-bottom: 1px solid var(--border, #dbe3f5);
+          padding-bottom: 16px;
         }
 
         .title-area h2 {
-          font-size: 32px;
+          font-size: 24px;
           margin: 0;
-          font-weight: 800;
-          background: linear-gradient(to right, #818cf8, #c084fc);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          font-weight: 700;
+          color: var(--blue-900, #0f2f76);
         }
 
         .stats-badge {
-          margin-top: 8px;
+          margin-top: 6px;
           display: inline-block;
-          background: rgba(129, 140, 248, 0.1);
-          color: #818cf8;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 12px;
+          background: var(--blue-50, #eef3ff);
+          color: var(--blue-700, #1746b3);
+          padding: 3px 10px;
+          border-radius: 12px;
+          font-size: 11px;
           font-weight: 600;
+          border: 1px solid var(--blue-100, #e2eaff);
         }
 
         .search-box {
           position: relative;
-          width: 350px;
+          width: 320px;
         }
 
         .search-box input {
           width: 100%;
-          background: #1e293b;
-          border: 1px solid #334155;
-          border-radius: 12px;
-          padding: 14px 16px 14px 44px;
-          color: #fff;
-          font-size: 15px;
+          background: #ffffff;
+          border: 1px solid var(--border, #dbe3f5);
+          border-radius: 6px;
+          padding: 10px 14px 10px 38px;
+          color: var(--text, #101a33);
+          font-size: 13px;
+          outline: none;
+        }
+
+        .search-box input:focus {
+          border-color: var(--blue, #2563eb);
+          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
         }
 
         .search-icon {
           position: absolute;
-          left: 16px;
+          left: 12px;
           top: 50%;
           transform: translateY(-50%);
-          font-size: 18px;
-          opacity: 0.5;
+          font-size: 14px;
+          color: var(--text-dim, #5b6b8c);
         }
 
         .job-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 24px;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 20px;
           position: relative;
           z-index: 1;
         }
 
         .job-card {
-          background: #1e293b;
-          border-radius: 16px;
-          border: 1px solid #334155;
+          background: #ffffff;
+          border-radius: 8px;
+          border: 1px solid var(--border, #dbe3f5);
           overflow: hidden;
           cursor: pointer;
-          transition: all 0.3s ease;
+          transition: all 0.2s ease;
           display: flex;
           flex-direction: column;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
         }
 
         .job-card:hover {
-          transform: translateY(-8px);
-          border-color: #6366f1;
+          transform: translateY(-3px);
+          border-color: var(--blue, #2563eb);
+          box-shadow: 0 8px 16px rgba(37, 99, 235, 0.08);
         }
 
         .job-thumbnail {
           position: relative;
-          height: 160px;
-          background: #020617;
+          height: 150px;
+          background: #f8fafc;
+          border-bottom: 1px solid var(--border, #dbe3f5);
         }
 
         .job-thumbnail img {
@@ -428,12 +440,12 @@ const JobHistory = ({ username, onLoadJob }) => {
         .job-overlay {
           position: absolute;
           inset: 0;
-          background: rgba(0,0,0,0.6);
+          background: rgba(15, 47, 118, 0.4);
           display: flex;
           align-items: center;
           justify-content: center;
           opacity: 0;
-          transition: opacity 0.3s;
+          transition: opacity 0.2s;
         }
 
         .job-card:hover .job-overlay {
@@ -441,18 +453,19 @@ const JobHistory = ({ username, onLoadJob }) => {
         }
 
         .btn-open-overlay {
-          background: #818cf8;
+          background: var(--blue-700, #1746b3);
           color: #fff;
           border: none;
-          padding: 8px 20px;
-          border-radius: 8px;
-          font-weight: 700;
+          padding: 8px 18px;
+          border-radius: 4px;
+          font-weight: 600;
+          font-size: 12px;
         }
 
         .no-preview {
-          color: #475569;
-          font-size: 13px;
-          font-weight: 700;
+          color: var(--text-faint, #94a3c4);
+          font-size: 11px;
+          font-weight: 600;
           text-transform: uppercase;
           display: flex;
           align-items: center;
@@ -461,29 +474,30 @@ const JobHistory = ({ username, onLoadJob }) => {
         }
 
         .job-details {
-          padding: 20px;
+          padding: 14px 16px;
         }
 
         .job-meta {
           display: flex;
           justify-content: space-between;
           font-size: 11px;
-          color: #64748b;
-          margin-bottom: 8px;
+          color: var(--text-dim, #5b6b8c);
+          margin-bottom: 6px;
         }
 
         .title-row {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          margin-bottom: 16px;
-          gap: 10px;
+          margin-bottom: 12px;
+          gap: 8px;
         }
 
         .job-title {
           margin: 0;
-          font-size: 18px;
-          color: #f8fafc;
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text, #101a33);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -493,89 +507,92 @@ const JobHistory = ({ username, onLoadJob }) => {
         .rename-btn {
           background: transparent;
           border: none;
-          color: #64748b;
+          color: var(--text-dim, #5b6b8c);
           cursor: pointer;
-          font-size: 16px;
+          font-size: 14px;
           padding: 0;
-          transition: color 0.2s;
+          transition: color 0.15s;
         }
 
         .rename-btn:hover {
-          color: #818cf8;
+          color: var(--blue, #2563eb);
         }
 
         .job-info-row {
           display: grid;
           grid-template-columns: 1fr 1fr 1.2fr;
-          gap: 12px;
-          background: rgba(15, 23, 42, 0.5);
-          padding: 12px;
-          border-radius: 12px;
+          gap: 8px;
+          background: var(--bg-panel, #f6f8fe);
+          padding: 8px 10px;
+          border-radius: 6px;
+          border: 1px solid var(--border, #dbe3f5);
         }
 
         .info-item .label {
-          font-size: 10px;
-          color: #64748b;
+          font-size: 9px;
+          color: var(--text-faint, #94a3c4);
+          text-transform: uppercase;
         }
 
         .info-item .value {
-          font-size: 15px;
-          color: #818cf8;
+          font-size: 13px;
+          color: var(--blue-700, #1746b3);
           font-weight: 700;
         }
 
         .value-user {
-          font-size: 13px;
-          color: #c084fc;
-          font-weight: 700;
+          font-size: 11px;
+          color: var(--text, #101a33);
+          font-weight: 600;
         }
 
         .job-actions {
-          margin-top: 15px;
+          margin-top: 10px;
           display: flex;
           justify-content: flex-end;
         }
 
         .action-btn.delete {
-          background: rgba(239, 68, 68, 0.1);
-          color: #ef4444;
+          background: #fee2e2;
+          color: var(--red, #dc2626);
           border: none;
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
+          width: 30px;
+          height: 30px;
+          border-radius: 4px;
           cursor: pointer;
         }
 
         .pagination-wrapper {
-          margin-top: 50px;
+          margin-top: 32px;
           display: flex;
           justify-content: center;
           align-items: center;
-          gap: 16px;
-          padding-bottom: 50px;
+          gap: 12px;
+          padding-bottom: 32px;
           position: relative;
-          z-index: 100; /* Ensure it's clickable */
+          z-index: 100;
         }
 
         .page-numbers {
           display: flex;
-          gap: 8px;
+          gap: 6px;
         }
 
         .pag-num {
-          background: #1e293b;
-          border: 1px solid #334155;
-          color: #94a3b8;
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
+          background: #ffffff;
+          border: 1px solid var(--border, #dbe3f5);
+          color: var(--text-dim, #5b6b8c);
+          width: 32px;
+          height: 32px;
+          border-radius: 6px;
           font-weight: 600;
+          font-size: 12px;
           cursor: pointer;
         }
 
         .pag-num.active {
-          background: #818cf8;
-          border-color: #818cf8;
+          background: var(--blue-700, #1746b3);
+          border-color: var(--blue-700, #1746b3);
           color: #fff;
         }
 
@@ -586,13 +603,14 @@ const JobHistory = ({ username, onLoadJob }) => {
         }
 
         .prev-next {
-          background: #1e293b;
-          border: 1px solid #334155;
-          color: #fff;
-          padding: 0 20px;
-          height: 40px;
-          border-radius: 10px;
-          font-weight: 700;
+          background: #ffffff;
+          border: 1px solid var(--border, #dbe3f5);
+          color: var(--text, #101a33);
+          padding: 0 14px;
+          height: 32px;
+          border-radius: 6px;
+          font-weight: 600;
+          font-size: 12px;
           cursor: pointer;
           pointer-events: auto !important;
         }
@@ -639,7 +657,7 @@ const JobHistory = ({ username, onLoadJob }) => {
         .history-modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0,0,0,0.85);
+          background: rgba(15, 23, 42, 0.5);
           backdrop-filter: blur(4px);
           z-index: 2000;
           display: flex;
@@ -648,29 +666,68 @@ const JobHistory = ({ username, onLoadJob }) => {
           padding: 20px;
         }
         .history-modal {
-          background: #1e293b;
+          background: #ffffff;
           width: 100%;
-          max-width: 700px;
-          max-height: 80vh;
-          border-radius: 20px;
-          border: 1px solid #334155;
+          max-width: 720px;
+          max-height: 85vh;
+          border-radius: 16px;
+          border: 1px solid #cbd5e1;
           display: flex;
           flex-direction: column;
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 25px 60px rgba(0, 0, 0, 0.18);
+          overflow: hidden;
         }
         .modal-header {
-          padding: 20px 24px;
-          border-bottom: 1px solid #334155;
+          padding: 16px 24px;
+          background: #f8fafc;
+          border-bottom: 1px solid #e2e8f0;
           display: flex;
           justify-content: space-between;
           align-items: center;
         }
-        .modal-header h3 { margin: 0; color: #fff; }
-        .btn-close { background: transparent; border: none; color: #64748b; font-size: 28px; cursor: pointer; }
-        .modal-body { padding: 24px; overflow-y: auto; }
-        .history-table { width: 100%; border-collapse: collapse; }
-        .history-table th { text-align: left; padding: 12px; border-bottom: 2px solid #334155; color: #64748b; font-size: 12px; text-transform: uppercase; }
-        .history-table td { padding: 14px 12px; border-bottom: 1px solid #334155; color: #cbd5e1; }
+        .btn-close {
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          color: #64748b;
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          font-size: 18px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+        }
+        .btn-close:hover {
+          background: #e2e8f0;
+          color: #1e293b;
+        }
+        .modal-body {
+          padding: 20px 24px;
+          overflow-y: auto;
+        }
+        .history-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
+        .history-table th {
+          text-align: left;
+          padding: 10px 14px;
+          border-bottom: 2px solid #e2e8f0;
+          background: #f1f5f9;
+          color: #475569;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+        }
+        .history-table td {
+          padding: 12px 14px;
+          border-bottom: 1px solid #f1f5f9;
+          color: #1e293b;
+        }
       ` }} />
     </div>
   );
