@@ -10,6 +10,7 @@ import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
 import InsulationJobsModal from "@/components/InsulationJobsModal";
 import LockoutJobsModal from "@/components/LockoutJobsModal";
 import UserProfileModal from "@/components/UserProfileModal";
+import SettingsModal from "@/components/SettingsModal";
 
 const CAD_ICONS = {
   NewPDF: () => (
