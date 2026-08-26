@@ -40,7 +40,8 @@ const handleResponse = async (res) => {
   if (!res.ok) {
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
-      return res.json();
+      const errData = await res.json();
+      throw new Error(errData.detail || `Server returned error ${res.status}`);
     } else {
       const text = await res.text();
       throw new Error(`Server returned ${res.status}: ${text}`);
@@ -806,5 +807,47 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  // ── Roof V3 Engine API Endpoints ──
+  async computeRoof2D(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/compute-roof`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async buildRoof3D(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/build-planes`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async trimRoofEave(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/trim-eave`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async optimizeRoofGraph(payload) {
+    const res = await fetch(`${BASE_URL}/api/v3/optimize-graph`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };
+

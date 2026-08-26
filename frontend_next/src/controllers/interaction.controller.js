@@ -21,6 +21,7 @@ import { useDoorController } from "./door.controller";
 import { findParentWall } from "@/models/DoorTypeRegistry";
 import { ApiService } from "@/models/api.service";
 import { useLintelController } from "./lintel.controller";
+import RoofEngine from "@/engines/Roof/RoofEngine";
 
 export const RoofInteractionState = {
   IDLE: "IDLE",
@@ -241,11 +242,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   const [isDrawingRoof, setIsDrawingRoof] = useState(false);
   const [roofInteractionState, setRoofInteractionState] = useState(RoofInteractionState.IDLE);
   const [selectedRoofId, setSelectedRoofId] = useState(null);
+  const [selectedRoofEdgeIndex, setSelectedRoofEdgeIndex] = useState(null);
   const [hoveredRoofTarget, setHoveredRoofTarget] = useState(null);
   const [activeRoofDragTarget, setActiveRoofDragTarget] = useState(null);
   const [roofHistory, setRoofHistory] = useState([]);
   const [roofFuture, setRoofFuture] = useState([]);
   const [currentMouse, setCurrentMouse] = useState(null);
+  const [isComputingRoof, setIsComputingRoof] = useState(false);
 
   const doorController = useDoorController({
     doorsByPage,
@@ -1441,6 +1444,46 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     }
   }
 
+  function computeRoofOrthoAndAlignment(rawPos, pointList, isShift, snapDist = 15) {
+    if (!isShift || !pointList || pointList.length === 0 || !rawPos) {
+      return { pos: rawPos, alignX: null, alignY: null };
+    }
+
+    const lastPt = pointList[pointList.length - 1];
+    const lx = typeof lastPt.x === 'number' ? lastPt.x : lastPt[0];
+    const ly = typeof lastPt.y === 'number' ? lastPt.y : lastPt[1];
+    const dx = Math.abs(rawPos.x - lx);
+    const dy = Math.abs(rawPos.y - ly);
+
+    if (dx < dy) {
+      // Strictly Vertical (X locked to lx)
+      let targetY = rawPos.y;
+      let alignY = null;
+      for (let i = 0; i < pointList.length - 1; i++) {
+        const py = typeof pointList[i].y === 'number' ? pointList[i].y : pointList[i][1];
+        if (Math.abs(rawPos.y - py) < snapDist) {
+          targetY = py;
+          alignY = py;
+          break;
+        }
+      }
+      return { pos: { x: lx, y: targetY }, alignX: null, alignY };
+    } else {
+      // Strictly Horizontal (Y locked to ly)
+      let targetX = rawPos.x;
+      let alignX = null;
+      for (let i = 0; i < pointList.length - 1; i++) {
+        const px = typeof pointList[i].x === 'number' ? pointList[i].x : pointList[i][0];
+        if (Math.abs(rawPos.x - px) < snapDist) {
+          targetX = px;
+          alignX = px;
+          break;
+        }
+      }
+      return { pos: { x: targetX, y: ly }, alignX, alignY: null };
+    }
+  }
+
   async function handleClick(e) {
     if (ignoreClickRef.current) {
       ignoreClickRef.current = false;
@@ -1592,6 +1635,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     // Intercept roof selection to prevent room selection from overriding selectedRoofId
     if (hoveredRoofTarget) {
       setSelectedRoofId(hoveredRoofTarget.roofId);
+      if (hoveredRoofTarget.edgeIndex !== undefined && hoveredRoofTarget.edgeIndex !== null) {
+        setSelectedRoofEdgeIndex(hoveredRoofTarget.edgeIndex);
+      } else {
+        setSelectedRoofEdgeIndex(null);
+      }
       setSelectedId(null);
       setSelectedType(null);
       return;
@@ -1641,19 +1689,24 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       return;
     }
 
-    // Roof drawing: click-to-close on first point
+    // Roof drawing: click-to-close on first point or add point with Shift Ortho
     if (isDrawingRoof) {
+      const isShift = isShiftDown || e.shiftKey || isSnapMode;
+      let effectiveP = p;
+      if (isShift && currentPoly.length > 0) {
+        const orthoRes = computeRoofOrthoAndAlignment(p, currentPoly, true, 20 / scale);
+        effectiveP = orthoRes.pos;
+      }
+
       if (currentPoly.length >= 2) {
         const first = currentPoly[0];
         const dist = Math.hypot(p.x - first.x, p.y - first.y);
-        if (dist < 15) {
+        if (dist < 20 / scale) {
           finishRoof();
           return;
         }
       }
-      const last = currentPoly[currentPoly.length - 1];
-      const point = (isShiftDown || isSnapMode) && last ? snap(last, p) : p;
-      setCurrentPoly(prev => [...prev, point]);
+      setCurrentPoly(prev => [...prev, effectiveP]);
       return;
     }
 
@@ -2066,13 +2119,265 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function updateRoofPitch(roofId, pitchAngle) {
     const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, pitchAngle: Math.max(0, Math.min(85, pitchAngle)), roof_type: pitchAngle > 0 ? "pitched" : "flat" } : r);
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        return {
+          ...r,
+          angles: Array(n).fill(Math.max(1, Math.min(89.9, pitchAngle))),
+          pitchAngle: pitchAngle,
+          isDirty: true
+        };
+      }
+      return r;
+    });
     pushRoofHistory(updated);
   }
 
-  function updateRoofType(roofId, roofType) {
+  function applyDefaultSettingsToAll(roofId, pitch, overhang) {
+    if (!roofId) return;
     const pageRoofs = roofsByPage[currentPage] || [];
-    const updated = pageRoofs.map(r => r.id === roofId ? { ...r, roofType } : r);
+    const pitchVal = (pitch !== undefined && pitch !== null)
+      ? Math.max(1, Math.min(89.9, parseFloat(pitch) || 22.5))
+      : null;
+    const ovhVal = (overhang !== undefined && overhang !== null)
+      ? Math.max(0, parseFloat(overhang) || 0.0)
+      : null;
+
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const newAngles = pitchVal !== null
+          ? Array(n).fill(pitchVal)
+          : (Array.isArray(r.angles) && r.angles.length === n ? [...r.angles] : Array(n).fill(22.5));
+        const newOverhangs = ovhVal !== null
+          ? Array(n).fill(ovhVal)
+          : (Array.isArray(r.overhangs) && r.overhangs.length === n ? [...r.overhangs] : Array(n).fill(0.0));
+        return {
+          ...r,
+          angles: newAngles,
+          pitchAngle: pitchVal !== null ? pitchVal : r.pitchAngle,
+          overhangs: newOverhangs,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function applyDefaultPitchToAll(roofId, pitch) {
+    if (!roofId || pitch === undefined) return;
+    applyDefaultSettingsToAll(roofId, pitch, null);
+  }
+
+  function applyDefaultOverhangToAll(roofId, overhang) {
+    if (!roofId || overhang === undefined) return;
+    applyDefaultSettingsToAll(roofId, null, overhang);
+  }
+
+  function updateRoofEdgeAngle(roofId, edgeIndex, angle) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentAngles = Array.isArray(r.angles) && r.angles.length === n
+          ? [...r.angles]
+          : Array(n).fill(22.5);
+        currentAngles[edgeIndex] = Math.max(1, Math.min(90, angle));
+        return {
+          ...r,
+          angles: currentAngles,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function updateRoofEdgeOverhang(roofId, edgeIndex, overhang) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentOverhangs = Array.isArray(r.overhangs) && r.overhangs.length === n
+          ? [...r.overhangs]
+          : Array(n).fill(0.0);
+        currentOverhangs[edgeIndex] = Math.max(0, overhang);
+        return {
+          ...r,
+          overhangs: currentOverhangs,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function toggleDutchEdge(roofId, edgeIndex) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const currentDutchEdges = Array.isArray(r.dutchEdges) ? [...r.dutchEdges] : [];
+        const n = r.polygon?.length || 0;
+        const currentDutchOverhangs = Array.isArray(r.dutchOverhangs) && r.dutchOverhangs.length === n ? [...r.dutchOverhangs] : Array(n).fill(0.0);
+        const currentDutchRakeOverhangs = Array.isArray(r.dutchRakeOverhangs) && r.dutchRakeOverhangs.length === n ? [...r.dutchRakeOverhangs] : Array(n).fill(0.0);
+        const currentDutchCutPoints = Array.isArray(r.dutchCutPoints) && r.dutchCutPoints.length === n ? [...r.dutchCutPoints] : Array(n).fill(null);
+        const currentAngles = Array.isArray(r.angles) && r.angles.length === n ? [...r.angles] : Array(n).fill(r.pitchAngle || 22.5);
+
+        const idx = currentDutchEdges.indexOf(edgeIndex);
+        if (idx !== -1) {
+          currentDutchEdges.splice(idx, 1);
+          currentDutchCutPoints[edgeIndex] = null; // Clear drawn cut point if toggled off
+        } else {
+          currentDutchEdges.push(edgeIndex);
+          // If this edge was currently Gable (90°), restore pitch to r.pitchAngle (if not 90°) or default 22.5°
+          if (Math.abs(currentAngles[edgeIndex] - 90.0) < 1.0) {
+            const restoredPitch = (typeof r.pitchAngle === 'number' && r.pitchAngle > 0 && Math.abs(r.pitchAngle - 90.0) >= 1.0)
+              ? r.pitchAngle
+              : 22.5;
+            currentAngles[edgeIndex] = restoredPitch;
+          }
+        }
+        return {
+          ...r,
+          angles: currentAngles,
+          dutchEdges: currentDutchEdges,
+          dutchOverhangs: currentDutchOverhangs,
+          dutchRakeOverhangs: currentDutchRakeOverhangs,
+          dutchCutPoints: currentDutchCutPoints,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function setRoofEdgeMode(roofId, edgeIndex, mode) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentAngles = Array.isArray(r.angles) && r.angles.length === n
+          ? [...r.angles]
+          : Array(n).fill(r.pitchAngle || 22.5);
+        const currentDutchEdges = Array.isArray(r.dutchEdges) ? [...r.dutchEdges] : [];
+        const currentDutchCutPoints = Array.isArray(r.dutchCutPoints) && r.dutchCutPoints.length === n
+          ? [...r.dutchCutPoints]
+          : Array(n).fill(null);
+        const currentDutchOverhangs = Array.isArray(r.dutchOverhangs) && r.dutchOverhangs.length === n
+          ? [...r.dutchOverhangs]
+          : Array(n).fill(0.0);
+        const currentDutchRakeOverhangs = Array.isArray(r.dutchRakeOverhangs) && r.dutchRakeOverhangs.length === n
+          ? [...r.dutchRakeOverhangs]
+          : Array(n).fill(0.0);
+
+        const restoredPitch = (typeof r.pitchAngle === 'number' && r.pitchAngle > 0 && Math.abs(r.pitchAngle - 90.0) >= 1.0)
+          ? r.pitchAngle
+          : 22.5;
+
+        const dIdx = currentDutchEdges.indexOf(edgeIndex);
+
+        if (mode === 'hip') {
+          currentAngles[edgeIndex] = restoredPitch;
+          if (dIdx !== -1) currentDutchEdges.splice(dIdx, 1);
+          currentDutchCutPoints[edgeIndex] = null;
+        } else if (mode === 'gable') {
+          currentAngles[edgeIndex] = 90.0;
+          if (dIdx !== -1) currentDutchEdges.splice(dIdx, 1);
+          currentDutchCutPoints[edgeIndex] = null;
+        } else if (mode === 'dutch') {
+          if (Math.abs(currentAngles[edgeIndex] - 90.0) < 1.0) {
+            currentAngles[edgeIndex] = restoredPitch;
+          }
+          if (dIdx === -1) currentDutchEdges.push(edgeIndex);
+        }
+
+        return {
+          ...r,
+          angles: currentAngles,
+          dutchEdges: currentDutchEdges,
+          dutchCutPoints: currentDutchCutPoints,
+          dutchOverhangs: currentDutchOverhangs,
+          dutchRakeOverhangs: currentDutchRakeOverhangs,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function updateDutchOverhang(roofId, edgeIndex, overhang) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentDutchOverhangs = Array.isArray(r.dutchOverhangs) && r.dutchOverhangs.length === n ? [...r.dutchOverhangs] : Array(n).fill(0.0);
+        currentDutchOverhangs[edgeIndex] = Math.max(0, overhang);
+        return {
+          ...r,
+          dutchOverhangs: currentDutchOverhangs,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function updateDutchRakeOverhang(roofId, edgeIndex, overhang) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentDutchRakeOverhangs = Array.isArray(r.dutchRakeOverhangs) && r.dutchRakeOverhangs.length === n ? [...r.dutchRakeOverhangs] : Array(n).fill(0.0);
+        currentDutchRakeOverhangs[edgeIndex] = Math.max(0, overhang);
+        return {
+          ...r,
+          dutchRakeOverhangs: currentDutchRakeOverhangs,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function updateDutchCutPoints(roofId, edgeIndex, cutPoint) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentDutchCutPoints = Array.isArray(r.dutchCutPoints) && r.dutchCutPoints.length === n ? [...r.dutchCutPoints] : Array(n).fill(null);
+        currentDutchCutPoints[edgeIndex] = cutPoint;
+        return {
+          ...r,
+          dutchCutPoints: currentDutchCutPoints,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function updateRoofType(roofId, roofType, eaveEdgeIndex = 0) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        return {
+          ...r,
+          roofType: roofType || 'hip_gable',
+          eaveEdgeIndex: eaveEdgeIndex ?? 0,
+          isDirty: true
+        };
+      }
+      return r;
+    });
     pushRoofHistory(updated);
   }
 
@@ -2085,34 +2390,156 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushRoofHistory(updated);
   }
 
+  function deleteRoofVertex(roofId, vertexIndex) {
+    if (!roofId || vertexIndex == null) return;
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const targetRoof = pageRoofs.find(r => r.id === roofId);
+    if (!targetRoof || !targetRoof.polygon) return;
+
+    if (targetRoof.polygon.length <= 3) {
+      deleteRoof(roofId);
+      return;
+    }
+
+    const updatedPoly = targetRoof.polygon.filter((_, idx) => idx !== vertexIndex);
+    const n = updatedPoly.length;
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        return {
+          ...r,
+          polygon: updatedPoly,
+          angles: Array(n).fill(22.5),
+          overhangs: Array(n).fill(0.0),
+          isDirty: true,
+          v3Data: null
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
   function finishRoof(points = currentPoly) {
     if (points.length < 3) return;
 
     // Validate polygon before committing
     const validation = validateRoofPolygon(points, scaleValue);
     if (!validation.valid) {
-      showAlert(validation.error);
+      if (showAlert) showAlert(validation.error);
       return;
     }
 
     const roofId = `roof_${Date.now()}`;
     const pageRoofs = roofsByPage[currentPage] || [];
     const roofName = `Roof ${String.fromCharCode(65 + (pageRoofs.length % 26))}`;
+    const n = points.length;
+
     const newRoof = {
       id: roofId,
       name: roofName,
-      polygon: points.map(p => ({ ...p })),
-      pitchAngle: 0,
-      roofType: 'flat',
-      eaveEdgeIndex: null
+      polygon: points.map(p => ({ x: p.x, y: p.y })),
+      angles: Array(n).fill(22.5),       // Mặc định 22.5° cho N cạnh
+      overhangs: Array(n).fill(0.0),     // Mặc định 0 mm cho N cạnh
+      roofType: 'hip_gable',
+      eaveEdgeIndex: 0,
+      wallHeight: defaultHeightVal || 2700,
+      holes: [],
+      holeAngles: [],
+      v3Data: null,
+      isDirty: true                      // Người dùng bấm Compute Roof mới tính toán
     };
 
     pushRoofHistory([...pageRoofs, newRoof]);
     setSelectedRoofId(roofId);
+    setSelectedId(roofId);
+    setSelectedType("roof");
     setCurrentPoly([]);
-    // Removed to allow continuous drawing until ESC is pressed
-    // setIsDrawingRoof(false);
-    // setRoofInteractionState(RoofInteractionState.IDLE);
+    setIsDrawingRoof(false); // Kết thúc chế độ vẽ ngay khi hoàn thành mái
+    if (setInteractionMode) setInteractionMode("select");
+  }
+
+  async function computeSelectedRoof(roofId = selectedRoofId) {
+    if (!roofId) return;
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const targetRoof = pageRoofs.find(r => r.id === roofId);
+    if (!targetRoof || !targetRoof.polygon || targetRoof.polygon.length < 3) return;
+
+    try {
+      setIsComputingRoof(true);
+      const v3Data = await RoofEngine.computeRoofPipeline({
+        roof: targetRoof,
+        scaleFactor: scaleValue,
+        realScale
+      });
+
+      const updated = pageRoofs.map(r => {
+        if (r.id === roofId) {
+          return {
+            ...r,
+            v3Data,
+            isDirty: false
+          };
+        }
+        return r;
+      });
+
+      pushRoofHistory(updated);
+    } catch (err) {
+      console.error("[RoofEngine] Compute roof error:", err);
+      if (showAlert) showAlert(err.message || "Failed to compute roof V3");
+    } finally {
+      setIsComputingRoof(false);
+    }
+  }
+
+  function exportRoofIO(roofId = selectedRoofId) {
+    if (!roofId) return null;
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const targetRoof = pageRoofs.find(r => r.id === roofId);
+    if (!targetRoof) return null;
+
+    return RoofEngine.exportRoofIO({
+      roof: targetRoof,
+      scaleFactor: scaleValue,
+      realScale,
+      download: true
+    });
+  }
+
+  async function trimRoofEdge(roofId, edgeIndex) {
+    if (!roofId || edgeIndex === undefined) return;
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const targetRoof = pageRoofs.find(r => r.id === roofId);
+    if (!targetRoof) return;
+
+    try {
+      setIsComputingRoof(true);
+      const trimRes = await RoofEngine.trimEave({
+        roof: targetRoof,
+        edgeIndex,
+        scaleFactor: scaleValue,
+        realScale
+      });
+
+      const updated = pageRoofs.map(r => {
+        if (r.id === roofId) {
+          return {
+            ...r,
+            overhangs: trimRes.overhangs,
+            v3Data: trimRes.v3Data,
+            isDirty: false
+          };
+        }
+        return r;
+      });
+
+      pushRoofHistory(updated);
+    } catch (err) {
+      console.error("[RoofEngine] Trim roof eave error:", err);
+      if (showAlert) showAlert(err.message || "Failed to trim roof eave");
+    } finally {
+      setIsComputingRoof(false);
+    }
   }
 
   function setRoofEaveEdge(roofId, edgeIndex) {
@@ -2122,13 +2549,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         return {
           ...r,
           eaveEdgeIndex: edgeIndex,
-          // Let user set the pitch explicitly after setting the eave edge.
+          isDirty: true
         };
       }
       return r;
     });
     pushRoofHistory(updated);
   }
+
 
 
   function finishDoor(points = currentDoor) {
@@ -2934,29 +3362,6 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       return; // Don't do anything else during drag
     }
 
-    // ===== ROOF DRAG ACTIVE (VERTEX OR BODY) =====
-    if (activeRoofDragTarget) {
-      const pRaw = getMouse(e);
-      const pageRoofs = roofsByPage[currentPage] || [];
-
-      if (activeRoofDragTarget.type === 'vertex') {
-        const origPt = activeRoofDragTarget.initialVertexPos || activeRoofDragTarget.startMousePos;
-        const updatedRoofs = updateSharedRoofVertices(pageRoofs, origPt, pRaw, 18);
-        setActiveRoofDragTarget(prev => prev ? { ...prev, initialVertexPos: { x: pRaw.x, y: pRaw.y } } : null);
-        setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
-        setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
-      } else if (activeRoofDragTarget.type === 'body') {
-        const dx = pRaw.x - activeRoofDragTarget.startMousePos.x;
-        const dy = pRaw.y - activeRoofDragTarget.startMousePos.y;
-        const newPoly = translatePolygon(activeRoofDragTarget.initialPolygon, dx, dy);
-        const updatedRoofs = pageRoofs.map(r => r.id === activeRoofDragTarget.roofId ? { ...r, polygon: newPoly } : r);
-        setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
-        setRoofInteractionState(RoofInteractionState.DRAG_BODY);
-      }
-
-      setCurrentMouse(pRaw);
-      return;
-    }
 
     // ===== MOVE VERTEX (DOUBLE RIGHT-CLICK) =====
     if (interactionMode === "move-vertex" && movingVertex) {
@@ -3078,14 +3483,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const p = getMouse(e);
     let snappedP = p;
 
-    if (drawing && currentPoly.length > 0) {
-      if (isShiftDown) {
-        snappedP = snap(currentPoly[currentPoly.length - 1], p);
-      } else {
-        snappedP = p;
-      }
-    } else if (isShiftDown || isSnapMode) {
-      if (isMeasuring && measurePoints.length === 1) {
+    if (isShiftDown || isSnapMode) {
+      if (isDrawingRoof && currentPoly.length > 0) {
+        const orthoRes = computeRoofOrthoAndAlignment(p, currentPoly, true, 20 / scale);
+        snappedP = orthoRes.pos;
+      } else if (drawing && currentPoly.length > 0) {
+        if (isShiftDown) {
+          snappedP = snap(currentPoly[currentPoly.length - 1], p);
+        } else {
+          snappedP = p;
+        }
+      } else if (isMeasuring && measurePoints.length === 1) {
         snappedP = snap(measurePoints[0], p);
       } else if (isDistancing && distancePoints.length === 1) {
         snappedP = snap(distancePoints[0], p);
@@ -3184,47 +3592,102 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     }
     setCurrentMouse(snappedP);
 
-    // ===== ROOF PRIORITY-BASED HOVER DETECTION (Pruned by Bounding Box) =====
-    if (!isDrawingRoof && !drawing && !isMeasuring && !isDistancing && !activeRoofDragTarget) {
+    // ===== ROOF FACE & EDGE HOVER DETECTION (Pruned by Bounding Box) =====
+    if (!isDrawingRoof && !drawing && !isMeasuring && !isDistancing) {
       const pageRoofs = roofsByPage[currentPage] || [];
       let foundHover = null;
+
+      const isDrawingDutchMode = (interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch");
 
       for (let i = pageRoofs.length - 1; i >= 0; i--) {
         const roof = pageRoofs[i];
         const bbox = getBoundingBox(roof.polygon);
-        const tol = 15 / scale;
+        const tol = 20 / scale;
 
         // Bounding box spatial filter
         if (p.x < bbox.minX - tol || p.x > bbox.maxX + tol || p.y < bbox.minY - tol || p.y > bbox.maxY + tol) {
           continue;
         }
 
-        // Priority 1: Vertex Hover
-        const vHit = nearestVertex(roof.polygon, p, 10, scale);
-        if (vHit) {
-          foundHover = { type: 'vertex', roofId: roof.id, index: vHit.index, point: vHit.point };
-          setRoofInteractionState(RoofInteractionState.HOVER_VERTEX);
-          break;
+        const topo = roof.v3Data?.topology2D;
+        const nodes = topo?.nodes || [];
+        const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+          ? realScale
+          : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+        const getNodeCoord = (ref) => {
+          if (ref == null) return null;
+          let node = null;
+          if (typeof ref === 'object' && ref !== null) {
+            node = ref;
+          } else if (Array.isArray(nodes)) {
+            if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+              node = nodes[ref];
+            } else {
+              node = nodes.find(n => n && n.id === ref);
+            }
+          }
+          if (!node) return null;
+          const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+          const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+          if (isNaN(rawX) || isNaN(rawY)) return null;
+          return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+        };
+
+        // 1. First priority: Check 2D straight skeleton faces (V3 Topology)
+        if (topo?.faces && topo.faces.length > 0) {
+          for (const face of topo.faces) {
+            const vertCoords = (face.vertices || []).map(getNodeCoord).filter(Boolean);
+            if (vertCoords.length >= 3 && pointInPolygon(p, vertCoords)) {
+              const eIdx = face.contour_edge_index !== undefined ? face.contour_edge_index : -1;
+              foundHover = {
+                type: 'face',
+                roofId: roof.id,
+                faceId: face.id,
+                edgeIndex: eIdx >= 0 ? eIdx : null
+              };
+              if (!isDrawingDutchMode) setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+              break;
+            }
+          }
         }
 
-        // Priority 2: Edge Hover
-        const eHit = nearestEdge(roof.polygon, p, 8, scale);
-        if (eHit) {
-          foundHover = { type: 'edge', roofId: roof.id, edgeIndex: eHit.edgeIndex, projectionPoint: eHit.projectionPoint };
-          setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
-          break;
+        // 2. Fallback to outer contour eave edge hit from topology
+        if (!foundHover && topo?.edges) {
+          const contourEdges = topo.edges.filter(e => e.is_contour);
+          for (const cEdge of contourEdges) {
+            const p1 = getNodeCoord(cEdge.source);
+            const p2 = getNodeCoord(cEdge.target);
+            if (p1 && p2) {
+              const d = distancePointToSegment(p, p1, p2);
+              if (d <= 12 / scale) {
+                foundHover = {
+                  type: 'edge',
+                  roofId: roof.id,
+                  edgeIndex: cEdge.contour_edge_index !== undefined && cEdge.contour_edge_index >= 0 ? cEdge.contour_edge_index : null
+                };
+                if (!isDrawingDutchMode) setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+                break;
+              }
+            }
+          }
         }
 
-        // Priority 3: Body Hover
-        if (pointInPolygon(p, roof.polygon)) {
-          foundHover = { type: 'body', roofId: roof.id };
-          setRoofInteractionState(RoofInteractionState.HOVER_BODY);
-          break;
+        // 3. Fallback to base boundary edge hit
+        if (!foundHover) {
+          const eHit = nearestEdge(roof.polygon, p, 10, scale);
+          if (eHit) {
+            foundHover = { type: 'edge', roofId: roof.id, edgeIndex: eHit.edgeIndex };
+            if (!isDrawingDutchMode) setRoofInteractionState(RoofInteractionState.HOVER_EDGE);
+            break;
+          }
         }
+
+        if (foundHover) break;
       }
 
       setHoveredRoofTarget(foundHover);
-      if (!foundHover && roofInteractionState !== RoofInteractionState.DRAWING_ROOF && roofInteractionState !== RoofInteractionState.PANNING) {
+      if (!isDrawingDutchMode && !foundHover && roofInteractionState !== RoofInteractionState.DRAWING_ROOF && roofInteractionState !== RoofInteractionState.PANNING) {
         setRoofInteractionState(RoofInteractionState.IDLE);
       }
     }
@@ -3289,71 +3752,73 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     const p = getMouse(e);
 
-    // ROOF INTERACTION MOUSE DOWN (Vertex/Body drag, 1-click edge insert, 2-click vertex delete)
-    if (!isDrawingRoof && hoveredRoofTarget && e.button === 0) {
-      if (document.activeElement && typeof document.activeElement.blur === 'function') {
-        document.activeElement.blur();
+    if ((interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") && e.button === 0) {
+      const activeRoofId = selectedRoofId || roofInteractionState?.roofId;
+      const activeEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
+        ? selectedRoofEdgeIndex
+        : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
+        ? roofInteractionState.edgeIndex
+        : null;
+      if (activeRoofId && activeEdgeIndex !== null && activeEdgeIndex !== undefined && typeof activeEdgeIndex === 'number') {
+        let cutPoint = [p.x, p.y];
+        const pageRoofs = roofsByPage[currentPage] || [];
+        const roof = pageRoofs.find(r => r.id === activeRoofId);
+        if (roof?.v3Data?.topology2D) {
+          const topo = roof.v3Data.topology2D;
+          const nodes = topo.nodes || [];
+          const faces = topo.faces || [];
+          const mmPerPx = (typeof realScale === 'number' && realScale > 0) ? realScale : 20.0;
+          const targetFace = (faces || []).find(f => f.contour_edge_index === activeEdgeIndex);
+          const snapThreshold = 32 / scale;
+          if (targetFace?.vertices) {
+            for (const vRef of targetFace.vertices) {
+              const node = (typeof vRef === 'object' && vRef !== null) ? vRef : (Array.isArray(nodes) ? (nodes[vRef] || nodes.find(n => n?.id === vRef)) : null);
+              if (!node) continue;
+              const nx = (typeof node.x === 'number' ? node.x : node[0]) / mmPerPx;
+              const ny = (typeof node.y === 'number' ? node.y : node[1]) / mmPerPx;
+              if (Math.hypot(p.x - nx, p.y - ny) < snapThreshold) {
+                cutPoint = [nx, ny];
+                break;
+              }
+            }
+          }
+        }
+        if (updateDutchCutPoints) updateDutchCutPoints(activeRoofId, activeEdgeIndex, cutPoint);
+      }
+      setInteractionMode("select");
+      setRoofInteractionState(RoofInteractionState.IDLE);
+      return;
+    }
+
+    // ROOF INTERACTION MOUSE DOWN (Edge selection or double-click to delete vertex)
+    if (!isDrawingRoof && e.button === 0) {
+      const pageRoofs = roofsByPage[currentPage] || [];
+
+      // Check double-click to delete vertex
+      if (e.detail === 2) {
+        for (const roof of pageRoofs) {
+          const vHit = nearestVertex(roof.polygon, p, 15, scale);
+          if (vHit) {
+            deleteRoofVertex(roof.id, vHit.index);
+            return;
+          }
+        }
       }
 
-      const pageRoofs = roofsByPage[currentPage] || [];
-      const targetRoof = pageRoofs.find(r => r.id === hoveredRoofTarget.roofId);
-
-      if (targetRoof) {
-        // Topology Mutation: Double-Click or Alt+Shift+Click to Delete Vertex Point
-        if (hoveredRoofTarget.type === 'vertex' && (e.detail === 2 || (e.altKey && e.shiftKey))) {
-          const targetPt = targetRoof.polygon[hoveredRoofTarget.index];
-          const updatedRoofs = removeSharedRoofVertex(pageRoofs, targetPt, 18);
-          setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
-          pushRoofHistory(updatedRoofs);
-          setHoveredRoofTarget(null); // FIX: clear target after mutation
-          return;
+      if (hoveredRoofTarget) {
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+          document.activeElement.blur();
         }
-
-        // Topology Mutation: Single-Click or Alt+Click on Edge to Insert New Vertex Point
-        if (hoveredRoofTarget.type === 'edge') {
+        const targetRoof = pageRoofs.find(r => r.id === hoveredRoofTarget.roofId);
+        if (targetRoof) {
           setSelectedRoofId(targetRoof.id);
+          if (hoveredRoofTarget.edgeIndex !== undefined && hoveredRoofTarget.edgeIndex !== null) {
+            setSelectedRoofEdgeIndex(hoveredRoofTarget.edgeIndex);
+          } else {
+            setSelectedRoofEdgeIndex(null);
+          }
           setSelectedId(null);
           setSelectedType(null);
-          const updatedRoofs = insertSharedRoofVertex(pageRoofs, targetRoof.id, hoveredRoofTarget.edgeIndex, hoveredRoofTarget.projectionPoint, 18);
-          setRoofsByPage(prev => ({ ...prev, [currentPage]: updatedRoofs }));
-          pushRoofHistory(updatedRoofs);
-          setHoveredRoofTarget(null); // FIX: clear target after mutation
-          return;
-        }
-
-        // Drag Setup: Vertex Drag
-        if (hoveredRoofTarget.type === 'vertex') {
-          setSelectedRoofId(targetRoof.id);
-          setSelectedId(null);
-          setSelectedType(null);
-          const vPt = targetRoof.polygon[hoveredRoofTarget.index];
-          const vx = typeof vPt.x === 'number' ? vPt.x : vPt[0];
-          const vy = typeof vPt.y === 'number' ? vPt.y : vPt[1];
-
-          setActiveRoofDragTarget({
-            type: 'vertex',
-            roofId: targetRoof.id,
-            vertexIndex: hoveredRoofTarget.index,
-            startMousePos: p,
-            initialVertexPos: { x: vx, y: vy },
-            initialPolygon: [...targetRoof.polygon]
-          });
-          setRoofInteractionState(RoofInteractionState.DRAG_VERTEX);
-          return;
-        }
-
-        // Drag Setup: Body Drag
-        if (hoveredRoofTarget.type === 'body') {
-          setSelectedRoofId(targetRoof.id);
-          setSelectedId(null);
-          setSelectedType(null);
-          setActiveRoofDragTarget({
-            type: 'body',
-            roofId: targetRoof.id,
-            startMousePos: p,
-            initialPolygon: targetRoof.polygon.map(pt => ({ ...pt }))
-          });
-          setRoofInteractionState(RoofInteractionState.DRAG_BODY);
           return;
         }
       }
@@ -3362,6 +3827,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     // Clear roof selection when clicking empty space
     if (!isDrawingRoof && !hoveredRoofTarget && e.button === 0) {
       setSelectedRoofId(null);
+      setSelectedRoofEdgeIndex(null);
     }
 
     if (interactionMode === "marquee" || e.ctrlKey || isCtrlDown) {
@@ -3900,10 +4366,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     isDrawingRoof, setIsDrawingRoof,
     roofInteractionState, setRoofInteractionState,
     selectedRoofId, setSelectedRoofId,
+    selectedRoofEdgeIndex, setSelectedRoofEdgeIndex,
     hoveredRoofTarget, setHoveredRoofTarget,
     activeRoofDragTarget,
     roofHistory, roofFuture,
-    updateRoofPitch, updateRoofType, setRoofEaveEdge, deleteRoof,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    setRoofEdgeMode,
+    exportRoofIO,
+    toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
