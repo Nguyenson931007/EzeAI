@@ -125,7 +125,7 @@ export default function UserProfileModal({
         // Self update
         const res = await ApiService.updateMyProfile(payload);
         updated = res?.user || { ...profile, ...payload };
-        
+
         // Update localStorage if email or names changed
         const localUser = JSON.parse(localStorage.getItem('user') || '{}');
         localStorage.setItem('user', JSON.stringify({ ...localUser, ...payload }));
@@ -360,7 +360,7 @@ export default function UserProfileModal({
                 {/* English Name */}
                 <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    🔤 English Name (Tên tiếng Anh)
+                    🔤 English Name
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
                     {profile.full_name_en || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontWeight: 400 }}>Not provided</span>}
@@ -370,7 +370,7 @@ export default function UserProfileModal({
                 {/* Vietnamese Name */}
                 <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    🇻🇳 Vietnamese Name (Tên tiếng Việt)
+                    🇻🇳 Vietnamese Name
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
                     {profile.full_name_vi || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontWeight: 400 }}>Not provided</span>}
@@ -380,7 +380,7 @@ export default function UserProfileModal({
                 {/* Age */}
                 <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    🎂 Age (Tuổi)
+                    🎂 Age
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
                     {profile.age ? `${profile.age} years old` : <span style={{ color: '#94a3b8', fontStyle: 'italic', fontWeight: 400 }}>Not provided</span>}
@@ -410,7 +410,7 @@ export default function UserProfileModal({
                 {/* Phone */}
                 <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    📞 Phone Number (Số điện thoại)
+                    📞 Phone Number
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
                     {profile.phone || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontWeight: 400 }}>Not provided</span>}
@@ -463,7 +463,7 @@ export default function UserProfileModal({
                 {/* English Name Input */}
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                    🔤 English Name (Tên tiếng Anh)
+                    🔤 English Name
                   </label>
                   <input
                     type="text"
@@ -486,7 +486,7 @@ export default function UserProfileModal({
                 {/* Vietnamese Name Input */}
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                    🇻🇳 Vietnamese Name (Tên tiếng Việt)
+                    🇻🇳 Vietnamese Name
                   </label>
                   <input
                     type="text"
@@ -509,7 +509,7 @@ export default function UserProfileModal({
                 {/* Age Input */}
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                    🎂 Age (Tuổi)
+                    🎂 Age
                   </label>
                   <input
                     type="number"
@@ -534,7 +534,7 @@ export default function UserProfileModal({
                 {/* Phone Input */}
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                    📞 Phone Number (Số điện thoại)
+                    📞 Phone Number
                   </label>
                   <input
                     type="tel"
@@ -557,7 +557,7 @@ export default function UserProfileModal({
                 {/* Position Input with Suggestions */}
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                    💼 Position in Company (Vị trí)
+                    💼 Position in Company
                   </label>
                   <input
                     type="text"

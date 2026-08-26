@@ -468,7 +468,7 @@ export default function ThreeDView({
 
     const width = containerRef.current.clientWidth || 800;
     const height = containerRef.current.clientHeight || 600;
-    
+
     // Camera: Near 1, Far 100,000 to prevent PDF & buildings from disappearing when zooming out
     const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000);
     camera.position.set(initCenter.x, 700, initCenter.z + 700);
@@ -1019,7 +1019,7 @@ export default function ThreeDView({
           if (rendererRef.current) {
             try {
               texture.anisotropy = rendererRef.current.capabilities.getMaxAnisotropy();
-            } catch (_) {}
+            } catch (_) { }
           }
           texture.flipY = false;
 
@@ -2306,7 +2306,7 @@ export default function ThreeDView({
                         type="checkbox"
                         checked={showExtWalls}
                         onChange={(e) => setShowExtWalls(e.target.checked)}
-                        title={showExtWalls ? "Ẩn Tường Ngoại Thất (Hide Exterior Walls)" : "Hiện Tường Ngoại Thất (Show Exterior Walls)"}
+                        title={showExtWalls ? "Hide Exterior Walls" : "Show Exterior Walls"}
                         style={{ accentColor: "#3b82f6", width: "16px", height: "16px", cursor: "pointer" }}
                       />
                       <input
@@ -2336,7 +2336,7 @@ export default function ThreeDView({
                         type="checkbox"
                         checked={showIntWalls}
                         onChange={(e) => setShowIntWalls(e.target.checked)}
-                        title={showIntWalls ? "Ẩn Tường Nội Thất (Hide Interior Walls)" : "Hiện Tường Nội Thất (Show Interior Walls)"}
+                        title={showIntWalls ? "Hide Interior Walls" : "Show Interior Walls"}
                         style={{ accentColor: "#3b82f6", width: "16px", height: "16px", cursor: "pointer" }}
                       />
                       <input
@@ -2366,7 +2366,7 @@ export default function ThreeDView({
                         type="checkbox"
                         checked={showPartWalls}
                         onChange={(e) => setShowPartWalls(e.target.checked)}
-                        title={showPartWalls ? "Ẩn Tường Vách Ngăn (Hide Partition Walls)" : "Hiện Tường Vách Ngăn (Show Partition Walls)"}
+                        title={showPartWalls ? "Hide Partition Walls" : "Show Partition Walls"}
                         style={{ accentColor: "#3b82f6", width: "16px", height: "16px", cursor: "pointer" }}
                       />
                       <input
@@ -2396,7 +2396,7 @@ export default function ThreeDView({
                         type="checkbox"
                         checked={showBlockWalls}
                         onChange={(e) => setShowBlockWalls(e.target.checked)}
-                        title={showBlockWalls ? "Ẩn Tường Block / Bê Tông (Hide Block Walls)" : "Hiện Tường Block / Bê Tông (Show Block Walls)"}
+                        title={showBlockWalls ? "Hide Block Walls" : "Show Block Walls"}
                         style={{ accentColor: "#3b82f6", width: "16px", height: "16px", cursor: "pointer" }}
                       />
                       <input
@@ -2659,9 +2659,9 @@ export default function ThreeDView({
                 cursor: "pointer"
               }}
             >
-              <option value="ext">Exterior Wall (Ngoại thất)</option>
-              <option value="int">Interior Wall (Nội thất)</option>
-              <option value="part">Partition Wall (Vách ngăn)</option>
+              <option value="ext">Exterior Wall</option>
+              <option value="int">Interior Wall</option>
+              <option value="part">Partition Wall</option>
             </select>
           </div>
 

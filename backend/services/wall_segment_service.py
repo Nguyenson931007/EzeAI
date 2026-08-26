@@ -110,12 +110,13 @@ def _run_yolo_inference(
                 class_name = model.names.get(class_id, f"wall_{class_id}")
 
                 # Normalize YOLO class names to canonical names used in frontend/backend
+                # All internal walls default to partition_wall (non-LBW) until user activates LBW
                 _CLASS_NAME_MAP = {
                     "ext_wall": "exterior_wall",
-                    "int_wall": "interior_wall",
+                    "int_wall": "partition_wall",
                     "part_wall": "partition_wall",
                 }
-                class_name = _CLASS_NAME_MAP.get(class_name, class_name)
+                class_name = _CLASS_NAME_MAP.get(class_name, "partition_wall" if "int" in class_name or "part" in class_name else class_name)
 
                 # Class-specific confidence filtering
                 if conf < confidence:

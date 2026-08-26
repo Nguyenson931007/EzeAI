@@ -1337,11 +1337,25 @@ const WallHandlesLayer = React.memo(({
         let angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle > 90 || angle < -90) angle += 180;
 
-        const wallFontSz = Math.max(8, Math.min(10, wallLen * 0.07));
-        const isBlockWall = getWallClass ? getWallClass(w) === "block_wall" : (w.class_name === "block_wall" || w.wall_type === "block");
-        const displayLabel = isBlockWall ? `${wallLabel} [BLOCK]` : wallLabel;
-        const badgeWidth = Math.max(22, displayLabel.length * wallFontSz * 0.55 + 6);
-        const badgeHeight = wallFontSz + 4;
+        const wallFontSz = Math.max(11, Math.min(15, wallLen * 0.09));
+        const wallCls = getWallClass ? getWallClass(w) : (w.class_name || "partition_wall");
+        const isBlockWall = wallCls === "block_wall";
+        const isPartWall = wallCls === "partition_wall" || w.wall_type === "part";
+        const isLbw = isPartWall && Boolean(
+          w.is_lbw || 
+          w.is_load_bearing || 
+          w.lbw
+        );
+
+        let displayLabel = wallLabel;
+        if (isBlockWall) {
+          displayLabel = `${wallLabel} [BLOCK]`;
+        } else if (isLbw) {
+          displayLabel = `${wallLabel} [LBW]`;
+        }
+
+        const badgeWidth = Math.max(30, displayLabel.length * wallFontSz * 0.62 + 12);
+        const badgeHeight = wallFontSz + 6;
 
         // Smart perpendicular offset for short walls (wallLen < 50px) so badge shifts off wall body
         const isShortWall = wallLen < 50;
@@ -1364,9 +1378,35 @@ const WallHandlesLayer = React.memo(({
                 width={badgeWidth}
                 height={badgeHeight}
                 rx={3}
-                fill={isSelected ? "rgba(245, 158, 11, 0.95)" : (isHovered ? "rgba(59, 130, 246, 0.92)" : (isBlockWall ? "rgba(71, 85, 105, 0.95)" : "rgba(30, 41, 59, 0.88)"))}
-                stroke={isSelected ? "#fef3c7" : (isHovered ? "#93c5fd" : (isBlockWall ? "#cbd5e1" : "rgba(148, 163, 184, 0.5)"))}
-                strokeWidth={isBlockWall ? 1.5 : 1}
+                fill={
+                  isSelected 
+                    ? "rgba(245, 158, 11, 0.95)" 
+                    : (isHovered 
+                        ? "rgba(59, 130, 246, 0.92)" 
+                        : (isBlockWall 
+                            ? "rgba(71, 85, 105, 0.95)" 
+                            : (isLbw 
+                                ? "rgba(234, 88, 12, 0.95)" 
+                                : "rgba(30, 41, 59, 0.88)"
+                              )
+                          )
+                      )
+                }
+                stroke={
+                  isSelected 
+                    ? "#fef3c7" 
+                    : (isHovered 
+                        ? "#93c5fd" 
+                        : (isBlockWall 
+                            ? "#cbd5e1" 
+                            : (isLbw 
+                                ? "#fed7aa" 
+                                : "rgba(148, 163, 184, 0.5)"
+                              )
+                          )
+                      )
+                }
+                strokeWidth={isBlockWall || isLbw ? 1.5 : 1}
                 style={{ pointerEvents: 'none' }}
               />
               <text
@@ -2233,18 +2273,18 @@ const OCRLabelLayer = React.memo(({
         const bboxH = Math.max(...ys) - Math.min(...ys);
         const dim = Math.min(bboxW, bboxH);
 
-        // Sizing override for detected text boxes - sleek compact badge sizing
+        // Sizing override for detected text boxes - modern readable badge sizing
         const nameFontSize = isText
-          ? Math.max(10, Math.min(13, bboxH * 0.4))
-          : Math.max(9, Math.min(12, dim * 0.05));
-        const areaFontSize = Math.max(8, nameFontSize * 0.75);
-        const lineGap = nameFontSize * 1.1;
+          ? Math.max(13, Math.min(17, bboxH * 0.45))
+          : Math.max(13, Math.min(17, dim * 0.075));
+        const areaFontSize = Math.max(11, nameFontSize * 0.82);
+        const lineGap = nameFontSize * 1.15;
         const areaText = scaleValue ? `${area.toFixed(2)} m²` : "";
         const pillW = Math.max(
-          ((r.room_name || "").length + (heatmapMode && r.conf !== undefined ? 6 : 0)) * nameFontSize * 0.52,
-          areaText.length * areaFontSize * 0.52
-        ) + 10;
-        const pillH = nameFontSize + (areaText ? areaFontSize + 2 : 0) + 5;
+          ((r.room_name || "").length + (heatmapMode && r.conf !== undefined ? 6 : 0)) * nameFontSize * 0.65,
+          areaText.length * areaFontSize * 0.65
+        ) + 24;
+        const pillH = nameFontSize + (areaText ? areaFontSize + 6 : 0) + 10;
 
         // Review state color boost
         const isLowConfidence = r.conf !== undefined && r.conf < (config?.rooms ?? 0.55);
@@ -2593,9 +2633,9 @@ const OCRLabelLayer = React.memo(({
                 {/* Visual Status Indicators */}
                 {revStyle && (
                   <circle
-                    cx={c.x + pillW / 2 - 6}
+                    cx={c.x + pillW / 2 - 8}
                     cy={c.y - nameFontSize * 0.5 + 4}
-                    r={4}
+                    r={4.5}
                     fill={revStyle.stroke}
                     title={revStyle.label}
                   />
@@ -2978,6 +3018,13 @@ export default function CanvasView({
     const w = wallContextMenu.wall;
     if (w && updateWallsProperty) {
       updateWallsProperty([w.id], "locked", !w.locked);
+    }
+  };
+
+  const handleWallToggleLbw = () => {
+    const w = wallContextMenu.wall;
+    if (w && updateWallsProperty) {
+      updateWallsProperty([w.id], "is_lbw", !Boolean(w.is_lbw || w.is_load_bearing || w.lbw));
     }
   };
 
@@ -5481,6 +5528,7 @@ export default function CanvasView({
         onChangeClass={handleWallChangeClass}
         onAddPoint={handleWallStartCut}
         onToggleLock={handleWallToggleLock}
+        onToggleLbw={handleWallToggleLbw}
       />
 
       {/* ===== ROOF CONTEXT MENU OVERLAY ===== */}

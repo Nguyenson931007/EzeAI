@@ -1363,23 +1363,23 @@ export default function AIDoor({
               }}
             >
               <rect
-                x={cxAvg - 34}
-                y={cyAvg - 11}
-                width={68}
-                height={22}
-                rx={5}
-                fill="rgba(15, 23, 42, 0.92)"
+                x={cxAvg - 42}
+                y={cyAvg - 13}
+                width={84}
+                height={26}
+                rx={6}
+                fill="rgba(15, 23, 42, 0.94)"
                 stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#64748b")}
                 strokeWidth={1.5}
-                style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))' }}
+                style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
               />
               <text
                 x={cxAvg}
                 y={cyAvg + 1}
-                fontSize="12"
+                fontSize="14"
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#e2e8f0")}
+                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#f1f5f9")}
                 fontWeight="700"
                 fontFamily="Inter, monospace"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}
@@ -1391,16 +1391,16 @@ export default function AIDoor({
 
           {/* Door Class Name / Door ID Label */}
           <g 
-            transform={`translate(${cxAvg}, ${cyAvg - 26})`} 
+            transform={`translate(${cxAvg}, ${cyAvg - 30})`} 
             style={{ pointerEvents: 'none' }}
           >
             {isSelected && (
               <rect
-                x={-38}
-                y={-12}
-                width={76}
-                height={24}
-                rx={5}
+                x={-44}
+                y={-14}
+                width={88}
+                height={28}
+                rx={6}
                 fill="#FF5722"
                 opacity={0.95}
                 filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
@@ -1410,7 +1410,7 @@ export default function AIDoor({
               x={0}
               y={1}
               fill={isSelected ? "#ffffff" : "#0f172a"}
-              fontSize={12}
+              fontSize={14}
               fontWeight="700"
               textAnchor="middle"
               alignmentBaseline="middle"
