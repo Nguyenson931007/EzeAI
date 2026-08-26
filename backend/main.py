@@ -34,6 +34,7 @@ from api.jobs import router as jobs_router
 from api.framework_routes import router as framework_router
 from api.area_summary_routes import router as area_summary_router
 from api.insulation_routes import router as insulation_router
+from api.lockout_routes import router as lockout_router
 from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
 from app.limiter import limiter
 
@@ -172,5 +173,6 @@ app.include_router(jobs_router, tags=["jobs"])
 app.include_router(framework_router, tags=["framework"])
 app.include_router(area_summary_router, tags=["area_summary"])
 app.include_router(insulation_router, tags=["insulation"])
+app.include_router(lockout_router, tags=["lockout"])
 
 

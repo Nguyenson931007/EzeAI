@@ -441,7 +441,8 @@ export default function RightPropertyPaneView({
     setShowFrameworkModal,
     setShowAreaSummaryModal,
     setShowInsulationModal,
-    setPages
+    showLockoutModal,
+    setShowLockoutModal
   } = useAppModel();
 
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task") ──
@@ -4520,25 +4521,24 @@ export default function RightPropertyPaneView({
                     📊 Export Takeoff Form (.xlsx)
                   </ExportButton>
 
-                  {/* 3 Modals Quick Access (FrameWork, Area Summary, Insulation) */}
-                  <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                  {/* 4 Modals Quick Access (FrameWork, Area Summary, Insulation, LockUp) */}
+                  <div style={{ display: "flex", gap: "5px", marginTop: "4px" }}>
                     <button
                       type="button"
                       onClick={() => setShowFrameworkModal(true)}
                       style={{
                         flex: 1,
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: "3px", padding: "8px 4px", background: "#ffffff",
-                        border: "1px solid var(--border)", borderRadius: "8px",
-                        color: "var(--text)", cursor: "pointer", fontSize: "10px", fontWeight: "700",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                        gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                        border: "1px solid #cbd5e1", borderRadius: "8px",
+                        color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
                         transition: "all 0.15s ease"
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#93c5fd"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
                     >
-                      <span style={{ fontSize: "16px" }}>🏗️</span>
-                      <span>FrameWork</span>
+                      <span style={{ fontSize: "15px" }}>🏗️</span>
+                      <span style={{ color: "#0f172a" }}>FrameWork</span>
                     </button>
 
                     <button
@@ -4547,17 +4547,16 @@ export default function RightPropertyPaneView({
                       style={{
                         flex: 1,
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: "3px", padding: "8px 4px", background: "#ffffff",
-                        border: "1px solid var(--border)", borderRadius: "8px",
-                        color: "var(--text)", cursor: "pointer", fontSize: "10px", fontWeight: "700",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                        gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                        border: "1px solid #cbd5e1", borderRadius: "8px",
+                        color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
                         transition: "all 0.15s ease"
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#93c5fd"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
                     >
-                      <span style={{ fontSize: "16px" }}>📐</span>
-                      <span>Area</span>
+                      <span style={{ fontSize: "15px" }}>📐</span>
+                      <span style={{ color: "#0f172a" }}>Area Summary</span>
                     </button>
 
                     <button
@@ -4566,17 +4565,34 @@ export default function RightPropertyPaneView({
                       style={{
                         flex: 1,
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        gap: "3px", padding: "8px 4px", background: "#ffffff",
-                        border: "1px solid var(--border)", borderRadius: "8px",
-                        color: "var(--text)", cursor: "pointer", fontSize: "10px", fontWeight: "700",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                        gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                        border: "1px solid #cbd5e1", borderRadius: "8px",
+                        color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
                         transition: "all 0.15s ease"
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#93c5fd"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
                     >
-                      <span style={{ fontSize: "16px" }}>🧱</span>
-                      <span>Insulation</span>
+                      <span style={{ fontSize: "15px" }}>🧱</span>
+                      <span style={{ color: "#0f172a" }}>Insulation</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowLockoutModal(true)}
+                      style={{
+                        flex: 1,
+                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                        gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                        border: "1px solid #cbd5e1", borderRadius: "8px",
+                        color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                        transition: "all 0.15s ease"
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                    >
+                      <span style={{ fontSize: "15px" }}>🔒</span>
+                      <span style={{ color: "#0f172a" }}>LockUp</span>
                     </button>
                   </div>
                 </div>
