@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, getWallSideOffsets, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
+import { buildRoof3DSceneObjects } from "@/engines/Roof/Roof3DBuilder";
 
 let _blockWallTextureCache = null;
 function getBlockWallTexture() {
@@ -149,6 +150,11 @@ export default function ThreeDView({
   const [enableShadows, setEnableShadows] = useState(true);
   const [envTheme, setEnvTheme] = useState("grass"); // "grass" (Cỏ cây) | "sky" (Trời xanh) | "dark" (Studio tối)
   const [visibleLevels, setVisibleLevels] = useState({});
+
+  // ── 3D Roof Color Mode & Custom Colors ──
+  const [roofColorMode, setRoofColorMode] = useState("palette"); // "palette" | "single"
+  const [singleRoofColor, setSingleRoofColor] = useState("#334155"); // Elegant Slate Charcoal Roof Color
+  const [showRoofOutlines, setShowRoofOutlines] = useState(true); // Toggle white CAD outline lines
   const [isControlsCollapsed, setIsControlsCollapsed] = useState(false);
 
   // ── 3D Wall Color Mode & Custom Colors ──
@@ -857,29 +863,42 @@ export default function ThreeDView({
           if (!poly || poly.length < 3) return;
 
           const n = poly.length;
-          const pts2d = poly.map(p => new THREE.Vector2(
-            typeof p.x === 'number' ? p.x : p[0],
-            typeof p.y === 'number' ? p.y : p[1]
-          ));
-
           const topYOffset = yOffset + levelWallHeight;
-          const scaleFactor = realScale && realScale !== 1.0 ? realScale : 18.0;
-          const roofThickness = 120 / scaleFactor;
+          const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+            ? realScale
+            : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+          const roofThickness = 120 / mmPerPx;
+          const wallHeightMm = roof.wallHeight || 2700;
 
-          const pitchDeg = typeof roof.pitchAngle === 'number' ? roof.pitchAngle : 0;
-          const pitchRad = pitchDeg * (Math.PI / 180);
+          // Case 1: Roof has V3 computed 3D Mesh
+          if (roof.v3Data && (roof.v3Data.roofMesh || roof.v3Data.roof_mesh || roof.v3Data.mesh3D || roof.v3Data.mesh)) {
+            const hasUserWalls = Array.isArray(pageWalls) && pageWalls.length > 0;
+            const roofObjects = buildRoof3DSceneObjects({
+              roof,
+              mmPerPx,
+              imgSize,
+              topYOffset,
+              wallHeightMm,
+              enableShadows,
+              roofColorMode,
+              singleRoofColor,
+              showOutlines: showRoofOutlines,
+              hasUserWalls,
+              renderSampleWalls: !hasUserWalls
+            });
 
-          const material = new THREE.MeshStandardMaterial({
-            color: 0xd97706, // Warm terracotta amber roof
-            roughness: 0.45,
-            metalness: 0.15,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 1
-          });
+            roofObjects.forEach(obj => {
+              scene.add(obj);
+              roofMeshesRef.current.push(obj);
+            });
 
-          if (pitchDeg == 0 || !roof.solvedPolygon3D) {
-            // Flat roof extrude
+          } else {
+            // Case 2: Fallback Flat Extruded Roof (before V3 computation)
+            const pts2d = poly.map(p => new THREE.Vector2(
+              typeof p.x === 'number' ? p.x : p[0],
+              typeof p.y === 'number' ? p.y : p[1]
+            ));
+
             const shape = new THREE.Shape();
             shape.moveTo(pts2d[0].x, pts2d[0].y);
             for (let i = 1; i < n; i++) shape.lineTo(pts2d[i].x, pts2d[i].y);
@@ -888,116 +907,18 @@ export default function ThreeDView({
             const extrudeSettings = { depth: roofThickness, bevelEnabled: false };
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
 
+            const material = new THREE.MeshStandardMaterial({
+              color: 0xd97706,
+              roughness: 0.45,
+              metalness: 0.15,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.85
+            });
+
             const mesh = new THREE.Mesh(geometry, material);
             mesh.rotation.x = Math.PI / 2;
             mesh.position.set(-imgSize.w / 2, topYOffset + roofThickness, -imgSize.h / 2);
-            mesh.castShadow = enableShadows;
-            mesh.receiveShadow = enableShadows;
-            scene.add(mesh);
-            roofMeshesRef.current.push(mesh);
-          } else {
-            // 3D Pitched Slope Roof Mesh from solvedPolygon3D
-            const positions = [];
-            const normals = [];
-
-            // Extract the 3D polygon
-            const poly3D = roof.solvedPolygon3D.map(p => ({
-              x: p.x - imgSize.w / 2,
-              y: topYOffset + roofThickness + (p.z || 0),
-              z: p.y - imgSize.h / 2
-            }));
-
-            // Triangulate the 2D base shape to render the 3D roof faces
-            const triangles = THREE.ShapeUtils.triangulateShape(pts2d, []);
-
-            for (let i = 0; i < triangles.length; i++) {
-              const [i0, i1, i2] = triangles[i];
-
-              const v0 = poly3D[i0];
-              const v1 = poly3D[i1];
-              const v2 = poly3D[i2];
-
-              positions.push(
-                v0.x, v0.y, v0.z,
-                v1.x, v1.y, v1.z,
-                v2.x, v2.y, v2.z
-              );
-
-              // Calculate normal
-              let ax = v1.x - v0.x, ay = v1.y - v0.y, az = v1.z - v0.z;
-              let bx = v2.x - v0.x, by = v2.y - v0.y, bz = v2.z - v0.z;
-              let nx = ay * bz - az * by;
-              let ny = az * bx - ax * bz;
-              let nz = ax * by - ay * bx;
-
-              // If normal points down, reverse winding
-              if (ny < 0) {
-                nx = -nx; ny = -ny; nz = -nz;
-                const l = positions.length;
-                positions[l - 6] = v2.x; positions[l - 5] = v2.y; positions[l - 4] = v2.z;
-                positions[l - 3] = v1.x; positions[l - 2] = v1.y; positions[l - 1] = v1.z;
-              }
-
-              const normLen = Math.hypot(nx, ny, nz) || 1;
-              nx /= normLen; ny /= normLen; nz /= normLen;
-
-              normals.push(
-                nx, ny, nz,
-                nx, ny, nz,
-                nx, ny, nz
-              );
-
-              // Underside Flat Ceiling Triangle (bottom of roof)
-              positions.push(
-                v0.x, topYOffset, v0.z,
-                v2.x, topYOffset, v2.z,  // Reversed winding for bottom
-                v1.x, topYOffset, v1.z
-              );
-              normals.push(
-                0, -1, 0,
-                0, -1, 0,
-                0, -1, 0
-              );
-            }
-
-            // Add vertical perimeter skirts to seal the roof volume
-            for (let i = 0; i < n; i++) {
-              const v1_top = poly3D[i];
-              const v2_top = poly3D[(i + 1) % n];
-
-              const v1_bot = { x: v1_top.x, y: topYOffset, z: v1_top.z };
-              const v2_bot = { x: v2_top.x, y: topYOffset, z: v2_top.z };
-
-              positions.push(
-                v1_bot.x, v1_bot.y, v1_bot.z,
-                v2_bot.x, v2_bot.y, v2_bot.z,
-                v2_top.x, v2_top.y, v2_top.z
-              );
-              positions.push(
-                v1_bot.x, v1_bot.y, v1_bot.z,
-                v2_top.x, v2_top.y, v2_top.z,
-                v1_top.x, v1_top.y, v1_top.z
-              );
-
-              const ax = v2_bot.x - v1_bot.x, ay = v2_bot.y - v1_bot.y, az = v2_bot.z - v1_bot.z;
-              const bx = v2_top.x - v1_bot.x, by = v2_top.y - v1_bot.y, bz = v2_top.z - v1_bot.z;
-              let nx = ay * bz - az * by;
-              let ny = az * bx - ax * bz;
-              let nz = ax * by - ay * bx;
-              const normLen = Math.hypot(nx, ny, nz) || 1;
-              nx /= normLen; ny /= normLen; nz /= normLen;
-
-              normals.push(
-                nx, ny, nz, nx, ny, nz, nx, ny, nz,
-                nx, ny, nz, nx, ny, nz, nx, ny, nz
-              );
-            }
-
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-
-            const mesh = new THREE.Mesh(geometry, material);
             mesh.castShadow = enableShadows;
             mesh.receiveShadow = enableShadows;
             scene.add(mesh);
@@ -2069,6 +1990,7 @@ export default function ThreeDView({
     showFloors, showPDF, showDoors, showRoofs, wallHeight, floorDepth, realScale, enableShadows,
     wallColorMode, extWallColor, intWallColor, partWallColor, blockWallColor, showExtWalls, showIntWalls, showPartWalls, showBlockWalls,
     heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
+    roofColorMode, singleRoofColor, showRoofOutlines,
     selected3DWall, selectedId, levelBaseYOffsets, pageHeightsMm
   ]);
 
@@ -2462,6 +2384,116 @@ export default function ThreeDView({
                 </div>
               )}
             </div>
+
+        {/* 🏠 ROOF COLOR MODE & CUSTOMIZATION */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
+          <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>🏠 ROOF STYLING</span>
+            <span style={{ fontSize: "10px", color: roofColorMode === "single" ? "#34d399" : "#f59e0b", fontWeight: "600" }}>
+              {roofColorMode === "single" ? "Single Color" : "Multi Color (CAD)"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: "4px", backgroundColor: "rgba(15, 23, 42, 0.6)", padding: "4px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            <button
+              onClick={() => setRoofColorMode("palette")}
+              style={{
+                flex: 1,
+                padding: "5px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: roofColorMode === "palette" ? "#3b82f6" : "transparent",
+                color: roofColorMode === "palette" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              🎨 Multi Color
+            </button>
+            <button
+              onClick={() => setRoofColorMode("single")}
+              style={{
+                flex: 1,
+                padding: "5px 6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: roofColorMode === "single" ? "#10b981" : "transparent",
+                color: roofColorMode === "single" ? "#ffffff" : "#9ca3af",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              🏠 Single Color
+            </button>
+          </div>
+
+          {/* Color Picker & Presets for Single Tone Roof */}
+          {roofColorMode === "single" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                <span>Roof color:</span>
+                <input
+                  type="color"
+                  value={singleRoofColor}
+                  onChange={(e) => setSingleRoofColor(e.target.value)}
+                  style={{ width: "26px", height: "26px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                />
+              </div>
+
+              {/* Quick Presets for Roof Color */}
+              <div style={{ display: "flex", gap: "5px" }}>
+                {[
+                  { name: "Gray-Black", color: "#334155" },
+                  { name: "Red tile", color: "#b91c1c" },
+                  { name: "Dark Blue", color: "#1e3a8a" },
+                  { name: "Moss Green", color: "#0f766e" }
+                ].map(p => (
+                  <button
+                    key={p.color}
+                    onClick={() => setSingleRoofColor(p.color)}
+                    style={{
+                      flex: 1,
+                      padding: "4px 0",
+                      fontSize: "10px",
+                      fontWeight: "bold",
+                      borderRadius: "5px",
+                      border: singleRoofColor === p.color ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.1)",
+                      backgroundColor: p.color,
+                      color: "#ffffff",
+                      cursor: "pointer",
+                      textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+                      boxShadow: singleRoofColor === p.color ? "0 0 8px rgba(56, 189, 248, 0.5)" : "none"
+                    }}
+                    title={p.name}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Outline Toggle */}
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db", marginTop: "2px" }}>
+            <span> Display Outlines</span>
+            <input
+              type="checkbox"
+              checked={showRoofOutlines}
+              onChange={() => setShowRoofOutlines(v => !v)}
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                accentColor: "#3b82f6"
+              }}
+            />
+          </label>
+        </div>
 
             {/* Toggles */}
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(203, 213, 225, 0.5)", paddingTop: "12px" }}>

@@ -308,8 +308,12 @@ export default function App() {
     isDrawingRoof, setIsDrawingRoof,
     roofInteractionState, setRoofInteractionState,
     selectedRoofId, setSelectedRoofId,
+    selectedRoofEdgeIndex, setSelectedRoofEdgeIndex,
     hoveredRoofTarget, setHoveredRoofTarget,
-    updateRoofPitch, updateRoofType, deleteRoof,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    setRoofEdgeMode,
+    exportRoofIO,
+    toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
     currentDoor, setCurrentDoor,
@@ -347,7 +351,7 @@ export default function App() {
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
     handleClick, handleRoomDoubleClick, finishPolygon, finishRoof, finishDoor, updateDoor, deleteDoor,
-    startDrawingRoof, setRoofEaveEdge,
+    startDrawingRoof,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     autoMergeCollinearWalls,
     handleWallDoubleClick,
@@ -850,7 +854,7 @@ export default function App() {
       if (document.referrer) {
         allowedOrigins.add(new URL(document.referrer).origin);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const receiveSSO = async (event) => {
       if (!allowedOrigins.has(event.origin) && !event.origin?.includes("14.241.197.188") && !event.origin?.includes("103.77.167.69")) return;
@@ -931,7 +935,7 @@ export default function App() {
       for (const target of targets) {
         try {
           target.postMessage({ type: "TASK_LIST_WEB3_READY" }, "*");
-        } catch (_) {}
+        } catch (_) { }
       }
     };
 
@@ -1537,8 +1541,17 @@ export default function App() {
                     hoveredRoofTarget={hoveredRoofTarget}
                     updateRoofPitch={updateRoofPitch}
                     updateRoofType={updateRoofType}
+                    updateRoofEdgeAngle={updateRoofEdgeAngle}
+                    updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                    setRoofEdgeMode={setRoofEdgeMode}
+                    toggleDutchEdge={toggleDutchEdge}
+                    updateDutchOverhang={updateDutchOverhang}
+                    updateDutchCutPoints={updateDutchCutPoints}
+                    trimRoofEdge={trimRoofEdge}
+                    setRoofInteractionState={setRoofInteractionState}
                     setRoofEaveEdge={setRoofEaveEdge}
                     deleteRoof={deleteRoof}
+                    roofs={roofsByPage[currentPage] || []}
                     currentPoly={currentPoly}
                     currentDoor={currentDoor}
                     currentMouse={currentMouse}
@@ -1791,7 +1804,28 @@ export default function App() {
                 selectedRoofId={selectedRoofId}
                 setSelectedRoofId={setSelectedRoofId}
                 updateRoofPitch={updateRoofPitch}
+                updateRoofType={updateRoofType}
+                updateRoofEdgeAngle={updateRoofEdgeAngle}
+                updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                setRoofEdgeMode={setRoofEdgeMode}
+                toggleDutchEdge={toggleDutchEdge}
+                setRoofInteractionState={setRoofInteractionState}
+                updateDutchOverhang={updateDutchOverhang}
+                updateDutchRakeOverhang={updateDutchRakeOverhang}
+                updateDutchCutPoints={updateDutchCutPoints}
+                computeSelectedRoof={computeSelectedRoof}
+                trimRoofEdge={trimRoofEdge}
+                isComputingRoof={isComputingRoof}
+                setRoofEaveEdge={setRoofEaveEdge}
+                selectedRoofEdgeIndex={selectedRoofEdgeIndex}
+                setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
+                applyDefaultPitchToAll={applyDefaultPitchToAll}
+                applyDefaultOverhangToAll={applyDefaultOverhangToAll}
+                applyDefaultSettingsToAll={applyDefaultSettingsToAll}
                 deleteRoof={deleteRoof}
+                deleteRoofVertex={deleteRoofVertex}
+                exportRoofIO={exportRoofIO}
+                setShow3D={setShow3D}
                 lintelController={lintelController}
                 selectedId={selectedId}
                 onLoadJob={handleLoadJob}
