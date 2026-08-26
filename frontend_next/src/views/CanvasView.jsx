@@ -159,7 +159,7 @@ const LintelsLayer = React.memo(({
         if (!l.wallId && l.points && l.points.length === 2) {
           // Standalone or cross-wall lintel — uses absolute coordinates
           startPt = { x: l.points[0][0], y: l.points[0][1] };
-          endPt   = { x: l.points[1][0], y: l.points[1][1] };
+          endPt = { x: l.points[1][0], y: l.points[1][1] };
           wallThickness = 20; // default thickness for standalone
         } else {
           // Wall-attached lintel — resolve from wall centerline + parametric offsets
@@ -172,7 +172,7 @@ const LintelsLayer = React.memo(({
           const dy = p2.y - p1.y;
 
           startPt = { x: p1.x + l.startOffset * dx, y: p1.y + l.startOffset * dy };
-          endPt   = { x: p1.x + l.endOffset * dx,   y: p1.y + l.endOffset * dy };
+          endPt = { x: p1.x + l.endOffset * dx, y: p1.y + l.endOffset * dy };
           wallThickness = wall.thickness_px || 20;
         }
 
@@ -1333,7 +1333,7 @@ const WallHandlesLayer = React.memo(({
         const dx = p2[0] - p1[0];
         const dy = p2[1] - p1[1];
         const wallLen = Math.hypot(dx, dy);
-        
+
         let angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle > 90 || angle < -90) angle += 180;
 
@@ -2803,16 +2803,31 @@ export default function CanvasView({
   isDrawingDoor,
   isDrawingRoof,
   roofInteractionState,
+  setRoofInteractionState,
   selectedRoofId,
   setSelectedRoofId,
   hoveredRoofTarget,
   updateRoofPitch,
   updateRoofType,
+  updateRoofEdgeAngle,
+  updateRoofEdgeOverhang,
+  setRoofEdgeMode,
+  toggleDutchEdge,
+  updateDutchOverhang,
+  updateDutchRakeOverhang,
+  updateDutchCutPoints,
+  computeSelectedRoof,
+  trimRoofEdge,
+  isComputingRoof,
   setRoofEaveEdge,
   deleteRoof,
+  deleteRoofVertex,
+  selectedRoofEdgeIndex,
+  setSelectedRoofEdgeIndex,
   currentPoly,
   currentDoor,
   currentMouse,
+  roofs,
   rooms,
   walls,
   underlayWalls = [],
@@ -2854,6 +2869,7 @@ export default function CanvasView({
   selectWall,
   cutPreviewPoint,
   interactionMode,
+  setInteractionMode,
   roiProgress,
   cacheStatus,
   inferenceTiming,
@@ -2886,34 +2902,33 @@ export default function CanvasView({
   hoveredSearchResultId = null,
   zoomToBbox,
   dragging,
-  showPDF,
+  showPDF = true,
   setShowPDF,
-  selectedWallVertex,
+  selectedWallVertex = null,
   extRectStart,
   setSelectedWallVertex,
-  drawingWall,
-  drawingWallEnd,
+  drawingWall = null,
+  drawingWallEnd = null,
   deleteWalls,
   autoMergeCollinearWalls,
   updateWallsProperty,
-  setInteractionMode,
   pullStepPreview,
   setPullStepInfo,
   handleWallDoubleClick,
-  isWallSnapEnabled,
+  isWallSnapEnabled = true,
   setIsWallSnapEnabled,
   setDrawingWall,
   setDrawingWallEnd,
   straightenWall,
-  vertexMenu,
+  vertexMenu = { visible: false, x: 0, y: 0, vertex: null },
   setVertexMenu,
-  wallBodyMenu,
+  wallBodyMenu = { visible: false, x: 0, y: 0, wall: null },
   setWallBodyMenu,
-  isWallMergeDisabled,
+  isWallMergeDisabled = false,
   setIsWallMergeDisabled,
   startDrawWallFromVertex,
   separateJunction,
-  selectedVertices,
+  selectedVertices = [],
   setSelectedVertices,
   startVertexMove,
   lintelController,
@@ -2949,18 +2964,31 @@ export default function CanvasView({
     return (lintelsByPage[currentPage] || []).filter(l => !hiddenItemIds?.has(l.id));
   }, [lintelsByPage, currentPage, layerVisibility, hiddenItemIds]);
 
+  const displayRoofs = useMemo(() => {
+    if (layerVisibility?.roof === false) return [];
+    return (roofsByPage[currentPage] || []).filter(r => !hiddenItemIds?.has(r.id));
+  }, [roofsByPage, currentPage, layerVisibility, hiddenItemIds]);
+
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
   const [doorEditDialog, setDoorEditDialog] = useState({ visible: false, door: null });
 
   // Wall context menu state
   const [wallContextMenu, setWallContextMenu] = useState({ visible: false, x: 0, y: 0, wall: null });
-  
+
   // Roof context menu state
   const [roofContextMenu, setRoofContextMenu] = useState({ visible: false, x: 0, y: 0, roof: null, edgeIndex: null });
 
   const handleRoofContextMenu = (e, roof, edgeIndex) => {
     e.preventDefault();
+    e.stopPropagation();
+    if (setSelectedRoofId) setSelectedRoofId(roof.id);
+    if (setSelectedId) setSelectedId(roof.id);
+    if (setSelectedType) setSelectedType('roof');
+    if (setSelectedRoofEdgeIndex) setSelectedRoofEdgeIndex(edgeIndex);
+    if (roof.roofType === 'shed' && setRoofEaveEdge && edgeIndex !== undefined && edgeIndex !== null) {
+      setRoofEaveEdge(roof.id, edgeIndex);
+    }
     setRoofContextMenu({ visible: true, x: e.clientX, y: e.clientY, roof, edgeIndex });
   };
   const closeRoofContextMenu = () => {
@@ -4135,24 +4163,36 @@ export default function CanvasView({
                   strokeDasharray="6,3"
                 />
                 {currentPoly.map((p, i) => (
-                  <circle
-                    key={`roof-preview-${i}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={4}
-                    fill={i === 0 ? "#ef4444" : "#f59e0b"}
-                    stroke="#ffffff"
-                    strokeWidth={2}
-                  />
+                  <g key={`roof-preview-${i}`}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={8}
+                      fill={i === 0 ? "#ef4444" : "#f59e0b"}
+                      stroke="#ffffff"
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y}
+                      fill="#000000"
+                      fontSize={9}
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                    >
+                      {i + 1}
+                    </text>
+                  </g>
                 ))}
                 {/* Visual close indicator: larger ring on first point when mouse is near */}
                 {currentPoly.length >= 2 && currentMouse && Math.hypot(
                   currentMouse.x - currentPoly[0].x, currentMouse.y - currentPoly[0].y
-                ) < 15 && (
+                ) < 20 && (
                     <circle
                       cx={currentPoly[0].x}
                       cy={currentPoly[0].y}
-                      r={10}
+                      r={14}
                       fill="rgba(239,68,68,0.3)"
                       stroke="#ef4444"
                       strokeWidth={2}
@@ -4173,21 +4213,48 @@ export default function CanvasView({
             )}
 
             {/* Committed Roof Polygons Layer */}
-            {(roofsByPage[currentPage] || []).map(roof => {
+            {displayRoofs.map(roof => {
               const c = centroid(roof.polygon);
               const isSelected = selectedRoofId === roof.id;
               const isHovered = hoveredRoofTarget?.roofId === roof.id;
-
               const areaM2 = scaleValue ? polygonAreaM2Util(roof.polygon, scaleValue) : 0;
-              const pitchRad = (roof.pitchAngle || 0) * (Math.PI / 180);
-              const trueArea = pitchRad > 0 ? areaM2 / Math.cos(pitchRad) : areaM2;
+              const hasOvh = Boolean(
+                (roof.overhangs && Array.isArray(roof.overhangs) && roof.overhangs.some(v => typeof v === 'number' && v > 0)) ||
+                (roof.dutchOverhangs && Array.isArray(roof.dutchOverhangs) && roof.dutchOverhangs.some(v => typeof v === 'number' && v > 0)) ||
+                (typeof roof.overhang === 'number' && roof.overhang > 0)
+              );
+
+              const topo = roof.v3Data?.topology2D;
+              const nodes = topo?.nodes || [];
+              const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                ? realScale
+                : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+              const getNodeCoord = (ref) => {
+                if (ref == null) return null;
+                let node = null;
+                if (typeof ref === 'object' && ref !== null) {
+                  node = ref;
+                } else if (Array.isArray(nodes)) {
+                  if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+                    node = nodes[ref];
+                  } else {
+                    node = nodes.find(n => n && n.id === ref);
+                  }
+                }
+                if (!node) return null;
+                const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+                const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+                if (isNaN(rawX) || isNaN(rawY)) return null;
+                return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+              };
 
               return (
                 <g key={roof.id}>
-                  {/* Roof Base Polygon */}
+                  {/* Roof Base Polygon: Only stroked if no V3 topology or has no OVH */}
                   <polygon
                     onContextMenu={(e) => {
-                      if (isHovered && hoveredRoofTarget?.type === 'edge') {
+                      if (isHovered && hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null) {
                         e.preventDefault();
                         e.stopPropagation();
                         handleRoofContextMenu(e, roof, hoveredRoofTarget.edgeIndex);
@@ -4198,16 +4265,176 @@ export default function CanvasView({
                       const py = typeof p.y === 'number' ? p.y : (Array.isArray(p) ? p[1] : 0);
                       return `${px},${py}`;
                     }).join(" ")}
-                    fill={isSelected ? "rgba(245,158,11,0.35)" : isHovered ? "rgba(245,158,11,0.25)" : "rgba(245,158,11,0.18)"}
-                    stroke={isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706"}
-                    strokeWidth={isSelected ? 3.5 : isHovered ? 3 : 2.5}
-                    strokeDasharray={isSelected ? "none" : "8,4"}
+                    fill={!roof.v3Data ? (isSelected ? "rgba(245,158,11,0.22)" : isHovered ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.10)") : "transparent"}
+                    stroke={(!roof.v3Data || !hasOvh) ? (isSelected ? "#d97706" : isHovered ? "#f59e0b" : "#d97706") : "none"}
+                    strokeWidth={isSelected ? 2.5 / scale : 1.5 / scale}
+                    strokeDasharray={isSelected ? "none" : "6,3"}
                     style={{ cursor: "pointer" }}
                   />
 
-                  {/* Priority 2: Edge Hover Highlight */}
-                  {isHovered && hoveredRoofTarget?.type === 'edge' && (() => {
-                    const eIdx = hoveredRoofTarget.edgeIndex;
+                  {/* 2D Straight Skeleton Face Fills (V3 Topology) */}
+                  {topo?.faces && (
+                    <g>
+                      {topo.faces.map((face, fIdx) => {
+                        const vertCoords = (face.vertices || []).map(vRef => getNodeCoord(vRef)).filter(Boolean);
+                        if (vertCoords.length < 3) return null;
+
+                        const isFaceSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined && face.contour_edge_index !== undefined && selectedRoofEdgeIndex === face.contour_edge_index;
+                        const isFaceHovered = isHovered && (
+                          hoveredRoofTarget?.faceId === face.id ||
+                          (hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null && face.contour_edge_index !== undefined && hoveredRoofTarget?.edgeIndex === face.contour_edge_index)
+                        );
+
+                        const isDutchFace = (Array.isArray(roof.dutchEdges) && roof.dutchEdges.includes(face.contour_edge_index));
+                        const activeEdgeIdx = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined) ? selectedRoofEdgeIndex : roofInteractionState?.edgeIndex;
+                        const isDrawingDutchThisEdge = (interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") &&
+                                                      (selectedRoofId === roof.id || roofInteractionState?.roofId === roof.id) &&
+                                                      activeEdgeIdx !== null && activeEdgeIdx !== undefined &&
+                                                      activeEdgeIdx === face.contour_edge_index;
+
+                        const FACE_COLORS = [
+                          'rgba(245, 158, 11, 0.12)',
+                          'rgba(59, 130, 246, 0.12)',
+                          'rgba(16, 185, 129, 0.12)',
+                          'rgba(168, 85, 247, 0.12)',
+                          'rgba(236, 72, 153, 0.12)',
+                          'rgba(6, 182, 212, 0.12)',
+                          'rgba(234, 179, 8, 0.12)',
+                          'rgba(99, 102, 241, 0.12)'
+                        ];
+
+                        let fill = FACE_COLORS[fIdx % FACE_COLORS.length];
+                        let stroke = "none";
+                        let strokeWidth = 0;
+
+                        if (isDrawingDutchThisEdge) {
+                          fill = "rgba(239, 68, 68, 0.25)";
+                          stroke = "#ef4444";
+                          strokeWidth = 3.0 / scale;
+                        } else if (isDutchFace) {
+                          fill = "rgba(244, 63, 94, 0.20)";
+                          stroke = "#f43f5e";
+                          strokeWidth = 2.4 / scale;
+                        } else if (isFaceSelected) {
+                          fill = "rgba(245, 158, 11, 0.32)";
+                          stroke = "#f59e0b";
+                          strokeWidth = 2.0 / scale;
+                        } else if (isFaceHovered) {
+                          fill = "rgba(245, 158, 11, 0.22)";
+                          stroke = "#fbbf24";
+                          strokeWidth = 1.5 / scale;
+                        }
+
+                        return (
+                          <polygon
+                            key={`roof-face-${roof.id}-${fIdx}`}
+                            points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
+                            fill={fill}
+                            stroke={stroke}
+                            strokeWidth={strokeWidth}
+                            style={{ cursor: "pointer" }}
+                            onContextMenu={(e) => {
+                              if (face.contour_edge_index !== undefined && face.contour_edge_index >= 0) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleRoofContextMenu(e, roof, face.contour_edge_index);
+                              }
+                            }}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
+
+                  {/* 2D Straight Skeleton Topology Lines (Valleys, Ridges, Hips, Eaves) */}
+                  {topo?.edges && (
+                    <g pointerEvents="none">
+                      {topo.edges.map((edge, eIdx) => {
+                        const p1 = getNodeCoord(edge.source);
+                        const p2 = getNodeCoord(edge.target);
+                        if (!p1 || !p2) return null;
+
+                        const isEdgeRelated = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined && edge.contour_edge_index === selectedRoofEdgeIndex;
+                        const isHoverRelated = isHovered && hoveredRoofTarget?.edgeIndex !== undefined && hoveredRoofTarget?.edgeIndex !== null && edge.contour_edge_index === hoveredRoofTarget.edgeIndex;
+                        const isHighlighted = isEdgeRelated || isHoverRelated;
+
+                        let strokeColor = "#64748b"; // technical slate for eaves
+                        let strokeWidth = (isHighlighted ? 3.0 : 1.8) / scale;
+                        let opacity = isHighlighted ? 1.0 : 0.85;
+                        let dash = "none";
+
+                        if (edge.is_contour) {
+                          strokeColor = isHighlighted ? "#f59e0b" : "#64748b";
+                          strokeWidth = (isHighlighted ? 3.2 : 2.0) / scale;
+                          opacity = isHighlighted ? 1.0 : 0.85;
+                        } else if (edge.edge_type === 'ridge') {
+                          strokeColor = isHighlighted ? "#dc2626" : "#e11d48"; // vibrant bold red
+                          strokeWidth = (isHighlighted ? 3.6 : 2.6) / scale;
+                          opacity = 1.0;
+                        } else if (edge.edge_type === 'valley') {
+                          strokeColor = isHighlighted ? "#2563eb" : "#0284c7"; // rich blue for valleys
+                          strokeWidth = (isHighlighted ? 3.2 : 2.4) / scale;
+                          dash = `${7 / scale},${3.5 / scale}`;
+                          opacity = 1.0;
+                        } else if (edge.edge_type === 'hip') {
+                          strokeColor = isHighlighted ? "#16a34a" : "#059669"; // rich emerald for hips
+                          strokeWidth = (isHighlighted ? 3.2 : 2.4) / scale;
+                          opacity = 1.0;
+                        }
+
+                        return (
+                          <line
+                            key={`roof-topo-${roof.id}-${eIdx}`}
+                            x1={p1.x}
+                            y1={p1.y}
+                            x2={p2.x}
+                            y2={p2.y}
+                            stroke={strokeColor}
+                            strokeWidth={strokeWidth}
+                            strokeDasharray={dash}
+                            strokeLinecap="round"
+                            opacity={opacity}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
+
+                  {/* Active Selected / Hovered Edge Highlight (Dynamically mapped to outer eave contour on OVH) */}
+                  {(roof.polygon || []).map((_, eIdx) => {
+                    const isEdgeSelected = isSelected && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined && selectedRoofEdgeIndex === eIdx;
+                    const isEdgeHovered = isHovered && (
+                      (hoveredRoofTarget?.type === 'edge' && hoveredRoofTarget?.edgeIndex === eIdx) ||
+                      (hoveredRoofTarget?.type === 'face' && hoveredRoofTarget?.edgeIndex === eIdx)
+                    );
+                    if (!isEdgeSelected && !isEdgeHovered) return null;
+
+                    // If V3 topology is available, find matching outer contour eave edge(s)
+                    if (topo?.edges) {
+                      const matchingEdges = topo.edges.filter(e => e.is_contour && e.contour_edge_index === eIdx);
+                      if (matchingEdges.length > 0) {
+                        return matchingEdges.map((mEdge, mIdx) => {
+                          const p1 = getNodeCoord(mEdge.source);
+                          const p2 = getNodeCoord(mEdge.target);
+                          if (!p1 || !p2) return null;
+                          return (
+                            <line
+                              key={`edge-active-${roof.id}-${eIdx}-${mIdx}`}
+                              x1={p1.x}
+                              y1={p1.y}
+                              x2={p2.x}
+                              y2={p2.y}
+                              stroke="#f59e0b"
+                              strokeWidth={isEdgeSelected ? 4.5 / scale : 3.5 / scale}
+                              strokeLinecap="round"
+                              pointerEvents="none"
+                            />
+                          );
+                        });
+                      }
+                    }
+
+                    // Fallback to base polygon edge
                     const p1 = (roof.polygon || [])[eIdx];
                     const p2 = (roof.polygon || [])[(eIdx + 1) % roof.polygon.length];
                     if (!p1 || !p2) return null;
@@ -4215,106 +4442,68 @@ export default function CanvasView({
                     const p1y = typeof p1.y === 'number' ? p1.y : p1[1];
                     const p2x = typeof p2.x === 'number' ? p2.x : p2[0];
                     const p2y = typeof p2.y === 'number' ? p2.y : p2[1];
-                    return (
-                      <g pointerEvents="none">
-                        <line x1={p1x} y1={p1y} x2={p2x} y2={p2y} stroke="#ef4444" strokeWidth={4} strokeLinecap="round" />
-                        {hoveredRoofTarget.projectionPoint && (
-                          <circle cx={hoveredRoofTarget.projectionPoint.x} cy={hoveredRoofTarget.projectionPoint.y} r={5} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
-                        )}
-                      </g>
-                    );
-                  })()}
 
-                  {/* Priority 1 & Handles: Vertices */}
-                  {(isSelected || isHovered) && (roof.polygon || []).map((v, idx) => {
-                    const isVertexHovered = isHovered && hoveredRoofTarget?.type === 'vertex' && hoveredRoofTarget?.index === idx;
-                    const vx = typeof v.x === 'number' ? v.x : v[0];
-                    const vy = typeof v.y === 'number' ? v.y : v[1];
                     return (
-                      <circle
-                        key={`roof-v-${roof.id}-${idx}`}
-                        cx={vx}
-                        cy={vy}
-                        r={isVertexHovered ? 7 : 5}
-                        fill={isVertexHovered ? "#ef4444" : "#f59e0b"}
-                        stroke="#ffffff"
-                        strokeWidth={2}
-                        style={{ cursor: "grab" }}
+                      <line
+                        key={`edge-active-${roof.id}-${eIdx}`}
+                        x1={p1x}
+                        y1={p1y}
+                        x2={p2x}
+                        y2={p2y}
+                        stroke="#f59e0b"
+                        strokeWidth={isEdgeSelected ? 4.5 / scale : 3.5 / scale}
+                        strokeLinecap="round"
+                        pointerEvents="none"
                       />
                     );
                   })}
 
-                  {/* Informative Canvas Area Overlay Badge */}
-                  <foreignObject
-                    x={c.x - 110}
-                    y={c.y - 45}
-                    width={220}
-                    height={90}
-                    style={{ overflow: 'visible', pointerEvents: 'auto' }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: isSelected ? 'rgba(217, 119, 6, 0.92)' : 'rgba(30, 41, 59, 0.88)',
-                        border: isSelected ? '2px solid #fef3c7' : '1px solid rgba(245, 158, 11, 0.5)',
-                        borderRadius: '10px',
-                        padding: '6px 12px',
-                        color: '#ffffff',
-                        boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
-                        backdropFilter: 'blur(4px)',
-                        fontSize: '13px',
-                        userSelect: 'none',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* Title: Roof Name */}
-                      <div style={{ fontWeight: 700, fontSize: '13px', color: '#fef3c7', letterSpacing: '0.5px' }}>
-                        🏠 {roof.name || "Roof"}
-                      </div>
+                  {/* Selected Roof Vertices (Numbered badges: 0, 1, 2...) */}
+                  {isSelected && (roof.polygon || []).map((v, idx) => {
+                    let vx = typeof v.x === 'number' ? v.x : v[0];
+                    let vy = typeof v.y === 'number' ? v.y : v[1];
 
-                      {/* 3D True Surface Area (Large text) */}
-                      <div style={{ fontWeight: 800, fontSize: '20px', color: '#ffffff', margin: '2px 0' }}>
-                        {scaleValue ? `${trueArea.toFixed(2)} m²` : "No Scale"}
-                      </div>
+                    if (hasOvh && topo && Array.isArray(nodes) && nodes[idx]) {
+                      const cNode = getNodeCoord(nodes[idx]);
+                      if (cNode) {
+                        vx = cNode.x;
+                        vy = cNode.y;
+                      }
+                    }
 
-                      {/* Inline Pitch Angle Input Control */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: 0.95 }}>
-                        <span>Pitch:</span>
-                        <PitchInput
-                          value={roof.pitchAngle || 0}
-                          onChange={(val) => updateRoofPitch(roof.id, val)}
+                    return (
+                      <g
+                        key={`roof-v-${roof.id}-${idx}`}
+                        style={{ cursor: "pointer" }}
+                        title={`Vertex #${idx} (Double-click to delete)`}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          deleteRoofVertex && deleteRoofVertex(roof.id, idx);
+                        }}
+                      >
+                        <circle
+                          cx={vx}
+                          cy={vy}
+                          r={8}
+                          fill="#f59e0b"
+                          stroke="#ffffff"
+                          strokeWidth={1.5}
                         />
-                        <span>°</span>
-                      </div>
-
-                      {/* Roof Type Selection Dropdown */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', marginTop: '4px' }}>
-                        <span>Type:</span>
-                        <select
-                          value={roof.roofType || "hip"}
-                          onChange={(e) => updateRoofType(roof.id, e.target.value)}
-                          style={{
-                            fontSize: '11px',
-                            background: 'rgba(255,255,255,0.2)',
-                            border: '1px solid rgba(255,255,255,0.4)',
-                            borderRadius: '4px',
-                            color: '#ffffff',
-                            padding: '1px 2px',
-                            outline: 'none',
-                            cursor: 'pointer'
-                          }}
+                        <text
+                          x={vx}
+                          y={vy}
+                          fill="#000000"
+                          fontSize={9}
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          pointerEvents="none"
                         >
-                          <option value="hip" style={{ color: '#000' }}>Hipped (4 mái)</option>
-                          <option value="gable_horiz" style={{ color: '#000' }}>Gable Horiz (Đầu hồi ngang)</option>
-                          <option value="gable_vert" style={{ color: '#000' }}>Gable Vert (Đầu hồi dọc)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </foreignObject>
+                          {idx}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
@@ -5289,6 +5478,305 @@ export default function CanvasView({
               return null;
             })()}
 
+            {(interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") &&
+             (selectedRoofId || roofInteractionState?.roofId) &&
+             currentMouse && (() => {
+              const targetRoofId = selectedRoofId || roofInteractionState?.roofId;
+              const rawEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
+                ? selectedRoofEdgeIndex
+                : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
+                ? roofInteractionState.edgeIndex
+                : null;
+              if (rawEdgeIndex === null || rawEdgeIndex === undefined || typeof rawEdgeIndex !== 'number') return null;
+              const targetEdgeIndex = rawEdgeIndex;
+              const roof = (roofs || []).find(r => r.id === targetRoofId);
+              if (!roof) return null;
+              
+              const topo = roof.v3Data?.topology2D;
+              const nodes = topo?.nodes || [];
+              const faces = topo?.faces || [];
+              const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                      ? realScale
+                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+              const getNodeCoord = (ref) => {
+                  if (ref == null) return null;
+                  let node = null;
+                  if (typeof ref === 'object' && ref !== null) node = ref;
+                  else if (Array.isArray(nodes)) {
+                    if (nodes[ref] && (nodes[ref].id === ref || nodes[ref].x !== undefined || nodes[ref][0] !== undefined)) {
+                      node = nodes[ref];
+                    } else {
+                      node = nodes.find(n => n && n.id === ref);
+                    }
+                  }
+                  if (!node) return null;
+                  const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
+                  const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
+                  return { x: rawX / mmPerPx, y: rawY / mmPerPx };
+              };
+
+              const poly = roof.polygon || [];
+              const nPts = poly.length;
+              if (nPts < 3 || targetEdgeIndex < 0 || targetEdgeIndex >= nPts) return null;
+
+              const eaveP1 = poly[targetEdgeIndex];
+              const eaveP2 = poly[(targetEdgeIndex + 1) % nPts];
+              if (!eaveP1 || !eaveP2) return null;
+
+              const e1x = typeof eaveP1.x === 'number' ? eaveP1.x : (Array.isArray(eaveP1) ? eaveP1[0] : 0);
+              const e1y = typeof eaveP1.y === 'number' ? eaveP1.y : (Array.isArray(eaveP1) ? eaveP1[1] : 0);
+              const e2x = typeof eaveP2.x === 'number' ? eaveP2.x : (Array.isArray(eaveP2) ? eaveP2[0] : 0);
+              const e2y = typeof eaveP2.y === 'number' ? eaveP2.y : (Array.isArray(eaveP2) ? eaveP2[1] : 0);
+
+              const eMidX = (e1x + e2x) / 2;
+              const eMidY = (e1y + e2y) / 2;
+              const edx = e2x - e1x;
+              const edy = e2y - e1y;
+              const elen = Math.hypot(edx, edy) || 1;
+              const ux = edx / elen;
+              const uy = edy / elen;
+
+              // Roof centroid for inward orientation
+              let cPolyX = 0, cPolyY = 0;
+              poly.forEach(p => {
+                cPolyX += (typeof p.x === 'number' ? p.x : p[0]) / nPts;
+                cPolyY += (typeof p.y === 'number' ? p.y : p[1]) / nPts;
+              });
+
+              let inx = -uy;
+              let iny = ux;
+              if ((cPolyX - eMidX) * inx + (cPolyY - eMidY) * iny < 0) {
+                inx = -inx;
+                iny = -iny;
+              }
+
+              // 1. Direct and exact target face matching
+              let targetFace = null;
+              if (faces && faces.length > 0) {
+                targetFace = faces.find(f => f.contour_edge_index === targetEdgeIndex);
+              }
+
+              let vertCoords = [];
+              if (targetFace && Array.isArray(targetFace.vertices) && targetFace.vertices.length >= 3) {
+                vertCoords = targetFace.vertices.map(vRef => getNodeCoord(vRef)).filter(Boolean);
+              }
+              if (vertCoords.length < 3) {
+                vertCoords = [
+                  { x: e1x, y: e1y },
+                  { x: e2x, y: e2y },
+                  { x: cPolyX, y: cPolyY }
+                ];
+              }
+
+              // Face centroid for guidance badge
+              const fCentroidX = vertCoords.reduce((s, v) => s + v.x, 0) / vertCoords.length;
+              const fCentroidY = vertCoords.reduce((s, v) => s + v.y, 0) / vertCoords.length;
+
+              // 2. Point in polygon test: Is mouse inside this target roof face?
+              let isMouseInside = false;
+              for (let i = 0, j = vertCoords.length - 1; i < vertCoords.length; j = i++) {
+                const xi = vertCoords[i].x, yi = vertCoords[i].y;
+                const xj = vertCoords[j].x, yj = vertCoords[j].y;
+                const intersect = ((yi > currentMouse.y) !== (yj > currentMouse.y))
+                    && (currentMouse.x < (xj - xi) * (currentMouse.y - yi) / (yj - yi) + xi);
+                if (intersect) isMouseInside = !isMouseInside;
+              }
+
+              // 3. Magnetic Snap to Ridge Apex vertices of this face
+              const snapThreshold = 32 / scale;
+              let isSnapped = false;
+              let snapVertex = null;
+
+              for (const pt of vertCoords) {
+                const dist = Math.hypot(currentMouse.x - pt.x, currentMouse.y - pt.y);
+                if (dist < snapThreshold) {
+                  if (!snapVertex || dist < snapVertex.dist) {
+                    snapVertex = {
+                      x: pt.x,
+                      y: pt.y,
+                      dist,
+                      label: "Ridge Apex"
+                    };
+                    isSnapped = true;
+                  }
+                }
+              }
+
+              const isHoveringFace = isMouseInside || isSnapped;
+
+              // 4. Compute parallel cut line strictly inside target face
+              let cutLineP1 = null;
+              let cutLineP2 = null;
+              let closestPt = null;
+
+              if (isHoveringFace) {
+                const mouseX = isSnapped ? snapVertex.x : currentMouse.x;
+                const mouseY = isSnapped ? snapVertex.y : currentMouse.y;
+
+                const inx = -uy;
+                const iny = ux;
+
+                const intersections = [];
+                for (let i = 0; i < vertCoords.length; i++) {
+                  const p1 = vertCoords[i];
+                  const p2 = vertCoords[(i + 1) % vertCoords.length];
+                  const d1 = inx * (p1.x - mouseX) + iny * (p1.y - mouseY);
+                  const d2 = inx * (p2.x - mouseX) + iny * (p2.y - mouseY);
+
+                  if ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) {
+                    if (Math.abs(d1 - d2) > 1e-6) {
+                      const s = d1 / (d1 - d2);
+                      const ix = p1.x + s * (p2.x - p1.x);
+                      const iy = p1.y + s * (p2.y - p1.y);
+                      const tAlongU = (ix - eMidX) * ux + (iy - eMidY) * uy;
+                      intersections.push({ x: ix, y: iy, tAlongU });
+                    }
+                  }
+                }
+
+                // Deduplicate intersections
+                const uniqueInts = [];
+                for (const pt of intersections) {
+                  if (!uniqueInts.some(u => Math.hypot(u.x - pt.x, u.y - pt.y) < 0.1)) {
+                    uniqueInts.push(pt);
+                  }
+                }
+                uniqueInts.sort((a, b) => a.tAlongU - b.tAlongU);
+
+                if (uniqueInts.length >= 2) {
+                  cutLineP1 = uniqueInts[0];
+                  cutLineP2 = uniqueInts[uniqueInts.length - 1];
+                  closestPt = {
+                    x: isSnapped ? snapVertex.x : (cutLineP1.x + cutLineP2.x) / 2,
+                    y: isSnapped ? snapVertex.y : (cutLineP1.y + cutLineP2.y) / 2
+                  };
+                }
+              }
+
+              const commitCut = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (closestPt) {
+                  const targetPoint = isSnapped ? [snapVertex.x, snapVertex.y] : [closestPt.x, closestPt.y];
+                  if (updateDutchCutPoints) updateDutchCutPoints(targetRoofId, targetEdgeIndex, targetPoint);
+                }
+                if (setInteractionMode) setInteractionMode('select');
+                if (setRoofInteractionState) setRoofInteractionState(null);
+              };
+
+              return (
+                <g style={{ pointerEvents: 'all' }}>
+                  {/* Highlight mặt mái được chọn (Tô viền đỏ bao quanh) */}
+                  <polygon
+                     points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
+                     fill={isHoveringFace ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.16)"}
+                     stroke="#ef4444"
+                     strokeWidth={(isHoveringFace ? 3.2 : 2.5) / scale}
+                     onMouseDown={commitCut}
+                     style={{ cursor: "crosshair" }}
+                  />
+
+                  {/* Đường preview vết cắt song song với eave edge (Chỉ render khi di chuột vào mặt mái) */}
+                  {isHoveringFace && cutLineP1 && cutLineP2 && (
+                    <>
+                      <line
+                        x1={cutLineP1.x}
+                        y1={cutLineP1.y}
+                        x2={cutLineP2.x}
+                        y2={cutLineP2.y}
+                        stroke={isSnapped ? "#fbbf24" : "#ef4444"}
+                        strokeWidth={(isSnapped ? 3.5 : 2.6) / scale}
+                        strokeDasharray={`${8 / scale},${5 / scale}`}
+                        pointerEvents="none"
+                      />
+                      {/* Điểm snap trên sống mái / viền */}
+                      <circle
+                        cx={closestPt.x}
+                        cy={closestPt.y}
+                        r={(isSnapped ? 7 : 5.5) / scale}
+                        fill={isSnapped ? "#fbbf24" : "#ef4444"}
+                        stroke="#fff"
+                        strokeWidth={2 / scale}
+                        pointerEvents="none"
+                      />
+                    </>
+                  )}
+
+                  {/* Magnetic Snap Target Indicator */}
+                  {isSnapped && snapVertex && (
+                    <g pointerEvents="none">
+                      <circle
+                        cx={snapVertex.x}
+                        cy={snapVertex.y}
+                        r={13 / scale}
+                        fill="none"
+                        stroke="#fbbf24"
+                        strokeWidth={2.5 / scale}
+                        strokeDasharray={`${4 / scale},${3 / scale}`}
+                      />
+                      <circle
+                        cx={snapVertex.x}
+                        cy={snapVertex.y}
+                        r={5 / scale}
+                        fill="#fbbf24"
+                        stroke="#ffffff"
+                        strokeWidth={1.5 / scale}
+                      />
+                      <rect
+                        x={snapVertex.x - 52 / scale}
+                        y={snapVertex.y - 30 / scale}
+                        width={104 / scale}
+                        height={20 / scale}
+                        rx={4 / scale}
+                        fill="rgba(15, 23, 42, 0.92)"
+                        stroke="#fbbf24"
+                        strokeWidth={1 / scale}
+                      />
+                      <text
+                        x={snapVertex.x}
+                        y={snapVertex.y - 19 / scale}
+                        fill="#fef08a"
+                        fontSize={10.5 / scale}
+                        fontWeight="bold"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                      >
+                        📍 Snap {snapVertex.label}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* Khi chuột chưa vào mặt mái: hiện gợi ý nhẹ tại tâm mặt mái */}
+                  {!isHoveringFace && (
+                    <g pointerEvents="none" opacity={0.85}>
+                      <rect
+                        x={fCentroidX - 58 / scale}
+                        y={fCentroidY - 12 / scale}
+                        width={116 / scale}
+                        height={24 / scale}
+                        rx={5 / scale}
+                        fill="rgba(15, 23, 42, 0.88)"
+                        stroke="#ef4444"
+                        strokeWidth={1 / scale}
+                      />
+                      <text
+                        x={fCentroidX}
+                        y={fCentroidY}
+                        fill="#fca5a5"
+                        fontSize={10 / scale}
+                        fontWeight="600"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                      >
+                        ✏️ Hover to draw cut
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })()}
+
           </g>
         </svg>
 
@@ -5540,6 +6028,22 @@ export default function CanvasView({
         edgeIndex={roofContextMenu.edgeIndex}
         onClose={closeRoofContextMenu}
         onSetEaveEdge={setRoofEaveEdge}
+        onUpdateEdgeAngle={updateRoofEdgeAngle}
+        onSetRoofEdgeMode={setRoofEdgeMode}
+        onToggleDutchEdge={toggleDutchEdge}
+        onStartDrawDutch={(roofId, edgeIdx) => {
+          if (setSelectedRoofId) setSelectedRoofId(roofId);
+          if (setSelectedRoofEdgeIndex) setSelectedRoofEdgeIndex(edgeIdx);
+          if (setInteractionMode) setInteractionMode('draw-dutch');
+          if (setRoofInteractionState) setRoofInteractionState({ type: 'draw-dutch', roofId, edgeIndex: edgeIdx });
+        }}
+        onCancelDrawDutch={() => {
+          if (setInteractionMode) setInteractionMode('select');
+          if (setRoofInteractionState) setRoofInteractionState(null);
+        }}
+        onUpdateRoofType={updateRoofType}
+        onTrimEdge={trimRoofEdge}
+        onDeleteRoof={deleteRoof}
       />
 
       {/* ===== WALL VERTEX MENU OVERLAY ===== */}

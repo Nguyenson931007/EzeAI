@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, mapFloorName, convertNameToClass } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
@@ -17,6 +17,7 @@ import { WALL_HEIGHT_OPTIONS } from '@/components/WallThicknessDialog';
 import { computeWallAreas } from "@/engines/WallAreaCalculator";
 import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirting } from "@/models/FinishRegistry";
 import floorTypesConfig from "@/constants/floorTypes.json";
+import RoofInspectorCard from "@/components/RoofInspectorCard";
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -292,7 +293,7 @@ function PitchInput({ value, onChange, style, className }) {
     } else {
       const parsed = parseFloat(raw);
       if (!isNaN(parsed)) {
-        const clamped = Math.max(0, Math.min(85, parsed));
+        const clamped = Math.max(0, Math.min(90, parsed));
         onChange(clamped);
       }
     }
@@ -399,11 +400,32 @@ export default function RightPropertyPaneView({
   deleteItem,
   selectedRoofId,
   setSelectedRoofId,
+  selectedRoofEdgeIndex,
+  setSelectedRoofEdgeIndex,
   updateRoofPitch,
+  applyDefaultPitchToAll,
+  applyDefaultOverhangToAll,
+  applyDefaultSettingsToAll,
+  updateRoofType,
+  updateRoofEdgeAngle,
+  updateRoofEdgeOverhang,
+  computeSelectedRoof,
+  trimRoofEdge,
+  isComputingRoof,
+  setRoofEaveEdge,
   deleteRoof,
+  deleteRoofVertex,
+  exportRoofIO,
+  setShow3D,
   lintelController,
   selectedId,
   onLoadJob,
+  setRoofEdgeMode,
+  toggleDutchEdge,
+  setRoofInteractionState,
+  updateDutchOverhang,
+  updateDutchRakeOverhang,
+  updateDutchCutPoints,
   loadPDF,
   setPendingPages,
   setImportSelectedPages,
@@ -428,6 +450,8 @@ export default function RightPropertyPaneView({
   selectWall,
   onEditDoor
 }) {
+  const [defaultPitchInput, setDefaultPitchInput] = useState(22.5);
+  const [defaultOverhangInput, setDefaultOverhangInput] = useState(0);
   const { showConfirm, showPrompt } = useDialog();
   const {
     wasteByPage, setWasteByPage,
@@ -735,6 +759,31 @@ export default function RightPropertyPaneView({
 
   const [isRoofSummaryExpanded, setIsRoofSummaryExpanded] = React.useState(true);
   const lastSingleWallIdRef = React.useRef(null);
+
+  // Auto-scroll to selected roof card and expand roof summary
+  React.useEffect(() => {
+    if (selectedRoofId) {
+      setIsRoofSummaryExpanded(true);
+      setTimeout(() => {
+        const el = document.getElementById(`roof-card-${selectedRoofId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }, 100);
+    }
+  }, [selectedRoofId]);
+
+  // Auto-scroll to selected roof edge row within the contour table
+  React.useEffect(() => {
+    if (selectedRoofId && selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined) {
+      setTimeout(() => {
+        const rowEl = document.getElementById(`roof-edge-row-${selectedRoofId}-${selectedRoofEdgeIndex}`);
+        if (rowEl) {
+          rowEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }, 60);
+    }
+  }, [selectedRoofId, selectedRoofEdgeIndex]);
 
   // Track single wall selection before bulk edit
   React.useEffect(() => {
@@ -2418,6 +2467,7 @@ export default function RightPropertyPaneView({
                                           if (setSelectedRoofId) setSelectedRoofId(rf.id);
                                           setSelectedId(rf.id);
                                           setSelectedType("roof");
+                                          setExplorerViewMode("properties");
                                         }}
                                         onDoubleClick={(e) => {
                                           e.stopPropagation();
@@ -2887,7 +2937,7 @@ export default function RightPropertyPaneView({
               }}
             >
               <span style={{ fontSize: "14px", fontWeight: 900 }}>←</span>
-              <span>Come back Explorer / Layers</span>
+              <span>Back to Explorer / Layers</span>
             </button>
             <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", padding: "3px 8px", borderRadius: "12px", textTransform: "uppercase" }}>
               {selectedType ? selectedType.toUpperCase() : "PROPERTIES"}
@@ -4282,8 +4332,51 @@ export default function RightPropertyPaneView({
                   </>
                 );
               })()
+            ) : (selectedType === "roof" || selectedRoofId) && (roofsByPage[currentPage] || []).find(r => r.id === (selectedRoofId || selectedId)) ? (
+              (() => {
+                const roof = (roofsByPage[currentPage] || []).find(r => r.id === (selectedRoofId || selectedId));
+                if (!roof) return null;
+                return (
+                  <RoofInspectorCard
+                    roof={roof}
+                    scaleValue={scaleValue}
+                    defaultPitchInput={defaultPitchInput}
+                    setDefaultPitchInput={setDefaultPitchInput}
+                    defaultOverhangInput={defaultOverhangInput}
+                    setDefaultOverhangInput={setDefaultOverhangInput}
+                    selectedRoofEdgeIndex={selectedRoofEdgeIndex}
+                    setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
+                    updateRoofType={updateRoofType}
+                    applyDefaultPitchToAll={applyDefaultPitchToAll}
+                    applyDefaultOverhangToAll={applyDefaultOverhangToAll}
+                    applyDefaultSettingsToAll={applyDefaultSettingsToAll}
+                    updateRoofEdgeAngle={updateRoofEdgeAngle}
+                    updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                    setRoofEdgeMode={setRoofEdgeMode}
+                    toggleDutchEdge={toggleDutchEdge}
+                    setRoofInteractionState={setRoofInteractionState}
+                    setInteractionMode={setInteractionMode}
+                    updateDutchOverhang={updateDutchOverhang}
+                    setRoofEaveEdge={setRoofEaveEdge}
+                    trimRoofEdge={trimRoofEdge}
+                    deleteRoof={async (roofId) => {
+                      if (await showConfirm("Are you sure you want to delete this roof?")) {
+                        deleteRoof && deleteRoof(roofId);
+                        setExplorerViewMode("tree");
+                      }
+                    }}
+                    computeSelectedRoof={computeSelectedRoof}
+                    isComputingRoof={isComputingRoof}
+                    onNameChange={(roofId, newName) => {
+                      const updated = (roofsByPage[currentPage] || []).map(r => r.id === roofId ? { ...r, name: newName } : r);
+                      if (setRoofsByPage) setRoofsByPage(prev => ({ ...prev, [currentPage]: updated }));
+                    }}
+                    isSelected={true}
+                  />
+                );
+              })()
             ) : (
-              <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, or lintel to edit properties.</div>
+              <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, lintel, or roof to edit properties.</div>
             )}
           </div>
         </div>
@@ -4730,67 +4823,45 @@ export default function RightPropertyPaneView({
                   <span>Roof Area Summary</span>
                 </div>
 
-                {roofCalculations.map((roof, idx) => {
-                  const isSelected = selectedRoofId === roof.id;
-                  return (
-                    <div
-                      key={roof.id || idx}
-                      className={`rp-area-card${isSelected ? " rp-area-card--active" : ""}`}
-                      onClick={() => setSelectedRoofId && setSelectedRoofId(isSelected ? null : roof.id)}
-                      style={{ cursor: "pointer", borderLeft: isSelected ? "4px solid #f59e0b" : undefined }}
-                    >
-                      <div className="rp-area-card__top">
-                        <div className="rp-area-card__left">
-                          <span className="rp-area-card__dot" style={{ background: "#f59e0b" }} />
-                          <div className="rp-area-card__label-container">
-                            <span className="rp-area-card__label" style={{ fontWeight: 700 }}>
-                              {roof.name || `Roof ${idx + 1}`}
-                            </span>
-                            <span className="rp-area-card__sublabel">
-                              Footprint: {scaleValue ? `${roof.footprintM2.toFixed(2)} m²` : "No Scale"}
-                            </span>
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                          <span className="rp-area-card__value" style={{ fontSize: "15px", fontWeight: 800, color: "#f59e0b" }}>
-                            {scaleValue ? `${roof.trueAreaM2.toFixed(2)} m²` : "No Scale"}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "8px", paddingTop: "6px", borderTop: "1px dashed rgba(255,255,255,0.08)" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-                          <span>Pitch Slope:</span>
-                          <PitchInput
-                            value={roof.pitchAngle || 0}
-                            onChange={(val) => updateRoofPitch && updateRoofPitch(roof.id, val)}
-                          />
-                          <span>°</span>
-                        </div>
-
-                        {deleteRoof && (
-                          <button
-                            title="Delete Roof"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteRoof(roof.id);
-                            }}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#ef4444",
-                              cursor: "pointer",
-                              fontSize: "13px",
-                              opacity: 0.8
-                            }}
-                          >
-                            🗑️ Delete
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {roofCalculations.map((roof, idx) => (
+                  <RoofInspectorCard
+                    key={roof.id || idx}
+                    roof={roof}
+                    scaleValue={scaleValue}
+                    defaultPitchInput={defaultPitchInput}
+                    setDefaultPitchInput={setDefaultPitchInput}
+                    defaultOverhangInput={defaultOverhangInput}
+                    setDefaultOverhangInput={setDefaultOverhangInput}
+                    selectedRoofEdgeIndex={selectedRoofEdgeIndex}
+                    setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
+                    updateRoofType={updateRoofType}
+                    applyDefaultPitchToAll={applyDefaultPitchToAll}
+                    applyDefaultOverhangToAll={applyDefaultOverhangToAll}
+                    applyDefaultSettingsToAll={applyDefaultSettingsToAll}
+                    updateRoofEdgeAngle={updateRoofEdgeAngle}
+                    updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                    setRoofEdgeMode={setRoofEdgeMode}
+                    toggleDutchEdge={toggleDutchEdge}
+                    setRoofInteractionState={setRoofInteractionState}
+                    setInteractionMode={setInteractionMode}
+                    updateDutchOverhang={updateDutchOverhang}
+                    setRoofEaveEdge={setRoofEaveEdge}
+                    trimRoofEdge={trimRoofEdge}
+                    deleteRoof={deleteRoof}
+                    computeSelectedRoof={computeSelectedRoof}
+                    isComputingRoof={isComputingRoof}
+                    onNameChange={(roofId, newName) => {
+                      const updated = (roofsByPage[currentPage] || []).map(r => r.id === roofId ? { ...r, name: newName } : r);
+                      if (setRoofsByPage) setRoofsByPage(prev => ({ ...prev, [currentPage]: updated }));
+                    }}
+                    isSelected={selectedRoofId === roof.id}
+                    onSelect={(roofId) => {
+                      if (setSelectedRoofId) setSelectedRoofId(selectedRoofId === roofId ? null : roofId);
+                      if (setSelectedId) setSelectedId(selectedRoofId === roofId ? null : roofId);
+                      if (setSelectedType) setSelectedType(selectedRoofId === roofId ? null : "roof");
+                    }}
+                  />
+                ))}
 
                 {/* Total Roof Area Card */}
                 <div className="rp-totals-card" style={{ background: "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.25)" }}>

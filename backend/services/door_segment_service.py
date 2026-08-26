@@ -51,9 +51,9 @@ def _get_models() -> Tuple[YOLO, YOLO]:
     if _door_model is None or _window_model is None:
         with _model_lock:
             if _door_model is None:
-                p_door = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt"
+                p_door = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_backup.pt"
                 if not p_door.exists():
-                    p_door = BASE_DIR / "backend" / "models" / "Doors" / "best.pt"
+                    p_door = BASE_DIR / "backend" / "models" / "Doors" / "best_backup.pt"
                 if not p_door.exists():
                     p_door = BASE_DIR / "models" / "Doors" / "final_one" / "best.pt"
                 if not p_door.exists():
