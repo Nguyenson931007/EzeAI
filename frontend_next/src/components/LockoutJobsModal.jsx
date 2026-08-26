@@ -610,7 +610,7 @@ export default function LockoutJobsModal({
                       <td style={{ padding: "6px 8px", color: "#0284c7", fontWeight: 700 }}>{row.job_number}</td>
 
                       {/* Columns matching MSSQL table order exact */}
-                      <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "mode", 95, false, ["Prehung jamb", "Loose Jamb"])}</td>
+                      <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "mode", 95, false, ["Prehung", "Loose"])}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "scope", 85)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "label", 110)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_name", 90)}</td>
@@ -619,7 +619,7 @@ export default function LockoutJobsModal({
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "thickness", 55, true)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "jamb_or_wall", 100)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "jamb_size", 85)}</td>
-                      <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "hung", 55)}</td>
+                      <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "hung", 110, false, ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door", "Double Door Set", "RH Pre Hung"])}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_type", 100)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_stop", 85)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "internal_type", 65)}</td>

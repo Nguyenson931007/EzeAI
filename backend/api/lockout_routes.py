@@ -353,12 +353,22 @@ async def calculate_lockout(payload: DoorCalcPayload):
             else:
                 jamb_or_wall_val = "90mm Wall"
 
-        # 3. Hinge Side -> Hung (LH / RH)
+        # 3. Hinge Side -> Hung (Hung A cho LH - Left Hand, Hung B cho RH - Right Hand)
         hinge_side = str(d.get("hingeSide") or d.get("hinge_side") or d.get("hinge") or d.get("hung") or "").lower()
-        if "left" in hinge_side or "lh" in hinge_side:
-            hung_val = "LH"
-        elif "right" in hinge_side or "rh" in hinge_side:
-            hung_val = "RH"
+        if "hung a" in hinge_side or "lh" in hinge_side or "left" in hinge_side:
+            hung_val = "Hung A"
+        elif "hung b" in hinge_side or "rh" in hinge_side or "right" in hinge_side:
+            hung_val = "Hung B"
+        elif "hung cg" in hinge_side:
+            hung_val = "Hung CG"
+        elif "hung dg" in hinge_side:
+            hung_val = "Hung DG"
+        elif "hung g" in hinge_side:
+            hung_val = "Hung G"
+        elif "pivot" in hinge_side:
+            hung_val = "Pivot Door"
+        elif "double" in hinge_side:
+            hung_val = "Double Door Set"
         else:
             hung_val = None
 
