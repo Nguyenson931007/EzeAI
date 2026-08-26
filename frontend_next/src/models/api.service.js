@@ -767,5 +767,34 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  // ── LockOut Jobs (MSSQL emsflow) ──
+  async fetchLockoutJobs() {
+    const res = await fetch(`${BASE_URL}/api/lockout/jobs`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveLockoutJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/lockout/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async calculateLockout(payload) {
+    const res = await fetch(`${BASE_URL}/api/lockout/calculate`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };

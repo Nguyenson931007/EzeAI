@@ -76,6 +76,7 @@ export const AppProvider = ({ children }) => {
   const [showFrameworkModal, setShowFrameworkModal] = useState(false);
   const [showAreaSummaryModal, setShowAreaSummaryModal] = useState(false);
   const [showInsulationModal, setShowInsulationModal] = useState(false);
+  const [showLockoutModal, setShowLockoutModal] = useState(false);
 
   const value = {
     pages, setPages,
@@ -98,7 +99,8 @@ export const AppProvider = ({ children }) => {
 
     showFrameworkModal, setShowFrameworkModal,
     showAreaSummaryModal, setShowAreaSummaryModal,
-    showInsulationModal, setShowInsulationModal
+    showInsulationModal, setShowInsulationModal,
+    showLockoutModal, setShowLockoutModal
   };
 
   return (
