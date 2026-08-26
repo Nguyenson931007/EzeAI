@@ -13,7 +13,7 @@ const nextConfig = {
   ],
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
   async rewrites() {
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8001";
+    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8090";
 
     return [
       // Main API routes
