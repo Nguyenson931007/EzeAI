@@ -10,6 +10,7 @@ import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
 import InsulationJobsModal from "@/components/InsulationJobsModal";
 import LockoutJobsModal from "@/components/LockoutJobsModal";
 import UserProfileModal from "@/components/UserProfileModal";
+import SettingsModal from "@/components/SettingsModal";
 
 const CAD_ICONS = {
   NewPDF: () => (
@@ -1253,8 +1254,15 @@ export default function RibbonView({
                   <span className="icon"><CAD_ICONS.Tag /></span><span className="label">Labels</span>
                 </button>
                 <button
+                  className={`ribbon-btn ${layerVisibility?.roof ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, roof: !prev?.roof }))}
+                  title="Toggle Roof Layer"
+                >
+                  <span className="icon" style={{ fontSize: "21px" }}>⌂</span><span className="label">Roof</span>
+                </button>
+                <button
                   className="ribbon-btn"
-                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true, labels: true })}
+                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true, labels: true, lintel: true, roof: true })}
                   title="Show all drawing layers"
                 >
                   <span className="icon"><CAD_ICONS.Eye /></span><span className="label">All</span>

@@ -2964,6 +2964,11 @@ export default function CanvasView({
     return (lintelsByPage[currentPage] || []).filter(l => !hiddenItemIds?.has(l.id));
   }, [lintelsByPage, currentPage, layerVisibility, hiddenItemIds]);
 
+  const displayRoofs = useMemo(() => {
+    if (layerVisibility?.roof === false) return [];
+    return (roofsByPage[currentPage] || []).filter(r => !hiddenItemIds?.has(r.id));
+  }, [roofsByPage, currentPage, layerVisibility, hiddenItemIds]);
+
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
   const [doorEditDialog, setDoorEditDialog] = useState({ visible: false, door: null });
@@ -4208,7 +4213,7 @@ export default function CanvasView({
             )}
 
             {/* Committed Roof Polygons Layer */}
-            {(roofsByPage[currentPage] || []).map(roof => {
+            {displayRoofs.map(roof => {
               const c = centroid(roof.polygon);
               const isSelected = selectedRoofId === roof.id;
               const isHovered = hoveredRoofTarget?.roofId === roof.id;
