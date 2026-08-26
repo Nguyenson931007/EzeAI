@@ -22,9 +22,9 @@ export const useProjectController = (
 ) => {
   const { showAlert } = useDialog();
   
-  const handleSaveJob = async (projectName, forceNewName = false) => {
-    if (!user) { await showAlert("Please login to save jobs"); return; }
-    if (pages.length === 0) { await showAlert("Nothing to save"); return; }
+  const handleSaveJob = async (projectName, forceNewName = false, silent = false) => {
+    if (!user) { if (!silent) await showAlert("Please login to save jobs"); return; }
+    if (pages.length === 0) { if (!silent) await showAlert("Nothing to save"); return; }
 
     const totalArea = Object.entries(roomsByPage).reduce((acc, [pageIdx, pageRooms]) => {
       const pageScale = scalesByPage[pageIdx];
@@ -48,7 +48,7 @@ export const useProjectController = (
 
       const res = await ApiService.saveJob(payload);
       if (res) {
-        await showAlert("Project saved!");
+        if (!silent) await showAlert("Project saved!");
         setCurrentProjectName(projectName);
         if (res.job_id) {
           setCurrentJobId(res.job_id);
@@ -61,6 +61,7 @@ export const useProjectController = (
       }
     } catch (err) {
       console.error("Save error:", err);
+      if (!silent) await showAlert("Failed to save project: " + err.message);
     }
   };
 

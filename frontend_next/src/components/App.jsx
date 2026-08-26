@@ -172,6 +172,7 @@ import { useAuthController } from "@/controllers/auth.controller";
 import { useInteractionController } from "@/controllers/interaction.controller";
 import { useDocumentController } from "@/controllers/document.controller";
 import { saveWorkspaceState, loadWorkspaceState, clearWorkspaceState } from "@/utils/workspaceStorage";
+import { getAppSettings } from "@/components/SettingsModal";
 
 export default function App() {
   const svgRef = useRef(null);
@@ -220,14 +221,10 @@ export default function App() {
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
   const splitContainerRef = useRef(null);
 
-  const show3D = workspaceMode === "3d" || workspaceMode === "split";
-  const setShow3D = useCallback((val) => {
-    if (typeof val === "function") {
-      setWorkspaceMode(prev => (val(prev === "3d" || prev === "split") ? "3d" : "2d"));
-    } else {
-      setWorkspaceMode(val ? "3d" : "2d");
-    }
-  }, []);
+  const [show3D, setShow3D] = useState(false);
+  const [appSettings, setAppSettings] = useState(getAppSettings());
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
 
   const handleSetWorkspaceMode = useCallback((mode) => {
     setWorkspaceMode(mode);
@@ -528,8 +525,9 @@ export default function App() {
         const jobInfo = emsResult.data;
         console.log("[SSO] Thông tin Job nhận được:", jobInfo);
 
-        // Lưu thông tin EMS job vào sessionStorage để các modal (Framework / Insulation / AreaSummary) sử dụng
+        // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+        localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
 
         const targetProjectName = jobInfo.job_number || ("Project " + String(idJobEms).slice(0, 8));
 
@@ -573,11 +571,16 @@ export default function App() {
               role: data.role || "admin",
               ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
               session_token: data.session_token,
+              tasklist_token: urlToken || "",
             };
             setIsLoggedIn(true);
             setUser(userData);
             localStorage.setItem("isLoggedIn", "true");
             localStorage.setItem("user", JSON.stringify(userData));
+            if (urlToken) {
+              localStorage.setItem("tasklist_token", urlToken);
+              localStorage.setItem("ems_token", urlToken);
+            }
             console.log("[SSO] URL Login thành công với:", userData.username);
             if (idJobEms) loadEmsJob(idJobEms);
           }
@@ -687,6 +690,88 @@ export default function App() {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, isLoggedIn]);
+
+  // 2.5. Tự động lưu định kỳ theo thiết lập Cài đặt (Configurable Periodic Auto-Save)
+  useEffect(() => {
+    const handleSettingsUpdated = (e) => {
+      if (e.detail) {
+        setAppSettings(e.detail);
+      }
+    };
+    window.addEventListener("ezefloor_settings_updated", handleSettingsUpdated);
+    return () => window.removeEventListener("ezefloor_settings_updated", handleSettingsUpdated);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn || pages.length === 0 || isRestoringSessionRef.current) return;
+    if (!appSettings.autoSaveEnabled) return;
+
+    const intervalSeconds = Math.max(5, appSettings.autoSaveInterval || 30);
+    const intervalMs = intervalSeconds * 1000;
+
+    const autoSaveTimer = setInterval(async () => {
+      try {
+        setIsAutoSaving(true);
+
+        // A. Lưu vào IndexedDB (Local Workspace Session)
+        if (appSettings.autoSaveIndexedDB !== false) {
+          await saveWorkspaceState("active_session", {
+            pages,
+            roomsByPage,
+            wallsByPage,
+            doorsByPage,
+            scalesByPage,
+            roofsByPage,
+            lintelsByPage,
+            currentPage,
+            currentProjectName,
+            currentJobId,
+            activeTab,
+            realScale,
+            savedAt: Date.now()
+          });
+        }
+
+        // B. Lưu lên Cloud Project nếu có tên dự án hợp lệ
+        if (appSettings.autoSaveCloud && currentProjectName && currentProjectName.trim() !== "" && currentProjectName !== "Untitled Project") {
+          try {
+            await apiSaveJob(currentProjectName, false, true); // silent = true
+          } catch (cloudErr) {
+            console.warn("[Auto-Save Cloud] Lỗi lưu ngầm:", cloudErr);
+          }
+        }
+
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastAutoSaveTime(timeStr);
+      } catch (err) {
+        console.warn("[Auto-Save] Lỗi tự động lưu:", err);
+      } finally {
+        setTimeout(() => setIsAutoSaving(false), 600);
+      }
+    }, intervalMs);
+
+    return () => clearInterval(autoSaveTimer);
+  }, [
+    isLoggedIn,
+    pages,
+    roomsByPage,
+    wallsByPage,
+    doorsByPage,
+    scalesByPage,
+    roofsByPage,
+    lintelsByPage,
+    currentPage,
+    currentProjectName,
+    currentJobId,
+    activeTab,
+    realScale,
+    appSettings.autoSaveEnabled,
+    appSettings.autoSaveInterval,
+    appSettings.autoSaveIndexedDB,
+    appSettings.autoSaveCloud,
+    apiSaveJob
+  ]);
 
   // ── 3D Multi-Monitor / Popout Synchronization via BroadcastChannel ──
   const handlePopout3D = useCallback(() => {
@@ -803,17 +888,23 @@ export default function App() {
         }
 
         const finalUsername = data.username || extractedUser || "Liam";
+        const rawToken = event.data.token || "";
         const userData = {
           username: finalUsername,
           role: data.role || "admin",
           ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
           session_token: data.session_token,
+          tasklist_token: rawToken,
         };
 
         setIsLoggedIn(true);
         setUser(userData);
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("user", JSON.stringify(userData));
+        if (rawToken) {
+          localStorage.setItem("tasklist_token", rawToken);
+          localStorage.setItem("ems_token", rawToken);
+        }
         console.log("[SSO] Đăng nhập thành công với tài khoản:", userData.username);
 
         const idJobEms = new URLSearchParams(window.location.search).get("job");
@@ -1290,6 +1381,8 @@ export default function App() {
         runROISearch={runROISearch}
         showPDF={showPDF}
         setShowPDF={setShowPDF}
+        lastAutoSaveTime={lastAutoSaveTime}
+        isAutoSaving={isAutoSaving}
       />
 
       {activeTab === "Admin" ? (

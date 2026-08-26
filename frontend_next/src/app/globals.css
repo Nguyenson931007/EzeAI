@@ -2,13 +2,52 @@
 
 /* ===== CAD/BIM DESIGN SYSTEM TOKENS ===== */
 :root {
+  --navy: #17364f;
+  --navy-deep: #102a3e;
+  --blue: #347fba;
+  --blue-light: #559bd0;
+  --ink: #1b2f40;
+  --muted: #667b8c;
+  --line: #dce6ed;
+  --soft: #f4f7fa;
+  --card: #ffffff;
+
+  --ui-font-family: Inter, "Segoe UI", Arial, sans-serif;
+  --ui-font-content: 12px;
+  --ui-font-label: 12px;
+  --ui-font-section: 13px;
+  --ui-font-title: 24px;
+  --ui-control-height: 36px;
+  --ui-table-row-height: 36px;
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 10px;
+  --ui-radius-lg: 14px;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-color-text: #132b47;
+  --ui-color-muted: #6f8398;
+  --ui-color-primary: #29466f;
+  --ui-color-primary-hover: #203b61;
+  --ui-color-border: #cfdae7;
+  --ui-color-border-strong: #b9c8d9;
+  --ui-color-surface: #ffffff;
+  --ui-color-surface-soft: #f5f8fc;
+  --ui-color-required: #fffbe2;
+  --ui-color-danger: #d83b3b;
+  --ui-color-danger-bg: #fff0f0;
+  --ui-color-danger-border: #f2caca;
+  --ui-table-header-bg: #29466f;
+  --ui-table-header-text: #ffffff;
+  --ui-table-resize-handle: #7aa7d6;
+  --ui-table-resize-handle-active: #2d76ba;
+
   --blue-950: #0b1f4d;
   --blue-900: #0f2f76;
   --blue-800: #12388f;
   --blue-700: #1746b3;
   --blue-600: #1d5fd6;
-  --blue: #2563eb;
-  --blue-light: #4f8dfd;
   --blue-50: #eef3ff;
   --blue-100: #e2eaff;
   --border: #dbe3f5;
@@ -25,16 +64,19 @@
 }
 
 /* ===== RESET ===== */
-* {
+*, *::before, *::after {
   box-sizing: border-box;
 }
 
-body {
+html, body {
+  min-width: 320px;
+  min-height: 100%;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  color: var(--text);
-  font-size: 13px;
-  background: var(--bg-app);
+  font-family: var(--ui-font-family);
+  color: var(--ink);
+  background: #f5f8fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -447,9 +489,12 @@ body {
   letter-spacing: 0;
 }
 
-.ribbon-btn.disabled {
+.ribbon-btn.disabled,
+.ribbon-btn:disabled {
   color: var(--text-faint);
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .ribbon-group-title {

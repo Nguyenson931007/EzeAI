@@ -543,6 +543,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return "";
   }
 
+  /** Lấy chiều dài dạng Mét (m) để hiển thị trên bảng số liệu */
+  function getDisplayLengthInMeters(row) {
+    const rawVal = getDisplayLength(row);
+    if (rawVal === "" || rawVal === null || rawVal === undefined) return "";
+    const num = parseFloat(rawVal);
+    if (isNaN(num) || num <= 0) return "";
+    return (num / 1000).toFixed(2);
+  }
+
   /** Chỉnh sửa chiều cao cho 1 sub-row (Hỗ trợ chọn chiều cao tùy chỉnh Custom...) */
   function handleHeightChange(row, value) {
     if (value === "CUSTOM") {
@@ -568,11 +577,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     }));
   }
 
-  /** Chỉnh sửa chiều dài cho 1 sub-row */
-  function handleLengthChange(row, value) {
+  /** Chỉnh sửa chiều dài cho 1 sub-row (Nhập bằng Mét, lưu trữ dạng mm) */
+  function handleLengthChange(row, meterValue) {
+    const num = parseFloat(meterValue);
+    const mmVal = isNaN(num) ? "" : Math.round(num * 1000);
     setEditedData(prev => ({
       ...prev,
-      [row.rowKey]: { ...prev[row.rowKey], wall_length: value }
+      [row.rowKey]: { ...prev[row.rowKey], wall_length: mmVal }
     }));
   }
 
@@ -1100,13 +1111,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                       alignItems: "center",
                                       gap: 4
                                     }}>
-                                      📦 Saved
+                                      <span>📦</span> Saved
                                     </span>
                                   ) : (
                                     <span style={{
-                                      background: "rgba(234,179,8,0.1)",
-                                      border: "1px solid rgba(234,179,8,0.3)",
-                                      color: "#b45309",
+                                      background: "rgba(124,58,237,0.1)",
+                                      border: "1px solid rgba(124,58,237,0.3)",
+                                      color: "#7c3aed",
                                       padding: "3px 8px",
                                       borderRadius: 6,
                                       fontSize: 10,
@@ -1115,7 +1126,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                       alignItems: "center",
                                       gap: 4
                                     }}>
-                                      ⚡ New
+                                      <span>⚡</span> New
                                     </span>
                                   )}
                                 </td>
@@ -1123,11 +1134,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 {/* Job Number */}
                                 {sIdx === 0 && (
                                   <td rowSpan={rowCount} style={{ padding: "8px 10px", verticalAlign: "middle" }}>
-                                    <div style={{ color: "#2563eb", fontWeight: 700, fontSize: 12 }}>
-                                      {jobGroup.job_number || "—"}
+                                    <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 13 }}>
+                                      {jobGroup.JobNumber || "—"}
                                     </div>
-                                    <div style={{ color: "#64748b", fontSize: 10, marginTop: 2 }}>
-                                      {jobGroup.job_status || ""}
+                                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                                      ID: {jobGroup.IDJob_HW}
                                     </div>
                                   </td>
                                 )}
@@ -1135,56 +1146,48 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 {/* Floor Type ([The Wall Above]) */}
                                 <td style={{ padding: "6px 10px" }}>
                                   <span style={{
-                                    display: "inline-block", padding: "3px 10px",
-                                    borderRadius: 5, fontSize: 11, fontWeight: 700,
-                                    background: isSlab ? "rgba(2,132,199,0.08)" : "rgba(217,119,6,0.08)",
-                                    color: badgeColor, border: `1px solid ${isSlab ? "#bae6fd" : "#fde68a"}`,
-                                    whiteSpace: "nowrap"
+                                    display: "inline-block",
+                                    padding: "3px 8px",
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: badgeColor,
+                                    background: isSlab ? "rgba(2,132,199,0.1)" : "rgba(217,119,6,0.1)",
+                                    border: `1px solid ${isSlab ? "rgba(2,132,199,0.3)" : "rgba(217,119,6,0.3)"}`
                                   }}>
-                                    {isSlab ? "🧱 Slab" : "🪵 Timber"}
+                                    {row.floorType}
                                   </span>
-                                  {row.framework_id && (
-                                    <span style={{ fontSize: 9, color: "#64748b", marginLeft: 6 }}>
-                                      ID: {row.framework_id}
-                                    </span>
-                                  )}
                                 </td>
 
                                 {/* Wall Height */}
                                 <td style={{ padding: "4px 6px" }}>
-                                  {(() => {
-                                    const standardHeights = [2100, 2400, 2700, 3000, 3300, 3600];
-                                    const numH = Number(currentHeight);
-                                    const isCustomH = numH > 0 && !standardHeights.includes(numH);
-
-                                    return (
-                                      <select
-                                        value={currentHeight}
-                                        onChange={(e) => handleHeightChange(row, e.target.value)}
-                                        style={{
-                                          background: isCustomH ? "#fef3c7" : "#f8fafc",
-                                          border: isCustomH ? "1px solid #f59e0b" : "1px solid #cbd5e1",
-                                          borderRadius: 5, color: isCustomH ? "#b45309" : "#1e293b",
-                                          fontSize: 11, fontWeight: 700,
-                                          padding: "3px 6px", outline: "none", cursor: "pointer"
-                                        }}
-                                      >
-                                        {standardHeights.map(h => (
-                                          <option key={h} value={h} style={{ background: "#ffffff", color: "#1e293b" }}>
-                                            {h} mm ({(h / 1000).toFixed(1)} m)
-                                          </option>
-                                        ))}
-                                        {isCustomH && (
-                                          <option value={numH} style={{ background: "#ffffff", color: "#b45309" }}>
-                                            {numH} mm ({(numH / 1000).toFixed(2)} m)
-                                          </option>
-                                        )}
-                                        <option value="CUSTOM" style={{ background: "#ffffff", color: "#2563eb", fontWeight: "bold" }}>
-                                          Custom...
-                                        </option>
-                                      </select>
-                                    );
-                                  })()}
+                                  <select
+                                    value={currentHeight}
+                                    onChange={(e) => handleHeightChange(row, e.target.value)}
+                                    style={{
+                                      width: 140,
+                                      padding: "5px 8px",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      background: "#ffffff",
+                                      border: "1px solid #cbd5e1",
+                                      borderRadius: 6,
+                                      color: "#1e293b",
+                                      outline: "none",
+                                      cursor: "pointer"
+                                    }}
+                                  >
+                                    <option value="2100">2100 mm (2.1 m)</option>
+                                    <option value="2400">2400 mm (2.4 m)</option>
+                                    <option value="2590">2590 mm (2.59 m)</option>
+                                    <option value="2700">2700 mm (2.7 m)</option>
+                                    <option value="3000">3000 mm (3.0 m)</option>
+                                    <option value="3300">3300 mm (3.3 m)</option>
+                                    <option value="3600">3600 mm (3.6 m)</option>
+                                    <option value="CUSTOM" style={{ background: "#ffffff", color: "#2563eb", fontWeight: "bold" }}>
+                                      Custom...
+                                    </option>
+                                  </select>
                                 </td>
 
                                 {/* DYNAMIC WALL LENGTH COLUMNS FOR ALL FLOORS */}
@@ -1214,7 +1217,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                             border: `1px solid ${theme.border}`,
                                             borderRadius: 6, color: theme.color, textAlign: "center"
                                           }}>
-                                            {floorMm > 0 ? floorMm : "—"}
+                                            {floorMm > 0 ? (floorMm / 1000).toFixed(2) : "—"}
                                           </div>
                                         </td>
                                       );
@@ -1224,9 +1227,10 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                     <td style={{ padding: "4px 6px" }}>
                                       <input
                                         type="number"
-                                        value={getDisplayLength(row)}
+                                        step="0.01"
+                                        value={getDisplayLengthInMeters(row)}
                                         onChange={(e) => handleLengthChange(row, e.target.value)}
-                                        placeholder="0"
+                                        placeholder="0.00"
                                         style={{
                                           width: 100, padding: "5px 6px", fontSize: 11, fontWeight: 800,
                                           background: "rgba(34,197,94,0.08)",
@@ -1242,9 +1246,10 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                   <td style={{ padding: "4px 6px" }}>
                                     <input
                                       type="number"
-                                      value={getDisplayLength(row)}
+                                      step="0.01"
+                                      value={getDisplayLengthInMeters(row)}
                                       onChange={(e) => handleLengthChange(row, e.target.value)}
-                                      placeholder="0"
+                                      placeholder="0.00"
                                       style={{
                                         width: 110, padding: "5px 8px", fontSize: 11, fontWeight: 700,
                                         background: "#ffffff",

@@ -173,11 +173,20 @@ export default function LeftRailView({
       <button
         className={`cad-rail-btn ${isScaleActive ? "active" : ""}`}
         onClick={() => {
-          if (isScaleActive) {
+          const isAnyOtherToolActive = Boolean(
+            drawing ||
+            isDistancing ||
+            isDrawingRoof ||
+            showPenetrations ||
+            (doorController && doorController.showPenetrations) ||
+            (lintelController && lintelController.isDrawingLintel) ||
+            (interactionMode && interactionMode !== "select" && interactionMode !== "pan")
+          );
+          resetTools();
+          if (isScaleActive && !isAnyOtherToolActive) {
             if (setIsMeasuring) setIsMeasuring(false);
             if (setMeasurePoints) setMeasurePoints([]);
           } else {
-            resetTools();
             if (setIsMeasuring) setIsMeasuring(true);
             if (setMeasurePoints) setMeasurePoints([]);
           }

@@ -1,13 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { ApiService } from "@/models/api.service";
 import TrainButton from "@/components/TrainButton";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
+import { clearWorkspaceState } from "@/utils/workspaceStorage";
 import WallThicknessDialog from "@/components/WallThicknessDialog";
 import FrameworkJobsModal from "@/components/FrameworkJobsModal";
 import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
 import InsulationJobsModal from "@/components/InsulationJobsModal";
 import LockoutJobsModal from "@/components/LockoutJobsModal";
 import UserProfileModal from "@/components/UserProfileModal";
+
 const CAD_ICONS = {
   NewPDF: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -339,7 +342,10 @@ export default function RibbonView({
   // Add new search props
   searchResultsVisible, setSearchResultsVisible,
   clearSearch, runROISearch,
-  showPDF, setShowPDF
+  showPDF, setShowPDF,
+  // Auto-save
+  lastAutoSaveTime,
+  isAutoSaving
 }) {
   const { showAlert, showConfirm } = useDialog();
   const {
@@ -367,28 +373,184 @@ export default function RibbonView({
   const [showWallConfig, setShowWallConfig] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const userMenuRef = React.useRef(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [activeAiTask, setActiveAiTask] = useState(null); // 'wall' | 'door' | 'roof' | 'room' | null
+  const userMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!isDetecting && !isSmartDetecting) {
+      setActiveAiTask(null);
+    }
+  }, [isDetecting, isSmartDetecting]);
+
+  const handleCreateNewProject = () => {
+    if (setCurrentJobId) setCurrentJobId(null);
+    if (setCurrentProjectName) setCurrentProjectName("Untitled Project");
+    if (setPages) setPages([]);
+    if (setCurrentPage) setCurrentPage(0);
+    if (setImage) setImage(null);
+    if (setImgSize) setImgSize({ w: 0, h: 0 });
+    if (setRoomsByPage) setRoomsByPage({});
+    if (setWallsByPage) setWallsByPage({});
+    if (setDoorsByPage) setDoorsByPage({});
+    if (setRoofsByPage) setRoofsByPage({});
+    if (setLintelsByPage) setLintelsByPage({});
+    if (setScalesByPage) setScalesByPage({});
+    if (setWasteByPage) setWasteByPage({});
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (setInteractionMode) setInteractionMode("select");
+    if (setDrawing) setDrawing(false);
+    if (setIsDrawingDoor) setIsDrawingDoor(false);
+    if (setIsDrawingRoof) setIsDrawingRoof(false);
+    if (setCurrentPoly) setCurrentPoly([]);
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("pendingEmsJob");
+        localStorage.removeItem("pendingEmsJob");
+        localStorage.removeItem("ezefloor_last_active_job_id");
+        localStorage.removeItem("ezefloor_last_active_project_name");
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    } catch (_) { }
+    try {
+      clearWorkspaceState("active_session");
+    } catch (_) { }
+  };
+
+  const handleNewClick = async () => {
+    const hasData = (pages && pages.length > 0) ||
+      Object.values(wallsByPage || {}).some(arr => arr && arr.length > 0) ||
+      Object.values(roomsByPage || {}).some(arr => arr && arr.length > 0) ||
+      Object.values(doorsByPage || {}).some(arr => arr && arr.length > 0);
+
+    if (hasData) {
+      const ok = await showConfirm(" Are you sure you want to start a new project? ");
+      if (ok) {
+        handleCreateNewProject();
+      }
+    } else {
+      handleCreateNewProject();
+    }
+  };
 
   const handleExportToProcurement = async () => {
     if (isExportingProcurement) return;
     setIsExportingProcurement(true);
 
     try {
-      const token = user?.session_token || (typeof window !== "undefined" ? localStorage.getItem("token") : null);
-      const currentEmsJobId = currentJobId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null);
+      const storedUserStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+      let storedUser = null;
+      try {
+        if (storedUserStr) storedUser = JSON.parse(storedUserStr);
+      } catch (e) { }
+
+      const currentUser = user || storedUser;
+      const tasklistToken = (typeof window !== "undefined" ? (localStorage.getItem("tasklist_token") || localStorage.getItem("ems_token")) : "") ||
+        currentUser?.tasklist_token ||
+        currentUser?.session_token ||
+        (typeof window !== "undefined" ? (localStorage.getItem("token") || "") : "") || "";
+      const token = tasklistToken;
+      const username = currentUser?.username || (typeof window !== "undefined" ? (localStorage.getItem("username") || "") : "") || "";
+      const role = currentUser?.role || "admin";
+      const manv = currentUser?.ma_nv || currentUser?.MaNV || currentUser?.manv || "";
+      const sessionPassword = (typeof window !== "undefined" ? (sessionStorage.getItem("session_auth_key") || localStorage.getItem("session_auth_key")) : null) || "";
+
+      const cleanStr = (val) => {
+        if (val === null || val === undefined) return null;
+        const s = String(val).trim();
+        if (s === "" || s === "null" || s === "undefined" || s === "false") return null;
+        return s;
+      };
+
+      let pendingEmsJob = null;
+      try {
+        const pendingEmsJobStr = (typeof window !== "undefined" ? (sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob")) : null);
+        if (pendingEmsJobStr) pendingEmsJob = JSON.parse(pendingEmsJobStr);
+      } catch (e) { }
+
+      // Nếu pendingEmsJob chưa có hoặc không khớp với currentProjectName, tự động tra cứu từ cachedTaskListJobs
+      if (!pendingEmsJob || (currentProjectName && pendingEmsJob.job_number !== currentProjectName && pendingEmsJob.job_num !== currentProjectName)) {
+        try {
+          const cachedJobsStr = typeof window !== "undefined" ? localStorage.getItem("cachedTaskListJobs") : null;
+          if (cachedJobsStr) {
+            const cachedJobs = JSON.parse(cachedJobsStr);
+            if (Array.isArray(cachedJobs) && currentProjectName) {
+              const found = cachedJobs.find(t =>
+                (t.job_number && t.job_number.toLowerCase().trim() === currentProjectName.toLowerCase().trim()) ||
+                (t.job_num && t.job_num.toLowerCase().trim() === currentProjectName.toLowerCase().trim()) ||
+                (t.hw_id && String(t.hw_id) === currentProjectName) ||
+                (t.id_job_ems && String(t.id_job_ems) === currentProjectName)
+              );
+              if (found) {
+                pendingEmsJob = found;
+                try {
+                  sessionStorage.setItem("pendingEmsJob", JSON.stringify(found));
+                  localStorage.setItem("pendingEmsJob", JSON.stringify(found));
+                } catch (e) { }
+              }
+            }
+          }
+        } catch (e) { }
+      }
+
+      const urlJob = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("job") : null;
+
+      // 1. Job Number (e.g. EZEFLO-13-7189542)
+      const jobNum = cleanStr(pendingEmsJob?.job_number) ||
+        cleanStr(pendingEmsJob?.job_num) ||
+        (currentProjectName && !currentProjectName.startsWith("Untitled") ? currentProjectName.trim() : null);
+
+      // 2. EMS ID (Hỗ trợ cả UUID chuẩn, Web3 ID, NanoID, chuỗi mã TaskList, fallback sang jobNum)
+      const emsId = cleanStr(urlJob) ||
+        cleanStr(pendingEmsJob?.ems_id) ||
+        cleanStr(pendingEmsJob?.id_job_ems) ||
+        cleanStr(pendingEmsJob?.id_job) ||
+        cleanStr(pendingEmsJob?.id_ems) ||
+        cleanStr(pendingEmsJob?.id) ||
+        cleanStr(pendingEmsJob?.Id) ||
+        cleanStr(pendingEmsJob?.job_id) ||
+        cleanStr(jobNum);
+
+      // 3. Hardware ID
+      const idHW = cleanStr(pendingEmsJob?.id_HW) ||
+        cleanStr(pendingEmsJob?.IdJob_HW) ||
+        cleanStr(pendingEmsJob?.hw_id) ||
+        cleanStr(pendingEmsJob?.id_hw) ||
+        cleanStr(emsId) ||
+        cleanStr(jobNum) ||
+        cleanStr(currentJobId);
+
+      const finalDeepLinkJob = emsId || idHW || cleanStr(jobNum) || cleanStr(currentJobId);
 
       const payload = {
         token: token,
-        user: user ? {
-          username: user.username,
-          role: user.role,
-          ma_nv: user.ma_nv || user.MaNV || user.manv
+        username: username,
+        password: sessionPassword,
+        user: currentUser ? {
+          username: username,
+          role: role,
+          ma_nv: manv,
+          session_token: currentUser?.session_token || token,
+          tasklist_token: tasklistToken
         } : null,
-        jobId: currentEmsJobId,
-        projectName: currentProjectName || "Untitled Project",
+        ems_id: emsId,
+        id_job: emsId,
+        id_HW: idHW || emsId,
+        IdJob_HW: idHW || emsId,
+        job_number: jobNum,
+        job_num: jobNum,
+        jobId: finalDeepLinkJob,
+        projectName: currentProjectName || jobNum || "Untitled Project",
         data: {
-          projectName: currentProjectName,
-          jobId: currentEmsJobId,
+          ems_id: emsId,
+          id_job: emsId,
+          id_HW: idHW || emsId,
+          IdJob_HW: idHW || emsId,
+          job_number: jobNum,
+          job_num: jobNum,
+          projectName: currentProjectName || jobNum,
+          jobId: finalDeepLinkJob,
           pages: pages || [],
           wallsByPage: wallsByPage || {},
           doorsByPage: doorsByPage || {},
@@ -401,84 +563,204 @@ export default function RibbonView({
         }
       };
 
-      const targetWeb = `http://14.241.197.188:7642/?job=${encodeURIComponent(currentEmsJobId || "")}&token=${encodeURIComponent(token || "")}`;
-
-      console.log("[Procurement] Đang đóng gói dữ liệu và gửi sang Procurement...", payload);
 
       let sendSuccess = false;
       let errorMsg = "";
       try {
         const result = await ApiService.exportProcurement(payload);
-        if (result && result.status === "success") {
+        if (result?.status === "success") {
           sendSuccess = true;
-        } else if (result && result.message) {
+        } else if (result?.message) {
           errorMsg = result.message;
         }
       } catch (fetchErr) {
-        console.warn("[Procurement] Lỗi khi gửi API:", fetchErr);
-        errorMsg = fetchErr.message;
+        console.warn("[Procurement] Error sending API request:", fetchErr);
+        errorMsg = fetchErr?.message || "Unknown API error";
       }
 
-      // Mở trang web đích trên tab mới
-      window.open(targetWeb, "_blank");
+      const target = new URL("http://14.241.197.188:7642/");
+      target.searchParams.set("source", "tool-ai");
+      target.searchParams.set("sso", "tool-ai");
+      if (finalDeepLinkJob) {
+        target.searchParams.set("job", String(finalDeepLinkJob));
+      }
+
+      // Xác định mã nhân viên hợp lệ (ma_nv) từ phiên đăng nhập hoặc giải mã token
+      let effectiveMaNv = String(manv || "").trim();
+      if (!effectiveMaNv && token) {
+        try {
+          const parts = String(token).split('.');
+          if (parts.length === 3) {
+            const decoded = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+            if (decoded?.ma_nv) {
+              effectiveMaNv = String(decoded.ma_nv).trim();
+            }
+          }
+        } catch (e) { }
+      }
+      if (!effectiveMaNv || effectiveMaNv.toLowerCase() === "admin" || effectiveMaNv.toLowerCase() === "null") {
+        effectiveMaNv = "EZE0052"; // Mã nhân viên mặc định hợp lệ trong bảng Account EMS
+      }
+
+      // Tạo Tool AI -> Procurement SSO JWT Token (HS256 với TOOL_AI_SSO_SECRET)
+      let toolAiJwt = null;
+      try {
+        const ssoRes = await ApiService.getProcurementSsoToken(effectiveMaNv);
+        if (ssoRes?.status === "success" && ssoRes.token) {
+          toolAiJwt = ssoRes.token;
+        }
+      } catch (e) { }
+
+      if (!toolAiJwt) {
+        toolAiJwt = await createToolAiJwt(effectiveMaNv);
+      }
+
+      console.log(
+        "[Procurement SSO] Procurement is currently open for the AI ​​SSO Contract tool...",
+        {
+          target: target.toString(),
+          ma_nv: effectiveMaNv,
+          hasToolAiJwt: !!toolAiJwt
+        }
+      );
+
+      // 1. Mở Procurement bằng window.open để giữ window.opener
+      const popup = window.open(target.toString(), "_blank");
+      if (!popup) {
+        showAlert("Pop-up blocked. Please allow pop-ups in your browser.", "Lỗi");
+        return;
+      }
+
+      // 2. postMessage token sang cửa sổ Procurement vừa mở
+      if (toolAiJwt) {
+        let attempts = 0;
+        let timer = null;
+        const sendSso = () => {
+          if (popup.closed || attempts >= 30) {
+            if (timer) {
+              clearInterval(timer);
+            }
+            return;
+          }
+          attempts++;
+          try {
+            popup.postMessage(
+              {
+                type: "PROCUREMENT_SSO",
+                token: toolAiJwt
+              },
+              target.origin
+            );
+          } catch (err) {
+            console.warn("[Procurement] Error sending AI Tool SSO Token:", err);
+          }
+        };
+        timer = setInterval(sendSso, 200);
+        sendSso();
+      }
 
       if (sendSuccess) {
-        showAlert("Đã gửi dữ liệu toàn bộ Job sang Procurement thành công!", "Thông báo");
+        showAlert(
+          "Procurement opened and Job information synchronized successfully!",
+          "Notification"
+        );
       } else {
         showAlert(
-          "Đã mở Procurement trên tab mới.\n\n(Lưu ý: Máy chủ Procurement tại http://14.241.197.188:7642/ hiện chưa phản hồi kết nối API - Hãy đảm bảo máy chủ/dịch vụ tại cổng 7642 đã được bật).",
-          "Thông báo"
+          "Procurement has been opened in a new tab.",
+          "Notification"
         );
       }
     } catch (err) {
-      console.error("[Procurement] Lỗi:", err);
-      showAlert("Có lỗi xảy ra khi đóng gói dữ liệu: " + err.message, "Lỗi");
+      console.error("[Procurement] Error:", err);
+      showAlert("An error occurred while packaging the data: " + err.message, "Error");
     } finally {
       setIsExportingProcurement(false);
     }
   };
 
   const handleToggleScale = () => {
-    if (isMeasuring) {
+    const isAnyOtherToolActive = Boolean(
+      drawing ||
+      isDistancing ||
+      isDrawingDoor ||
+      isDrawingRoof ||
+      isAddingPoint ||
+      showPenetrations ||
+      (doorController && doorController.showPenetrations) ||
+      (lintelController && lintelController.isDrawingLintel) ||
+      (interactionMode && interactionMode !== "select" && interactionMode !== "pan")
+    );
+
+    // Turn off all other drawing/measuring modes completely
+    if (setDrawing) setDrawing(false);
+    if (setCurrentPoly) setCurrentPoly([]);
+    if (setIsDistancing) setIsDistancing(false);
+    if (setDistancePoints) setDistancePoints([]);
+    if (setIsDrawingDoor) setIsDrawingDoor(false);
+    if (setIsDrawingRoof) setIsDrawingRoof(false);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setIsAddingPoint) setIsAddingPoint(false);
+    if (setShowPenetrations) setShowPenetrations(false);
+    if (setInteractionMode) setInteractionMode("select");
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (doorController) {
+      if (typeof doorController.cancelDoorDraw === "function") doorController.cancelDoorDraw();
+      if (typeof doorController.setShowPenetrations === "function") doorController.setShowPenetrations(false);
+    }
+    if (lintelController) {
+      if (typeof lintelController.cancelLintelDraw === "function") lintelController.cancelLintelDraw();
+      if (typeof lintelController.setIsDrawingLintel === "function") lintelController.setIsDrawingLintel(false);
+    }
+
+    if (isMeasuring && !isAnyOtherToolActive) {
       if (setIsMeasuring) setIsMeasuring(false);
       if (setMeasurePoints) setMeasurePoints([]);
     } else {
-      if (setDrawing) setDrawing(false);
-      if (setIsDistancing) setIsDistancing(false);
-      if (setDistancePoints) setDistancePoints([]);
-      if (setIsDrawingDoor) setIsDrawingDoor(false);
-      if (setIsDrawingRoof) setIsDrawingRoof(false);
-      if (setInteractionMode) setInteractionMode("select");
-      if (setSelectedId) setSelectedId(null);
-      if (setSelectedType) setSelectedType(null);
-      if (doorController) {
-        doorController.cancelDoorDraw();
-        doorController.setShowPenetrations(false);
-      }
-      if (lintelController) lintelController.cancelLintelDraw();
       if (setIsMeasuring) setIsMeasuring(true);
       if (setMeasurePoints) setMeasurePoints([]);
     }
   };
 
   const handleToggleDistance = () => {
-    if (isDistancing) {
+    const isAnyOtherToolActive = Boolean(
+      drawing ||
+      isMeasuring ||
+      isDrawingDoor ||
+      isDrawingRoof ||
+      isAddingPoint ||
+      showPenetrations ||
+      (doorController && doorController.showPenetrations) ||
+      (lintelController && lintelController.isDrawingLintel) ||
+      (interactionMode && interactionMode !== "select" && interactionMode !== "pan")
+    );
+
+    // Turn off all other drawing/measuring modes completely
+    if (setDrawing) setDrawing(false);
+    if (setCurrentPoly) setCurrentPoly([]);
+    if (setIsMeasuring) setIsMeasuring(false);
+    if (setMeasurePoints) setMeasurePoints([]);
+    if (setIsDrawingDoor) setIsDrawingDoor(false);
+    if (setIsDrawingRoof) setIsDrawingRoof(false);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setIsAddingPoint) setIsAddingPoint(false);
+    if (setShowPenetrations) setShowPenetrations(false);
+    if (setInteractionMode) setInteractionMode("select");
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (doorController) {
+      if (typeof doorController.cancelDoorDraw === "function") doorController.cancelDoorDraw();
+      if (typeof doorController.setShowPenetrations === "function") doorController.setShowPenetrations(false);
+    }
+    if (lintelController) {
+      if (typeof lintelController.cancelLintelDraw === "function") lintelController.cancelLintelDraw();
+      if (typeof lintelController.setIsDrawingLintel === "function") lintelController.setIsDrawingLintel(false);
+    }
+
+    if (isDistancing && !isAnyOtherToolActive) {
       if (setIsDistancing) setIsDistancing(false);
       if (setDistancePoints) setDistancePoints([]);
     } else {
-      if (setDrawing) setDrawing(false);
-      if (setIsMeasuring) setIsMeasuring(false);
-      if (setMeasurePoints) setMeasurePoints([]);
-      if (setIsDrawingDoor) setIsDrawingDoor(false);
-      if (setIsDrawingRoof) setIsDrawingRoof(false);
-      if (setInteractionMode) setInteractionMode("select");
-      if (setSelectedId) setSelectedId(null);
-      if (setSelectedType) setSelectedType(null);
-      if (doorController) {
-        doorController.cancelDoorDraw();
-        doorController.setShowPenetrations(false);
-      }
-      if (lintelController) lintelController.cancelLintelDraw();
       if (setIsDistancing) setIsDistancing(true);
       if (setDistancePoints) setDistancePoints([]);
     }
@@ -514,132 +796,188 @@ export default function RibbonView({
           {currentProjectName || "EzeFloor Workspace"}
         </span>
 
-        {/* User Account Pill & Dropdown (Right side of top bar) */}
-        <div ref={userMenuRef} style={{ position: "relative", marginLeft: "auto" }}>
+        {/* Auto-save Status Indicator */}
+        {lastAutoSaveTime && (
           <div
-            onClick={() => setShowUserMenu(prev => !prev)}
             style={{
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
-              gap: "8px",
-              padding: "2px 8px 2px 4px",
-              borderRadius: "20px",
+              gap: "6px",
+              fontSize: "11px",
+              color: "rgba(255, 255, 255, 0.85)",
+              background: "rgba(255, 255, 255, 0.12)",
+              padding: "2px 9px",
+              borderRadius: "12px",
+              marginLeft: "12px",
               cursor: "pointer",
-              userSelect: "none",
-              transition: "background 0.15s ease",
-              background: showUserMenu ? "rgba(255, 255, 255, 0.15)" : "transparent"
+              transition: "background 0.15s"
             }}
+            onClick={() => setShowSettingsModal(true)}
+            title="Click to configure Auto-Save interval"
           >
-            {/* Circle Avatar with Initials */}
+            <span style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              backgroundColor: isAutoSaving ? "#fbbf24" : "#4ade80",
+              boxShadow: isAutoSaving ? "0 0 6px #fbbf24" : "0 0 4px #4ade80",
+              display: "inline-block"
+            }} />
+            <span>{isAutoSaving ? "Saving..." : `Auto-saved ${lastAutoSaveTime}`}</span>
+          </div>
+        )}
+
+        {/* Top Header Right Controls */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+          {/* User Account Pill & Dropdown (Right side of top bar) */}
+          <div ref={userMenuRef} style={{ position: "relative" }}>
             <div
+              onClick={() => setShowUserMenu(prev => !prev)}
               style={{
-                width: "26px",
-                height: "26px",
-                borderRadius: "50%",
-                background: "#93c5fd",
-                color: "#1e3a8a",
-                fontWeight: 800,
-                fontSize: "11px",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
+                gap: "8px",
+                padding: "2px 8px 2px 4px",
+                borderRadius: "20px",
+                cursor: "pointer",
+                userSelect: "none",
+                transition: "background 0.15s ease",
+                background: showUserMenu ? "rgba(255, 255, 255, 0.15)" : "transparent"
               }}
             >
-              {userInitials}
-            </div>
-
-            {/* Name & Role Text */}
-            <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
-              <span style={{ fontSize: "12px", fontWeight: 700, color: "#ffffff", lineHeight: "1.1", display: "flex", alignItems: "center", gap: "4px" }}>
-                {user?.username || "Guest"}
-                <span style={{ fontSize: "9px", opacity: 0.8 }}>▼</span>
-              </span>
-              <span style={{ fontSize: "10px", color: "rgba(255, 255, 255, 0.7)", lineHeight: "1.1" }}>
-                {displayRole}
-              </span>
-            </div>
-          </div>
-
-          {/* User Dropdown Menu */}
-          {showUserMenu && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 6px)",
-                right: 0,
-                width: "180px",
-                background: "#ffffff",
-                borderRadius: "8px",
-                border: "1px solid #e2e8f0",
-                boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
-                padding: "4px 0",
-                zIndex: 1000,
-                animation: "fadeIn 0.15s ease"
-              }}
-            >
+              {/* Circle Avatar with Initials */}
               <div
-                onClick={() => {
-                  setShowUserMenu(false);
-                  setShowProfileModal(true);
-                }}
                 style={{
-                  padding: "8px 14px",
-                  fontSize: "13px",
-                  color: "#1e293b",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  transition: "background 0.12s"
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                Account Settings
-              </div>
-              <div
-                onClick={() => setShowUserMenu(false)}
-                style={{
-                  padding: "8px 14px",
-                  fontSize: "13px",
-                  color: "#1e293b",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  transition: "background 0.12s"
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                Billing
-              </div>
-              <div style={{ height: "1px", background: "#e2e8f0", margin: "4px 0" }} />
-              <div
-                onClick={() => {
-                  setShowUserMenu(false);
-                  handleLogout();
-                }}
-                style={{
-                  padding: "8px 14px",
-                  fontSize: "13px",
-                  color: "#ef4444",
-                  fontWeight: 600,
-                  cursor: "pointer",
+                  width: "26px",
+                  height: "26px",
+                  borderRadius: "50%",
+                  background: "#93c5fd",
+                  color: "#1e3a8a",
+                  fontWeight: 800,
+                  fontSize: "11px",
                   display: "flex",
                   alignItems: "center",
-                  gap: "6px",
-                  transition: "background 0.12s"
+                  justifyContent: "center",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "#fef2f2"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
-                Log Out
+                {userInitials}
+              </div>
+
+              {/* Name & Role Text */}
+              <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "#ffffff", lineHeight: "1.1", display: "flex", alignItems: "center", gap: "4px" }}>
+                  {user?.username || "Guest"}
+                  <span style={{ fontSize: "9px", opacity: 0.8 }}>▼</span>
+                </span>
+                <span style={{ fontSize: "10px", color: "rgba(255, 255, 255, 0.7)", lineHeight: "1.1" }}>
+                  {displayRole}
+                </span>
               </div>
             </div>
-          )}
+
+            {/* User Dropdown Menu */}
+            {showUserMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  width: "190px",
+                  background: "#ffffff",
+                  borderRadius: "8px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+                  padding: "4px 0",
+                  zIndex: 1000,
+                  animation: "fadeIn 0.15s ease"
+                }}
+              >
+                <div
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    setShowSettingsModal(true);
+                  }}
+                  style={{
+                    padding: "8px 14px",
+                    fontSize: "13px",
+                    color: "#1e293b",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    transition: "background 0.12s"
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <CAD_ICONS.Settings />
+                  <span>Settings</span>
+                </div>
+                <div
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    setShowProfileModal(true);
+                  }}
+                  style={{
+                    padding: "8px 14px",
+                    fontSize: "13px",
+                    color: "#1e293b",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition: "background 0.12s"
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  Account Settings
+                </div>
+                <div
+                  onClick={() => setShowUserMenu(false)}
+                  style={{
+                    padding: "8px 14px",
+                    fontSize: "13px",
+                    color: "#1e293b",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition: "background 0.12s"
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  Billing
+                </div>
+                <div style={{ height: "1px", background: "#e2e8f0", margin: "4px 0" }} />
+                <div
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    handleLogout();
+                  }}
+                  style={{
+                    padding: "8px 14px",
+                    fontSize: "13px",
+                    color: "#ef4444",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    transition: "background 0.12s"
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#fef2f2"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                  Log Out
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -659,6 +997,7 @@ export default function RibbonView({
             <span
               className={`cad-menu-item ${activeTab === "Admin" ? "active" : ""}`}
               onClick={() => setActiveTab("Admin")}
+              style={{ color: "#dc2626", fontWeight: 700 }}
             >
               Admin
             </span>
@@ -673,54 +1012,18 @@ export default function RibbonView({
           <>
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <label className="ribbon-btn" title="Tạo dự án mới hoàn toàn từ file PDF (New Job)">
-                  <span className="icon" style={{ color: "#2563eb" }}><CAD_ICONS.NewPDF /></span> <span className="label" style={{ fontWeight: 600, color: "#1e40af" }}>New PDF</span>
-                  <input
-                    type="file" accept=".pdf,image/*" style={{ display: "none" }}
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (!file) return;
-
-                      // Reset hoàn toàn Job ID, Job name và Storage cũ để tạo Job mới 100%
-                      if (setCurrentJobId) setCurrentJobId(null);
-                      try {
-                        if (typeof window !== "undefined") {
-                          sessionStorage.removeItem("pendingEmsJob");
-                          localStorage.removeItem("pendingEmsJob");
-                          localStorage.removeItem("ezefloor_last_active_job_id");
-                          localStorage.removeItem("ezefloor_last_active_project_name");
-                          window.history.replaceState({}, document.title, window.location.pathname);
-                        }
-                      } catch (_) { }
-
-                      const newJobName = file.name.replace(/\.[^/.]+$/, "");
-                      setCurrentProjectName(newJobName);
-
-                      // Xóa trắng toàn bộ layers của job cũ
-                      if (setRoomsByPage) setRoomsByPage({});
-                      if (setWallsByPage) setWallsByPage({});
-                      if (setDoorsByPage) setDoorsByPage({});
-                      if (setRoofsByPage) setRoofsByPage({});
-                      if (setLintelsByPage) setLintelsByPage({});
-                      if (setScalesByPage) setScalesByPage({});
-                      if (setWasteByPage) setWasteByPage({});
-
-                      if (file.type === "application/pdf") {
-                        loadPDF(file, false);
-                      } else {
-                        const url = URL.createObjectURL(file);
-                        const imgData = { image: url, w: 2000, h: 1500, fileName: newJobName };
-                        setPendingPages([imgData]);
-                        setImportSelectedPages([0]);
-                        if (setIsAddingPagesMode) setIsAddingPagesMode(false);
-                        setShowImportPageSelector(true);
-                      }
-                      e.target.value = '';
-                    }}
-                  />
-                </label>
-                <label className="ribbon-btn" title="Open PDF / Image">
-                  <span className="icon"><CAD_ICONS.FolderOpen /></span> <span className="label">Open</span>
+                <button
+                  className="ribbon-btn"
+                  onClick={handleNewClick}
+                  title="Create a new blank drawing"
+                  style={{ background: "#eff6ff", borderColor: "#bfdbfe" }}
+                >
+                  <span className="icon" style={{ color: "#2563eb" }}><CAD_ICONS.NewPDF /></span>
+                  <span className="label" style={{ fontWeight: 600, color: "#1e40af" }}>New</span>
+                </button>
+                <label className="ribbon-btn" title="Import PDF or Image file into drawing">
+                  <span className="icon"><CAD_ICONS.FolderOpen /></span>
+                  <span className="label">Import PDF</span>
                   <input
                     type="file" accept=".pdf,image/*" style={{ display: "none" }}
                     onChange={(e) => {
@@ -786,32 +1089,67 @@ export default function RibbonView({
             <div className="ribbon-group">
               <div className="ribbon-buttons">
                 <button
-                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
+                  className="ribbon-btn accent"
                   onClick={() => {
                     if (!realScale || realScale === 1.0) {
-                      showAlert("bạn phải scale trước khi chạy AI");
+                      showAlert("You need to scale before running AI");
                       return;
                     }
                     setShowWallConfig(true);
                   }}
-                  disabled={isDetecting}
+                  disabled={isDetecting || isSmartDetecting}
+                  style={isDetecting && activeAiTask !== "wall" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
                   title="Run YOLO Wall AI detection"
                 >
-                  <span className="icon">{isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Wall />}</span><span className="label">Wall AI</span>
-                </button>
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectDoorSeg()} disabled={isDetecting || isSmartDetecting} title="Run YOLO Door AI detection">
-                  <span className="icon">{isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Door />}</span><span className="label">Door AI</span>
-                </button>
-                <button className={`ribbon-btn accent ${isDetecting ? "active" : ""}`} onClick={() => detectRoof && detectRoof()} disabled={isDetecting || isSmartDetecting} title="Run Roof AI detection">
-                  <span className="icon">{isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Roof />}</span><span className="label">Roof AI</span>
+                  <span className="icon" style={activeAiTask === "wall" && isDetecting ? { color: "#2563eb" } : {}}>
+                    {activeAiTask === "wall" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Wall />}
+                  </span>
+                  <span className="label">Wall AI</span>
                 </button>
                 <button
-                  className={`ribbon-btn accent ${isDetecting ? "active" : ""}`}
-                  onClick={() => generateRoomsFromWalls()}
-                  disabled={isDetecting}
+                  className="ribbon-btn accent"
+                  onClick={() => {
+                    setActiveAiTask("door");
+                    detectDoorSeg();
+                  }}
+                  disabled={isDetecting || isSmartDetecting}
+                  style={isDetecting && activeAiTask !== "door" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
+                  title="Run YOLO Door AI detection"
+                >
+                  <span className="icon" style={activeAiTask === "door" && isDetecting ? { color: "#2563eb" } : {}}>
+                    {activeAiTask === "door" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Door />}
+                  </span>
+                  <span className="label">Door AI</span>
+                </button>
+                <button
+                  className="ribbon-btn accent"
+                  onClick={() => {
+                    setActiveAiTask("roof");
+                    detectRoof && detectRoof();
+                  }}
+                  disabled={isDetecting || isSmartDetecting}
+                  style={isDetecting && activeAiTask !== "roof" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
+                  title="Run Roof AI detection"
+                >
+                  <span className="icon" style={activeAiTask === "roof" && isDetecting ? { color: "#2563eb" } : {}}>
+                    {activeAiTask === "roof" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Roof />}
+                  </span>
+                  <span className="label">Roof AI</span>
+                </button>
+                <button
+                  className="ribbon-btn accent"
+                  onClick={() => {
+                    setActiveAiTask("room");
+                    generateRoomsFromWalls();
+                  }}
+                  disabled={isDetecting || isSmartDetecting}
+                  style={isDetecting && activeAiTask !== "room" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
                   title="Generate rooms from current walls (Shapely)"
                 >
-                  <span className="icon">{isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Sparkles />}</span><span className="label">Wall &rarr; Room</span>
+                  <span className="icon" style={activeAiTask === "room" && isDetecting ? { color: "#2563eb" } : {}}>
+                    {activeAiTask === "room" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Sparkles />}
+                  </span>
+                  <span className="label">Wall &rarr; Room</span>
                 </button>
               </div>
             </div>
@@ -822,7 +1160,7 @@ export default function RibbonView({
                 <button
                   className={`ribbon-btn ${workspaceMode === "2d" ? "active" : ""}`}
                   onClick={() => setWorkspaceMode && setWorkspaceMode("2d")}
-                  title="2D Plan View (Chế độ xem 2D)"
+                  title="2D Plan View"
                 >
                   <span className="icon"><CAD_ICONS.TwoD /></span><span className="label">2D Plan</span>
                 </button>
@@ -839,14 +1177,14 @@ export default function RibbonView({
                     }
                     if (setWorkspaceMode) setWorkspaceMode("2d");
                   }}
-                  title="Open 3D Studio in a separate window (Mở 3D ra cửa sổ riêng)"
+                  title="Open 3D Studio in a separate window"
                 >
                   <span className="icon"><CAD_ICONS.ThreeD /></span><span className="label">3D View</span>
                 </button>
                 <button
                   className={`ribbon-btn ${workspaceMode === "split" ? "active" : ""}`}
                   onClick={() => setWorkspaceMode && setWorkspaceMode(workspaceMode === "split" ? "2d" : "split")}
-                  title="Split View (Chế độ xem song song 2D & 3D)"
+                  title="Split View"
                 >
                   <span className="icon"><CAD_ICONS.Split /></span><span className="label">Split View</span>
                 </button>
@@ -936,7 +1274,7 @@ export default function RibbonView({
                   title={`Page ${currentPage + 1} of ${pages.length || 1}`}
                 >
                   <span className="icon"><CAD_ICONS.Pdf /></span>
-                  <span className="label">Pg {currentPage + 1}/{pages.length || 1}</span>
+                  <span className="label">Level {currentPage + 1}/{pages.length || 1}</span>
                 </div>
                 <button className="ribbon-btn" onClick={() => { if (currentPage < pages.length - 1) goPage(currentPage + 1); }} title="Next Page">
                   <span className="icon"><CAD_ICONS.ArrowRight /></span><span className="label">Next</span>
@@ -1199,7 +1537,7 @@ export default function RibbonView({
                   className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
                   onClick={handleExportToProcurement}
                   disabled={isExportingProcurement}
-                  title="Gửi dữ liệu Job sang hệ thống Procurement (http://14.241.197.188:7642/)"
+                  title="Send job data to the system Procurement (http://14.241.197.188:7642/)"
                 >
                   <span className="icon"><CAD_ICONS.Procurement /></span><span className="label">Procurement</span>
                 </button>
@@ -1602,6 +1940,7 @@ export default function RibbonView({
         visible={showWallConfig}
         onConfirm={(config) => {
           setShowWallConfig(false);
+          setActiveAiTask("wall");
           detectWallFromFloorAI(config, roiRect);
         }}
         onClose={() => setShowWallConfig(false)}
@@ -1645,6 +1984,10 @@ export default function RibbonView({
         user={user}
         doors={(doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : []}
         walls={(wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : walls}
+      />
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
       />
     </div >
   );

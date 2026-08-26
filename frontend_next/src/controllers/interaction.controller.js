@@ -77,6 +77,109 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
   return bestP;
 }
 
+/**
+ * Snaps the wall endpoint while strictly maintaining 90-degree orthogonal angle (horizontal / vertical).
+ * Automatically calculates perpendicular intersection points with other walls along the locked line.
+ */
+function snapOrthogonalWallEnd(startPt, rawP, pageWalls, lockMode = null, isWallSnapEnabled = true, freeAngle = false) {
+  if (!startPt) return rawP;
+  const sx = startPt.x;
+  const sy = startPt.y;
+  const px = rawP.x;
+  const py = rawP.y;
+
+  if (freeAngle) {
+    if (isWallSnapEnabled) {
+      return snapToOtherWalls(rawP, null, pageWalls, 20, true);
+    }
+    return { x: px, y: py };
+  }
+
+  const dx = Math.abs(px - sx);
+  const dy = Math.abs(py - sy);
+  const isVertical = lockMode === 'vertical' || (lockMode !== 'horizontal' && dy >= dx);
+  const isHorizontal = lockMode === 'horizontal' || (lockMode !== 'vertical' && dx > dy);
+
+  const targetX = isVertical ? sx : px;
+  const targetY = isHorizontal ? sy : py;
+
+  if (!isWallSnapEnabled || !pageWalls || pageWalls.length === 0) {
+    return { x: targetX, y: targetY };
+  }
+
+  let bestDist = 30;
+  let bestPt = { x: targetX, y: targetY };
+
+  for (const w of pageWalls) {
+    if (!w.centerline || w.centerline.length !== 2) continue;
+    const ax = w.centerline[0][0], ay = w.centerline[0][1];
+    const bx = w.centerline[1][0], by = w.centerline[1][1];
+
+    // 1. Check endpoints of wall
+    for (const ep of [{ x: ax, y: ay }, { x: bx, y: by }]) {
+      if (isVertical) {
+        if (Math.abs(ep.x - sx) < 16 && Math.abs(ep.y - py) < bestDist) {
+          bestDist = Math.abs(ep.y - py);
+          bestPt = { x: sx, y: ep.y };
+        }
+      } else if (isHorizontal) {
+        if (Math.abs(ep.y - sy) < 16 && Math.abs(ep.x - px) < bestDist) {
+          bestDist = Math.abs(ep.x - px);
+          bestPt = { x: ep.x, y: sy };
+        }
+      }
+    }
+
+    // 2. Check segment intersection with the orthogonal line
+    if (isVertical) {
+      // Line is x = sx. Does segment [a, b] cross x = sx?
+      const minX = Math.min(ax, bx) - 10;
+      const maxX = Math.max(ax, bx) + 10;
+      if (sx >= minX && sx <= maxX && Math.abs(bx - ax) > 0.001) {
+        const t = (sx - ax) / (bx - ax);
+        if (t >= -0.05 && t <= 1.05) {
+          const intersectY = ay + t * (by - ay);
+          const dist = Math.abs(intersectY - py);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestPt = { x: sx, y: intersectY };
+          }
+        }
+      }
+    } else if (isHorizontal) {
+      // Line is y = sy. Does segment [a, b] cross y = sy?
+      const minY = Math.min(ay, by) - 10;
+      const maxY = Math.max(ay, by) + 10;
+      if (sy >= minY && sy <= maxY && Math.abs(by - ay) > 0.001) {
+        const t = (sy - ay) / (by - ay);
+        if (t >= -0.05 && t <= 1.05) {
+          const intersectX = ax + t * (bx - ax);
+          const dist = Math.abs(intersectX - px);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestPt = { x: intersectX, y: sy };
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: If no orthogonal intersection was found within 30px, check if rawSnap aligns close to ortho line
+  if (bestDist === 30) {
+    const rawSnap = snapToOtherWalls(rawP, null, pageWalls, 18, true);
+    if (Math.hypot(rawSnap.x - rawP.x, rawSnap.y - rawP.y) > 0.001) {
+      if (isVertical && Math.abs(rawSnap.x - sx) < 15) {
+        return { x: sx, y: rawSnap.y };
+      }
+      if (isHorizontal && Math.abs(rawSnap.y - sy) < 15) {
+        return { x: rawSnap.x, y: sy };
+      }
+    }
+  }
+
+  return bestPt;
+}
+
 export function useInteractionController(svgRef, layerVisibility = { floor: true, wall: true, door: true, ocr: true }) {
   const { showAlert, showConfirm, showPrompt, showScalePrompt } = useDialog();
 
@@ -786,23 +889,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         } else if (field === "class_name" || field === "wall_type") {
           let class_name = w.class_name;
           let wall_type = w.wall_type;
-          let thicknessMm = w.thickness || 90;
+          const thicknessMm = w.thickness || 90;
           if (value === "block_wall" || value === "block") {
             class_name = "block_wall";
             wall_type = "block";
-            thicknessMm = w.thickness || 90;
           } else if (value === "exterior_wall" || value === "ext") {
             class_name = "exterior_wall";
             wall_type = "ext";
-            thicknessMm = 90;
           } else if (value === "interior_wall" || value === "int") {
             class_name = "interior_wall";
             wall_type = "int";
-            thicknessMm = 70;
+            newWall.is_lbw = true;
           } else if (value === "partition_wall" || value === "part") {
             class_name = "partition_wall";
             wall_type = "part";
-            thicknessMm = 70;
+            newWall.is_lbw = false;
           } else {
             class_name = value;
             wall_type = value;
@@ -821,6 +922,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               newWall.polygon = newPoly.map(pt => [pt.x, pt.y]);
             }
           }
+        } else if (field === "is_lbw" || field === "is_load_bearing" || field === "lbw") {
+          const isLbwVal = Boolean(value);
+          newWall.is_lbw = isLbwVal;
+          newWall.is_load_bearing = isLbwVal;
+          newWall.lbw = isLbwVal;
         } else if (field === "thickness" || field === "thickness_mm") {
           const thicknessMm = Number(value);
           const thicknessPx = mmToPx(thicknessMm, realScale);
@@ -2990,22 +3096,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     if (drawingWall) {
       const pageWalls = wallsByPage[currentPage] || [];
-      const snappedToWall = snapToOtherWalls(p, drawingWall.wallId || null, pageWalls, 20, isWallSnapEnabled);
-      let mx = snappedToWall.x;
-      let my = snappedToWall.y;
-      const isObjectSnapped = isWallSnapEnabled && (Math.hypot(snappedToWall.x - p.x, snappedToWall.y - p.y) > 0.001);
-
-      if (!isShiftDown && !isObjectSnapped) {
-        const snapped = snap({ x: drawingWall.startX, y: drawingWall.startY }, { x: mx, y: my });
-        mx = snapped.x;
-        my = snapped.y;
-      }
-      if (drawingWall.lock === 'horizontal') {
-        my = drawingWall.startY;
-      } else if (drawingWall.lock === 'vertical') {
-        mx = drawingWall.startX;
-      }
-      setDrawingWallEnd({ x: mx, y: my });
+      const startPt = { x: drawingWall.startX, y: drawingWall.startY };
+      const freeAngle = isShiftDown && !isSnapMode;
+      const snappedPt = snapOrthogonalWallEnd(
+        startPt,
+        p,
+        pageWalls,
+        drawingWall.lock || null,
+        isWallSnapEnabled,
+        freeAngle
+      );
+      setDrawingWallEnd(snappedPt);
     }
 
     if (interactionMode === "pull-wall-step" && pullStepInfo) {

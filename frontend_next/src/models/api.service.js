@@ -238,6 +238,16 @@ export const ApiService = {
     return res.json();
   },
 
+  async getProcurementSsoToken(maNv = "EZE0090") {
+    const res = await fetch(`${BASE_URL}/api/auth/procurement-sso-token`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ ma_nv: maNv }),
+      credentials: "include"
+    });
+    return res.json();
+  },
+
   // --- Jobs ---
   async saveJob(payload) {
     const res = await fetch(`${BASE_URL}/jobs`, {
