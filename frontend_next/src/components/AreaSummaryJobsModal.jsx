@@ -265,17 +265,53 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
     if (groupedAIRooms.length === 0) return;
 
     const activeHwId = uniqueJobsList.find(j => j.job_number === selectedJobNumber)?.hw_id || jobsData[0]?.IDJob_HW || 1;
-    const newCustomRows = groupedAIRooms.map((aiR, idx) => ({
-      rowKey: `ai_filled_${Date.now()}_${idx}`,
-      IDJob_HW: activeHwId,
-      job_number: selectedJobNumber !== "ALL" ? selectedJobNumber : (jobsData[0]?.job_number || "J-1001"),
-      area_summary_id: null,
-      floor_level: defaultFloorLevel,
-      floor_area_type: aiR.floor_area_type,
-      net_area: aiR.calcAreaM2
-    }));
+    const activeJobNum = selectedJobNumber !== "ALL" ? selectedJobNumber : (jobsData[0]?.job_number || "J-1001");
 
-    setCustomRows(newCustomRows);
+    // Tìm các dòng DB hiện có thuộc cùng Job
+    const existingDbRows = filteredRawJobsStep2.filter(r => r.area_summary_id);
+
+    // Nhóm dòng DB theo floor_area_type (Dry, Wet, Timber Deck, Tile Deck)
+    const dbRowsByType = {};
+    existingDbRows.forEach(dbRow => {
+      const areaType = (dbRow.floor_area_type || "Dry").toLowerCase();
+      if (!dbRowsByType[areaType]) dbRowsByType[areaType] = [];
+      dbRowsByType[areaType].push(dbRow);
+    });
+
+    const newEdits = { ...editedData };
+    const newCustomRows = [];
+
+    groupedAIRooms.forEach((aiR, idx) => {
+      const aiType = (aiR.floor_area_type || "Dry").toLowerCase();
+      const matchedDbRows = dbRowsByType[aiType];
+
+      if (matchedDbRows && matchedDbRows.length > 0) {
+        // Đã có dòng DB cùng loại → cập nhật giá trị net_area vào dòng DB đầu tiên qua editedData
+        const targetDbRow = matchedDbRows[0];
+        const targetRowKey = `db_area_${targetDbRow.area_summary_id}_${targetDbRow.IDJob_HW}`;
+        newEdits[targetRowKey] = {
+          ...newEdits[targetRowKey],
+          net_area: aiR.calcAreaM2,
+          floor_level: defaultFloorLevel
+        };
+        // Xóa dòng đã match để không bị match lại
+        dbRowsByType[aiType] = matchedDbRows.slice(1);
+      } else {
+        // Chưa có dòng DB cùng loại → tạo dòng mới
+        newCustomRows.push({
+          rowKey: `ai_filled_${Date.now()}_${idx}`,
+          IDJob_HW: activeHwId,
+          job_number: activeJobNum,
+          area_summary_id: null,
+          floor_level: defaultFloorLevel,
+          floor_area_type: aiR.floor_area_type,
+          net_area: aiR.calcAreaM2
+        });
+      }
+    });
+
+    setEditedData(newEdits);
+    setCustomRows(prev => [...prev.filter(r => !r.rowKey.startsWith("ai_filled_")), ...newCustomRows]);
   };
 
   /** Auto-populate area data from rooms in real-time when entering Step 2, only if no DB records exist yet */
@@ -317,18 +353,25 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
 
     setSavingKey(targetRow.rowKey);
     try {
-      const areaItem = {
-        floor_level: getFieldValue(targetRow, "floor_level"),
-        floor_area_type: getFieldValue(targetRow, "floor_area_type"),
-        net_area: parseFloat(getFieldValue(targetRow, "net_area")) || 0
-      };
+      // Gom TẤT CẢ các dòng cùng IDJob_HW (vì backend sẽ đánh dấu tất cả record cũ IsOldData=1)
+      const sameJobRows = groupedJobRows.filter(r => String(r.IDJob_HW) === String(hwId));
+      const areasList = sameJobRows.map(row => ({
+        floor_level: getFieldValue(row, "floor_level"),
+        floor_area_type: getFieldValue(row, "floor_area_type"),
+        net_area: parseFloat(getFieldValue(row, "net_area")) || 0
+      })).filter(a => a.net_area > 0);
+
+      if (areasList.length === 0) {
+        setSavingKey(null);
+        return;
+      }
 
       const payload = {
         user_update: currentUserUpdate,
         jobs: [
           {
             id_job_hw: hwId,
-            areas: [areaItem]
+            areas: areasList
           }
         ]
       };
@@ -341,6 +384,7 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
           n.delete(targetRow.rowKey);
           return n;
         }), 2500);
+        await loadJobsList();
       } else {
         alert(res.detail || "Error saving AreaSummary item.");
       }
