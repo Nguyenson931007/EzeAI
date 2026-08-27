@@ -166,6 +166,7 @@ const RoofInspectorCard = ({
           )} */}
         </div>
 
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           {/* Debug raw roof input JSON export
           <button
             title="Export Roof Input JSON (roof_1_input_v3 format)"
@@ -707,7 +708,7 @@ const RoofInspectorCard = ({
           </button>
           */}
 
-          {generateRoofFromWalls && (
+          {/* {generateRoofFromWalls && (
             <button
               title="Re-generate and align roof from active walls"
               onClick={() => generateRoofFromWalls()}
@@ -732,7 +733,7 @@ const RoofInspectorCard = ({
               <span>🏠</span>
               <span>Wall → Roof</span>
             </button>
-          )}
+          )} */}
 
           {/* Clean, Simple Compute Button '▶' */}
           <button
