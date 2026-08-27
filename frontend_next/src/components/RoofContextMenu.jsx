@@ -247,7 +247,7 @@ const RoofContextMenu = ({
         <span>Trim Eave Overhang</span>
       </div>
 
-      {/* Export Roof Input JSON */}
+      {/* Debug raw roof input JSON export
       <div
         style={{
           padding: '7px 12px',
@@ -269,6 +269,7 @@ const RoofContextMenu = ({
         <span>📥</span>
         <span>Export Input (JSON)</span>
       </div>
+      */}
 
       {/* Delete Roof Action */}
       <div

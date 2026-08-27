@@ -4072,6 +4072,7 @@ export default function RightPropertyPaneView({
                     >
                       <span>📊 Xuất Excel (.xlsx)</span>
                     </button>
+                    {/* Debug raw wall JSON export
                     <button
                       type="button"
                       className="rp-action-btn"
@@ -4097,6 +4098,7 @@ export default function RightPropertyPaneView({
                     >
                       <span>📄 JSON</span>
                     </button>
+                    */}
                   </div>
 
                   <button
@@ -5006,6 +5008,7 @@ export default function RightPropertyPaneView({
                         📊 Xuất Excel Tường (.xlsx)
                       </ExportButton>
                     </div>
+                    {/* Debug raw wall JSON export
                     <button
                       type="button"
                       onClick={() => exportWallJson()}
@@ -5030,6 +5033,7 @@ export default function RightPropertyPaneView({
                     >
                       <span>📄 JSON</span>
                     </button>
+                    */}
                   </div>
 
                   <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
@@ -5245,6 +5249,7 @@ export default function RightPropertyPaneView({
                     <span style={{ fontSize: "14px" }}>🏠</span>
                     <span>Roof Area Summary</span>
                   </div>
+                  {/* Debug raw roof input export
                   {pageRoofs.length > 0 && (
                     <button
                       title="Export all roof inputs on this page to JSON (V3 format)"
@@ -5276,6 +5281,7 @@ export default function RightPropertyPaneView({
                       <span>Export Inputs</span>
                     </button>
                   )}
+                  */}
                   {generateRoofFromWalls && (
                     <button
                       onClick={() => generateRoofFromWalls()}

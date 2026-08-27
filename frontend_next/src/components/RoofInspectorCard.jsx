@@ -166,7 +166,7 @@ const RoofInspectorCard = ({
           )} */}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {/* Debug raw roof input JSON export
           <button
             title="Export Roof Input JSON (roof_1_input_v3 format)"
             aria-label="Export Roof Input JSON"
@@ -198,6 +198,7 @@ const RoofInspectorCard = ({
             <span>📥</span>
             <span>JSON</span>
           </button>
+          */}
           {deleteRoof && (
             <button
               title="Delete Roof"
@@ -672,7 +673,7 @@ const RoofInspectorCard = ({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          {/* Export Roof Input JSON Button */}
+          {/* Debug raw roof input JSON export
           <button
             title="Export Roof Input JSON (roof_1_input_v3 format)"
             aria-label="Export Roof Input JSON"
@@ -704,6 +705,7 @@ const RoofInspectorCard = ({
             <span>📥</span>
             <span>Export Input</span>
           </button>
+          */}
 
           {generateRoofFromWalls && (
             <button

@@ -1382,12 +1382,14 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('export-wall-excel'))} title="Xuất bảng tính Excel khối lượng và kích thước tường">
                   <span className="icon"><CAD_ICONS.Wall /></span><span className="label">Wall Excel</span>
                 </button>
+                {/* Debug raw export buttons
                 <button className="ribbon-btn accent" onClick={exportWallLabels} title="Export wall frame schema JS">
                   <span className="icon"><CAD_ICONS.Bolt /></span><span className="label">Export JS</span>
                 </button>
                 <button className="ribbon-btn" onClick={handleExportRoofInput} title="Export roof input JSON (V3 format)">
                   <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Roof JSON</span>
                 </button>
+                */}
               </div>
               <span className="ribbon-group-title">EXPORT</span>
             </div>
