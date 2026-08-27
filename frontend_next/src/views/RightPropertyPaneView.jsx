@@ -18,6 +18,7 @@ import { computeWallAreas } from "@/engines/WallAreaCalculator";
 import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirting } from "@/models/FinishRegistry";
 import floorTypesConfig from "@/constants/floorTypes.json";
 import RoofInspectorCard from "@/components/RoofInspectorCard";
+import { roundLintelLength } from "@/controllers/lintel.controller";
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -416,6 +417,7 @@ export default function RightPropertyPaneView({
   deleteRoof,
   deleteRoofVertex,
   exportRoofIO,
+  exportRoofInput,
   setShow3D,
   lintelController,
   selectedId,
@@ -426,6 +428,7 @@ export default function RightPropertyPaneView({
   updateDutchOverhang,
   updateDutchRakeOverhang,
   updateDutchCutPoints,
+  generateRoofFromWalls,
   loadPDF,
   setPendingPages,
   setImportSelectedPages,
@@ -1036,50 +1039,284 @@ export default function RightPropertyPaneView({
     };
   }, [walls, doors, calcRealScale]);
 
-  // Excel export for walls
-  const exportWallExcel = () => {
-    if (!scaleValue) return;
+  // Excel export for walls (supports all walls or specific wall IDs)
+  const exportWallExcel = React.useCallback((targetWallIds = null) => {
+    if (!scaleValue && (!walls || walls.length === 0)) {
+      alert("Please set drawing scale first to calculate wall dimensions.");
+      return;
+    }
+    const targetWalls = Array.isArray(targetWallIds) && targetWallIds.length > 0
+      ? (walls || []).filter(w => targetWallIds.includes(w.id))
+      : (walls || []);
+
+    if (targetWalls.length === 0) {
+      alert("No walls found to export.");
+      return;
+    }
+
     const wb = XLSX.utils.book_new();
     const ws = {};
-    const s = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: "s", v }; };
-    const n = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: "n", v: parseFloat(Number(v).toFixed(4)) }; };
+    const s = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: "s", v: String(v ?? "") }; };
+    const n = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: "n", v: parseFloat(Number(v || 0).toFixed(4)) }; };
 
     let r = 0;
-    s(r, 0, "Wall Summary Report"); r++;
-    s(r, 0, `Scale: ${scaleValue.toFixed(6)} m/px`); r += 2;
-    s(r, 0, "Wall ID"); s(r, 1, "Type"); s(r, 2, "Length (m)"); s(r, 3, "Height (m)"); s(r, 4, "Area (m²)"); s(r, 5, "Thickness (mm)"); r++;
+    const isSubset = targetWalls.length !== (walls || []).length;
+    s(r, 0, isSubset ? `Selected Wall Output Report (${targetWalls.length} walls)` : "Wall Summary Output Report"); r++;
+    s(r, 0, `Project: ${currentProjectName || "EzeFloor Plan"} | Page ${currentPage + 1}`); r++;
+    s(r, 0, `Scale: ${scaleValue ? scaleValue.toFixed(6) : "N/A"} m/px | Calculation: ${wallSides} Side(s), ${deductDoors ? "Net Area (Deducted Openings)" : "Gross Area"}`); r += 2;
 
-    const typeOrder = ["interior_wall", "exterior_wall", "partition_wall"];
+    // Headers
+    const headers = [
+      "Wall ID", "Type", "Length (m)", "Height (m)", "Thickness (mm)",
+      "Floor Base", "LBW", "Gross Area (m²)", "Openings (m²)", "Net Area (m²)",
+      "Skirting (Lm)", "Start X (mm)", "Start Y (mm)", "End X (mm)", "End Y (mm)"
+    ];
+    headers.forEach((h, colIdx) => s(r, colIdx, h));
+    r++;
+
+    const typeOrder = ["exterior_wall", "interior_wall", "partition_wall", "block_wall"];
+    const typeLabels = {
+      exterior_wall: "Exterior",
+      interior_wall: "Interior",
+      partition_wall: "Partition",
+      block_wall: "Block",
+    };
+
+    let grandLen = 0;
+    let grandGrossArea = 0;
+    let grandNetArea = 0;
+    let grandSkirting = 0;
+
     for (const type of typeOrder) {
-      const group = wallData[type];
-      if (group.walls.length === 0) continue;
-      s(r, 0, `── ${group.label} Wall (${group.walls.length}) ──`); r++;
-      group.walls.forEach((w) => {
+      const typeWalls = targetWalls.filter(w => getWallClass(w) === type);
+      if (typeWalls.length === 0) continue;
+
+      const groupLabel = typeLabels[type] || type;
+      s(r, 0, `── ${groupLabel} Walls (${typeWalls.length}) ──`);
+      r++;
+
+      let groupLen = 0;
+      let groupGross = 0;
+      let groupNet = 0;
+      let groupSkirt = 0;
+
+      typeWalls.forEach((w) => {
         const wallIdx = (walls || []).findIndex(orig => orig.id === w.id);
         const strId = String(w.id);
         const wallIdFormatted = w.name || (wallIdx >= 0 ? `W-${wallIdx + 1}` : (strId.startsWith("man_wall_") || strId.startsWith("wall-topo-") || strId.startsWith("wall-") || strId.startsWith("wall_") || strId.length > 10 ? `W-${wallIdx + 1}` : strId));
-        s(r, 0, wallIdFormatted); s(r, 1, `${group.label} Wall`);
-        n(r, 2, w.lengthM || 0); n(r, 3, w.heightM || 0);
-        n(r, 4, w.areaM2 || 0); n(r, 5, w.thicknessMm); r++;
-      });
-      s(r, 0, ""); s(r, 1, `${group.label} Total`);
-      n(r, 2, sumOf(group, "lengthM")); s(r, 3, "");
-      n(r, 4, sumOf(group, "areaM2")); r += 2;
-    }
-    s(r, 0, ""); s(r, 1, "GRAND TOTAL");
-    n(r, 2, grandTotalLength); s(r, 3, ""); n(r, 4, grandTotalArea); r++;
 
-    ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r, c: 5 } });
-    ws["!cols"] = [{ wch: 20 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+        const c = w.centerline;
+        let lenM = 0;
+        let p1Mm = [0, 0], p2Mm = [0, 0];
+        if (c && c.length === 2) {
+          const dx = c[1][0] - c[0][0];
+          const dy = c[1][1] - c[0][1];
+          const lenPx = Math.hypot(dx, dy);
+          lenM = scaleValue ? lenPx * scaleValue : 0;
+          const scaleMult = (realScale && realScale > 0) ? realScale : (scaleValue ? scaleValue * 1000 : 1.0);
+          p1Mm = [Math.round(c[0][0] * scaleMult), Math.round(c[0][1] * scaleMult)];
+          p2Mm = [Math.round(c[1][0] * scaleMult), Math.round(c[1][1] * scaleMult)];
+        }
+
+        const heightMm = w.height ?? savedDefault;
+        const heightM = heightMm / 1000;
+        const thicknessMm = w.thickness || 90;
+        const floorBase = w.floor_type || "Timber";
+        const isLbw = Boolean(w.is_lbw || w.is_load_bearing || w.lbw);
+
+        let openingAreaM2 = 0;
+        if (doors && scaleValue) {
+          const wallBaseId = getBaseWallId ? getBaseWallId(w.id) : w.id;
+          const wallDoors = doors.filter(d => {
+            const dWallId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+            return dWallId === wallBaseId || d.parentWallId === w.id;
+          });
+          wallDoors.forEach(d => {
+            const m = calcDoorWindowMetrics(d, scaleValue);
+            openingAreaM2 += (m.lengthM || 0) * (m.heightM || 0);
+          });
+        }
+
+        const rawGrossM2 = lenM * heightM;
+        const netSingleM2 = Math.max(0, rawGrossM2 - openingAreaM2);
+        const calculatedAreaM2 = deductDoors ? netSingleM2 * wallSides : rawGrossM2 * wallSides;
+
+        const metrics = computeWallAreas(w, (doors || []).filter(d => d.parentWallId === w.id), calcRealScale, walls || []);
+        const skirtLm = metrics?.skirtingLengthLm || 0;
+
+        groupLen += lenM;
+        groupGross += rawGrossM2 * wallSides;
+        groupNet += calculatedAreaM2;
+        groupSkirt += skirtLm;
+
+        s(r, 0, wallIdFormatted);
+        s(r, 1, `${groupLabel} Wall`);
+        n(r, 2, lenM);
+        n(r, 3, heightM);
+        n(r, 4, thicknessMm);
+        s(r, 5, floorBase);
+        s(r, 6, isLbw ? "Yes" : "No");
+        n(r, 7, rawGrossM2 * wallSides);
+        n(r, 8, openingAreaM2);
+        n(r, 9, calculatedAreaM2);
+        n(r, 10, skirtLm);
+        n(r, 11, p1Mm[0]);
+        n(r, 12, p1Mm[1]);
+        n(r, 13, p2Mm[0]);
+        n(r, 14, p2Mm[1]);
+        r++;
+      });
+
+      // Group Subtotal
+      s(r, 0, "");
+      s(r, 1, `${groupLabel} Subtotal`);
+      n(r, 2, groupLen);
+      s(r, 3, "");
+      s(r, 4, "");
+      s(r, 5, "");
+      s(r, 6, "");
+      n(r, 7, groupGross);
+      s(r, 8, "");
+      n(r, 9, groupNet);
+      n(r, 10, groupSkirt);
+      r += 2;
+
+      grandLen += groupLen;
+      grandGrossArea += groupGross;
+      grandNetArea += groupNet;
+      grandSkirting += groupSkirt;
+    }
+
+    // Grand Total Row
+    s(r, 0, "");
+    s(r, 1, "GRAND TOTAL");
+    n(r, 2, grandLen);
+    s(r, 3, "");
+    s(r, 4, "");
+    s(r, 5, "");
+    s(r, 6, "");
+    n(r, 7, grandGrossArea);
+    s(r, 8, "");
+    n(r, 9, grandNetArea);
+    n(r, 10, grandSkirting);
+    r++;
+
+    ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r, c: 14 } });
+    ws["!cols"] = [
+      { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+      { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
+    ];
     XLSX.utils.book_append_sheet(wb, ws, "Wall Summary");
 
     const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     const blob = new Blob([wbout], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "Wall_Summary.xlsx"; a.click();
+    const safeProject = (currentProjectName || "plan").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filePrefix = isSubset ? `${safeProject}_Selected_Walls` : `${safeProject}_Wall_Summary`;
+    a.href = url;
+    a.download = `${filePrefix}_Pg${currentPage + 1}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  }, [walls, doors, scaleValue, realScale, savedDefault, wallSides, deductDoors, currentProjectName, currentPage, calcRealScale]);
+
+  // JSON export for walls
+  const exportWallJson = React.useCallback((targetWallIds = null) => {
+    const targetWalls = Array.isArray(targetWallIds) && targetWallIds.length > 0
+      ? (walls || []).filter(w => targetWallIds.includes(w.id))
+      : (walls || []);
+
+    if (targetWalls.length === 0) {
+      alert("No walls found to export.");
+      return;
+    }
+
+    const scaleMult = (realScale && realScale > 0) ? realScale : (scaleValue ? scaleValue * 1000 : 1.0);
+    const isSubset = targetWalls.length !== (walls || []).length;
+    const payload = {
+      project_name: currentProjectName || "EzeFloor Project",
+      page: currentPage + 1,
+      scale_m_per_px: scaleValue || null,
+      real_scale_mm_per_px: scaleMult,
+      wall_calculation_settings: {
+        sides: wallSides,
+        deduct_openings: deductDoors
+      },
+      exported_at: new Date().toISOString(),
+      total_walls: targetWalls.length,
+      walls: targetWalls.map((w) => {
+        const wallIdx = (walls || []).findIndex(orig => orig.id === w.id);
+        const strId = String(w.id);
+        const wallIdFormatted = w.name || (wallIdx >= 0 ? `W-${wallIdx + 1}` : strId);
+        const c = w.centerline || [];
+        let lengthM = 0;
+        let lengthMm = 0;
+        let p1Mm = null, p2Mm = null;
+
+        if (c.length === 2) {
+          const dx = c[1][0] - c[0][0];
+          const dy = c[1][1] - c[0][1];
+          const lenPx = Math.hypot(dx, dy);
+          lengthM = scaleValue ? Number((lenPx * scaleValue).toFixed(4)) : null;
+          lengthMm = Math.round(lenPx * scaleMult);
+          p1Mm = [Number((c[0][0] * scaleMult).toFixed(1)), Number((c[0][1] * scaleMult).toFixed(1))];
+          p2Mm = [Number((c[1][0] * scaleMult).toFixed(1)), Number((c[1][1] * scaleMult).toFixed(1))];
+        }
+
+        const heightMm = w.height ?? savedDefault;
+        const heightM = Number((heightMm / 1000).toFixed(3));
+        const thicknessMm = w.thickness || 90;
+        const wallType = getWallClass(w);
+        const isLbw = Boolean(w.is_lbw || w.is_load_bearing || w.lbw);
+        const floorType = w.floor_type || "Timber";
+
+        return {
+          id: w.id,
+          label: wallIdFormatted,
+          type: wallType,
+          class_name: w.class_name || wallType,
+          length_m: lengthM,
+          length_mm: lengthMm,
+          height_m: heightM,
+          height_mm: heightMm,
+          thickness_mm: thicknessMm,
+          floor_type: floorType,
+          is_load_bearing: isLbw,
+          centerline_px: c,
+          centerline_mm: p1Mm && p2Mm ? [p1Mm, p2Mm] : null,
+          surface: w.surface || null,
+          skirting: w.skirting || null
+        };
+      })
+    };
+
+    const jsonStr = JSON.stringify(payload, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeProject = (currentProjectName || "plan").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filePrefix = isSubset ? `${safeProject}_Selected_Walls` : `${safeProject}_Walls`;
+    a.href = url;
+    a.download = `${filePrefix}_Pg${currentPage + 1}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [walls, scaleValue, realScale, savedDefault, wallSides, deductDoors, currentProjectName, currentPage]);
+
+  useEffect(() => {
+    const handleExportWallExcelEvent = () => exportWallExcel();
+    const handleExportWallJsonEvent = () => exportWallJson();
+    window.addEventListener('export-wall-excel', handleExportWallExcelEvent);
+    window.addEventListener('export-wall-json', handleExportWallJsonEvent);
+    return () => {
+      window.removeEventListener('export-wall-excel', handleExportWallExcelEvent);
+      window.removeEventListener('export-wall-json', handleExportWallJsonEvent);
+    };
+  }, [exportWallExcel, exportWallJson]);
 
   const handleExportTakeoff = async () => {
     try {
@@ -1191,17 +1428,24 @@ export default function RightPropertyPaneView({
         };
       });
 
+      // Automatically round all unrounded lintels before export
+      if (lintelController?.roundAllLintels) {
+        lintelController.roundAllLintels();
+      }
+
       const pageLintels = lintelsByPage[currentPage] || [];
       const mappedLintels = pageLintels.map(l => {
         const cat = l.category || 'lintel';
         const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
+        const numMeasured = typeof l.measuredLength === 'number' ? l.measuredLength : (l.baseLength || 0);
+        const finalLen = (l.isRounded && l.finalLength) ? l.finalLength : roundLintelLength(numMeasured);
         return {
           id: String(l.id),
           wall_id: String(l.wallId),
           start_offset: l.startOffset,
           end_offset: l.endOffset,
-          measured_length: l.measuredLength,
-          final_length: l.finalLength,
+          measured_length: numMeasured,
+          final_length: finalLen,
           catalog_id: l.catalogId,
           type: l.type || "LVL",
           size: l.size || 90,
@@ -1262,6 +1506,9 @@ export default function RightPropertyPaneView({
   };
 
   const openTakeoffModal = () => {
+    if (lintelController?.roundAllLintels) {
+      lintelController.roundAllLintels();
+    }
     setTakeoffForm({
       projectName: "",
       clientName: "",
@@ -3793,7 +4040,96 @@ export default function RightPropertyPaneView({
                   )}
                 </div>
 
+                {/* ── WALL ACTION BUTTONS: EXPORT & DELETE ── */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase" }}>
+                    📤 Xuất Dữ Liệu Tường (Export Output)
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="rp-action-btn"
+                      style={{
+                        flex: 1,
+                        padding: "8px 10px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        background: "var(--blue)",
+                        color: "#ffffff",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "6px",
+                        boxShadow: "0 1px 3px rgba(37,99,235,0.2)"
+                      }}
+                      onClick={() => {
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : (selectedWall ? [selectedWall.id] : []);
+                        exportWallExcel(targetIds.length > 0 ? targetIds : null);
+                      }}
+                      title="Xuất bảng tính Excel khối lượng và kích thước của tường đã chọn"
+                    >
+                      <span>📊 Xuất Excel (.xlsx)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="rp-action-btn"
+                      style={{
+                        padding: "8px 12px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        background: "#f1f5f9",
+                        color: "#334155",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "4px"
+                      }}
+                      onClick={() => {
+                        const targetIds = selectedWallIds.length > 0 ? selectedWallIds : (selectedWall ? [selectedWall.id] : []);
+                        exportWallJson(targetIds.length > 0 ? targetIds : null);
+                      }}
+                      title="Xuất file JSON / EZPlan của tường đã chọn"
+                    >
+                      <span>📄 JSON</span>
+                    </button>
+                  </div>
 
+                  <button
+                    type="button"
+                    className="rp-action-btn rp-action-btn--danger"
+                    style={{
+                      padding: "8px 10px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      width: "100%",
+                      cursor: "pointer",
+                      marginTop: 2
+                    }}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const targetIds = selectedWallIds.length > 0 ? selectedWallIds : (selectedWall ? [selectedWall.id] : []);
+                      if (targetIds.length === 0) return;
+                      const count = targetIds.length;
+                      if (await showConfirm(`Are you sure you want to delete ${count > 1 ? `${count} selected walls` : "this wall"}?`)) {
+                        if (deleteWalls) {
+                          deleteWalls(targetIds);
+                        } else if (deleteItem) {
+                          deleteItem();
+                        }
+                        if (setSelectedWallIds) setSelectedWallIds([]);
+                        if (setSelectedId) setSelectedId(null);
+                        if (setSelectedType) setSelectedType(null);
+                      }
+                    }}
+                  >
+                    🗑️ Delete {selectedWallIds.length > 1 ? `${selectedWallIds.length} Selected Walls` : "Selected Wall"}
+                  </button>
+                </div>
               </>
             ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
               (() => {
@@ -4225,7 +4561,7 @@ export default function RightPropertyPaneView({
 
                     <div className="panel-field">
                       <span className="panel-label">Size</span>
-                      <div style={{ fontSize: 13, color: "#f1f5f9" }}>
+                      <div style={{ fontSize: 13 }}>
                         {selectedLintel.height}x{selectedLintel.width} mm
                       </div>
                     </div>
@@ -4272,16 +4608,67 @@ export default function RightPropertyPaneView({
                     </div>
 
                     <div className="panel-field">
-                      <span className="panel-label">Measured Length</span>
-                      <div style={{ fontSize: 16, color: "#3b82f6", fontWeight: "bold" }}>
-                        {selectedLintel.measuredLength ? `${selectedLintel.measuredLength.toFixed(3)} m` : "0.000 m"}
-                      </div>
+                      <span className="panel-label">Measured Length (m)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        disabled={Boolean(selectedLintel.isRounded)}
+                        title={selectedLintel.isRounded ? "Click 'Revert Round' below to edit measured length" : "Enter measured length in metres"}
+                        className="panel-input"
+                        style={{
+                          fontSize: 15,
+                          color: selectedLintel.isRounded ? "#64748b" : "#3b82f6",
+                          fontWeight: "bold",
+                          cursor: selectedLintel.isRounded ? "not-allowed" : "text",
+                          opacity: selectedLintel.isRounded ? 0.65 : 1,
+                          background: selectedLintel.isRounded ? "rgba(15, 23, 42, 0.5)" : undefined
+                        }}
+                        onWheel={(e) => e.currentTarget.blur()}
+                        value={selectedLintel.measuredLength !== undefined && selectedLintel.measuredLength !== "" ? (typeof selectedLintel.measuredLength === 'number' ? Number(selectedLintel.measuredLength.toFixed(3)) : selectedLintel.measuredLength) : ""}
+                        onChange={(e) => {
+                          if (selectedLintel.isRounded) return;
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            if (lintelController) {
+                              lintelController.updateLintel({
+                                ...selectedLintel,
+                                measuredLength: ""
+                              });
+                            }
+                            return;
+                          }
+                          const val = parseFloat(raw);
+                          if (!isNaN(val) && val >= 0) {
+                            if (lintelController) {
+                              const offset = selectedLintel.lengthOffset !== undefined ? selectedLintel.lengthOffset : (lintelController.globalLengthOffset || 0);
+                              lintelController.updateLintel({
+                                ...selectedLintel,
+                                baseLength: Math.max(0.01, val - offset),
+                                measuredLength: val
+                              });
+                            }
+                          }
+                        }}
+                        onBlur={() => {
+                          if (selectedLintel.measuredLength === "" || selectedLintel.measuredLength === undefined || selectedLintel.measuredLength === null) {
+                            if (lintelController) {
+                              const offset = selectedLintel.lengthOffset !== undefined ? selectedLintel.lengthOffset : (lintelController.globalLengthOffset || 0);
+                              const restoreVal = (selectedLintel.baseLength || 0.3) + offset;
+                              lintelController.updateLintel({
+                                ...selectedLintel,
+                                measuredLength: restoreVal
+                              });
+                            }
+                          }
+                        }}
+                      />
                     </div>
 
                     <div className="panel-field">
                       <span className="panel-label">Final Length (Rounded)</span>
                       <div style={{ fontSize: 18, color: "#f59e0b", fontWeight: "bold" }}>
-                        {selectedLintel.finalLength ? `${selectedLintel.finalLength.toFixed(3)} m` : "0.000 m"}
+                        {typeof selectedLintel.finalLength === 'number' ? `${selectedLintel.finalLength.toFixed(3)} m` : (selectedLintel.finalLength || "0.000 m")}
                       </div>
                       <button
                         className="rp-action-btn"
@@ -4293,17 +4680,17 @@ export default function RightPropertyPaneView({
                           marginBottom: 0,
                           width: '100%',
                           cursor: 'pointer',
-                          border: selectedLintel.isRounded ? '1px solid rgba(255,255,255,0.1)' : 'none',
-                          color: selectedLintel.isRounded ? '#94a3b8' : '#fff'
+                          border: selectedLintel.isRounded ? '1px solid rgba(255,255,255,0.2)' : 'none',
+                          color: selectedLintel.isRounded ? '#38bdf8' : '#fff'
                         }}
                         onClick={() => {
                           if (lintelController) {
                             lintelController.roundSingleLintel(selectedLintel.id);
                           }
                         }}
-                        title="Round this lintel's length to the nearest 0.3m increment"
+                        title={selectedLintel.isRounded ? "Click to revert to original measured length" : "Round this lintel's length to the nearest 0.3m increment"}
                       >
-                        {selectedLintel.isRounded ? "✓ Length Rounded" : "🔄 Round Length (0.3m increments)"}
+                        {selectedLintel.isRounded ? " Revert Round" : " Round "}
                       </button>
                     </div>
 
@@ -4366,6 +4753,9 @@ export default function RightPropertyPaneView({
                       }
                     }}
                     computeSelectedRoof={computeSelectedRoof}
+                    exportRoofInput={exportRoofInput}
+                    generateRoofFromWalls={generateRoofFromWalls}
+                    realScale={realScale}
                     isComputingRoof={isComputingRoof}
                     onNameChange={(roofId, newName) => {
                       const updated = (roofsByPage[currentPage] || []).map(r => r.id === roofId ? { ...r, name: newName } : r);
@@ -4608,10 +4998,42 @@ export default function RightPropertyPaneView({
                   </div>
                 )}
 
-                {/* Export */}
-                <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                {/* Export Wall Output & Takeoff */}
+                <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <div style={{ flex: 1 }}>
+                      <ExportButton onClick={() => exportWallExcel()} disabled={!scaleValue && (!walls || walls.length === 0)}>
+                        📊 Xuất Excel Tường (.xlsx)
+                      </ExportButton>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => exportWallJson()}
+                      disabled={!walls || walls.length === 0}
+                      style={{
+                        padding: "8px 12px",
+                        background: "#f8fafc",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: "8px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        color: "#0f172a",
+                        cursor: (!walls || walls.length === 0) ? "not-allowed" : "pointer",
+                        opacity: (!walls || walls.length === 0) ? 0.6 : 1,
+                        transition: "all 0.15s ease",
+                        whiteSpace: "nowrap",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px"
+                      }}
+                      title="Xuất dữ liệu tường định dạng JSON / EZPlan"
+                    >
+                      <span>📄 JSON</span>
+                    </button>
+                  </div>
+
                   <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
-                    📊 Export Takeoff Form (.xlsx)
+                    📋 Export Takeoff Form (.xlsx)
                   </ExportButton>
 
                   {/* 4 Modals Quick Access (FrameWork, Area Summary, Insulation, LockUp) */}
@@ -4818,9 +5240,64 @@ export default function RightPropertyPaneView({
           >
             {pageRoofs.length > 0 ? (
               <div className="rp-floor-container">
-                <div className="rp-floor-title">
-                  <span style={{ fontSize: "14px" }}>🏠</span>
-                  <span>Roof Area Summary</span>
+                <div className="rp-floor-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "14px" }}>🏠</span>
+                    <span>Roof Area Summary</span>
+                  </div>
+                  {pageRoofs.length > 0 && (
+                    <button
+                      title="Export all roof inputs on this page to JSON (V3 format)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pageRoofs.forEach(rf => {
+                          if (exportRoofInput) {
+                            exportRoofInput(rf.id);
+                          } else if (typeof window !== "undefined" && window.RoofEngine) {
+                            window.RoofEngine.exportRoofInput({ roof: rf, scaleFactor: scaleValue, realScale, download: true });
+                          }
+                        });
+                      }}
+                      style={{
+                        padding: "2px 7px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        background: "rgba(59, 130, 246, 0.12)",
+                        color: "#38bdf8",
+                        border: "1px solid rgba(56, 189, 248, 0.3)",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "3px"
+                      }}
+                    >
+                      <span>📥</span>
+                      <span>Export Inputs</span>
+                    </button>
+                  )}
+                  {generateRoofFromWalls && (
+                    <button
+                      onClick={() => generateRoofFromWalls()}
+                      title="Auto-generate 3D Roof from active exterior walls"
+                      style={{
+                        padding: "2px 7px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        background: "rgba(16, 185, 129, 0.12)",
+                        color: "#10b981",
+                        border: "1px solid rgba(16, 185, 129, 0.3)",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "3px"
+                      }}
+                    >
+                      <span>🏠</span>
+                      <span>Wall → Roof</span>
+                    </button>
+                  )}
                 </div>
 
                 {roofCalculations.map((roof, idx) => (
@@ -4849,6 +5326,9 @@ export default function RightPropertyPaneView({
                     trimRoofEdge={trimRoofEdge}
                     deleteRoof={deleteRoof}
                     computeSelectedRoof={computeSelectedRoof}
+                    exportRoofInput={exportRoofInput}
+                    generateRoofFromWalls={generateRoofFromWalls}
+                    realScale={realScale}
                     isComputingRoof={isComputingRoof}
                     onNameChange={(roofId, newName) => {
                       const updated = (roofsByPage[currentPage] || []).map(r => r.id === roofId ? { ...r, name: newName } : r);

@@ -848,6 +848,31 @@ class TakeoffExporter:
         rh(row, 18)
         row += 1
 
+        def add_lintel_subtotal(r, label, first, last):
+            no_data = first > last
+            ws.merge_cells(f"A{r}:D{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+
+            ws[f"E{r}"] = ""
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+
+            ws[f"F{r}"] = 0 if no_data else f"=SUM(F{first}:F{last})"
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+
+            ws[f"G{r}"] = 0.0 if no_data else f"=SUM(G{first}:G{last})"
+            ws[f"G{r}"].number_format = "0.0"
+            ws[f"G{r}"].font = bold
+            ws[f"G{r}"].alignment = center
+
+            ws.merge_cells(f"H{r}:I{r}")
+            ws[f"H{r}"] = ""
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
         first_lintel = row
         if request.lintels:
             # Group lintels by catalog Size AND Description (Lintel, Beam, BH)
@@ -893,8 +918,7 @@ class TakeoffExporter:
                     for col in ["D", "E", "F", "G"]:
                         ws[f"{col}{row}"].alignment = center
                         ws[f"{col}{row}"].font = input_font
-                    ws.merge_cells(f"H{row}:I{row}")
-                    style_range(f"A{row}:I{row}", border=True)
+                    style_range(f"A{row}:G{row}", border=True)
                     rh(row, 17)
                     row += 1
                 group_last_row = row - 1
@@ -907,15 +931,9 @@ class TakeoffExporter:
                 ws[f"H{group_first_row}"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                 style_range(f"H{group_first_row}:I{group_last_row}", border=True)
 
-            add_door_subtotal(row, "Subtotal - Lintels", first_lintel, row - 1)
-            ws.merge_cells(f"H{row}:I{row}")
-            style_range(f"A{row}:I{row}", fill=total_fill, border=True)
+            add_lintel_subtotal(row, "Subtotal - Lintels", first_lintel, row - 1)
         else:
-            add_door_subtotal(row, "Subtotal - Lintels", row, row)
-            ws[f"F{row}"] = 0
-            ws[f"G{row}"] = 0.0
-            ws.merge_cells(f"H{row}:I{row}")
-            style_range(f"A{row}:I{row}", fill=total_fill, border=True)
+            add_lintel_subtotal(row, "Subtotal - Lintels", row, row - 1)
         lintel_total_row = row
         row += 2
 

@@ -2822,6 +2822,7 @@ export default function CanvasView({
   setRoofEaveEdge,
   deleteRoof,
   deleteRoofVertex,
+  exportRoofInput,
   selectedRoofEdgeIndex,
   setSelectedRoofEdgeIndex,
   currentPoly,
@@ -6043,6 +6044,7 @@ export default function CanvasView({
         }}
         onUpdateRoofType={updateRoofType}
         onTrimEdge={trimRoofEdge}
+        onExportRoofInput={exportRoofInput}
         onDeleteRoof={deleteRoof}
       />
 

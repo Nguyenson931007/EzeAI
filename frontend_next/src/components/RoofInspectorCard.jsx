@@ -83,6 +83,9 @@ const RoofInspectorCard = ({
   trimRoofEdge,
   deleteRoof,
   computeSelectedRoof,
+  exportRoofInput,
+  generateRoofFromWalls,
+  realScale,
   isComputingRoof = false,
   onNameChange,
   onSelect,
@@ -164,6 +167,37 @@ const RoofInspectorCard = ({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <button
+            title="Export Roof Input JSON (roof_1_input_v3 format)"
+            aria-label="Export Roof Input JSON"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (exportRoofInput) {
+                exportRoofInput(roof.id);
+              } else if (typeof window !== "undefined" && window.RoofEngine) {
+                window.RoofEngine.exportRoofInput({ roof, scaleFactor: scaleValue, realScale, download: true });
+              }
+            }}
+            style={{
+              background: "rgba(59, 130, 246, 0.1)",
+              border: "1px solid rgba(59, 130, 246, 0.3)",
+              color: "#38bdf8",
+              cursor: "pointer",
+              fontSize: "11px",
+              fontWeight: 600,
+              padding: "2px 6px",
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center",
+              gap: "3px",
+              transition: "all 0.15s ease"
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.25)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.1)"; }}
+          >
+            <span>📥</span>
+            <span>JSON</span>
+          </button>
           {deleteRoof && (
             <button
               title="Delete Roof"
@@ -637,32 +671,94 @@ const RoofInspectorCard = ({
           )}
         </div>
 
-        {/* Clean, Simple Compute Button '▶' */}
-        <button
-          title="Compute 3D Roof Mesh (V3)"
-          aria-label="Compute 3D Roof Mesh"
-          onClick={() => computeSelectedRoof && computeSelectedRoof(roof.id)}
-          disabled={isComputingRoof}
-          style={{
-            padding: "5px 14px",
-            fontSize: "13px",
-            fontWeight: 800,
-            background: "linear-gradient(135deg, #10b981, #059669)",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "5px",
-            cursor: isComputingRoof ? "wait" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "5px",
-            boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
-            transition: "all 0.15s ease",
-            opacity: isComputingRoof ? 0.6 : 1
-          }}
-        >
-          {isComputingRoof ? "..." : "▶"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {/* Export Roof Input JSON Button */}
+          <button
+            title="Export Roof Input JSON (roof_1_input_v3 format)"
+            aria-label="Export Roof Input JSON"
+            onClick={() => {
+              if (exportRoofInput) {
+                exportRoofInput(roof.id);
+              } else if (typeof window !== "undefined" && window.RoofEngine) {
+                window.RoofEngine.exportRoofInput({ roof, scaleFactor: scaleValue, realScale, download: true });
+              }
+            }}
+            style={{
+              padding: "5px 10px",
+              fontSize: "11px",
+              fontWeight: 700,
+              background: "rgba(59, 130, 246, 0.12)",
+              color: "#38bdf8",
+              border: "1px solid rgba(56, 189, 248, 0.35)",
+              borderRadius: "5px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "4px",
+              transition: "all 0.15s ease"
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.25)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59, 130, 246, 0.12)"; }}
+          >
+            <span>📥</span>
+            <span>Export Input</span>
+          </button>
+
+          {generateRoofFromWalls && (
+            <button
+              title="Re-generate and align roof from active walls"
+              onClick={() => generateRoofFromWalls()}
+              style={{
+                padding: "5px 10px",
+                fontSize: "11px",
+                fontWeight: 700,
+                background: "rgba(16, 185, 129, 0.12)",
+                color: "#10b981",
+                border: "1px solid rgba(16, 185, 129, 0.35)",
+                borderRadius: "5px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "4px",
+                transition: "all 0.15s ease"
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(16, 185, 129, 0.25)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(16, 185, 129, 0.12)"; }}
+            >
+              <span>🏠</span>
+              <span>Wall → Roof</span>
+            </button>
+          )}
+
+          {/* Clean, Simple Compute Button '▶' */}
+          <button
+            title="Compute 3D Roof Mesh (V3)"
+            aria-label="Compute 3D Roof Mesh"
+            onClick={() => computeSelectedRoof && computeSelectedRoof(roof.id)}
+            disabled={isComputingRoof}
+            style={{
+              padding: "5px 14px",
+              fontSize: "13px",
+              fontWeight: 800,
+              background: "linear-gradient(135deg, #10b981, #059669)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "5px",
+              cursor: isComputingRoof ? "wait" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "5px",
+              boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
+              transition: "all 0.15s ease",
+              opacity: isComputingRoof ? 0.6 : 1
+            }}
+          >
+            {isComputingRoof ? "..." : "▶"}
+          </button>
+        </div>
       </div>
     </div>
   );
