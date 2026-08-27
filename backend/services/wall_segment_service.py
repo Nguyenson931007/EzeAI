@@ -10,7 +10,7 @@ import io
 import math
 import logging
 import threading
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 from PIL import Image
 import numpy as np
 import torch
@@ -110,13 +110,13 @@ def _run_yolo_inference(
                 class_name = model.names.get(class_id, f"wall_{class_id}")
 
                 # Normalize YOLO class names to canonical names used in frontend/backend
-                # All internal walls default to partition_wall (non-LBW) until user activates LBW
                 _CLASS_NAME_MAP = {
                     "ext_wall": "exterior_wall",
-                    "int_wall": "partition_wall",
+                    "int_wall": "interior_wall",
                     "part_wall": "partition_wall",
+                    "block_wall": "block_wall",
                 }
-                class_name = _CLASS_NAME_MAP.get(class_name, "partition_wall" if "int" in class_name or "part" in class_name else class_name)
+                class_name = _CLASS_NAME_MAP.get(class_name, class_name)
 
                 # Class-specific confidence filtering
                 if conf < confidence:
@@ -896,6 +896,115 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
     return keep_walls
 
 
+def _save_wall_prior_debug_artifacts(
+    img_np: np.ndarray,
+    prob_map: Optional[np.ndarray],
+    soft_rois: List[dict],
+    raw_yolo_walls: List[dict],
+    guided_walls: List[dict],
+    merged_walls: List[dict],
+    reconstructed_walls: List[dict],
+    final_walls: List[dict],
+    filename: str = "plan.png",
+    threshold: float = 0.25
+) -> str:
+    """
+    Saves 9 diagnostic visualization stages for Wall Prior AI:
+      01_original.png
+      02_wall_prior_probability.png
+      03_wall_prior_threshold.png
+      04_wall_roi.png
+      05_yolo_raw.png
+      06_after_prior_guidance.png
+      07_after_merge.png
+      08_after_geometry.png
+      09_final_wall.png
+    """
+    import cv2
+    import time
+    from pathlib import Path
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    clean_stem = Path(filename).stem
+    debug_dir = BASE_DIR / "debug_outputs" / "wall_prior" / f"{ts}_{clean_stem}"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+
+    h, w = img_np.shape[:2]
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+    def _draw_polys(base_img, walls, color=(0, 0, 255), thickness=2, draw_labels=True):
+        canvas = base_img.copy()
+        for idx, wall in enumerate(walls):
+            poly = wall.get("polygon")
+            if poly and len(poly) >= 3:
+                pts = np.int32([poly])
+                cv2.polylines(canvas, pts, isClosed=True, color=color, thickness=thickness)
+                if draw_labels and len(poly) > 0:
+                    px, py = int(poly[0][0]), int(poly[0][1])
+                    lbl = str(wall.get("id") or f"w_{idx+1}")
+                    cv2.putText(canvas, lbl, (px, max(12, py - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
+        return canvas
+
+    # Stage 01: Original
+    cv2.imwrite(str(debug_dir / "01_original.png"), img_bgr)
+
+    # Stage 02: Probability Heatmap
+    if prob_map is not None:
+        prob_norm = (np.clip(prob_map, 0.0, 1.0) * 255).astype(np.uint8)
+        heatmap = cv2.applyColorMap(prob_norm, cv2.COLORMAP_JET)
+        blended = cv2.addWeighted(img_bgr, 0.55, heatmap, 0.45, 0)
+        cv2.imwrite(str(debug_dir / "02_wall_prior_probability.png"), blended)
+    else:
+        cv2.imwrite(str(debug_dir / "02_wall_prior_probability.png"), img_bgr)
+
+    # Stage 03: Threshold Mask
+    if prob_map is not None:
+        bin_mask = (prob_map >= threshold).astype(np.uint8) * 255
+        cv2.imwrite(str(debug_dir / "03_wall_prior_threshold.png"), bin_mask)
+    else:
+        cv2.imwrite(str(debug_dir / "03_wall_prior_threshold.png"), np.zeros((h, w), dtype=np.uint8))
+
+    # Stage 04: Soft ROI Bounds
+    img_roi = img_bgr.copy()
+    for roi in soft_rois:
+        rx, ry, rw, rh = roi["x"], roi["y"], roi["w"], roi["h"]
+        cv2.rectangle(img_roi, (rx, ry), (rx + rw, ry + rh), (0, 255, 255), 2)
+    cv2.imwrite(str(debug_dir / "04_wall_roi.png"), img_roi)
+
+    # Stage 05: Raw YOLO Walls
+    img_raw = _draw_polys(img_bgr, raw_yolo_walls, color=(0, 0, 255), thickness=2)
+    cv2.imwrite(str(debug_dir / "05_yolo_raw.png"), img_raw)
+
+    # Stage 06: After Prior Guidance
+    img_guided = img_bgr.copy()
+    for idx, wall in enumerate(guided_walls):
+        poly = wall.get("polygon")
+        if poly and len(poly) >= 3:
+            pts = np.int32([poly])
+            status = wall.get("guidance_status", "normal")
+            color = (0, 255, 0) if "boosted" in status or "high_conf" in status else ((0, 165, 255) if "attenuated" in status else (255, 0, 0))
+            cv2.polylines(img_guided, pts, isClosed=True, color=color, thickness=2)
+            g_conf = wall.get("guided_confidence", wall.get("confidence", 0.5))
+            px, py = int(poly[0][0]), int(poly[0][1])
+            cv2.putText(img_guided, f"{g_conf:.2f}", (px, max(12, py - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
+    cv2.imwrite(str(debug_dir / "06_after_prior_guidance.png"), img_guided)
+
+    # Stage 07: After Collinear Merge
+    img_merged = _draw_polys(img_bgr, merged_walls, color=(255, 128, 0), thickness=2)
+    cv2.imwrite(str(debug_dir / "07_after_merge.png"), img_merged)
+
+    # Stage 08: After Geometry Reconstruction
+    img_geom = _draw_polys(img_bgr, reconstructed_walls, color=(255, 0, 255), thickness=2)
+    cv2.imwrite(str(debug_dir / "08_after_geometry.png"), img_geom)
+
+    # Stage 09: Final Wall
+    img_final = _draw_polys(img_bgr, final_walls, color=(0, 255, 0), thickness=2)
+    cv2.imwrite(str(debug_dir / "09_final_wall.png"), img_final)
+
+    logger.info(f"[WallPriorService] Saved 9 diagnostic debug stages to: {debug_dir}")
+    return str(debug_dir)
+
+
 class WallSegmentService:
     """Service to run wall segmentation and extract raw coordinates using YOLO Segmentation."""
 
@@ -938,6 +1047,30 @@ class WallSegmentService:
 
         img_inference = img_original.resize((inference_width, inference_height))
 
+        # --- Wall Prior AI Integration (Phase 4-11) ---
+        from services.wall_prior_service import WallPriorService
+        prior_config = WallPriorService.get_config()
+        prob_map = None
+        soft_rois = []
+        guidance_metrics = {
+            "high_conf_yolo_kept": 0,
+            "prior_boosted_count": 0,
+            "prior_suppressed_count": 0
+        }
+
+        if prior_config.get("enabled") or prior_config.get("debug"):
+            try:
+                prob_map = WallPriorService.generate_probability_map(img_np, imgsz=imgsz, device=device)
+                if prob_map is not None:
+                    soft_rois = WallPriorService.generate_soft_roi(
+                        prob_map,
+                        threshold=prior_config.get("threshold", 0.25),
+                        padding=prior_config.get("roi_padding", 40)
+                    )
+            except Exception as e:
+                logger.warning(f"[wall_segment_service] WallPrior execution error: {e}. Fallback to standard pipeline.")
+                prob_map = None
+
         # Primary inference with best.pt
         detected_walls = _run_yolo_inference(
             model, img_inference, img_w, img_h,
@@ -954,6 +1087,20 @@ class WallSegmentService:
                 confidence, imgsz, device, real_scale, model_label="last"
             )
             detected_walls = _merge_ensemble_walls(detected_walls, detected_walls_last)
+
+        raw_yolo_walls = list(detected_walls)
+
+        # Apply Soft Prior Guidance
+        if prob_map is not None and prior_config.get("enabled"):
+            detected_walls, guidance_metrics = WallPriorService.apply_soft_guidance(
+                detected_walls,
+                prob_map,
+                prior_weight=prior_config.get("weight", 0.25),
+                threshold=prior_config.get("threshold", 0.25),
+                high_conf_threshold=prior_config.get("high_conf_threshold", 0.85)
+            )
+
+        guided_walls = list(detected_walls)
 
         # Step 0.5: Skip backend door cross-filter (frontend handles door gaps correctly)
         # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
@@ -1131,14 +1278,62 @@ class WallSegmentService:
         for idx, w in enumerate(filtered_walls):
             w["id"] = f"wall_{idx + 1:03d}"
 
-        logger.info(f"[wall_segment_service] Detected {len(filtered_walls)} walls in {filename} (filtered down from {len(detected_walls)} raw YOLO predictions)")
+        # Collect stage metrics
+        metrics = {
+            "raw_yolo_count": len(raw_yolo_walls),
+            "high_conf_yolo_kept": guidance_metrics.get("high_conf_yolo_kept", 0),
+            "prior_candidate_count": len(soft_rois) if soft_rois else 0,
+            "prior_boosted_count": guidance_metrics.get("prior_boosted_count", 0),
+            "prior_suppressed_count": guidance_metrics.get("prior_suppressed_count", 0),
+            "after_guidance_count": len(guided_walls),
+            "after_merge_count": len(merged_walls),
+            "after_geometry_count": len(reconstructed_walls),
+            "after_boundary_count": len(cleaned_walls),
+            "after_nms_count": len(filtered_walls)
+        }
 
-        return {
+        # Save 9 diagnostic debug stages if debug mode is enabled
+        debug_dir_path = None
+        if prior_config.get("debug"):
+            try:
+                debug_dir_path = _save_wall_prior_debug_artifacts(
+                    img_np=img_np,
+                    prob_map=prob_map,
+                    soft_rois=soft_rois,
+                    raw_yolo_walls=raw_yolo_walls,
+                    guided_walls=guided_walls,
+                    merged_walls=merged_walls,
+                    reconstructed_walls=reconstructed_walls,
+                    final_walls=filtered_walls,
+                    filename=filename,
+                    threshold=prior_config.get("threshold", 0.25)
+                )
+            except Exception as debug_err:
+                logger.warning(f"[wall_segment_service] Failed to save debug artifacts: {debug_err}")
+
+        logger.info(
+            f"[wall_segment_service] Wall AI Pipeline complete for {filename}: "
+            f"RAW YOLO: {metrics['raw_yolo_count']} | "
+            f"HIGH CONF KEPT: {metrics['high_conf_yolo_kept']} | "
+            f"AFTER GUIDANCE: {metrics['after_guidance_count']} | "
+            f"AFTER MERGE: {metrics['after_merge_count']} | "
+            f"AFTER GEOM: {metrics['after_geometry_count']} | "
+            f"FINAL NMS: {metrics['after_nms_count']}"
+        )
+
+        response = {
             "filename": filename,
             "width": img_w,
             "height": img_h,
             "walls": filtered_walls
         }
+
+        if prior_config.get("enabled") or prior_config.get("debug"):
+            response["debug_metrics"] = metrics
+            if debug_dir_path:
+                response["debug_dir"] = debug_dir_path
+
+        return response
 
     @staticmethod
     def predict_stream(

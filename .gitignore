@@ -57,3 +57,4 @@ image-removebg-preview.png
 # Debug outputs
 debug_outputs/
 label_exports/
+wall_prior_dataset/
