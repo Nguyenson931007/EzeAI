@@ -1135,7 +1135,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 {sIdx === 0 && (
                                   <td rowSpan={rowCount} style={{ padding: "8px 10px", verticalAlign: "middle" }}>
                                     <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 13 }}>
-                                      {jobGroup.JobNumber || "—"}
+                                      {jobGroup.job_number || "—"}
                                     </div>
                                     <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
                                       ID: {jobGroup.IDJob_HW}

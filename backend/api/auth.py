@@ -1,4 +1,4 @@
-"""
+﻿"""
 backend/api/auth.py
 ===================
 Module xử lý xác thực người dùng (Authentication), quản lý phiên làm việc (Session Management),
@@ -14,7 +14,6 @@ import uuid
 from datetime import datetime, timedelta
 import logging
 from app.database import get_db_connection
-from app.config import TASKLIST_AUTH_URL
 
 # Khởi tạo APIRouter cho các API liên quan đến xác thực
 router = APIRouter()
@@ -232,15 +231,12 @@ def get_mssql_account_user(username_or_manv: str):
     """
     Truy vấn thông tin tài khoản từ MSSQL Server (dbo.Account JOIN dbo.roles).
     Lấy 4 cột: MaNV, UserID, Password, IsManagement kèm tên nhãn Role (từ dbo.roles).
-    Ưu tiên tìm theo UserID trước, nếu không tìm thấy mới tìm theo MaNV.
     """
     try:
         from app.mssql_db import get_mssql_connection
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
-        
-        # 1. Ưu tiên khớp chính xác theo UserID
-        query_user = """
+        query = """
             SELECT TOP 1 
                 a.MaNV, 
                 a.UserID, 
@@ -249,27 +245,10 @@ def get_mssql_account_user(username_or_manv: str):
                 r.name AS RoleName 
             FROM dbo.Account a 
             LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
-            WHERE a.UserID = %s
+            WHERE a.UserID = %s OR a.MaNV = %s
         """
-        cursor.execute(query_user, (username_or_manv,))
+        cursor.execute(query, (username_or_manv, username_or_manv))
         row = cursor.fetchone()
-
-        # 2. Nếu không tìm thấy theo UserID, mới tìm theo MaNV
-        if not row:
-            query_manv = """
-                SELECT TOP 1 
-                    a.MaNV, 
-                    a.UserID, 
-                    a.Password, 
-                    a.IsManagement, 
-                    r.name AS RoleName 
-                FROM dbo.Account a 
-                LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
-                WHERE a.MaNV = %s
-            """
-            cursor.execute(query_manv, (username_or_manv,))
-            row = cursor.fetchone()
-
         conn.close()
         return row
     except Exception as e:
@@ -426,14 +405,9 @@ def login(user: UserLogin, response: Response):
             secure=False
         )
         
-        mssql_info = get_mssql_account_user(row["username"])
-        manv = mssql_info["MaNV"] if mssql_info else ("ADMIN01" if row["username"] == "admin" else "")
-        
         return {
             "status": "success",
             "username": row["username"],
-            "manv": manv,
-            "ma_nv": manv,
             "role": row["role"],
             "session_token": new_token
         }
@@ -467,15 +441,14 @@ def logout(user: UserLogout):
 
 
 @router.get("/validate-session")
-@router.get("/api/auth/validate-session")
 def validate_session_endpoint(
-    auth_username: Optional[str] = Header(None, alias="X-Username"),
+    auth_username: str = Header(..., alias="X-Username"),
     session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
     session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
 ):
     """
-    Kiểm tra tính hợp lệ của phiên đăng nhập hiện tại (lightweight, trả về 200 OK nếu hợp lệ).
-    Hỗ trợ xác thực qua Cookie session_token hoặc Header X-Session-Token và Header X-Username.
+    Kiểm tra tính hợp lệ của phiên đăng nhập hiện tại (lightweight, không cập nhật last_active).
+    Frontend gọi endpoint này khi app load để xác minh session còn hiệu lực hay không.
     """
     session_token = session_token_cookie or session_token_header
 
@@ -488,11 +461,7 @@ def validate_session_endpoint(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if auth_username:
-            cursor.execute("SELECT username, role, session_token, last_active FROM users WHERE username = ?", (auth_username,))
-        else:
-            cursor.execute("SELECT username, role, session_token, last_active FROM users WHERE session_token = ?", (session_token,))
-        
+        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
         row = cursor.fetchone()
 
         if not row or row["session_token"] != session_token:
@@ -501,35 +470,17 @@ def validate_session_endpoint(
                 detail="Phiên đăng nhập không hợp lệ hoặc đã bị thay thế."
             )
 
-        row_dict = dict(row)
-
         # Check 5-hour inactivity timeout
-        if row_dict.get("last_active"):
-            try:
-                last_active = datetime.fromisoformat(row_dict["last_active"])
-                if datetime.now() - last_active > timedelta(hours=5):
-                    cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (row_dict["username"],))
-                    conn.commit()
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Phiên đăng nhập đã hết hạn."
-                    )
-            except HTTPException:
-                raise
-            except Exception:
-                pass
+        last_active = datetime.fromisoformat(row["last_active"])
+        if datetime.now() - last_active > timedelta(hours=5):
+            cursor.execute("UPDATE users SET is_online = 0, session_token = NULL WHERE username = ?", (auth_username,))
+            conn.commit()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Phiên đăng nhập đã hết hạn."
+            )
 
-        mssql_info = get_mssql_account_user(row_dict["username"])
-        manv = mssql_info["MaNV"] if mssql_info else ("ADMIN01" if row_dict["username"] == "admin" else "")
-
-        return {
-            "status": "valid",
-            "username": row_dict["username"],
-            "manv": manv,
-            "ma_nv": manv,
-            "role": row_dict.get("role", "user"),
-            "session_token": session_token
-        }
+        return {"status": "valid", "username": auth_username}
     finally:
         conn.close()
 
@@ -604,26 +555,13 @@ def validate_session(
 
 @router.post("/api/auth/tasklist-sso")
 @router.post("/tasklist-sso")
-@router.post("/api/auth/task-list-sso")
-@router.post("/task-list-sso")
 async def tasklist_sso(payload: dict, response: Response):
     """
     Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
     Gửi token xác thực tới máy chủ TaskList (https://103.77.167.69:8081/api/auth/me),
     đồng bộ tài khoản và tạo phiên làm việc (session) cho Web AI EzeFloor.
     """
-    token = (
-        payload.get("token")
-        or payload.get("accessToken")
-        or payload.get("access_token")
-        or payload.get("sso_token")
-        or payload.get("jwt")
-    )
-    if isinstance(token, str):
-        token = token.strip()
-        if token.startswith("Bearer "):
-            token = token[7:].strip()
-
+    token = payload.get("token")
     if not token:
         raise HTTPException(status_code=400, detail="Tasklist token is required")
 
@@ -631,67 +569,32 @@ async def tasklist_sso(payload: dict, response: Response):
     try:
         async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
             result = await client.get(
-                TASKLIST_AUTH_URL,
+                "http://14.241.197.188:5000/api/auth/me",
                 headers={"Authorization": f"Bearer {token}"}
             )
     except Exception as e:
-        logger.error(f"[SSO] Lỗi kết nối tới Tasklist API ({TASKLIST_AUTH_URL}): {e}")
+        logger.error(f"[SSO] Lỗi kết nối tới Tasklist API: {e}")
         raise HTTPException(status_code=502, detail=f"Không thể kết nối máy chủ xác thực Tasklist: {e}")
 
     if result.status_code != 200:
-        logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code}, url={TASKLIST_AUTH_URL}, body={result.text[:200]})")
-        raise HTTPException(status_code=401, detail=f"Tasklist token không hợp lệ hoặc đã hết hạn (máy chủ trả về HTTP {result.status_code})")
+        logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code})")
+        raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
 
     res_json = result.json()
-    logger.info(f"[SSO] Tasklist auth response: {res_json}")
-    user_data = res_json.get("data") or res_json.get("user") or res_json
+    user_data = res_json.get("data") or res_json
 
-    def _find_val(obj, keys):
-        if not isinstance(obj, dict):
-            return ""
-        lower_map = {str(k).lower(): str(v).strip() for k, v in obj.items() if v is not None}
-        for k in keys:
-            v = lower_map.get(k.lower())
-            if v and v.lower() not in ["none", "null", "undefined", ""]:
-                return v
-        return ""
+    # Trích xuất thông tin user từ Tasklist
+    manv = str(user_data.get("ma_nv") or "").strip()
+    if not manv:
+        raise HTTPException(status_code=401, detail="Tasklist response missing ma_nv")
 
-    username_keys = ["userid", "user_id", "username", "user_name", "account", "login_name", "name", "fullname", "full_name", "displayname"]
-    manv_keys = ["ma_nv", "manv", "staff_id", "employee_id"]
+    mssql_user = get_mssql_account_user(manv)
+    if not mssql_user:
+        raise HTTPException(status_code=404, detail=f"EMS account not found for {manv}")
 
-    extracted_user = (
-        _find_val(payload, username_keys) or
-        _find_val(payload.get("user"), username_keys) or
-        _find_val(user_data, username_keys) or
-        _find_val(res_json, username_keys)
-    )
-
-    extracted_manv = (
-        _find_val(payload, manv_keys) or
-        _find_val(payload.get("user"), manv_keys) or
-        _find_val(user_data, manv_keys) or
-        _find_val(res_json, manv_keys)
-    )
-
-    # Ưu tiên lấy thông tin theo UserID từ MSSQL
-    mssql_user = None
-    if extracted_user:
-        mssql_user = get_mssql_account_user(extracted_user)
-    if not mssql_user and extracted_manv:
-        mssql_user = get_mssql_account_user(extracted_manv)
-
-    if extracted_user:
-        username = mssql_user.get("UserID") if mssql_user else extracted_user
-    elif mssql_user:
-        username = str(mssql_user.get("UserID") or extracted_manv or "sso_user").strip()
-    else:
-        username = extracted_manv or "sso_user"
-
-    manv = mssql_user.get("MaNV") if mssql_user else (extracted_manv or "")
-
-    raw_role = user_data.get("RoleName") or user_data.get("role") or (mssql_user.get("RoleName") if mssql_user else "User")
-    is_mgmt = user_data.get("IsManagement") == 1 or (mssql_user and mssql_user.get("IsManagement") == 1)
-    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or is_mgmt) else str(raw_role).lower()
+    username = str(mssql_user.get("UserID") or manv).strip()
+    raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
+    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or user_data.get("IsManagement") == 1) else str(raw_role).lower()
 
     new_token = str(uuid.uuid4())
 
@@ -749,147 +652,3 @@ async def tasklist_sso(payload: dict, response: Response):
         "session_token": new_token,
         "data": user_data
     }
-
-
-class UserProfileUpdate(BaseModel):
-    full_name_en: Optional[str] = None
-    full_name_vi: Optional[str] = None
-    age: Optional[int] = None
-    position: Optional[str] = None
-    team: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-
-
-@router.get("/users/me")
-@router.get("/api/users/me")
-def get_current_user_profile(
-    auth_username: Optional[str] = Header(None, alias="X-Username"),
-    session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
-    session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
-):
-    session_token = session_token_cookie or session_token_header
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        if auth_username:
-            cursor.execute(
-                "SELECT id, username, email, role, full_name_en, full_name_vi, age, position, team, phone, is_active, is_online, status FROM users WHERE username = ?", 
-                (auth_username,)
-            )
-        elif session_token:
-            cursor.execute(
-                "SELECT id, username, email, role, full_name_en, full_name_vi, age, position, team, phone, is_active, is_online, status FROM users WHERE session_token = ?", 
-                (session_token,)
-            )
-        else:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-        return dict(row)
-    finally:
-        conn.close()
-
-
-@router.put("/users/me")
-@router.put("/api/users/me")
-def update_current_user_profile(
-    profile_data: UserProfileUpdate,
-    auth_username: Optional[str] = Header(None, alias="X-Username"),
-    session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
-    session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
-):
-    session_token = session_token_cookie or session_token_header
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        user_row = None
-        if auth_username:
-            cursor.execute("SELECT id, username FROM users WHERE username = ?", (auth_username,))
-            user_row = cursor.fetchone()
-        elif session_token:
-            cursor.execute("SELECT id, username FROM users WHERE session_token = ?", (session_token,))
-            user_row = cursor.fetchone()
-        
-        if not user_row:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        
-        user_id = user_row["id"]
-        updates = []
-        params = []
-
-        if profile_data.full_name_en is not None:
-            updates.append("full_name_en = ?")
-            params.append(profile_data.full_name_en)
-        if profile_data.full_name_vi is not None:
-            updates.append("full_name_vi = ?")
-            params.append(profile_data.full_name_vi)
-        if profile_data.age is not None:
-            updates.append("age = ?")
-            params.append(profile_data.age)
-        if profile_data.position is not None:
-            updates.append("position = ?")
-            params.append(profile_data.position)
-        if profile_data.team is not None:
-            updates.append("team = ?")
-            params.append(profile_data.team)
-        if profile_data.phone is not None:
-            updates.append("phone = ?")
-            params.append(profile_data.phone)
-        if profile_data.email is not None and profile_data.email.strip():
-            updates.append("email = ?")
-            params.append(profile_data.email.strip())
-
-        if updates:
-            params.append(user_id)
-            cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", tuple(params))
-            conn.commit()
-
-        cursor.execute(
-            "SELECT id, username, email, role, full_name_en, full_name_vi, age, position, team, phone, is_active, is_online, status FROM users WHERE id = ?", 
-            (user_id,)
-        )
-        updated_row = cursor.fetchone()
-        return {"status": "success", "user": dict(updated_row)}
-    finally:
-        conn.close()
-
-
-@router.post("/api/auth/procurement-sso-token")
-@router.post("/jobs/procurement-sso-token")
-async def generate_procurement_sso_token(payload: dict):
-    """
-    Tạo HS256 JWT Token cho Tool AI -> Procurement SSO Contract.
-    Ký bằng secret TOOL_AI_SSO_SECRET với payload chứa ma_nv.
-    """
-    import hmac
-    import base64
-    import json
-    import time
-
-    ma_nv = payload.get("ma_nv") or "EZE0090"
-    secret = os.getenv("TOOL_AI_SSO_SECRET", "DM6qyxmexfqAbBM43rfhVjN8PmYxokVM/OsGtdFOY4hVn9gIp1aRvzfes/1CEtQ9")
-
-    header = {"alg": "HS256", "typ": "JWT"}
-    jwt_payload = {
-        "ma_nv": str(ma_nv).strip(),
-        "iat": int(time.time()),
-        "exp": int(time.time()) + 300  # 5 phút thời hạn
-    }
-
-    def _b64url(data: bytes) -> str:
-        return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
-
-    header_b64 = _b64url(json.dumps(header, separators=(',', ':')).encode('utf-8'))
-    payload_b64 = _b64url(json.dumps(jwt_payload, separators=(',', ':')).encode('utf-8'))
-
-    signing_input = f"{header_b64}.{payload_b64}".encode('utf-8')
-    signature = hmac.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest()
-    sig_b64 = _b64url(signature)
-
-    token = f"{header_b64}.{payload_b64}.{sig_b64}"
-    logger.info(f"[Procurement SSO] Đã tạo Tool AI JWT Token cho ma_nv={ma_nv}")
-    return {"status": "success", "token": token, "ma_nv": ma_nv}
-
