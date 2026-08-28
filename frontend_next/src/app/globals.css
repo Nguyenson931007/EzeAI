@@ -904,7 +904,7 @@ html, body {
 
 /* ===== RIGHT PANEL ===== */
 .cad-panel {
-  width: 270px;
+  width: 310px;
   background: var(--bg-panel);
   border-left: 1px solid var(--border);
   overflow-y: auto;
@@ -924,6 +924,109 @@ html, body {
 .cad-panel::-webkit-scrollbar-thumb {
   background: var(--border-dark);
   border-radius: 3px;
+}
+
+.rp-side-tab-bar {
+  display: flex;
+  flex-direction: column;
+  width: 54px;
+  min-width: 54px;
+  background: var(--bg-panel-secondary, #f8fafc);
+  border-left: 1px solid var(--border);
+  padding: 6px 3px;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+  z-index: 20;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.rp-side-tab-bar::-webkit-scrollbar {
+  width: 2px;
+}
+
+.rp-side-tab-bar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+}
+
+.rp-side-tab-btn {
+  width: 100%;
+  padding: 8px 2px 6px 2px;
+  font-size: 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+  position: relative;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.rp-side-tab-btn:hover:not(.active) {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.rp-side-tab-btn.active {
+  color: #ffffff;
+  background: var(--blue);
+  border-color: var(--blue);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+/* ===== TASK CALCULATION FORM ===== */
+.task-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.task-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.task-field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.task-field-unit {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.task-field-input, .task-field-select {
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 12px;
+  color: #0f172a;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.task-field-input:focus, .task-field-select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
 .panel-section {
@@ -3078,10 +3181,56 @@ input[type=number]::-webkit-inner-spin-button {
   -webkit-appearance: none !important;
   margin: 0 !important;
 }
-input.no-spinner,
-input[type=number] {
-  -moz-appearance: textfield !important;
+
+/* ── TASK INPUT FORM STYLES ── */
+.task-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
+
+.task-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.task-field-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.task-field-unit {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.task-field-input,
+.task-field-select {
+  width: 100%;
+  padding: 6px 9px;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.task-field-input:focus,
+.task-field-select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
 
 
 

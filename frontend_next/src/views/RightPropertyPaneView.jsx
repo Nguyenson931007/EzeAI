@@ -386,6 +386,348 @@ export function getDoorWindowDisplayWidthMm(d, realScale, scaleValue) {
   return displayWidthMm;
 }
 
+// ── EXTRA TAKEOFF & CONFIG MODULE TABS ──
+const EXTRA_MODULE_TABS = [
+  {
+    id: "cladding",
+    label: "Cladding",
+    title: "Cladding",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="18" height="5" rx="1" />
+        <rect x="3" y="10" width="18" height="5" rx="1" />
+        <rect x="3" y="17" width="18" height="5" rx="1" />
+      </svg>
+    )
+  },
+  {
+    id: "eaves_soffit",
+    label: "Eaves Soffit",
+    title: "Eaves Soffit",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 9l9-6 9 6" />
+        <path d="M4 10v10h16V10" />
+        <path d="M2 10h20" strokeWidth="2" />
+      </svg>
+    )
+  },
+  {
+    id: "flooring_decking",
+    label: "Flooring",
+    title: "Flooring & Decking",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v6M15 9v6M9 15v6" />
+      </svg>
+    )
+  },
+  {
+    id: "frame_hardware",
+    label: "Frame HW",
+    title: "Frame Hardware",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    )
+  },
+  {
+    id: "doors_furniture",
+    label: "Furniture",
+    title: "Doors & Furniture",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3" />
+        <path d="M3 11v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" />
+        <path d="M5 18v2M19 18v2" />
+      </svg>
+    )
+  },
+  {
+    id: "insulation",
+    label: "Insulation",
+    title: "Insulation",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="M12 8v8M8 12h8" />
+      </svg>
+    )
+  },
+  {
+    id: "timber_posts",
+    label: "Timber Posts",
+    title: "Timber Posts",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="6" y="3" width="12" height="18" rx="1" />
+        <path d="M6 8h12M6 16h12M12 3v18" />
+      </svg>
+    )
+  },
+  {
+    id: "shelving",
+    label: "Shelving",
+    title: "Shelving",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 4v16M20 4v16M4 7h16M4 12h16M4 17h16" />
+      </svg>
+    )
+  },
+  {
+    id: "fow_plumbing",
+    label: "Plumbing",
+    title: "FOW Plumbing",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M6 3v6a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V3" />
+        <path d="M12 12v9" />
+        <circle cx="12" cy="18" r="2.5" />
+      </svg>
+    )
+  },
+  {
+    id: "power_truss_braces",
+    label: "Truss Braces",
+    title: "Power Truss Braces",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 20h18L12 4z" />
+        <path d="M12 4v16M7.5 12l4.5 8M16.5 12l-4.5 8" />
+      </svg>
+    )
+  },
+  {
+    id: "lock_up",
+    label: "Lockup",
+    title: "Lockup & Enclosure",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+    )
+  },
+  {
+    id: "fixout",
+    label: "Fixout",
+    title: "Fixout & Trims",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+        <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" />
+      </svg>
+    )
+  },
+  {
+    id: "final_fit",
+    label: "Final Fit",
+    title: "Final Fit & Hardware",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="7.5" cy="15.5" r="4.5" />
+        <path d="m21 2-9.6 9.6M15.5 7.5l3 3" />
+      </svg>
+    )
+  },
+  {
+    id: "sheet_schedule",
+    label: "Sheet Sched",
+    title: "Sheet Schedule (Gyprock & FC)",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <polyline points="10 9 9 9 8 9" />
+      </svg>
+    )
+  }
+];
+
+const ALL_MODULE_IDS = EXTRA_MODULE_TABS.map(m => m.id);
+
+const MODULE_KEY_MAP = {
+  "cladding": "cladding",
+  "clad": "cladding",
+  "wall_cladding": "cladding",
+  "wall cladding": "cladding",
+  "eaves_soffit": "eaves_soffit",
+  "eaves_soffits": "eaves_soffit",
+  "eaves & soffit": "eaves_soffit",
+  "eaves & soffits": "eaves_soffit",
+  "eaves soffit": "eaves_soffit",
+  "eaves": "eaves_soffit",
+  "soffit": "eaves_soffit",
+  "soffits": "eaves_soffit",
+  "flooring_decking": "flooring_decking",
+  "flooring & decking": "flooring_decking",
+  "flooring": "flooring_decking",
+  "decking": "flooring_decking",
+  "flooring decking": "flooring_decking",
+  "floor_decking": "flooring_decking",
+  "frame_hardware": "frame_hardware",
+  "frame hardware": "frame_hardware",
+  "hardware": "frame_hardware",
+  "frame_hw": "frame_hardware",
+  "frame hw": "frame_hardware",
+  "frame": "frame_hardware",
+  "doors_furniture": "doors_furniture",
+  "doors & furniture": "doors_furniture",
+  "doors furniture": "doors_furniture",
+  "furniture": "doors_furniture",
+  "doors": "doors_furniture",
+  "door_furniture": "doors_furniture",
+  "opening": "doors_furniture",
+  "insulation": "insulation",
+  "insulations": "insulation",
+  "timber_posts": "timber_posts",
+  "timber posts": "timber_posts",
+  "timber_post": "timber_posts",
+  "timber post": "timber_posts",
+  "posts": "timber_posts",
+  "beams_posts": "timber_posts",
+  "beams & posts": "timber_posts",
+  "post": "timber_posts",
+  "shelving": "shelving",
+  "shelves": "shelving",
+  "shelf": "shelving",
+  "shelvings": "shelving",
+  "fow_plumbing": "fow_plumbing",
+  "fow plumbing": "fow_plumbing",
+  "plumbing": "fow_plumbing",
+  "fow": "fow_plumbing",
+  "plumb": "fow_plumbing",
+  "power_truss_braces": "power_truss_braces",
+  "power truss braces": "power_truss_braces",
+  "truss_braces": "power_truss_braces",
+  "truss braces": "power_truss_braces",
+  "truss": "power_truss_braces",
+  "braces": "power_truss_braces",
+  "power truss": "power_truss_braces",
+  "lock_up": "lock_up",
+  "lock up": "lock_up",
+  "lockup": "lock_up",
+  "lock-up": "lock_up",
+  "fixout": "fixout",
+  "fix out": "fixout",
+  "fix-out": "fixout",
+  "final_fit": "final_fit",
+  "final fit": "final_fit",
+  "final-fit": "final_fit",
+  "sheet_schedule": "sheet_schedule",
+  "sheet schedule": "sheet_schedule",
+  "sheet-schedule": "sheet_schedule",
+  "sheets": "sheet_schedule",
+  "plasterboard": "sheet_schedule",
+  "gyprock": "sheet_schedule"
+};
+
+function normalizeModuleId(rawStr) {
+  if (!rawStr || typeof rawStr !== "string") return null;
+  const clean = rawStr.trim().toLowerCase().replace(/[\-_]+/g, " ");
+  if (MODULE_KEY_MAP[clean]) return MODULE_KEY_MAP[clean];
+  const underscore = rawStr.trim().toLowerCase().replace(/\s+/g, "_");
+  if (MODULE_KEY_MAP[underscore]) return MODULE_KEY_MAP[underscore];
+  for (const [key, val] of Object.entries(MODULE_KEY_MAP)) {
+    if (clean === key || clean.includes(key) || key.includes(clean)) return val;
+  }
+  return null;
+}
+
+function resolveTaskModules(taskContext) {
+  if (!taskContext) return null;
+  
+  if (Array.isArray(taskContext)) {
+    const list = taskContext.map(item => {
+      if (typeof item === "string") return normalizeModuleId(item);
+      if (item && typeof item === "object") {
+        if (item.id && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.id);
+        if (item.name && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.name);
+        if (item.module && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.module);
+        if (item.key && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.key);
+      }
+      return null;
+    }).filter(Boolean);
+    return list.length > 0 ? Array.from(new Set(list)) : null;
+  }
+  
+  if (typeof taskContext === "string") {
+    try {
+      const parsed = JSON.parse(taskContext);
+      if (parsed) {
+        const res = resolveTaskModules(parsed);
+        if (res && res.length > 0) return res;
+      }
+    } catch (_) {}
+    const items = taskContext.split(/[,;|]/).map(s => normalizeModuleId(s)).filter(Boolean);
+    return items.length > 0 ? Array.from(new Set(items)) : null;
+  }
+  
+  if (typeof taskContext === "object") {
+    const candidateFields = [
+      "selectedModules", "selected_modules", "modules", "task_modules",
+      "subtasks", "items", "scopes", "task_list", "checklist", "active_modules"
+    ];
+    for (const f of candidateFields) {
+      if (taskContext[f]) {
+        const res = resolveTaskModules(taskContext[f]);
+        if (res && res.length > 0) return res;
+      }
+    }
+    const matched = [];
+    for (const [k, v] of Object.entries(taskContext)) {
+      if (v === true || v === 1 || v === "1" || v === "true") {
+        const norm = normalizeModuleId(k);
+        if (norm && !matched.includes(norm)) matched.push(norm);
+      }
+    }
+    if (matched.length > 0) return matched;
+  }
+  
+  return null;
+}
+
+function getInitialEnabledModules() {
+  if (typeof window === "undefined") return ALL_MODULE_IDS;
+  
+  // 1. URL Query Search Params
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const qModules = urlParams.get("modules") || urlParams.get("selectedModules") || urlParams.get("tasks") || urlParams.get("task_modules");
+    if (qModules) {
+      const parsed = resolveTaskModules(qModules);
+      if (parsed && parsed.length > 0) return parsed;
+    }
+  } catch (_) {}
+  
+  // 2. Local/Session Storage explicit selectedModules
+  try {
+    const stored = sessionStorage.getItem("selectedModules") || localStorage.getItem("selectedModules");
+    if (stored) {
+      const parsed = resolveTaskModules(stored);
+      if (parsed && parsed.length > 0) return parsed;
+    }
+  } catch (_) {}
+  
+  // 3. Pending EMS Job Task
+  try {
+    const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+    if (pendingJobStr) {
+      const parsed = resolveTaskModules(JSON.parse(pendingJobStr));
+      if (parsed && parsed.length > 0) return parsed;
+    }
+  } catch (_) {}
+  
+  // 4. Safe fallback: All modules enabled
+  return ALL_MODULE_IDS;
+}
+
 /* ================================================================
    MAIN PANEL
    ================================================================ */
@@ -469,7 +811,7 @@ export default function RightPropertyPaneView({
     setShowLockoutModal
   } = useAppModel();
 
-  // ── PANE TAB STATE ("explorer" | "summary" | "job_task") ──
+  // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
   const [explorerViewMode, setExplorerViewMode] = React.useState("tree"); // "tree" | "properties"
   const [explorerSearch, setExplorerSearch] = React.useState("");
@@ -479,6 +821,160 @@ export default function RightPropertyPaneView({
     "root",
     "floor_0"
   ]));
+
+  // ── DYNAMIC MODULE TABS STATE (DRIVEN BY WEB3 TASK CONTEXT) ──
+  const [enabledModuleIds, setEnabledModuleIds] = React.useState(() => getInitialEnabledModules());
+  const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
+  const addModulePopupRef = React.useRef(null);
+
+  // Close Add Module popup on outside click
+  React.useEffect(() => {
+    if (!showAddModulePopup) return;
+    const handleClickOutside = (e) => {
+      if (addModulePopupRef.current && !addModulePopupRef.current.contains(e.target)) {
+        setShowAddModulePopup(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAddModulePopup]);
+
+  // If current active tab is a module that became disabled, fallback to explorer
+  React.useEffect(() => {
+    if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task") {
+      if (!enabledModuleIds.includes(activePaneTab)) {
+        setActivePaneTab("explorer");
+      }
+    }
+  }, [enabledModuleIds, activePaneTab]);
+
+  // ── TASK CALCULATION FORMS STATE (10 MODULES) ──
+  const [moduleFormData, setModuleFormData] = React.useState({
+    frame_hardware: { wall_height: "", wall_length: "", wind_class: "", base_construction: "" },
+    eaves_soffit: { building_level: "", eave_width: "", total_eave_length: "", soffit_material: "" },
+    cladding: { elevation: "", cladding_type: "", cladding_area: "", waste_allowance: "10" },
+    insulation: { area_type: "", r_value: "", area: "", stud_centres: "450" },
+    shelving: { room_label: "", shelf_size: "", shelf_type: "", total_length: "" },
+    flooring_decking: { location: "", flooring_type: "", floor_area: "", waste_allowance: "10" },
+    doors_furniture: { category: "", finish: "", dimensions: "", quantity: "1" },
+    timber_posts: { location: "", timber_size: "", height: "2700", quantity: "1" },
+    fow_plumbing: { fixture: "", pipe_spec: "", length: "", count: "1" },
+    power_truss_braces: { truss_area: "", brace_type: "", length: "", hardware: "" }
+  });
+
+  const [aiGeneratedSuccess, setAiGeneratedSuccess] = React.useState(null);
+
+  const handleModuleFormChange = (moduleId, field, value) => {
+    setModuleFormData(prev => ({
+      ...prev,
+      [moduleId]: {
+        ...(prev[moduleId] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const handleResetModuleData = (moduleId) => {
+    setModuleFormData(prev => ({
+      ...prev,
+      [moduleId]: {
+        ...(moduleId === "cladding" || moduleId === "flooring_decking" ? { waste_allowance: "10" } : {}),
+        ...(moduleId === "insulation" ? { stud_centres: "450" } : {}),
+        ...(moduleId === "timber_posts" ? { height: "2700", quantity: "1" } : {}),
+        ...(moduleId === "doors_furniture" || moduleId === "fow_plumbing" ? { quantity: "1", count: "1" } : {})
+      }
+    }));
+  };
+
+  const handleAddDataAI = (moduleId) => {
+    let aiValues = {};
+    if (moduleId === "frame_hardware") {
+      aiValues = {
+        wall_height: "2700 mm",
+        wall_length: grandTotalLength ? grandTotalLength.toFixed(2) : "42.50",
+        wind_class: "N2",
+        base_construction: "Concrete Slab"
+      };
+    } else if (moduleId === "eaves_soffit") {
+      aiValues = {
+        building_level: "Level 1 (Ground)",
+        eave_width: "450",
+        total_eave_length: totalRoofArea > 0 ? (Math.sqrt(totalRoofArea) * 4).toFixed(2) : "38.60",
+        soffit_material: "4.5mm HardieFlex / FC Sheet"
+      };
+    } else if (moduleId === "cladding") {
+      const extLen = grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8;
+      setCladdingWallEntries([
+        { id: "clad-ai-1", elevation: "Front & Side A Elevation", height: 2700, length: Math.round(extLen * 600), openings: 4.2, waste: 10, grossArea: Number((extLen * 0.6 * 2.7).toFixed(2)), netArea: Number((extLen * 0.6 * 2.7 - 4.2).toFixed(2)), totalArea: Number(((extLen * 0.6 * 2.7 - 4.2) * 1.1).toFixed(2)) },
+        { id: "clad-ai-2", elevation: "Rear & Side B Elevation", height: 2700, length: Math.round(extLen * 400), openings: 3.1, waste: 10, grossArea: Number((extLen * 0.4 * 2.7).toFixed(2)), netArea: Number((extLen * 0.4 * 2.7 - 3.1).toFixed(2)), totalArea: Number(((extLen * 0.4 * 2.7 - 3.1) * 1.1).toFixed(2)) }
+      ]);
+      aiValues = { elevation: "External Walls", cladding_type: "HardiePlank Weatherboard", cladding_area: (extLen * 2.7 * 0.9).toFixed(2), waste_allowance: "10" };
+    } else if (moduleId === "eaves_soffit") {
+      const len = totalRoofArea > 0 ? Number((Math.sqrt(totalRoofArea) * 4).toFixed(2)) : 38.6;
+      setEavesEntries([
+        { id: "eave-ai-1", level: "Ground Floor Perimeter", width: 450, length: len, area: Number((len * 0.45).toFixed(2)) }
+      ]);
+      aiValues = { building_level: "Level 1 (Ground)", eave_width: "450", total_eave_length: String(len), soffit_material: "4.5mm HardieFlex / FC Sheet" };
+    } else if (moduleId === "flooring_decking") {
+      const roomArea = totalRoomArea > 0 ? Number(totalRoomArea.toFixed(2)) : 112.5;
+      setFlooringEntries([
+        { id: "flr-ai-1", level: "Ground Floor GF", room: "Living & Dining Rooms", type: "Hybrid / Vinyl Plank", area: Number((roomArea * 0.65).toFixed(2)), waste: 10, totalArea: Number((roomArea * 0.65 * 1.1).toFixed(2)) },
+        { id: "flr-ai-2", level: "Ground Floor GF", room: "Bedrooms & Hallway", type: "Engineered Timber Flooring", area: Number((roomArea * 0.35).toFixed(2)), waste: 10, totalArea: Number((roomArea * 0.35 * 1.1).toFixed(2)) }
+      ]);
+      aiValues = { location: "Ground Floor", flooring_type: "Hybrid / Vinyl Plank", floor_area: String(roomArea), waste_allowance: "10" };
+    } else if (moduleId === "frame_hardware") {
+      const totalLen = grandTotalLength ? Number(grandTotalLength.toFixed(2)) : 68.4;
+      setFrameWallEntries([
+        { id: "frm-ai-1", height: 2700, length: totalLen, studSpacing: 450, windClass: "N2", platesLm: Number((totalLen * 2).toFixed(1)), studsQty: Math.ceil(totalLen * 1000 / 450) + 6 }
+      ]);
+      aiValues = { wall_height: "2700 mm", wall_length: String(totalLen), wind_class: "N2", base_construction: "Concrete Slab" };
+    } else if (moduleId === "timber_posts") {
+      setTimberPostEntries([
+        { id: "pst-ai-1", location: "Alfresco & Porch Support", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 4, supportType: "Hot-Dip Galvanized Stirrup" }
+      ]);
+      aiValues = { location: "Alfresco & Porch", timber_size: "90x90mm F7 / H3 Treated Pine", height: "2700", quantity: "4" };
+    } else if (moduleId === "fixout") {
+      const skirtLm = skirtingSummaryMetrics?.totalSkirtingLm ? Number(skirtingSummaryMetrics.totalSkirtingLm.toFixed(2)) : 98.5;
+      const doorCnt = actualDoors.length || 7;
+      setFixoutDoorEntries([
+        { id: "fix-ai-1", doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: doorCnt }
+      ]);
+      aiValues = { skirting_profile: "67x18mm MDF Single Rebatable / Colonial", architrave_size: "67x18mm MDF Architrave", jamb_type: "Single Rebated Pine Door Jamb Set", total_length: String(skirtLm) };
+    } else if (moduleId === "lock_up") {
+      const extLen = grandTotalLength ? Number(grandTotalLength.toFixed(2)) : 46.8;
+      const extDoorCnt = Math.max(2, Math.floor((actualDoors.length || 6) * 0.3));
+      setLockupEntries([
+        { id: "lck-ai-1", type: "Solid Core Entry Door", spec: "2040x820x40mm Timber Entry", reveal: "100mm Timber Reveal", qty: 1 },
+        { id: "lck-ai-2", type: "Aluminium Sliding Glass Door", spec: "2100x1800mm Double Glazed", reveal: "135mm Brick Veneer Reveal", qty: extDoorCnt }
+      ]);
+      aiValues = { building_level: "All Levels (Ground & Upper)", door_spec: "Solid Core Entry & Aluminium Sliding", weather_seal: "Parfix Sikaflex & Sarking Foil", perimeter_length: String(extLen) };
+    } else if (moduleId === "final_fit") {
+      aiValues = {
+        handle_set: "Gainsborough Choice Lever Set",
+        latch_count: String(actualDoors.length || 7),
+        door_stop_type: "Baseboard Rubber Door Stop & 100mm SS Hinges",
+        entrance_lock: "Gainsborough Trilock Keyed Set"
+      };
+    } else if (moduleId === "sheet_schedule") {
+      aiValues = {
+        wall_sheet: "10mm Gyprock RE Plasterboard",
+        ceiling_sheet: "10mm Supaceil Ceiling Board",
+        sheet_size: "3000 x 1200 mm",
+        total_area: grandTotalArea ? (grandTotalArea * 2.2).toFixed(2) : "185.00"
+      };
+    }
+
+    setModuleFormData(prev => ({
+      ...prev,
+      [moduleId]: {
+        ...(prev[moduleId] || {}),
+        ...aiValues
+      }
+    }));
+
+    setAiGeneratedSuccess(moduleId);
+    setTimeout(() => setAiGeneratedSuccess(null), 2500);
+  };
 
   // Auto-expand floor when switching pages
   React.useEffect(() => {
@@ -691,6 +1187,16 @@ export default function RightPropertyPaneView({
     if (!task) return;
     const targetName = task.job_number || task.hw_id || "Project";
 
+    // 0. Tự động trích xuất danh sách module được tick từ Task Web3 nếu có
+    const taskModules = resolveTaskModules(task);
+    if (taskModules && taskModules.length > 0) {
+      setEnabledModuleIds(taskModules);
+      try {
+        sessionStorage.setItem("selectedModules", JSON.stringify(taskModules));
+        localStorage.setItem("selectedModules", JSON.stringify(taskModules));
+      } catch (_) {}
+    }
+
     // Lưu thông tin pendingEmsJob vào sessionStorage và localStorage để đồng bộ SQL
     sessionStorage.setItem("pendingEmsJob", JSON.stringify(task));
     localStorage.setItem("pendingEmsJob", JSON.stringify(task));
@@ -817,6 +1323,307 @@ export default function RightPropertyPaneView({
     jobNo: "",
     date: ""
   });
+
+  // ── DYNAMIC PANEL RESIZING STATE ──
+  const [panelWidth, setPanelWidth] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("ezefloor_panel_width");
+      if (saved) {
+        const val = Number(saved);
+        if (!isNaN(val) && val >= 310 && val <= 850) return val;
+      }
+    } catch (_) {}
+    return 420; // Tăng độ rộng mặc định từ 310px lên 420px cho form task rộng rãi
+  });
+
+  const [isResizing, setIsResizing] = React.useState(false);
+  const startXRef = React.useRef(0);
+  const startWidthRef = React.useRef(0);
+
+  const handleMouseDownResize = (e) => {
+    e.preventDefault();
+    setIsResizing(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = panelWidth;
+  };
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      const deltaX = startXRef.current - e.clientX;
+      const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, 310), 850);
+      setPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      try {
+        localStorage.setItem("ezefloor_panel_width", String(panelWidth));
+      } catch (_) {}
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing, panelWidth]);
+
+  // ── INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) ──
+  const [insulationWallEntries, setInsulationWallEntries] = React.useState([
+    { id: "ins-w1", type: "external", rValue: "R2.0", productCode: "0810608", productName: "0810608 - INS BATT R2.0 430MM", height: 2700, length: 14500, rakedArea: 0, doorArea: 4.2, netArea: 34.95 },
+    { id: "ins-w2", type: "internal", rValue: "R1.5", productCode: "0810611", productName: "0810611 - INS SOUNDBATT R1.5", height: 2700, length: 8200, rakedArea: 0, doorArea: 2.1, netArea: 20.04 }
+  ]);
+  const [insulationAreaEntries, setInsulationAreaEntries] = React.useState([
+    { id: "ins-a1", type: "ceiling", rValue: "R4.0", productCode: "0810620", productName: "0810620 - INS CEILING BATT R4.0 430MM", area: 112.5 }
+  ]);
+
+  const [insWallType, setInsWallType] = React.useState("external");
+  const [insWallHeight, setInsWallHeight] = React.useState("2700");
+  const [insWallLength, setInsWallLength] = React.useState("");
+  const [insWallRValue, setInsWallRValue] = React.useState("R2.0");
+  const [insWallProduct, setInsWallProduct] = React.useState("0810608 - INS BATT R2.0 430MM");
+  const [insWallRaked, setInsWallRaked] = React.useState("0");
+  const [insWallDoor, setInsWallDoor] = React.useState("0");
+
+  const [insAreaType, setInsAreaType] = React.useState("ceiling");
+  const [insAreaRValue, setInsAreaRValue] = React.useState("R4.0");
+  const [insAreaProduct, setInsAreaProduct] = React.useState("0810620 - INS CEILING BATT R4.0 430MM");
+  const [insAreaValue, setInsAreaValue] = React.useState("");
+
+  const handleAddInsulationWall = (typeKey) => {
+    const h = Number(insWallHeight) || 2700;
+    const l = Number(insWallLength) || 0;
+    const raked = Number(insWallRaked) || 0;
+    const door = Number(insWallDoor) || 0;
+    const gross = (h / 1000) * (l / 1000) + raked;
+    const net = Math.max(0, gross - door);
+    if (!l && !raked) return;
+
+    const codeMatch = insWallProduct.match(/^(\d+)/);
+    const code = codeMatch ? codeMatch[1] : "0810608";
+
+    const newEntry = {
+      id: `ins-w-${Date.now()}`,
+      type: typeKey || insWallType,
+      rValue: insWallRValue,
+      productCode: code,
+      productName: insWallProduct,
+      height: h,
+      length: l,
+      rakedArea: raked,
+      doorArea: door,
+      netArea: Number(net.toFixed(2))
+    };
+    setInsulationWallEntries(prev => [...prev, newEntry]);
+    setInsWallLength("");
+  };
+
+  const handleRemoveInsulationWall = (id) => {
+    setInsulationWallEntries(prev => prev.filter(w => w.id !== id));
+  };
+
+  const handleAddInsulationArea = () => {
+    const a = Number(insAreaValue);
+    if (!a || a <= 0) return;
+    const codeMatch = insAreaProduct.match(/^(\d+)/);
+    const code = codeMatch ? codeMatch[1] : "0810620";
+
+    const newEntry = {
+      id: `ins-a-${Date.now()}`,
+      type: insAreaType,
+      rValue: insAreaRValue,
+      productCode: code,
+      productName: insAreaProduct,
+      area: Number(a.toFixed(2))
+    };
+    setInsulationAreaEntries(prev => [...prev, newEntry]);
+    setInsAreaValue("");
+  };
+
+  const handleRemoveInsulationArea = (id) => {
+    setInsulationAreaEntries(prev => prev.filter(a => a.id !== id));
+  };
+
+  // ── MULTI-CARD FORM STATES FOR ALL OTHER MODULES ──
+  // 1. Cladding Entries
+  const [claddingWallEntries, setCladdingWallEntries] = React.useState([
+    { id: "clad-1", elevation: "Front Elevation (Side A)", height: 2700, length: 12500, openings: 4.2, waste: 10, grossArea: 33.75, netArea: 29.55, totalArea: 32.51 }
+  ]);
+  const [cladElev, setCladElev] = React.useState("Front Elevation");
+  const [cladHeight, setCladHeight] = React.useState("2700");
+  const [cladLength, setCladLength] = React.useState("");
+  const [cladOpenings, setCladOpenings] = React.useState("0");
+  const [cladWaste, setCladWaste] = React.useState("10");
+
+  const handleAddCladdingWall = () => {
+    const h = Number(cladHeight) || 2700;
+    const l = Number(cladLength) || 0;
+    const op = Number(cladOpenings) || 0;
+    const wst = Number(cladWaste) || 10;
+    if (!l) return;
+    const gross = (h / 1000) * (l / 1000);
+    const net = Math.max(0, gross - op);
+    const total = net * (1 + wst / 100);
+    setCladdingWallEntries(prev => [...prev, {
+      id: `clad-${Date.now()}`,
+      elevation: cladElev,
+      height: h,
+      length: l,
+      openings: op,
+      waste: wst,
+      grossArea: Number(gross.toFixed(2)),
+      netArea: Number(net.toFixed(2)),
+      totalArea: Number(total.toFixed(2))
+    }]);
+    setCladLength("");
+  };
+
+  // 2. Eaves Entries
+  const [eavesEntries, setEavesEntries] = React.useState([
+    { id: "eave-1", level: "Ground Floor", width: 450, length: 24.5, area: 11.03 }
+  ]);
+  const [eaveLevel, setEaveLevel] = React.useState("Ground Floor");
+  const [eaveWidth, setEaveWidth] = React.useState("450");
+  const [eaveLength, setEaveLength] = React.useState("");
+
+  const handleAddEaveEntry = () => {
+    const w = Number(eaveWidth) || 450;
+    const l = Number(eaveLength) || 0;
+    if (!l) return;
+    const area = (w / 1000) * l;
+    setEavesEntries(prev => [...prev, {
+      id: `eave-${Date.now()}`,
+      level: eaveLevel,
+      width: w,
+      length: l,
+      area: Number(area.toFixed(2))
+    }]);
+    setEaveLength("");
+  };
+
+  // 3. Flooring Entries
+  const [flooringEntries, setFlooringEntries] = React.useState([
+    { id: "flr-1", level: "Ground Floor GF", room: "Living & Dining Room", type: "Hybrid / Vinyl Plank", area: 54.2, waste: 10, totalArea: 59.62 }
+  ]);
+  const [flrLevel, setFlrLevel] = React.useState("Ground Floor GF");
+  const [flrRoom, setFlrRoom] = React.useState("");
+  const [flrType, setFlrType] = React.useState("Hybrid / Vinyl Plank");
+  const [flrArea, setFlrArea] = React.useState("");
+  const [flrWaste, setFlrWaste] = React.useState("10");
+
+  const handleAddFlooringEntry = () => {
+    const a = Number(flrArea) || 0;
+    const wst = Number(flrWaste) || 10;
+    if (!a) return;
+    const total = a * (1 + wst / 100);
+    setFlooringEntries(prev => [...prev, {
+      id: `flr-${Date.now()}`,
+      level: flrLevel,
+      room: flrRoom || "Room",
+      type: flrType,
+      area: a,
+      waste: wst,
+      totalArea: Number(total.toFixed(2))
+    }]);
+    setFlrArea("");
+    setFlrRoom("");
+  };
+
+  // 4. Frame Hardware Entries
+  const [frameWallEntries, setFrameWallEntries] = React.useState([
+    { id: "frm-1", height: 2700, length: 18.5, studSpacing: 450, windClass: "N2", platesLm: 37.0, studsQty: 42 }
+  ]);
+  const [frmHeight, setFrmHeight] = React.useState("2700");
+  const [frmLength, setFrmLength] = React.useState("");
+  const [frmStudSpacing, setFrmStudSpacing] = React.useState("450");
+  const [frmWindClass, setFrmWindClass] = React.useState("N2");
+
+  const handleAddFrameWall = () => {
+    const h = Number(frmHeight) || 2700;
+    const l = Number(frmLength) || 0;
+    const spacing = Number(frmStudSpacing) || 450;
+    if (!l) return;
+    const plates = l * 2;
+    const studs = Math.ceil((l * 1000) / spacing) + 4;
+    setFrameWallEntries(prev => [...prev, {
+      id: `frm-${Date.now()}`,
+      height: h,
+      length: l,
+      studSpacing: spacing,
+      windClass: frmWindClass,
+      platesLm: Number(plates.toFixed(1)),
+      studsQty: studs
+    }]);
+    setFrmLength("");
+  };
+
+  // 5. Timber Post Entries
+  const [timberPostEntries, setTimberPostEntries] = React.useState([
+    { id: "pst-1", location: "Alfresco & Porch", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 3, supportType: "Hot-Dip Galvanized Stirrup" }
+  ]);
+  const [pstLocation, setPstLocation] = React.useState("");
+  const [pstSpec, setPstSpec] = React.useState("90x90mm F7 / H3 Treated Pine");
+  const [pstHeight, setPstHeight] = React.useState("2700");
+  const [pstQty, setPstQty] = React.useState("1");
+  const [pstSupport, setPstSupport] = React.useState("Hot-Dip Galvanized Stirrup");
+
+  const handleAddTimberPost = () => {
+    const q = Number(pstQty) || 1;
+    const h = Number(pstHeight) || 2700;
+    setTimberPostEntries(prev => [...prev, {
+      id: `pst-${Date.now()}`,
+      location: pstLocation || "Patio / Porch",
+      spec: pstSpec,
+      height: h,
+      qty: q,
+      supportType: pstSupport
+    }]);
+    setPstLocation("");
+  };
+
+  // 6. Fixout Door Entries
+  const [fixoutDoorEntries, setFixoutDoorEntries] = React.useState([
+    { id: "fix-1", doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: 6 }
+  ]);
+  const [fixDoorType, setFixDoorType] = React.useState("Internal Swing Door");
+  const [fixJambType, setFixJambType] = React.useState("Single Rebated Pine Jamb Set");
+  const [fixArchitraveSpec, setFixArchitraveSpec] = React.useState("67x18mm MDF Architrave");
+  const [fixDoorQty, setFixDoorQty] = React.useState("1");
+
+  const handleAddFixoutDoor = () => {
+    const q = Number(fixDoorQty) || 1;
+    setFixoutDoorEntries(prev => [...prev, {
+      id: `fix-${Date.now()}`,
+      doorType: fixDoorType,
+      jambType: fixJambType,
+      architraveSpec: fixArchitraveSpec,
+      qty: q
+    }]);
+  };
+
+  // 7. Lockup Entries
+  const [lockupEntries, setLockupEntries] = React.useState([
+    { id: "lck-1", type: "Solid Core Entry Door", spec: "2040x820x40mm Timber Entry", reveal: "100mm Timber Reveal", qty: 1 },
+    { id: "lck-2", type: "Aluminium Sliding Glass Door", spec: "2100x1800mm Double Glazed", reveal: "135mm Brick Veneer Reveal", qty: 2 }
+  ]);
+  const [lckType, setLckType] = React.useState("Solid Core Entry Door");
+  const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
+  const [lckReveal, setLckReveal] = React.useState("100mm Timber Reveal");
+  const [lckQty, setLckQty] = React.useState("1");
+
+  const handleAddLockupEntry = () => {
+    const q = Number(lckQty) || 1;
+    setLockupEntries(prev => [...prev, {
+      id: `lck-${Date.now()}`,
+      type: lckType,
+      spec: lckSpec,
+      reveal: lckReveal,
+      qty: q
+    }]);
+  };
 
   // Collapsible accordion expanded states (all true by default on load)
   const [isWallSummaryExpanded, setIsWallSummaryExpanded] = React.useState(true);
@@ -1301,108 +2108,52 @@ export default function RightPropertyPaneView({
     return list;
   }, [taskListJobs, staffScope, myStaffCode, taskFilter, taskSearch]);
 
+  const isTaskModuleActive = EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
+  const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
+
   return (
-    <div className="cad-panel" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* ── TOP MENU BAR: Explorer / Summary / Task HW ── */}
-      <div style={{
+    <div
+      className="cad-panel"
+      style={{
         display: "flex",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--bg-panel)",
-        padding: "6px 8px",
-        gap: "6px",
-        position: "sticky",
-        top: 0,
-        zIndex: 30,
-        flexShrink: 0
-      }}>
-        <button
-          onClick={() => {
-            setActivePaneTab("explorer");
-          }}
-          style={{
-            flex: 1,
-            padding: "6px 6px",
-            fontSize: "11px",
-            fontWeight: activePaneTab === "explorer" ? 700 : 500,
-            color: activePaneTab === "explorer" ? "#ffffff" : "var(--text-dim)",
-            background: activePaneTab === "explorer" ? "var(--blue)" : "transparent",
-            border: activePaneTab === "explorer" ? "1px solid var(--blue)" : "1px solid transparent",
-            borderRadius: "6px",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "4px",
-            boxShadow: activePaneTab === "explorer" ? "0 2px 5px rgba(37,99,235,0.25)" : "none",
-            transition: "all 0.15s ease"
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
-          Properties
-        </button>
-
-        <button
-          onClick={() => setActivePaneTab("summary")}
-          style={{
-            flex: 1,
-            padding: "6px 6px",
-            fontSize: "11px",
-            fontWeight: activePaneTab === "summary" ? 700 : 500,
-            color: activePaneTab === "summary" ? "#ffffff" : "var(--text-dim)",
-            background: activePaneTab === "summary" ? "var(--blue)" : "transparent",
-            border: activePaneTab === "summary" ? "1px solid var(--blue)" : "1px solid transparent",
-            borderRadius: "6px",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "4px",
-            boxShadow: activePaneTab === "summary" ? "0 2px 5px rgba(37,99,235,0.25)" : "none",
-            transition: "all 0.15s ease"
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
-          Summary
-        </button>
-
-        <button
-          onClick={() => setActivePaneTab("job_task")}
-          style={{
-            flex: 1,
-            padding: "6px 4px",
-            fontSize: "11px",
-            fontWeight: activePaneTab === "job_task" ? 700 : 500,
-            color: activePaneTab === "job_task" ? "#ffffff" : "var(--text-dim)",
-            background: activePaneTab === "job_task" ? "var(--blue)" : "transparent",
-            border: activePaneTab === "job_task" ? "1px solid var(--blue)" : "1px solid transparent",
-            borderRadius: "6px",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "3px",
-            boxShadow: activePaneTab === "job_task" ? "0 2px 5px rgba(37,99,235,0.25)" : "none",
-            transition: "all 0.15s ease"
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
-          Task HW
-          {taskListJobs.filter(t => t.has_local_job).length > 0 && (
-            <span style={{
-              background: "#10b981",
-              color: "#fff",
-              fontSize: "9px",
-              padding: "1px 4px",
-              borderRadius: "8px",
-              fontWeight: 800
-            }}>
-              {taskListJobs.filter(t => t.has_local_job).length}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {activePaneTab === "explorer" && explorerViewMode === "tree" ? (
+        flexDirection: "row",
+        height: "100%",
+        overflow: "hidden",
+        position: "relative",
+        width: `${panelWidth}px`,
+        transition: isResizing ? "none" : "width 0.15s ease"
+      }}
+    >
+      {/* ── RESIZE DRAG HANDLE (Mép trái của panel) ── */}
+      <div
+        onMouseDown={handleMouseDownResize}
+        title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: "7px",
+          cursor: "ew-resize",
+          zIndex: 999,
+          background: isResizing ? "rgba(37,99,235,0.6)" : "transparent",
+          transition: "background 0.2s ease"
+        }}
+        onMouseEnter={(e) => { if (!isResizing) e.currentTarget.style.background = "rgba(37,99,235,0.25)"; }}
+        onMouseLeave={(e) => { if (!isResizing) e.currentTarget.style.background = "transparent"; }}
+      />
+      {/* ── LEFT COLUMN 1: PROPERTIES & MODEL EXPLORER / SUMMARY / JOB TASK (RENDERED ONLY WHEN EXPLORER TAB IS ACTIVE) ── */}
+      {!isTaskModuleActive && (
+        <div style={{
+          width: "100%",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+          background: "var(--bg-panel)"
+        }}>
+          {explorerViewMode === "tree" ? (
         /* ══════════════════════════════════════════════════════
            TAB: EXPLORER / LAYERS TREE VIEW
            ══════════════════════════════════════════════════════ */
@@ -2901,7 +3652,7 @@ export default function RightPropertyPaneView({
             </div>
           )}
         </div>
-      ) : (activePaneTab === "explorer" && explorerViewMode === "properties") || activePaneTab === "properties" ? (
+      ) : ((activePaneTab === "explorer" || isTaskModuleActive) && explorerViewMode === "properties") || activePaneTab === "properties" ? (
         /* ══════════════════════════════════════════════════════
            TAB: PROPERTIES (Thuộc tính đối tượng hiện tại + Nút quay lại Explorer)
            ══════════════════════════════════════════════════════ */
@@ -5016,6 +5767,1634 @@ export default function RightPropertyPaneView({
           </CollapsibleSection>
         </div>
       ) : null}
+        </div>
+      )}
+
+      {/* ── SINGLE COLUMN TASK CALCULATION FORM PANEL (REPLACES PROPERTIES WHEN A TASK TAB IS ACTIVE) ── */}
+      {isTaskModuleActive && activeModuleTab && (
+        <div style={{
+          width: "100%",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflowY: "auto",
+          background: "#ffffff",
+          boxSizing: "border-box",
+          padding: "12px",
+          gap: "12px"
+        }}>
+          {/* Header */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "6px",
+                  background: "rgba(37,99,235,0.1)",
+                  color: "var(--blue)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}>
+                  {activeModuleTab.icon}
+                </div>
+                <h2 style={{ margin: 0, fontSize: "15px", fontWeight: "800", color: "#0f2744", letterSpacing: "-0.3px" }}>
+                  {activeModuleTab.title}
+                </h2>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <button
+                  onClick={() => handleResetModuleData(activeModuleTab.id)}
+                  title="Reset data"
+                  style={{
+                    background: "#ffffff",
+                    color: "#b91c1c",
+                    border: "1px solid #fecaca",
+                    borderRadius: "6px",
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  Reset data
+                </button>
+                <button
+                  onClick={() => handleAddDataAI(activeModuleTab.id)}
+                  title="Tự động tính toán & điền dữ liệu AI từ bản vẽ"
+                  style={{
+                    background: "#eff6ff",
+                    color: "#1d4ed8",
+                    border: "1px solid #93c5fd",
+                    borderRadius: "6px",
+                    padding: "4px 9px",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "3px",
+                    boxShadow: "0 1px 2px rgba(37,99,235,0.08)"
+                  }}
+                >
+                  <span>+ Add data AI</span>
+                </button>
+                <button
+                  onClick={() => setActivePaneTab("explorer")}
+                  title="Đóng khung task"
+                  style={{
+                    background: "transparent",
+                    color: "#94a3b8",
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "2px 5px",
+                    fontSize: "14px",
+                    fontWeight: "700",
+                    cursor: "pointer"
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            {aiGeneratedSuccess === activeModuleTab.id && (
+              <div style={{
+                background: "#ecfdf5",
+                color: "#065f46",
+                border: "1px solid #a7f3d0",
+                borderRadius: "6px",
+                padding: "5px 8px",
+                fontSize: "10.5px",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "5px"
+              }}>
+                <span>✨ Đã tự động phân tích & điền dữ liệu AI từ bản vẽ!</span>
+              </div>
+            )}
+          </div>
+
+            {/* 1. Frame Hardware */}
+            {activeModuleTab.id === "frame_hardware" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Wall height</div>
+                  <select
+                    value={moduleFormData.frame_hardware?.wall_height || ""}
+                    onChange={(e) => handleModuleFormChange("frame_hardware", "wall_height", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="2400 mm">2400 mm</option>
+                    <option value="2550 mm">2550 mm</option>
+                    <option value="2700 mm">2700 mm</option>
+                    <option value="3000 mm">3000 mm</option>
+                    <option value="3300 mm">3300 mm</option>
+                    <option value="3600 mm">3600 mm</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Wall length</span>
+                    <span className="task-field-unit">lm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.frame_hardware?.wall_length || ""}
+                    onChange={(e) => handleModuleFormChange("frame_hardware", "wall_length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Wind classification</div>
+                  <select
+                    value={moduleFormData.frame_hardware?.wind_class || ""}
+                    onChange={(e) => handleModuleFormChange("frame_hardware", "wind_class", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="N1">N1 (Low)</option>
+                    <option value="N2">N2 (Standard)</option>
+                    <option value="N3">N3 (Moderate)</option>
+                    <option value="N4">N4 (High)</option>
+                    <option value="N5">N5 (Very High)</option>
+                    <option value="C1">C1 (Cyclonic)</option>
+                    <option value="C2">C2 (Cyclonic Severe)</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Base construction</div>
+                  <select
+                    value={moduleFormData.frame_hardware?.base_construction || ""}
+                    onChange={(e) => handleModuleFormChange("frame_hardware", "base_construction", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Concrete Slab">Concrete Slab</option>
+                    <option value="Timber Floor (Subfloor)">Timber Floor (Subfloor)</option>
+                    <option value="Brick Pier & Bearers">Brick Pier & Bearers</option>
+                    <option value="Suspended Concrete">Suspended Concrete</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* 2. Eaves & Soffit */}
+            {activeModuleTab.id === "eaves_soffit" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Building level</div>
+                  <select
+                    value={moduleFormData.eaves_soffit?.building_level || ""}
+                    onChange={(e) => handleModuleFormChange("eaves_soffit", "building_level", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Level 1 (Ground)">Level 1 (Ground)</option>
+                    <option value="Level 2 (First Floor)">Level 2 (First Floor)</option>
+                    <option value="Level 3 (Upper)">Level 3 (Upper)</option>
+                    <option value="All Levels">All Levels</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Eave width</span>
+                    <span className="task-field-unit">mm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.eaves_soffit?.eave_width || ""}
+                    onChange={(e) => handleModuleFormChange("eaves_soffit", "eave_width", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Total eave length</span>
+                    <span className="task-field-unit">lm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.eaves_soffit?.total_eave_length || ""}
+                    onChange={(e) => handleModuleFormChange("eaves_soffit", "total_eave_length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Soffit material</div>
+                  <select
+                    value={moduleFormData.eaves_soffit?.soffit_material || ""}
+                    onChange={(e) => handleModuleFormChange("eaves_soffit", "soffit_material", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="4.5mm HardieFlex / FC Sheet">4.5mm HardieFlex / FC Sheet</option>
+                    <option value="6mm Villaboard">6mm Villaboard</option>
+                    <option value="Timber Lining Board">Timber Lining Board</option>
+                    <option value="Aluminium Slats">Aluminium Slats</option>
+                    <option value="PVC / Vinyl Soffit">PVC / Vinyl Soffit</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* 3. Cladding - 3 Cards */}
+            {activeModuleTab.id === "cladding" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
+                    🧱 1. External wall cladding measurements
+                  </div>
+                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                      <div>
+                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Elevation</span>
+                        <input type="text" placeholder="Front Elevation" value={cladElev} onChange={(e) => setCladElev(e.target.value)} className="task-field-input" />
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall height (mm)</span>
+                        <input type="text" placeholder="2700" value={cladHeight} onChange={(e) => setCladHeight(e.target.value)} className="task-field-input" />
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px" }}>
+                      <div>
+                        <span style={{ fontSize: "9.5px", color: "#64748b" }}>Wall length (mm)</span>
+                        <input type="text" placeholder="12500" value={cladLength} onChange={(e) => setCladLength(e.target.value)} className="task-field-input" />
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "9.5px", color: "#64748b" }}>Openings (m²)</span>
+                        <input type="text" placeholder="4.2" value={cladOpenings} onChange={(e) => setCladOpenings(e.target.value)} className="task-field-input" />
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "9.5px", color: "#64748b" }}>Waste %</span>
+                        <input type="text" placeholder="10" value={cladWaste} onChange={(e) => setCladWaste(e.target.value)} className="task-field-input" />
+                      </div>
+                    </div>
+                    <button type="button" onClick={handleAddCladdingWall} style={{ padding: "6px", background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+                      + Add Wall Cladding
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
+                    📋 2. Entered cladding walls ({claddingWallEntries.length})
+                  </div>
+                  <div style={{ padding: "8px", overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+                      <thead>
+                        <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
+                          <th style={{ padding: "4px" }}>#</th>
+                          <th style={{ padding: "4px" }}>Elevation</th>
+                          <th style={{ padding: "4px" }}>H</th>
+                          <th style={{ padding: "4px" }}>L</th>
+                          <th style={{ padding: "4px" }}>Net m²</th>
+                          <th style={{ padding: "4px" }}>Total m²</th>
+                          <th style={{ padding: "4px" }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {claddingWallEntries.map((c, i) => (
+                          <tr key={c.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                            <td style={{ padding: "4px", fontWeight: 700 }}>{i + 1}</td>
+                            <td style={{ padding: "4px" }}>{c.elevation}</td>
+                            <td style={{ padding: "4px" }}>{c.height}mm</td>
+                            <td style={{ padding: "4px" }}>{c.length}mm</td>
+                            <td style={{ padding: "4px" }}>{c.netArea}</td>
+                            <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{c.totalArea}</td>
+                            <td style={{ padding: "4px", textAlign: "right" }}><button onClick={() => setCladdingWallEntries(p => p.filter(x => x.id !== c.id))} style={{ background: "none", border: "none", color: "#ef4444", fontWeight: 800 }}>✕</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
+                    📊 3. Automatic Cladding schedule
+                  </div>
+                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#1d4ed8" }}>{claddingWallEntries.reduce((s, c) => s + c.netArea, 0).toFixed(1)} m²</div>
+                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Net Cladding Area</div>
+                      </div>
+                      <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#047857" }}>{claddingWallEntries.reduce((s, c) => s + c.totalArea, 0).toFixed(1)} m²</div>
+                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Total with Waste</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 4. Insulation - 3 Full Forms */}
+            {activeModuleTab.id === "insulation" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>🧱 1. Insulation Wall</span>
+                  </div>
+
+                  {/* Sub-block stacked tabs for Ext Wall, Int Wall, Partiwall */}
+                  <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {[
+                      { key: "external", label: "▼ Ext wall", defaultR: "R2.0", defaultProd: "0810608 - INS BATT R2.0 430MM" },
+                      { key: "internal", label: "▼ Int Wall", defaultR: "R1.5", defaultProd: "0810611 - INS SOUNDBATT R1.5" },
+                      { key: "partiwall", label: "▼ Partiwall", defaultR: "R2.5", defaultProd: "0810609 - INS BATT R2.5 430MM" }
+                    ].map(sub => (
+                      <div key={sub.key} style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden", background: "#fafafa" }}>
+                        <div style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "700", color: "#1e293b", background: "#f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span>{sub.label}</span>
+                          <span style={{ fontSize: "10px", color: "#64748b", fontWeight: "500" }}>
+                            ({insulationWallEntries.filter(w => w.type === sub.key).length} đã nhập)
+                          </span>
+                        </div>
+                        <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                            <div>
+                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Height (mm)</span>
+                              <input
+                                type="text"
+                                placeholder="2700"
+                                value={insWallType === sub.key ? insWallHeight : "2700"}
+                                onChange={(e) => { setInsWallType(sub.key); setInsWallHeight(e.target.value); }}
+                                className="task-field-input"
+                              />
+                            </div>
+                            <div>
+                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Length (mm)</span>
+                              <input
+                                type="text"
+                                placeholder="12000"
+                                value={insWallType === sub.key ? insWallLength : ""}
+                                onChange={(e) => { setInsWallType(sub.key); setInsWallLength(e.target.value); }}
+                                className="task-field-input"
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                            <div>
+                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>R Value</span>
+                              <select
+                                value={insWallType === sub.key ? insWallRValue : sub.defaultR}
+                                onChange={(e) => { setInsWallType(sub.key); setInsWallRValue(e.target.value); }}
+                                className="task-field-select"
+                              >
+                                <option value="R1.5">R1.5 (Acoustic)</option>
+                                <option value="R2.0">R2.0 (Thermal)</option>
+                                <option value="R2.5">R2.5 (High Thermal)</option>
+                                <option value="R3.0">R3.0 (Wall/Ceiling)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Product</span>
+                              <select
+                                value={insWallType === sub.key ? insWallProduct : sub.defaultProd}
+                                onChange={(e) => { setInsWallType(sub.key); setInsWallProduct(e.target.value); }}
+                                className="task-field-select"
+                              >
+                                <option value="0810608 - INS BATT R2.0 430MM">0810608 - INS BATT R2.0 430MM</option>
+                                <option value="0810609 - INS BATT R2.5 430MM">0810609 - INS BATT R2.5 430MM</option>
+                                <option value="0810611 - INS SOUNDBATT R1.5">0810611 - INS SOUNDBATT R1.5</option>
+                                <option value="0810612 - INS SOUNDBATT R2.0">0810612 - INS SOUNDBATT R2.0</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", alignItems: "end" }}>
+                            <div>
+                              <span style={{ fontSize: "9.5px", color: "#64748b" }}>Raked (m²)</span>
+                              <input
+                                type="text"
+                                placeholder="0"
+                                value={insWallType === sub.key ? insWallRaked : "0"}
+                                onChange={(e) => { setInsWallType(sub.key); setInsWallRaked(e.target.value); }}
+                                className="task-field-input"
+                              />
+                            </div>
+                            <div>
+                              <span style={{ fontSize: "9.5px", color: "#64748b" }}>Door (m²)</span>
+                              <input
+                                type="text"
+                                placeholder="0"
+                                value={insWallType === sub.key ? insWallDoor : "0"}
+                                onChange={(e) => { setInsWallType(sub.key); setInsWallDoor(e.target.value); }}
+                                className="task-field-input"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInsWallType(sub.key);
+                                handleAddInsulationWall(sub.key);
+                              }}
+                              style={{
+                                padding: "6px",
+                                background: "#1e3a8a",
+                                color: "#ffffff",
+                                border: "none",
+                                borderRadius: "5px",
+                                fontSize: "10.5px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                                height: "29px"
+                              }}
+                            >
+                              + Add wall
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Wall Entries Table Summary */}
+                  <div style={{ padding: "0 8px 8px 8px", overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+                      <thead>
+                        <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
+                          <th style={{ padding: "4px" }}>#</th>
+                          <th style={{ padding: "4px" }}>Type</th>
+                          <th style={{ padding: "4px" }}>R</th>
+                          <th style={{ padding: "4px" }}>Product</th>
+                          <th style={{ padding: "4px" }}>H</th>
+                          <th style={{ padding: "4px" }}>L</th>
+                          <th style={{ padding: "4px" }}>Net m²</th>
+                          <th style={{ padding: "4px" }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {insulationWallEntries.map((w, idx) => (
+                          <tr key={w.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                            <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                            <td style={{ padding: "4px", textTransform: "capitalize", fontWeight: 600 }}>{w.type}</td>
+                            <td style={{ padding: "4px" }}>{w.rValue}</td>
+                            <td style={{ padding: "4px", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.productName}>{w.productCode}</td>
+                            <td style={{ padding: "4px" }}>{w.height}</td>
+                            <td style={{ padding: "4px" }}>{w.length}</td>
+                            <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.netArea}</td>
+                            <td style={{ padding: "4px", textAlign: "right" }}>
+                              <button
+                                onClick={() => handleRemoveInsulationWall(w.id)}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {insulationWallEntries.length === 0 && (
+                          <tr>
+                            <td colSpan={8} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
+                              Chưa có dòng tường cách nhiệt nào.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* ── CARD 2: INSULATION FLOOR & CEILING ── */}
+                <div style={{
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  overflow: "hidden"
+                }}>
+                  <div style={{
+                    padding: "9px 12px",
+                    background: "#f8fafc",
+                    borderBottom: "1px solid #e2e8f0",
+                    fontWeight: "800",
+                    fontSize: "12px",
+                    color: "#0f2744"
+                  }}>
+                    🏠 2. Insulation Floor & Ceiling
+                  </div>
+
+                  <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                      <div>
+                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Insulation Type</span>
+                        <select
+                          value={insAreaType}
+                          onChange={(e) => setInsAreaType(e.target.value)}
+                          className="task-field-select"
+                        >
+                          <option value="ceiling">Ceiling</option>
+                          <option value="floor">Floor</option>
+                        </select>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>R Value</span>
+                        <select
+                          value={insAreaRValue}
+                          onChange={(e) => setInsAreaRValue(e.target.value)}
+                          className="task-field-select"
+                        >
+                          <option value="R2.5">R2.5 (Underfloor)</option>
+                          <option value="R3.0">R3.0 (Ceiling / Floor)</option>
+                          <option value="R4.0">R4.0 (Ceiling Batt)</option>
+                          <option value="R5.0">R5.0 (Super Thermal)</option>
+                          <option value="R6.0">R6.0 (High Performance)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "6px" }}>
+                      <div>
+                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Product</span>
+                        <select
+                          value={insAreaProduct}
+                          onChange={(e) => setInsAreaProduct(e.target.value)}
+                          className="task-field-select"
+                        >
+                          <option value="0810620 - INS CEILING BATT R4.0 430MM">0810620 - INS CEILING BATT R4.0 430MM</option>
+                          <option value="0810621 - INS CEILING BATT R5.0 430MM">0810621 - INS CEILING BATT R5.0 430MM</option>
+                          <option value="0810625 - INS UNDERFLOOR BATT R2.5">0810625 - INS UNDERFLOOR BATT R2.5</option>
+                        </select>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Total Area (m²)</span>
+                        <input
+                          type="text"
+                          placeholder="112.5"
+                          value={insAreaValue}
+                          onChange={(e) => setInsAreaValue(e.target.value)}
+                          className="task-field-input"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddInsulationArea}
+                      style={{
+                        padding: "6px",
+                        background: "#2563eb",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "5px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        marginTop: "2px"
+                      }}
+                    >
+                      + Add area
+                    </button>
+
+                    {/* Floor & Ceiling Entries Table */}
+                    <div style={{ marginTop: "4px", overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+                        <thead>
+                          <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
+                            <th style={{ padding: "4px" }}>#</th>
+                            <th style={{ padding: "4px" }}>Type</th>
+                            <th style={{ padding: "4px" }}>R</th>
+                            <th style={{ padding: "4px" }}>Product</th>
+                            <th style={{ padding: "4px" }}>Area m²</th>
+                            <th style={{ padding: "4px" }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {insulationAreaEntries.map((a, idx) => (
+                            <tr key={a.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                              <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                              <td style={{ padding: "4px", textTransform: "capitalize", fontWeight: 600 }}>{a.type}</td>
+                              <td style={{ padding: "4px" }}>{a.rValue}</td>
+                              <td style={{ padding: "4px", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.productName}>{a.productCode}</td>
+                              <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{a.area}</td>
+                              <td style={{ padding: "4px", textAlign: "right" }}>
+                                <button
+                                  onClick={() => handleRemoveInsulationArea(a.id)}
+                                  style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {insulationAreaEntries.length === 0 && (
+                            <tr>
+                              <td colSpan={6} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
+                                Chưa có diện tích trần / sàn cách nhiệt nào.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── CARD 3: AUTOMATIC INSULATION SCHEDULE ── */}
+                <div style={{
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  overflow: "hidden"
+                }}>
+                  <div style={{
+                    padding: "9px 12px",
+                    background: "#f8fafc",
+                    borderBottom: "1px solid #e2e8f0",
+                    fontWeight: "800",
+                    fontSize: "12px",
+                    color: "#0f2744"
+                  }}>
+                    📊 3. Automatic Insulation schedule
+                  </div>
+
+                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+                      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#1d4ed8" }}>
+                          {insulationWallEntries.reduce((s, w) => s + (w.height / 1000 * w.length / 1000 + w.rakedArea), 0).toFixed(1)} m²
+                        </div>
+                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Wall H*L m²</div>
+                      </div>
+                      <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#047857" }}>
+                          {insulationWallEntries.reduce((s, w) => s + w.netArea, 0).toFixed(1)} m²
+                        </div>
+                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Wall Net Insulation</div>
+                      </div>
+                      <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#7e22ce" }}>
+                          {insulationAreaEntries.reduce((s, a) => s + a.area, 0).toFixed(1)} m²
+                        </div>
+                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Floor/Ceiling m²</div>
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+                        <thead>
+                          <tr style={{ background: "#0f172a", color: "#ffffff", textAlign: "left" }}>
+                            <th style={{ padding: "4px 6px" }}>Description</th>
+                            <th style={{ padding: "4px 6px" }}>Area m²</th>
+                            <th style={{ padding: "4px 6px" }}>Coverage</th>
+                            <th style={{ padding: "4px 6px" }}>Qty</th>
+                            <th style={{ padding: "4px 6px" }}>Code</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            ...insulationWallEntries.map(w => ({ desc: `${w.productName} (${w.type.toUpperCase()})`, area: w.netArea, coverage: 28.5, code: w.productCode })),
+                            ...insulationAreaEntries.map(a => ({ desc: `${a.productName} (${a.type.toUpperCase()})`, area: a.area, coverage: 16.5, code: a.productCode }))
+                          ].map((item, idx) => (
+                            <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                              <td style={{ padding: "4px 6px", fontWeight: 600, color: "#1e293b" }}>{item.desc}</td>
+                              <td style={{ padding: "4px 6px", fontWeight: 700 }}>{item.area}</td>
+                              <td style={{ padding: "4px 6px" }}>{item.coverage} m²</td>
+                              <td style={{ padding: "4px 6px", fontWeight: 800, color: "#10b981" }}>{Math.ceil(item.area / item.coverage)} Pack</td>
+                              <td style={{ padding: "4px 6px", color: "#64748b" }}>{item.code}</td>
+                            </tr>
+                          ))}
+                          {insulationWallEntries.length === 0 && insulationAreaEntries.length === 0 && (
+                            <tr>
+                              <td colSpan={5} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
+                                Chưa có số liệu tính toán tự động.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5. Shelving */}
+            {activeModuleTab.id === "shelving" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Room / robe label</div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.shelving?.room_label || ""}
+                    onChange={(e) => handleModuleFormChange("shelving", "room_label", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Shelf size</div>
+                  <select
+                    value={moduleFormData.shelving?.shelf_size || ""}
+                    onChange={(e) => handleModuleFormChange("shelving", "shelf_size", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="300mm Deep">300mm Deep</option>
+                    <option value="400mm Deep">400mm Deep</option>
+                    <option value="450mm Deep">450mm Deep</option>
+                    <option value="500mm Deep">500mm Deep</option>
+                    <option value="600mm Deep">600mm Deep</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Shelf type</div>
+                  <select
+                    value={moduleFormData.shelving?.shelf_type || ""}
+                    onChange={(e) => handleModuleFormChange("shelving", "shelf_type", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Melamine 16mm White">Melamine 16mm White</option>
+                    <option value="Timber Slat Shelf">Timber Slat Shelf</option>
+                    <option value="Wire Shelf ClosetMaid">Wire Shelf ClosetMaid</option>
+                    <option value="Laminate Heavy Duty">Laminate Heavy Duty</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Total length</span>
+                    <span className="task-field-unit">mm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.shelving?.total_length || ""}
+                    onChange={(e) => handleModuleFormChange("shelving", "total_length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 6. Flooring & Decking */}
+            {activeModuleTab.id === "flooring_decking" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Location / level</div>
+                  <select
+                    value={moduleFormData.flooring_decking?.location || ""}
+                    onChange={(e) => handleModuleFormChange("flooring_decking", "location", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Ground Floor Living">Ground Floor Living</option>
+                    <option value="Upper Floor">Upper Floor</option>
+                    <option value="Balcony / Outdoor Deck">Balcony / Outdoor Deck</option>
+                    <option value="Wet Areas (Bath/Ensuite)">Wet Areas (Bath/Ensuite)</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Flooring type</div>
+                  <select
+                    value={moduleFormData.flooring_decking?.flooring_type || ""}
+                    onChange={(e) => handleModuleFormChange("flooring_decking", "flooring_type", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Engineered Timber Flooring">Engineered Timber Flooring</option>
+                    <option value="Hybrid / Vinyl Plank">Hybrid / Vinyl Plank</option>
+                    <option value="Hardwood Timber Floor">Hardwood Timber Floor</option>
+                    <option value="Merbau Hardwood Decking">Merbau Hardwood Decking</option>
+                    <option value="Treated Pine Decking">Treated Pine Decking</option>
+                    <option value="ModWood Composite Decking">ModWood Composite Decking</option>
+                    <option value="Ceramic / Porcelain Tile">Ceramic / Porcelain Tile</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Floor area</span>
+                    <span className="task-field-unit">m²</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.flooring_decking?.floor_area || ""}
+                    onChange={(e) => handleModuleFormChange("flooring_decking", "floor_area", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Waste allowance</span>
+                    <span className="task-field-unit">%</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="10"
+                    value={moduleFormData.flooring_decking?.waste_allowance || ""}
+                    onChange={(e) => handleModuleFormChange("flooring_decking", "waste_allowance", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 7. Doors & Furniture */}
+            {activeModuleTab.id === "doors_furniture" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Item category</div>
+                  <select
+                    value={moduleFormData.doors_furniture?.category || ""}
+                    onChange={(e) => handleModuleFormChange("doors_furniture", "category", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Internal Swing Doors">Internal Swing Doors</option>
+                    <option value="Cavity Sliding Doors">Cavity Sliding Doors</option>
+                    <option value="Bi-Fold Doors">Bi-Fold Doors</option>
+                    <option value="Wardrobe Doors">Wardrobe Doors</option>
+                    <option value="Vanity Units">Vanity Units</option>
+                    <option value="Kitchen Cabinetry">Kitchen Cabinetry</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Model / finish</div>
+                  <select
+                    value={moduleFormData.doors_furniture?.finish || ""}
+                    onChange={(e) => handleModuleFormChange("doors_furniture", "finish", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Hollow Core Flush Paint Grade">Hollow Core Flush Paint Grade</option>
+                    <option value="Solid Core Timber Veneer">Solid Core Timber Veneer</option>
+                    <option value="Aluminium Glazed Door">Aluminium Glazed Door</option>
+                    <option value="Mirrored Sliding Door">Mirrored Sliding Door</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Dimensions</span>
+                    <span className="task-field-unit">mm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="2040 x 820 x 35"
+                    value={moduleFormData.doors_furniture?.dimensions || ""}
+                    onChange={(e) => handleModuleFormChange("doors_furniture", "dimensions", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Quantity</span>
+                    <span className="task-field-unit">qty</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="1"
+                    value={moduleFormData.doors_furniture?.quantity || ""}
+                    onChange={(e) => handleModuleFormChange("doors_furniture", "quantity", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 8. Timber Posts */}
+            {activeModuleTab.id === "timber_posts" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Post location</div>
+                  <input
+                    type="text"
+                    placeholder="Alfresco / Porch"
+                    value={moduleFormData.timber_posts?.location || ""}
+                    onChange={(e) => handleModuleFormChange("timber_posts", "location", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Timber size & grade</div>
+                  <select
+                    value={moduleFormData.timber_posts?.timber_size || ""}
+                    onChange={(e) => handleModuleFormChange("timber_posts", "timber_size", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="90x90mm F7 / H3 Treated Pine">90x90mm F7 / H3 Treated Pine</option>
+                    <option value="100x100mm Hardwood / Merbau">100x100mm Hardwood / Merbau</option>
+                    <option value="115x115mm GL8 Laminated Post">115x115mm GL8 Laminated Post</option>
+                    <option value="140x140mm Structural Hardwood">140x140mm Structural Hardwood</option>
+                    <option value="150x150mm Cypress / Ironbark">150x150mm Cypress / Ironbark</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Post height</span>
+                    <span className="task-field-unit">mm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="2700"
+                    value={moduleFormData.timber_posts?.height || ""}
+                    onChange={(e) => handleModuleFormChange("timber_posts", "height", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Quantity</span>
+                    <span className="task-field-unit">qty</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="1"
+                    value={moduleFormData.timber_posts?.quantity || ""}
+                    onChange={(e) => handleModuleFormChange("timber_posts", "quantity", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 9. FOW Plumbing */}
+            {activeModuleTab.id === "fow_plumbing" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Plumbing fixture</div>
+                  <select
+                    value={moduleFormData.fow_plumbing?.fixture || ""}
+                    onChange={(e) => handleModuleFormChange("fow_plumbing", "fixture", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Water Closet (Toilet)">Water Closet (Toilet)</option>
+                    <option value="Bathroom Vanity Basin">Bathroom Vanity Basin</option>
+                    <option value="Kitchen Sink & Mixer">Kitchen Sink & Mixer</option>
+                    <option value="Shower Mixer & Rose">Shower Mixer & Rose</option>
+                    <option value="Bath Tub Spout">Bath Tub Spout</option>
+                    <option value="Laundry Tub & Tapware">Laundry Tub & Tapware</option>
+                    <option value="External Hose Cock">External Hose Cock</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Pipe specification</div>
+                  <select
+                    value={moduleFormData.fow_plumbing?.pipe_spec || ""}
+                    onChange={(e) => handleModuleFormChange("fow_plumbing", "pipe_spec", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="16mm PEX-a Water Pipe">16mm PEX-a Water Pipe</option>
+                    <option value="20mm PEX-a Water Pipe">20mm PEX-a Water Pipe</option>
+                    <option value="100mm PVC DWV Sewer Pipe">100mm PVC DWV Sewer Pipe</option>
+                    <option value="50mm PVC Waste Pipe">50mm PVC Waste Pipe</option>
+                    <option value="Copper Pipe Class B">Copper Pipe Class B</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Run length</span>
+                    <span className="task-field-unit">lm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.fow_plumbing?.length || ""}
+                    onChange={(e) => handleModuleFormChange("fow_plumbing", "length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Fixture count</span>
+                    <span className="task-field-unit">count</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="1"
+                    value={moduleFormData.fow_plumbing?.count || ""}
+                    onChange={(e) => handleModuleFormChange("fow_plumbing", "count", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 10. Power Truss Braces */}
+            {activeModuleTab.id === "power_truss_braces" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Truss / roof area</div>
+                  <select
+                    value={moduleFormData.power_truss_braces?.truss_area || ""}
+                    onChange={(e) => handleModuleFormChange("power_truss_braces", "truss_area", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Main Roof Truss System">Main Roof Truss System</option>
+                    <option value="Garage / Carport Truss">Garage / Carport Truss</option>
+                    <option value="Overhang / Hip Bracing">Overhang / Hip Bracing</option>
+                    <option value="Valley / Girder Bracing">Valley / Girder Bracing</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Brace type</div>
+                  <select
+                    value={moduleFormData.power_truss_braces?.brace_type || ""}
+                    onChange={(e) => handleModuleFormChange("power_truss_braces", "brace_type", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Speedbrace Tension Strapping (Metal)">Speedbrace Tension Strapping (Metal)</option>
+                    <option value="Diagonal Cross Bracing">Diagonal Cross Bracing</option>
+                    <option value="Plywood Structural Sheathing Bracing">Plywood Structural Sheathing Bracing</option>
+                    <option value="Hardboard Roof Bracing">Hardboard Roof Bracing</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Total run / span length</span>
+                    <span className="task-field-unit">lm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.power_truss_braces?.length || ""}
+                    onChange={(e) => handleModuleFormChange("power_truss_braces", "length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Fixing connector hardware</div>
+                  <select
+                    value={moduleFormData.power_truss_braces?.hardware || ""}
+                    onChange={(e) => handleModuleFormChange("power_truss_braces", "hardware", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Pryda Triple Grip & Nails">Pryda Triple Grip & Nails</option>
+                    <option value="Multi-Grip Joist Connectors">Multi-Grip Joist Connectors</option>
+                    <option value="Truss Boot / Girder Hangers">Truss Boot / Girder Hangers</option>
+                    <option value="Typhoon Structural Screws">Typhoon Structural Screws</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* 11. Lockup */}
+            {activeModuleTab.id === "lock_up" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Building level / zone</div>
+                  <select
+                    value={moduleFormData.lock_up?.building_level || ""}
+                    onChange={(e) => handleModuleFormChange("lock_up", "building_level", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Ground Floor Lockup">Ground Floor Lockup</option>
+                    <option value="First Floor Lockup">First Floor Lockup</option>
+                    <option value="All Levels (Ground & Upper)">All Levels (Ground & Upper)</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">External door & window spec</div>
+                  <select
+                    value={moduleFormData.lock_up?.door_spec || ""}
+                    onChange={(e) => handleModuleFormChange("lock_up", "door_spec", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Solid Core Entry & Aluminium Sliding">Solid Core Entry & Aluminium Sliding</option>
+                    <option value="Aluminium Double Glazed Windows">Aluminium Double Glazed Windows</option>
+                    <option value="Timber French Doors & Glazed Windows">Timber French Doors & Glazed Windows</option>
+                    <option value="Bi-Fold Glass Doors & Louvres">Bi-Fold Glass Doors & Louvres</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Weather sealing & membrane</div>
+                  <select
+                    value={moduleFormData.lock_up?.weather_seal || ""}
+                    onChange={(e) => handleModuleFormChange("lock_up", "weather_seal", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Parfix Sikaflex & Sarking Foil">Parfix Sikaflex & Sarking Foil</option>
+                    <option value="HardieWrap Weather Barrier">HardieWrap Weather Barrier</option>
+                    <option value="Airstep Wall Wrap Membrane">Airstep Wall Wrap Membrane</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Lockup perimeter</span>
+                    <span className="task-field-unit">lm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.lock_up?.perimeter_length || ""}
+                    onChange={(e) => handleModuleFormChange("lock_up", "perimeter_length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 12. Fixout */}
+            {activeModuleTab.id === "fixout" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Skirting profile & size</div>
+                  <select
+                    value={moduleFormData.fixout?.skirting_profile || ""}
+                    onChange={(e) => handleModuleFormChange("fixout", "skirting_profile", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="67x18mm MDF Single Rebatable / Colonial">67x18mm MDF Single Rebatable / Colonial</option>
+                    <option value="92x18mm Lambs-tongue Pine">92x18mm Lambs-tongue Pine</option>
+                    <option value="90x18mm Bullnose MDF">90x18mm Bullnose MDF</option>
+                    <option value="67x18mm Square Edge Timber">67x18mm Square Edge Timber</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Architrave spec</div>
+                  <select
+                    value={moduleFormData.fixout?.architrave_size || ""}
+                    onChange={(e) => handleModuleFormChange("fixout", "architrave_size", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="67x18mm MDF Architrave">67x18mm MDF Architrave</option>
+                    <option value="92x18mm Colonial Architrave">92x18mm Colonial Architrave</option>
+                    <option value="42x18mm Square Edge Trim">42x18mm Square Edge Trim</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Door jamb set type</div>
+                  <select
+                    value={moduleFormData.fixout?.jamb_type || ""}
+                    onChange={(e) => handleModuleFormChange("fixout", "jamb_type", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Single Rebated Pine Door Jamb Set">Single Rebated Pine Door Jamb Set</option>
+                    <option value="Split Jamb Set with Architraves">Split Jamb Set with Architraves</option>
+                    <option value="Cavity Sliding Jamb Kit">Cavity Sliding Jamb Kit</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Total trim & skirting length</span>
+                    <span className="task-field-unit">lm</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.fixout?.total_length || ""}
+                    onChange={(e) => handleModuleFormChange("fixout", "total_length", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* 13. Final Fit */}
+            {activeModuleTab.id === "final_fit" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Door lever / handle model</div>
+                  <select
+                    value={moduleFormData.final_fit?.handle_set || ""}
+                    onChange={(e) => handleModuleFormChange("final_fit", "handle_set", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Gainsborough Choice Lever Set">Gainsborough Choice Lever Set</option>
+                    <option value="Lane Security Deadbolt & Latch Set">Lane Security Deadbolt & Latch Set</option>
+                    <option value="Samsung Smart Digital Fingerprint Lock">Samsung Smart Digital Fingerprint Lock</option>
+                    <option value="Tradeco Antique Brass Lever">Tradeco Antique Brass Lever</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Passage & privacy latch sets</span>
+                    <span className="task-field-unit">sets</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="7"
+                    value={moduleFormData.final_fit?.latch_count || ""}
+                    onChange={(e) => handleModuleFormChange("final_fit", "latch_count", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Door stop & hinge hardware</div>
+                  <select
+                    value={moduleFormData.final_fit?.door_stop_type || ""}
+                    onChange={(e) => handleModuleFormChange("final_fit", "door_stop_type", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Baseboard Rubber Door Stop & 100mm SS Hinges">Baseboard Rubber Door Stop & 100mm SS Hinges</option>
+                    <option value="Floor Mounted Satin Chrome Door Stop">Floor Mounted Satin Chrome Door Stop</option>
+                    <option value="Magnetic Catch Door Stop">Magnetic Catch Door Stop</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Entrance lockset</div>
+                  <select
+                    value={moduleFormData.final_fit?.entrance_lock || ""}
+                    onChange={(e) => handleModuleFormChange("final_fit", "entrance_lock", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Gainsborough Trilock Keyed Set">Gainsborough Trilock Keyed Set</option>
+                    <option value="Lockwood Double Cylinder Deadlock">Lockwood Double Cylinder Deadlock</option>
+                    <option value="Keyless Electronic Keypad Entry">Keyless Electronic Keypad Entry</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* 14. Sheet Schedule */}
+            {activeModuleTab.id === "sheet_schedule" && (
+              <>
+                <div className="task-field-group">
+                  <div className="task-field-label">Wall plasterboard / FC sheet type</div>
+                  <select
+                    value={moduleFormData.sheet_schedule?.wall_sheet || ""}
+                    onChange={(e) => handleModuleFormChange("sheet_schedule", "wall_sheet", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="10mm Gyprock RE Plasterboard">10mm Gyprock RE Plasterboard</option>
+                    <option value="13mm FyTone Fire Resistant Board">13mm FyTone Fire Resistant Board</option>
+                    <option value="6mm Villaboard Wet Area Sheet">6mm Villaboard Wet Area Sheet</option>
+                    <option value="6mm HardieFlex Base Sheet">6mm HardieFlex Base Sheet</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Ceiling lining sheet type</div>
+                  <select
+                    value={moduleFormData.sheet_schedule?.ceiling_sheet || ""}
+                    onChange={(e) => handleModuleFormChange("sheet_schedule", "ceiling_sheet", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="10mm Supaceil Ceiling Board">10mm Supaceil Ceiling Board</option>
+                    <option value="13mm Soundchek Acoustic Board">13mm Soundchek Acoustic Board</option>
+                    <option value="10mm Standard Plasterboard">10mm Standard Plasterboard</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label">Sheet dimension / size</div>
+                  <select
+                    value={moduleFormData.sheet_schedule?.sheet_size || ""}
+                    onChange={(e) => handleModuleFormChange("sheet_schedule", "sheet_size", e.target.value)}
+                    className="task-field-select"
+                  >
+                    <option value="">Select...</option>
+                    <option value="2400 x 1200 mm">2400 x 1200 mm</option>
+                    <option value="3000 x 1200 mm">3000 x 1200 mm</option>
+                    <option value="3600 x 1200 mm">3600 x 1200 mm</option>
+                    <option value="4800 x 1200 mm">4800 x 1200 mm</option>
+                  </select>
+                </div>
+                <div className="task-field-group">
+                  <div className="task-field-label-row">
+                    <span>Total lining area</span>
+                    <span className="task-field-unit">m²</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={moduleFormData.sheet_schedule?.total_area || ""}
+                    onChange={(e) => handleModuleFormChange("sheet_schedule", "total_area", e.target.value)}
+                    className="task-field-input"
+                  />
+                </div>
+              </>
+            )}
+
+          {/* Quick Takeoff Action / Output Preview */}
+          <div style={{
+            background: "#f1f5f9",
+            border: "1px solid #e2e8f0",
+            borderRadius: "8px",
+            padding: "10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            marginTop: "auto"
+          }}>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>📊 Trạng thái tính toán Takeoff</span>
+              <span style={{ fontSize: "10px", color: "#10b981", fontWeight: 800 }}>READY</span>
+            </div>
+            <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4" }}>
+              Dữ liệu nhập liệu sẽ được liên kết trực tiếp với bảng khối lượng BOQ và bản vẽ CAD.
+            </div>
+            <button
+              onClick={() => {
+                alert(`Đã lưu dữ liệu cho module: ${activeModuleTab.title}`);
+              }}
+              style={{
+                width: "100%",
+                padding: "7px",
+                background: "var(--blue)",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 1px 3px rgba(37,99,235,0.2)"
+              }}
+            >
+              Lưu & Áp dụng Takeoff
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── RIGHT VERTICAL TAB BAR: Explorer / Summary / Task HW / Extra Modules ── */}
+      <div className="rp-side-tab-bar">
+        {/* Properties / Explorer tab */}
+        <button
+          title="Properties & Model Explorer"
+          onClick={() => {
+            setActivePaneTab("explorer");
+          }}
+          className={`rp-side-tab-btn ${activePaneTab === "explorer" ? "active" : ""}`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
+          <span style={{ transform: "scale(0.92)", letterSpacing: "-0.2px", lineHeight: "1.1" }}>Properties</span>
+        </button>
+
+        {/* Summary tab */}
+        <button
+          title="Takeoff & Geometry Summary"
+          onClick={() => setActivePaneTab("summary")}
+          className={`rp-side-tab-btn ${activePaneTab === "summary" ? "active" : ""}`}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+          <span style={{ transform: "scale(0.92)", letterSpacing: "-0.2px", lineHeight: "1.1" }}>Summary</span>
+        </button>
+
+        {/* Task HW tab */}
+        <button
+          title="Task Groups HW"
+          onClick={() => setActivePaneTab("job_task")}
+          className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
+        >
+          <div style={{ position: "relative", display: "inline-flex" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+            {taskListJobs.filter(t => t.has_local_job).length > 0 && (
+              <span style={{
+                position: "absolute",
+                top: "-5px",
+                right: "-8px",
+                background: "#10b981",
+                color: "#fff",
+                fontSize: "8.5px",
+                padding: "0 3px",
+                borderRadius: "8px",
+                fontWeight: 800,
+                minWidth: "13px",
+                height: "13px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
+              }}>
+                {taskListJobs.filter(t => t.has_local_job).length}
+              </span>
+            )}
+          </div>
+          <span style={{ transform: "scale(0.92)", letterSpacing: "-0.2px", lineHeight: "1.1" }}>Task HW</span>
+        </button>
+
+        {/* Divider */}
+        <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
+
+        {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES) ── */}
+        {EXTRA_MODULE_TABS.filter(mod => enabledModuleIds.includes(mod.id)).map((mod) => (
+          <button
+            key={mod.id}
+            title={mod.title}
+            onClick={() => setActivePaneTab(mod.id)}
+            className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
+          >
+            {mod.icon}
+            <span style={{ transform: "scale(0.88)", letterSpacing: "-0.2px", lineHeight: "1.1", textAlign: "center" }}>
+              {mod.label}
+            </span>
+          </button>
+        ))}
+
+        {/* ── ADD MODULE [+] BUTTON & POPUP ── */}
+        <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>
+          <button
+            title="Thêm Module / Add Module (+)"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowAddModulePopup(prev => !prev);
+            }}
+            className="rp-side-tab-btn"
+            style={{
+              border: "1px dashed #94a3b8",
+              background: showAddModulePopup ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.7)",
+              color: showAddModulePopup ? "var(--blue)" : "#64748b",
+              padding: "5px 2px",
+              boxShadow: "none"
+            }}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="12" cy="12" r="9" />
+              <line x1="12" y1="8" x2="12" y2="16" />
+              <line x1="8" y1="12" x2="16" y2="12" />
+            </svg>
+            <span style={{ fontSize: "8px", fontWeight: 700, transform: "scale(0.9)", letterSpacing: "-0.2px" }}>
+              + Add
+            </span>
+          </button>
+
+          {/* Floating Add Module Popup */}
+          {showAddModulePopup && (
+            <div
+              ref={addModulePopupRef}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "fixed",
+                right: "60px",
+                bottom: "30px",
+                width: "270px",
+                maxHeight: "440px",
+                background: "#ffffff",
+                border: "1px solid var(--border)",
+                borderRadius: "12px",
+                boxShadow: "0 16px 40px rgba(15, 23, 42, 0.25)",
+                zIndex: 99999,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden"
+              }}
+            >
+              {/* Header */}
+              <div style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#f8fafc"
+              }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>📦 Quản lý Module</span>
+                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
+                    ({enabledModuleIds.length}/{EXTRA_MODULE_TABS.length})
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowAddModulePopup(false)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#94a3b8",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    padding: "2px 6px",
+                    fontWeight: 700
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Module Checklist List */}
+              <div style={{ padding: "6px 8px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "280px" }}>
+                {EXTRA_MODULE_TABS.map((mod) => {
+                  const isEnabled = enabledModuleIds.includes(mod.id);
+                  return (
+                    <div
+                      key={mod.id}
+                      onClick={() => {
+                        let next;
+                        if (isEnabled) {
+                          next = enabledModuleIds.filter(id => id !== mod.id);
+                          if (activePaneTab === mod.id) setActivePaneTab("explorer");
+                        } else {
+                          next = [...enabledModuleIds, mod.id];
+                          setActivePaneTab(mod.id);
+                        }
+                        setEnabledModuleIds(next);
+                        try {
+                          sessionStorage.setItem("selectedModules", JSON.stringify(next));
+                          localStorage.setItem("selectedModules", JSON.stringify(next));
+                        } catch (_) {}
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "7px 10px",
+                        borderRadius: "6px",
+                        background: isEnabled ? "rgba(37,99,235,0.08)" : "#ffffff",
+                        border: isEnabled ? "1px solid rgba(37,99,235,0.3)" : "1px solid #f1f5f9",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <div style={{
+                          color: isEnabled ? "var(--blue)" : "#94a3b8",
+                          display: "flex",
+                          alignItems: "center"
+                        }}>
+                          {mod.icon}
+                        </div>
+                        <span style={{ fontSize: "11.5px", fontWeight: isEnabled ? 700 : 500, color: isEnabled ? "var(--blue)" : "var(--text)" }}>
+                          {mod.title}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        color: isEnabled ? "#10b981" : "#94a3b8",
+                        background: isEnabled ? "#ecfdf5" : "#f1f5f9",
+                        padding: "1px 6px",
+                        borderRadius: "4px"
+                      }}>
+                        {isEnabled ? "✓ Đã bật" : "+ Thêm"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Footer Quick Action */}
+              <div style={{
+                padding: "8px 10px",
+                borderTop: "1px solid var(--border)",
+                display: "flex",
+                gap: "6px",
+                background: "#f8fafc"
+              }}>
+                <button
+                  onClick={() => {
+                    setEnabledModuleIds(ALL_MODULE_IDS);
+                    try {
+                      sessionStorage.setItem("selectedModules", JSON.stringify(ALL_MODULE_IDS));
+                      localStorage.setItem("selectedModules", JSON.stringify(ALL_MODULE_IDS));
+                    } catch (_) {}
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "6px",
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    color: "var(--blue)",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    borderRadius: "5px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Bật tất cả (10)
+                </button>
+                <button
+                  onClick={() => {
+                    const initial = getInitialEnabledModules();
+                    setEnabledModuleIds(initial);
+                    try {
+                      sessionStorage.removeItem("selectedModules");
+                      localStorage.removeItem("selectedModules");
+                    } catch (_) {}
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "6px",
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    color: "#64748b",
+                    background: "#ffffff",
+                    border: "1px solid var(--border)",
+                    borderRadius: "5px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Khôi phục gốc
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
       {showTakeoffModal && (

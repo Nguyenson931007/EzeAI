@@ -556,12 +556,18 @@ export default function App() {
     }
   }, [handleLoadJob, setCurrentProjectName, setActiveTab, setCurrentJobId]);
 
-  // Kiểm tra tham số ?job=, ?token=, ?user= trên URL khi load trang
+  // Kiểm tra tham số ?job=, ?token=, ?user=, ?modules= trên URL khi load trang
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const idJobEms = params.get("job");
     const urlToken = params.get("token") || params.get("sso_token");
     const urlUser = params.get("user") || params.get("username") || params.get("UserID");
+    const urlModules = params.get("modules") || params.get("selectedModules") || params.get("tasks") || params.get("task_modules");
+
+    if (urlModules) {
+      sessionStorage.setItem("selectedModules", urlModules);
+      localStorage.setItem("selectedModules", urlModules);
+    }
 
     if (urlToken || urlUser) {
       console.log("[SSO] Đang xác thực user từ URL params:", { urlToken, urlUser });
