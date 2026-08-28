@@ -889,6 +889,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         let newWall = { ...w };
         if (field === "locked") {
           newWall.locked = !!value;
+        } else if (field === "exclude_from_roof" || field === "excludeFromRoof") {
+          newWall.exclude_from_roof = Boolean(value);
+          newWall.excludeFromRoof = Boolean(value);
         } else if (field === "class_name" || field === "wall_type") {
           let class_name = w.class_name;
           let wall_type = w.wall_type;
@@ -2528,6 +2531,53 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     });
   }
 
+  function findRoofOverlappingWalls(roofs, targetWallIds, pageWalls) {
+    if (!roofs || roofs.length === 0 || !targetWallIds || targetWallIds.length === 0) return null;
+    const targetWalls = pageWalls.filter(w => targetWallIds.includes(w.id));
+    if (targetWalls.length === 0) return null;
+
+    const pts = [];
+    for (const w of targetWalls) {
+      if (w.centerline && w.centerline.length >= 2) {
+        pts.push({ x: w.centerline[0][0], y: w.centerline[0][1] });
+        pts.push({ x: w.centerline[1][0], y: w.centerline[1][1] });
+      } else if (w.centerline_px && w.centerline_px.length >= 2) {
+        pts.push({ x: w.centerline_px[0][0], y: w.centerline_px[0][1] });
+        pts.push({ x: w.centerline_px[1][0], y: w.centerline_px[1][1] });
+      }
+    }
+    if (pts.length === 0) return null;
+
+    // Check if points are inside or close to roof polygon
+    for (const r of roofs) {
+      if (!r.polygon || r.polygon.length < 3) continue;
+      const poly = r.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+      let matchCount = 0;
+      for (const pt of pts) {
+        if (pointInPolygon(pt, poly)) {
+          matchCount++;
+        }
+      }
+      if (matchCount > 0) {
+        return r;
+      }
+    }
+
+    // Fallback: check bounding box proximity
+    for (const r of roofs) {
+      if (!r.polygon || r.polygon.length < 3) continue;
+      const poly = r.polygon.map(p => Array.isArray(p) ? { x: p[0], y: p[1] } : p);
+      const box = getBoundingBox(poly);
+      for (const pt of pts) {
+        if (pt.x >= box.minX - 60 && pt.x <= box.maxX + 60 && pt.y >= box.minY - 60 && pt.y <= box.maxY + 60) {
+          return r;
+        }
+      }
+    }
+
+    return null;
+  }
+
   async function generateRoofFromWalls(options = {}) {
     const pageWalls = wallsByPage[currentPage] || [];
     if (!pageWalls || pageWalls.length < 3) {
@@ -2541,26 +2591,123 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const defaultPitch = typeof options.defaultPitch === 'number' ? options.defaultPitch : 22.5;
       const wallHeight = typeof options.wallHeight === 'number' ? options.wallHeight : 2700;
 
-      const newRoof = await RoofEngine.generateAutoRoofFromWalls({
+      // Determine active selected walls if user selected a subset of walls
+      let activeSelectedWallIds = null;
+      if (Array.isArray(options.selectedWallIds) && options.selectedWallIds.length >= 1) {
+        activeSelectedWallIds = options.selectedWallIds;
+      } else if (Array.isArray(selectedWallIds) && selectedWallIds.length >= 1) {
+        activeSelectedWallIds = selectedWallIds;
+      }
+
+      // Phase 1 & 2: Generation and In-Place Preservation Strategy
+      if (activeSelectedWallIds && activeSelectedWallIds.length >= 1) {
+        const targetOldRoofId = options.targetRoofId || (selectedType === "roof" ? selectedRoofId : null);
+        let matchedRoof = null;
+
+        if (targetOldRoofId) {
+          matchedRoof = pageRoofs.find(r => r.id === targetOldRoofId) || null;
+        }
+        if (!matchedRoof) {
+          matchedRoof = findRoofOverlappingWalls(pageRoofs, activeSelectedWallIds, pageWalls);
+        }
+
+        if (matchedRoof) {
+          // Recalculating an existing roof: Keep the EXACT same ID, Name, and list position!
+          const roofIdx = pageRoofs.findIndex(r => r.id === matchedRoof.id);
+
+          const generated = await RoofEngine.generateAutoRoofFromWalls({
+            walls: pageWalls,
+            selectedWallIds: activeSelectedWallIds,
+            realScale,
+            scaleFactor: scaleValue,
+            defaultPitch,
+            wallHeight,
+            roofId: matchedRoof.id,
+            roofName: matchedRoof.name,
+            existingRoofsCount: roofIdx >= 0 ? roofIdx : 0
+          });
+
+          if (!generated) {
+            throw new Error("Could not generate roof from walls.");
+          }
+
+          const primaryNewRoof = Array.isArray(generated) ? generated[0] : generated;
+          const updatedRoof = {
+            ...primaryNewRoof,
+            id: matchedRoof.id,
+            name: matchedRoof.name
+          };
+
+          // IN-PLACE replacement preserving exact list order!
+          const updatedRoofs = pageRoofs.map(r => r.id === matchedRoof.id ? updatedRoof : r);
+          pushRoofHistory(updatedRoofs);
+
+          setSelectedRoofId(updatedRoof.id);
+          setSelectedId(updatedRoof.id);
+          setSelectedType("roof");
+          if (setInteractionMode) setInteractionMode("select");
+
+          return updatedRoof;
+        } else {
+          // Newly added building block roof: Find next available letter that doesn't collide
+          const usedNames = new Set(pageRoofs.map(r => r.name));
+          let letterIdx = 0;
+          while (usedNames.has(`Roof ${String.fromCharCode(65 + (letterIdx % 26))}`)) {
+            letterIdx++;
+          }
+
+          const generated = await RoofEngine.generateAutoRoofFromWalls({
+            walls: pageWalls,
+            selectedWallIds: activeSelectedWallIds,
+            realScale,
+            scaleFactor: scaleValue,
+            defaultPitch,
+            wallHeight,
+            existingRoofsCount: letterIdx
+          });
+
+          if (!generated) {
+            throw new Error("Could not generate roof from walls.");
+          }
+
+          const newRoofsList = Array.isArray(generated) ? generated : [generated];
+          pushRoofHistory([...pageRoofs, ...newRoofsList]);
+
+          const primaryRoof = newRoofsList[0];
+          setSelectedRoofId(primaryRoof.id);
+          setSelectedId(primaryRoof.id);
+          setSelectedType("roof");
+          if (setInteractionMode) setInteractionMode("select");
+
+          return generated;
+        }
+      }
+
+      // Default (Full page regeneration: clear all old roofs on this page and replace with newly computed set)
+      const generated = await RoofEngine.generateAutoRoofFromWalls({
         walls: pageWalls,
+        selectedWallIds: null,
         realScale,
         scaleFactor: scaleValue,
         defaultPitch,
         wallHeight,
-        existingRoofsCount: pageRoofs.length
+        existingRoofsCount: 0
       });
 
-      if (!newRoof) {
+      if (!generated) {
         throw new Error("Could not generate roof from walls.");
       }
 
-      pushRoofHistory([...pageRoofs, newRoof]);
-      setSelectedRoofId(newRoof.id);
-      setSelectedId(newRoof.id);
+      const newRoofsList = Array.isArray(generated) ? generated : [generated];
+      pushRoofHistory(newRoofsList);
+
+      const primaryRoof = newRoofsList[0];
+      setSelectedRoofId(primaryRoof.id);
+      setSelectedId(primaryRoof.id);
       setSelectedType("roof");
       if (setInteractionMode) setInteractionMode("select");
 
-      return newRoof;
+      return generated;
     } catch (err) {
       console.error("[RoofEngine] Generate Roof from Walls error:", err);
       if (showAlert) showAlert(err.message || "Failed to generate roof from walls");

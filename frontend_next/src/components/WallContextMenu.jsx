@@ -18,6 +18,7 @@ export default function WallContextMenu({
   x,
   y,
   wall,
+  selectedCount = 1,
   onClose,
   onDrawWall,
   onCutWall,
@@ -26,7 +27,8 @@ export default function WallContextMenu({
   onChangeClass,
   onAddPoint,
   onToggleLock,
-  onToggleLbw
+  onToggleLbw,
+  onToggleRoofInclusion
 }) {
   const menuRef = useRef(null);
   const [showTypeSubmenu, setShowTypeSubmenu] = useState(false);
@@ -67,7 +69,6 @@ export default function WallContextMenu({
 
   const submenuWidth = 190;
   const fitsRight = clampedX + menuWidth + submenuWidth < window.innerWidth;
-  const submenuLeft = fitsRight ? clampedX + menuWidth - 4 : clampedX - submenuWidth + 4;
 
   const wallClasses = [
     { value: 'exterior_wall', label: '🏠 Exterior Wall (ext)' },
@@ -107,12 +108,12 @@ export default function WallContextMenu({
       <div style={{
         padding: '8px 14px 4px',
         fontSize: '11px',
-        color: '#64748b',
+        color: selectedCount > 1 ? '#38bdf8' : '#64748b',
         fontWeight: 600,
         textTransform: 'uppercase',
         letterSpacing: '0.5px'
       }}>
-        Wall Options
+        {selectedCount > 1 ? `Wall Options (${selectedCount} walls)` : 'Wall Options'}
       </div>
 
       {/* Item: Toggle Load-Bearing (LBW) — ONLY for Partition Walls */}
@@ -204,6 +205,26 @@ export default function WallContextMenu({
         </span>
       </button>
 
+      {/* Item: Deselect / Include in Roof */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onToggleRoofInclusion) onToggleRoofInclusion();
+          onClose();
+        }}
+        style={btnStyle(false)}
+        onMouseOver={(e) => { setShowTypeSubmenu(false); hoverIn(e); }}
+        onMouseOut={hoverOut}
+      >
+        <span style={lblStyle()}>
+          <span style={iconStyle()}>{wall.exclude_from_roof ? '🏠' : '🚫'}</span>
+          <span style={{ color: wall.exclude_from_roof ? '#34d399' : '#fca5a5' }}>
+            {wall.exclude_from_roof ? 'Include in Roof' : 'Deselect from Roof'}
+            {selectedCount > 1 ? ` (${selectedCount})` : ''}
+          </span>
+        </span>
+      </button>
+
       {/* Item: Change Wall Type (submenu) */}
       <div style={{ position: 'relative' }}>
         <button
@@ -217,16 +238,17 @@ export default function WallContextMenu({
         >
           <span style={lblStyle()}>
             <span style={iconStyle()}>🔄</span>
-            <span>Change Wall Type</span>
+            <span>Change Wall Type{selectedCount > 1 ? ` (${selectedCount})` : ''}</span>
           </span>
           <span style={{ fontSize: '11px', color: '#64748b' }}>▶</span>
         </button>
 
         {showTypeSubmenu && (
           <div style={{
-            position: 'fixed',
-            left: submenuLeft,
-            top: clampedY + 70,
+            position: 'absolute',
+            left: fitsRight ? 'calc(100% + 4px)' : 'auto',
+            right: fitsRight ? 'auto' : 'calc(100% + 4px)',
+            top: '-4px',
             zIndex: 10001,
             minWidth: submenuWidth,
             background: 'rgba(15, 23, 42, 0.96)',
