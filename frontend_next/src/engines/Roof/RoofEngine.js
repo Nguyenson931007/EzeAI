@@ -462,34 +462,247 @@ const RoofEngine = {
   },
 
   /**
-   * Traces the exterior wall boundary cycle from active walls in CCW order.
-   * Extracts centerline points in mm and pixels along with individual wall thicknesses.
+   * Calculates the intersection point of two 2D infinite lines passing through (p1, p2) and (p3, p4).
+   * Returns { x, y } in pixels, or null if parallel / nearly collinear.
    */
-  traceExteriorWallLoop: function(walls, realScale) {
+  intersectInfiniteLines: function(p1, p2, p3, p4) {
+    const x1 = p1.x ?? p1[0], y1 = p1.y ?? p1[1];
+    const x2 = p2.x ?? p2[0], y2 = p2.y ?? p2[1];
+    const x3 = p3.x ?? p3[0], y3 = p3.y ?? p3[1];
+    const x4 = p4.x ?? p4[0], y4 = p4.y ?? p4[1];
+
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(denom) < 1e-5) return null; // Parallel or nearly collinear
+
+    const term1 = x1 * y2 - y1 * x2;
+    const term2 = x3 * y4 - y3 * x4;
+
+    const ix = (term1 * (x3 - x4) - (x1 - x2) * term2) / denom;
+    const iy = (term1 * (y3 - y4) - (y1 - y2) * term2) / denom;
+
+    return { x: ix, y: iy };
+  },
+
+  /**
+   * Partitions walls into disjoint connected components (e.g. 2 detached buildings on canvas).
+   */
+  partitionWallComponents: function(walls, realScale) {
+    if (!Array.isArray(walls) || walls.length === 0) return [];
+
+    const mmPerPx = typeof realScale === 'number' && realScale > 0 ? realScale : 20.0;
+    const snapTolPx = Math.max(3.0, 30.0 / mmPerPx);
+
+    const endpoints = [];
+    walls.forEach(w => {
+      let p1 = null, p2 = null;
+      if (Array.isArray(w.centerline_px) && w.centerline_px.length >= 2) {
+        p1 = { x: w.centerline_px[0][0], y: w.centerline_px[0][1] };
+        p2 = { x: w.centerline_px[1][0], y: w.centerline_px[1][1] };
+      } else if (Array.isArray(w.centerline) && w.centerline.length >= 2) {
+        const c1 = w.centerline[0], c2 = w.centerline[1];
+        p1 = { x: Array.isArray(c1) ? c1[0] : (c1.x ?? 0), y: Array.isArray(c1) ? c1[1] : (c1.y ?? 0) };
+        p2 = { x: Array.isArray(c2) ? c2[0] : (c2.x ?? 0), y: Array.isArray(c2) ? c2[1] : (c2.y ?? 0) };
+      } else if (Array.isArray(w.centerline_mm) && w.centerline_mm.length >= 2) {
+        p1 = { x: w.centerline_mm[0][0] / mmPerPx, y: w.centerline_mm[0][1] / mmPerPx };
+        p2 = { x: w.centerline_mm[1][0] / mmPerPx, y: w.centerline_mm[1][1] / mmPerPx };
+      }
+      endpoints.push({ p1, p2, wall: w });
+    });
+
+    const n = endpoints.length;
+    const adj = Array.from({ length: n }, () => []);
+
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = endpoints[i], b = endpoints[j];
+        if (!a.p1 || !a.p2 || !b.p1 || !b.p2) continue;
+        const d1 = Math.hypot(a.p1.x - b.p1.x, a.p1.y - b.p1.y);
+        const d2 = Math.hypot(a.p1.x - b.p2.x, a.p1.y - b.p2.y);
+        const d3 = Math.hypot(a.p2.x - b.p1.x, a.p2.y - b.p1.y);
+        const d4 = Math.hypot(a.p2.x - b.p2.x, a.p2.y - b.p2.y);
+        if (Math.min(d1, d2, d3, d4) <= snapTolPx) {
+          adj[i].push(j);
+          adj[j].push(i);
+        }
+      }
+    }
+
+    const visited = new Set();
+    const clusters = [];
+
+    for (let i = 0; i < n; i++) {
+      if (visited.has(i)) continue;
+      const cluster = [];
+      const queue = [i];
+      visited.add(i);
+
+      while (queue.length > 0) {
+        const curr = queue.shift();
+        if (endpoints[curr].wall) {
+          cluster.push(endpoints[curr].wall);
+        }
+        for (const neighbor of adj[curr]) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        }
+      }
+
+      if (cluster.length >= 3) {
+        clusters.push(cluster);
+      }
+    }
+
+    return clusters.length > 0 ? clusters : [walls];
+  },
+
+  /**
+   * Chains wall segments together and bridges any gaps (e.g. deselected recessed balcony/porch walls)
+   * using infinite ray line intersections (for L-shapes) or collinear bridging (for U-shapes).
+   */
+  orderAndBridgeSegments: function(segments, snapTolPx) {
+    if (!segments || segments.length === 0) return null;
+    if (segments.length === 1) return null;
+
+    const remaining = segments.map(s => ({ ...s }));
+    const ordered = [remaining.shift()];
+
+    while (remaining.length > 0) {
+      const lastSeg = ordered[ordered.length - 1];
+      const lastPt = lastSeg.p2;
+
+      let bestIdx = -1;
+      let bestDist = Infinity;
+      let mustFlip = false;
+
+      // 1. Try to find an directly snapped segment
+      for (let i = 0; i < remaining.length; i++) {
+        const seg = remaining[i];
+        const dForward = Math.hypot(seg.p1.x - lastPt.x, seg.p1.y - lastPt.y);
+        const dBackward = Math.hypot(seg.p2.x - lastPt.x, seg.p2.y - lastPt.y);
+
+        if (dForward <= snapTolPx && dForward < bestDist) {
+          bestDist = dForward;
+          bestIdx = i;
+          mustFlip = false;
+        } else if (dBackward <= snapTolPx && dBackward < bestDist) {
+          bestDist = dBackward;
+          bestIdx = i;
+          mustFlip = true;
+        }
+      }
+
+      // 2. If not directly snapped, find the nearest candidate to bridge
+      if (bestIdx === -1) {
+        for (let i = 0; i < remaining.length; i++) {
+          const seg = remaining[i];
+          const dForward = Math.hypot(seg.p1.x - lastPt.x, seg.p1.y - lastPt.y);
+          const dBackward = Math.hypot(seg.p2.x - lastPt.x, seg.p2.y - lastPt.y);
+          const minD = Math.min(dForward, dBackward);
+          if (minD < bestDist) {
+            bestDist = minD;
+            bestIdx = i;
+            mustFlip = (dBackward < dForward);
+          }
+        }
+      }
+
+      if (bestIdx === -1) break;
+
+      const nextSeg = remaining.splice(bestIdx, 1)[0];
+      if (mustFlip) {
+        const tmp = nextSeg.p1;
+        nextSeg.p1 = nextSeg.p2;
+        nextSeg.p2 = tmp;
+      }
+      ordered.push(nextSeg);
+    }
+
+    const finalVertices = [];
+    const finalThicknesses = [];
+    let avgHeight = 2700;
+    const count = ordered.length;
+
+    for (let i = 0; i < count; i++) {
+      const prev = ordered[(i - 1 + count) % count];
+      const curr = ordered[i];
+      avgHeight = curr.heightMm || avgHeight;
+
+      // Check gap between prev.p2 and curr.p1
+      const gap = Math.hypot(curr.p1.x - prev.p2.x, curr.p1.y - prev.p2.y);
+      if (gap > snapTolPx) {
+        // Gap exists: calculate ray intersection between prev line and curr line
+        const corner = this.intersectInfiniteLines(prev.p1, prev.p2, curr.p1, curr.p2);
+        if (corner &&
+            Math.hypot(corner.x - prev.p2.x, corner.y - prev.p2.y) < 50000 &&
+            Math.hypot(corner.x - curr.p1.x, corner.y - curr.p1.y) < 50000) {
+          // L-shaped or angled corner intersection: replaces the joint vertex cleanly
+          finalVertices.push(corner);
+          finalThicknesses.push(curr.thicknessMm);
+        } else {
+          // Collinear / Parallel (U-shaped recess bridge)
+          finalVertices.push(prev.p2);
+          finalThicknesses.push(prev.thicknessMm);
+          finalVertices.push(curr.p1);
+          finalThicknesses.push(curr.thicknessMm);
+        }
+      } else {
+        // Normal continuous joint: vertex is curr.p1
+        finalVertices.push(curr.p1);
+        finalThicknesses.push(curr.thicknessMm);
+      }
+    }
+
+    return {
+      vertices: finalVertices,
+      thicknesses: finalThicknesses,
+      avgHeight
+    };
+  },
+
+  /**
+   * Traces the exterior wall boundary cycle from active walls in CCW order.
+   * Supports selectedWallIds and auto-gap bridging for omitted balcony/porch walls.
+   */
+  traceExteriorWallLoop: function(walls, realScale, selectedWallIds = null) {
     if (!Array.isArray(walls) || walls.length < 3) return null;
 
     const mmPerPx = typeof realScale === 'number' && realScale > 0 ? realScale : 20.0;
     const snapTolPx = Math.max(3.0, 30.0 / mmPerPx); // ~30mm snap tolerance
 
-    // 1. Filter exterior walls
-    let extWalls = walls.filter(w => {
-      const cls = (w.class_name || w.type || w.wall_type || "").toLowerCase();
-      return cls.includes("exterior") || cls.includes("ext") || cls === "ext_wall" || w.is_exterior;
-    });
-
-    // Fallback if no walls explicitly tagged as exterior: use all non-partition walls
-    if (extWalls.length < 3) {
-      extWalls = walls.filter(w => {
+    let targetWalls = [...walls];
+    if (Array.isArray(selectedWallIds) && selectedWallIds.length >= 2) {
+      const filtered = walls.filter(w => selectedWallIds.includes(w.id));
+      if (filtered.length >= 2) {
+        targetWalls = filtered;
+      }
+    } else {
+      // 1. Filter exterior walls if not manually selected (excluding walls marked as exclude_from_roof)
+      let extWalls = walls.filter(w => {
+        if (w.exclude_from_roof || w.excludeFromRoof) return false;
         const cls = (w.class_name || w.type || w.wall_type || "").toLowerCase();
-        return !cls.includes("interior") && !cls.includes("partition") && !cls.includes("part");
+        return cls.includes("exterior") || cls.includes("ext") || cls === "ext_wall" || w.is_exterior;
       });
+
+      if (extWalls.length < 3) {
+        extWalls = walls.filter(w => {
+          if (w.exclude_from_roof || w.excludeFromRoof) return false;
+          const cls = (w.class_name || w.type || w.wall_type || "").toLowerCase();
+          return !cls.includes("interior") && !cls.includes("partition") && !cls.includes("part");
+        });
+      }
+      if (extWalls.length >= 2) {
+        targetWalls = extWalls;
+      }
     }
-    if (extWalls.length < 3) extWalls = [...walls];
-    if (extWalls.length < 3) return null;
+
+    // Ensure all walls marked as exclude_from_roof are omitted
+    targetWalls = targetWalls.filter(w => !w.exclude_from_roof && !w.excludeFromRoof);
 
     // 2. Collect wall segments in pixel coordinates
     const segments = [];
-    extWalls.forEach((w, wIdx) => {
+    targetWalls.forEach((w, wIdx) => {
       let p1 = null;
       let p2 = null;
 
@@ -511,7 +724,6 @@ const RoofEngine = {
         if (typeof w.thickness_mm === 'number' && w.thickness_mm > 0) {
           thickMm = w.thickness_mm;
         } else if (typeof w.thickness === 'number' && w.thickness > 0) {
-          // In EzeFloor, wall.thickness is standardly in mm (e.g. 70, 90, 110, 120, 200, 220)
           thickMm = w.thickness >= 30 ? w.thickness : w.thickness * mmPerPx;
         } else if (typeof w.thickness_px === 'number' && w.thickness_px > 0) {
           thickMm = w.thickness_px * mmPerPx;
@@ -537,119 +749,17 @@ const RoofEngine = {
       }
     });
 
-    if (segments.length < 3) return null;
+    if (segments.length < 2) return null;
 
-    // 3. Snap endpoints together into a unified vertex pool
-    const snappedVertices = [];
-    function getOrCreateVertex(pt) {
-      for (let i = 0; i < snappedVertices.length; i++) {
-        const sv = snappedVertices[i];
-        if (Math.hypot(sv.x - pt.x, sv.y - pt.y) <= snapTolPx) {
-          return i;
-        }
-      }
-      snappedVertices.push({ x: pt.x, y: pt.y });
-      return snappedVertices.length - 1;
-    }
+    // 3. Chain segments and bridge any gaps (L-shape / U-shape / T-junctions)
+    const bridged = this.orderAndBridgeSegments(segments, snapTolPx);
+    if (!bridged || !bridged.vertices || bridged.vertices.length < 3) return null;
 
-    const graphEdges = segments.map((seg, sIdx) => {
-      const u = getOrCreateVertex(seg.p1);
-      const v = getOrCreateVertex(seg.p2);
-      return { u, v, segment: seg, sIdx };
-    }).filter(e => e.u !== e.v);
+    const loopVerticesPixels = bridged.vertices;
+    const loopThicknessesMm = bridged.thicknesses;
+    const avgWallHeightMm = bridged.avgHeight;
 
-    // 4. Build adjacency graph
-    const adj = {};
-    for (let i = 0; i < snappedVertices.length; i++) adj[i] = [];
-    graphEdges.forEach(e => {
-      adj[e.u].push({ next: e.v, edge: e, dir: 1 });
-      adj[e.v].push({ next: e.u, edge: e, dir: -1 });
-    });
-
-    // 5. Trace the exterior closed cycle starting at left-most vertex
-    let startV = 0;
-    for (let i = 1; i < snappedVertices.length; i++) {
-      if (snappedVertices[i].x < snappedVertices[startV].x ||
-         (Math.abs(snappedVertices[i].x - snappedVertices[startV].x) < 1e-4 && snappedVertices[i].y < snappedVertices[startV].y)) {
-        startV = i;
-      }
-    }
-
-    const visitedEdges = new Set();
-    const cycle = [];
-    let currV = startV;
-    let maxSteps = segments.length * 2 + 10;
-    let prevV = null;
-
-    while (maxSteps-- > 0) {
-      const neighbors = adj[currV] || [];
-      let nextCandidate = null;
-
-      if (prevV === null) {
-        nextCandidate = neighbors[0];
-      } else {
-        const inDx = snappedVertices[currV].x - snappedVertices[prevV].x;
-        const inDy = snappedVertices[currV].y - snappedVertices[prevV].y;
-        const inAngle = Math.atan2(inDy, inDx);
-
-        let bestDiff = -Infinity;
-        for (const n of neighbors) {
-          if (n.next === prevV && neighbors.length > 1) continue;
-          const outDx = snappedVertices[n.next].x - snappedVertices[currV].x;
-          const outDy = snappedVertices[n.next].y - snappedVertices[currV].y;
-          const outAngle = Math.atan2(outDy, outDx);
-          let diff = outAngle - inAngle;
-          while (diff <= -Math.PI) diff += 2 * Math.PI;
-          while (diff > Math.PI) diff -= 2 * Math.PI;
-
-          if (diff > bestDiff) {
-            bestDiff = diff;
-            nextCandidate = n;
-          }
-        }
-        if (!nextCandidate && neighbors.length > 0) nextCandidate = neighbors[0];
-      }
-
-      if (!nextCandidate) break;
-
-      const edgeKey = `${Math.min(currV, nextCandidate.next)}_${Math.max(currV, nextCandidate.next)}`;
-      cycle.push({
-        vIdx: currV,
-        point: snappedVertices[currV],
-        edge: nextCandidate.edge
-      });
-      visitedEdges.add(edgeKey);
-
-      prevV = currV;
-      currV = nextCandidate.next;
-
-      if (currV === startV) {
-        break; // Loop completed!
-      }
-    }
-
-    if (cycle.length < 3 || currV !== startV) {
-      const simpleVertices = [];
-      const simpleThicknesses = [];
-      let avgHeight = 2700;
-      segments.forEach(seg => {
-        simpleVertices.push(seg.p1);
-        simpleThicknesses.push(seg.thicknessMm);
-        avgHeight = seg.heightMm || avgHeight;
-      });
-      return {
-        verticesPixels: simpleVertices,
-        verticesMm: simpleVertices.map(p => [p.x * mmPerPx, p.y * mmPerPx]),
-        edgeThicknessesMm: simpleThicknesses,
-        wallHeightMm: avgHeight
-      };
-    }
-
-    const loopVerticesPixels = cycle.map(c => c.point);
-    const loopThicknessesMm = cycle.map(c => c.edge.segment.thicknessMm);
-    const avgWallHeightMm = cycle.reduce((sum, c) => sum + (c.edge.segment.heightMm || 2700), 0) / cycle.length;
-
-    // 6. Ensure CCW in Cartesian space (CW in screen space where Y points down)
+    // 4. Ensure CCW in Cartesian space (CW in screen space where Y points down)
     let signedArea = 0;
     const n = loopVerticesPixels.length;
     for (let i = 0; i < n; i++) {
@@ -680,13 +790,85 @@ const RoofEngine = {
    */
   generateAutoRoofFromWalls: async function({
     walls,
+    selectedWallIds = null,
     realScale,
     scaleFactor,
     defaultPitch = 22.5,
     wallHeight = 2700,
-    existingRoofsCount = 0
+    existingRoofsCount = 0,
+    roofId = null,
+    roofName = null
   }) {
-    const loopData = this.traceExteriorWallLoop(walls, realScale);
+    // 1. Partition all walls on canvas into connected building clusters
+    const allClusters = this.partitionWallComponents(walls, realScale);
+
+    // 2. Determine target clusters:
+    // If selectedWallIds is provided, find the building cluster(s) that contain ANY of the selected walls
+    let targetClusters = allClusters;
+    if (Array.isArray(selectedWallIds) && selectedWallIds.length > 0) {
+      const selectedSet = new Set(selectedWallIds);
+      const matchedClusters = allClusters.filter(cluster =>
+        cluster.some(w => selectedSet.has(w.id))
+      );
+      if (matchedClusters.length > 0) {
+        targetClusters = matchedClusters;
+      }
+    }
+
+    // 3. Generate clean roofs for each target cluster
+    if (targetClusters.length > 1) {
+      const results = [];
+      for (let cIdx = 0; cIdx < targetClusters.length; cIdx++) {
+        try {
+          const roof = await this._generateSingleAutoRoof({
+            walls: targetClusters[cIdx],
+            selectedWallIds: null, // Pass entire cluster -> traceExteriorWallLoop honors exclude_from_roof & bridges gaps
+            realScale,
+            scaleFactor,
+            defaultPitch,
+            wallHeight,
+            roofIndex: existingRoofsCount + cIdx,
+            roofId: cIdx === 0 ? roofId : null,
+            roofName: cIdx === 0 ? roofName : null
+          });
+          if (roof) results.push(roof);
+        } catch (e) {
+          console.warn("[RoofEngine] Skipped cluster", cIdx, e);
+        }
+      }
+      return results.length > 0 ? (results.length === 1 ? results[0] : results) : null;
+    }
+
+    // Single target cluster
+    const clusterWalls = (targetClusters && targetClusters[0]) || walls;
+    return this._generateSingleAutoRoof({
+      walls: clusterWalls,
+      selectedWallIds: null, // Pass entire cluster -> traceExteriorWallLoop honors exclude_from_roof & bridges gaps
+      realScale,
+      scaleFactor,
+      defaultPitch,
+      wallHeight,
+      roofIndex: existingRoofsCount,
+      roofId,
+      roofName
+    });
+  },
+
+  /**
+   * Helper: computes single roof from a given group of walls
+   */
+  _generateSingleAutoRoof: async function({
+    walls,
+    selectedWallIds = null,
+    realScale,
+    scaleFactor,
+    defaultPitch = 22.5,
+    wallHeight = 2700,
+    roofIndex = 0,
+    roofId = null,
+    roofName = null
+  }) {
+    const loopData = this.traceExteriorWallLoop(walls, realScale, selectedWallIds);
     if (!loopData || !loopData.verticesPixels || loopData.verticesPixels.length < 3) {
       throw new Error("Could not trace a closed exterior wall loop. Please ensure walls are connected.");
     }
@@ -763,12 +945,13 @@ const RoofEngine = {
     }
 
     const m = outerPolygonPixels.length;
-    const roofName = `Roof ${String.fromCharCode(65 + (existingRoofsCount % 26))}`;
+    const resolvedName = roofName || `Roof ${String.fromCharCode(65 + (roofIndex % 26))}`;
+    const resolvedId = roofId || `roof_${Date.now()}_${roofIndex}`;
 
     // Stage 3: Create pristine Roof object (baseline OVH = 0mm)
     const newRoof = {
-      id: `roof_${Date.now()}`,
-      name: roofName,
+      id: resolvedId,
+      name: resolvedName,
       polygon: outerPolygonPixels,
       angles: Array(m).fill(defaultPitch),
       overhangs: Array(m).fill(0.0), // Baseline OVH = 0mm

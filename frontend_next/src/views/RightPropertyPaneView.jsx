@@ -1877,6 +1877,76 @@ export default function RightPropertyPaneView({
 
                   const floorTitle = mapFloorName(page.floor_name || page.name, pageIdx) || `Level ${pageIdx + 1}`;
 
+                  const selectExclusiveRoof = (e, targetPageIdx, rf) => {
+                    if (e) e.stopPropagation();
+                    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+                    if (setSelectedWallIds) setSelectedWallIds([]);
+                    if (setSelectedDoorIds) setSelectedDoorIds([]);
+                    if (setSelectedRoomIds) setSelectedRoomIds([]);
+                    if (setSelectedLintelIds) setSelectedLintelIds([]);
+                    if (setSelectedRoofId) setSelectedRoofId(rf.id);
+                    if (setSelectedId) setSelectedId(rf.id);
+                    if (setSelectedType) setSelectedType("roof");
+                    setExplorerViewMode("properties");
+                  };
+
+                  const selectExclusiveWall = (e, targetPageIdx, w, isMulti = false) => {
+                    if (e) e.stopPropagation();
+                    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+                    if (setSelectedRoofId) setSelectedRoofId(null);
+                    if (setSelectedDoorIds) setSelectedDoorIds([]);
+                    if (setSelectedRoomIds) setSelectedRoomIds([]);
+                    if (setSelectedLintelIds) setSelectedLintelIds([]);
+                    if (isMulti) {
+                      if (selectedWallIds.includes(w.id)) {
+                        if (setSelectedWallIds) setSelectedWallIds(selectedWallIds.filter(id => id !== w.id));
+                      } else {
+                        if (setSelectedWallIds) setSelectedWallIds([...selectedWallIds, w.id]);
+                      }
+                    } else {
+                      if (setSelectedId) setSelectedId(w.id);
+                      if (setSelectedType) setSelectedType("wall");
+                      if (setSelectedWallIds) setSelectedWallIds([w.id]);
+                      if (selectWall) selectWall(w.id);
+                    }
+                  };
+
+                  const selectExclusiveDoor = (e, targetPageIdx, d) => {
+                    if (e) e.stopPropagation();
+                    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+                    if (setSelectedRoofId) setSelectedRoofId(null);
+                    if (setSelectedWallIds) setSelectedWallIds([]);
+                    if (setSelectedRoomIds) setSelectedRoomIds([]);
+                    if (setSelectedLintelIds) setSelectedLintelIds([]);
+                    if (setSelectedId) setSelectedId(d.id);
+                    if (setSelectedType) setSelectedType("door");
+                    if (setSelectedDoorIds) setSelectedDoorIds([d.id]);
+                  };
+
+                  const selectExclusiveRoom = (e, targetPageIdx, r) => {
+                    if (e) e.stopPropagation();
+                    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+                    if (setSelectedRoofId) setSelectedRoofId(null);
+                    if (setSelectedWallIds) setSelectedWallIds([]);
+                    if (setSelectedDoorIds) setSelectedDoorIds([]);
+                    if (setSelectedLintelIds) setSelectedLintelIds([]);
+                    if (setSelectedId) setSelectedId(r.id);
+                    if (setSelectedType) setSelectedType("room");
+                    if (setSelectedRoomIds) setSelectedRoomIds([r.id]);
+                  };
+
+                  const selectExclusiveLintel = (e, targetPageIdx, l) => {
+                    if (e) e.stopPropagation();
+                    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+                    if (setSelectedRoofId) setSelectedRoofId(null);
+                    if (setSelectedWallIds) setSelectedWallIds([]);
+                    if (setSelectedDoorIds) setSelectedDoorIds([]);
+                    if (setSelectedRoomIds) setSelectedRoomIds([]);
+                    if (setSelectedId) setSelectedId(l.id);
+                    if (setSelectedType) setSelectedType("lintel");
+                    if (setSelectedLintelIds) setSelectedLintelIds([l.id]);
+                  };
+
                   return (
                     <div key={floorKey} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                       {/* Level 1: Floor / Page Node */}
@@ -1985,28 +2055,9 @@ export default function RightPropertyPaneView({
                                       <div
                                         key={w.id ? `w_${w.id}_${idx}` : `wall_${idx}`}
                                         id={w.id ? `explorer-item-${w.id}` : undefined}
-                                        onClick={(e) => {
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          if (e.ctrlKey || e.shiftKey) {
-                                            if (selectedWallIds.includes(w.id)) {
-                                              setSelectedWallIds(selectedWallIds.filter(id => id !== w.id));
-                                            } else {
-                                              setSelectedWallIds([...selectedWallIds, w.id]);
-                                            }
-                                          } else {
-                                            setSelectedId(w.id);
-                                            setSelectedType("wall");
-                                            setSelectedWallIds([w.id]);
-                                            if (selectWall) selectWall(w.id);
-                                          }
-                                        }}
+                                        onClick={(e) => selectExclusiveWall(e, pageIdx, w, e.ctrlKey || e.shiftKey)}
                                         onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(w.id);
-                                          setSelectedType("wall");
-                                          setSelectedWallIds([w.id]);
-                                          if (selectWall) selectWall(w.id);
+                                          selectExclusiveWall(e, pageIdx, w, false);
                                           setExplorerViewMode("properties");
                                         }}
                                         style={{
@@ -2041,12 +2092,7 @@ export default function RightPropertyPaneView({
                                           <button
                                             title="Edit wall properties"
                                             onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                              setSelectedId(w.id);
-                                              setSelectedType("wall");
-                                              setSelectedWallIds([w.id]);
-                                              if (selectWall) selectWall(w.id);
+                                              selectExclusiveWall(e, pageIdx, w, false);
                                               setExplorerViewMode("properties");
                                             }}
                                             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
@@ -2152,16 +2198,9 @@ export default function RightPropertyPaneView({
                                       <div
                                         key={d.id ? `d_${d.id}_${idx}` : `door_${idx}`}
                                         id={d.id ? `explorer-item-${d.id}` : undefined}
-                                        onClick={() => {
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(d.id);
-                                          setSelectedType("door");
-                                        }}
+                                        onClick={(e) => selectExclusiveDoor(e, pageIdx, d)}
                                         onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(d.id);
-                                          setSelectedType("door");
+                                          selectExclusiveDoor(e, pageIdx, d);
                                           setExplorerViewMode("properties");
                                         }}
                                         style={{
@@ -2206,10 +2245,7 @@ export default function RightPropertyPaneView({
                                           <button
                                             title="Edit door properties"
                                             onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                              setSelectedId(d.id);
-                                              setSelectedType("door");
+                                              selectExclusiveDoor(e, pageIdx, d);
                                               setExplorerViewMode("properties");
                                             }}
                                             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
@@ -2304,16 +2340,9 @@ export default function RightPropertyPaneView({
                                       <div
                                         key={win.id ? `win_${win.id}_${idx}` : `window_${idx}`}
                                         id={win.id ? `explorer-item-${win.id}` : undefined}
-                                        onClick={() => {
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(win.id);
-                                          setSelectedType("door");
-                                        }}
+                                        onClick={(e) => selectExclusiveDoor(e, pageIdx, win)}
                                         onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(win.id);
-                                          setSelectedType("door");
+                                          selectExclusiveDoor(e, pageIdx, win);
                                           setExplorerViewMode("properties");
                                         }}
                                         style={{
@@ -2348,10 +2377,7 @@ export default function RightPropertyPaneView({
                                           <button
                                             title="Edit window properties"
                                             onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                              setSelectedId(win.id);
-                                              setSelectedType("door");
+                                              selectExclusiveDoor(e, pageIdx, win);
                                               setExplorerViewMode("properties");
                                             }}
                                             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6, padding: "0 2px" }}
@@ -2447,11 +2473,7 @@ export default function RightPropertyPaneView({
                                       <div
                                         key={r.id ? `rm_${r.id}_${idx}` : `room_${idx}`}
                                         id={r.id ? `explorer-item-${r.id}` : undefined}
-                                        onClick={() => {
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(r.id);
-                                          setSelectedType("room");
-                                        }}
+                                        onClick={(e) => selectExclusiveRoom(e, pageIdx, r)}
                                         onDoubleClick={(e) => handleRenameRoom(e, pageIdx, r)}
                                         title="Nhấp đúp để đổi tên phòng (Double-click to rename room)"
                                         style={{
@@ -2483,10 +2505,7 @@ export default function RightPropertyPaneView({
                                           <button
                                             title="Mở thuộc tính phòng (Edit room properties)"
                                             onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                              setSelectedId(r.id);
-                                              setSelectedType("room");
+                                              selectExclusiveRoom(e, pageIdx, r);
                                               setExplorerViewMode("properties");
                                             }}
                                             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.6 }}
@@ -2585,16 +2604,9 @@ export default function RightPropertyPaneView({
                                       <div
                                         key={l.id ? `lin_${l.id}_${idx}` : `lintel_${idx}`}
                                         id={l.id ? `explorer-item-${l.id}` : undefined}
-                                        onClick={() => {
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(l.id);
-                                          setSelectedType("lintel");
-                                        }}
+                                        onClick={(e) => selectExclusiveLintel(e, pageIdx, l)}
                                         onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          setSelectedId(l.id);
-                                          setSelectedType("lintel");
+                                          selectExclusiveLintel(e, pageIdx, l);
                                           setExplorerViewMode("properties");
                                         }}
                                         style={{
@@ -2623,10 +2635,7 @@ export default function RightPropertyPaneView({
                                           <button
                                             title="Edit lintel properties"
                                             onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                              setSelectedId(l.id);
-                                              setSelectedType("lintel");
+                                              selectExclusiveLintel(e, pageIdx, l);
                                               setExplorerViewMode("properties");
                                             }}
                                             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.4 }}
@@ -2709,21 +2718,8 @@ export default function RightPropertyPaneView({
                                       <div
                                         key={rf.id ? `rf_${rf.id}_${idx}` : `roof_${idx}`}
                                         id={rf.id ? `explorer-item-${rf.id}` : undefined}
-                                        onClick={() => {
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          if (setSelectedRoofId) setSelectedRoofId(rf.id);
-                                          setSelectedId(rf.id);
-                                          setSelectedType("roof");
-                                          setExplorerViewMode("properties");
-                                        }}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                          if (setSelectedRoofId) setSelectedRoofId(rf.id);
-                                          setSelectedId(rf.id);
-                                          setSelectedType("roof");
-                                          setExplorerViewMode("properties");
-                                        }}
+                                        onClick={(e) => selectExclusiveRoof(e, pageIdx, rf)}
+                                        onDoubleClick={(e) => selectExclusiveRoof(e, pageIdx, rf)}
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
@@ -2752,14 +2748,7 @@ export default function RightPropertyPaneView({
                                         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
                                           <button
                                             title="Edit roof properties"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (goPage && pageIdx !== currentPage) goPage(pageIdx);
-                                              if (setSelectedRoofId) setSelectedRoofId(rf.id);
-                                              setSelectedId(rf.id);
-                                              setSelectedType("roof");
-                                              setExplorerViewMode("properties");
-                                            }}
+                                            onClick={(e) => selectExclusiveRoof(e, pageIdx, rf)}
                                             style={{ background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#64748b", opacity: isSelected ? 1 : 0.4 }}
                                           >
                                             ✏️
@@ -4072,7 +4061,7 @@ export default function RightPropertyPaneView({
                     >
                       <span>📊 Xuất Excel (.xlsx)</span>
                     </button>
-                    {/* Debug raw wall JSON export
+                    {/* Debug raw wall JSON export */}
                     <button
                       type="button"
                       className="rp-action-btn"
@@ -4098,7 +4087,7 @@ export default function RightPropertyPaneView({
                     >
                       <span>📄 JSON</span>
                     </button>
-                    */}
+
                   </div>
 
                   <button

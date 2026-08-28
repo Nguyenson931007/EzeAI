@@ -3016,11 +3016,18 @@ export default function CanvasView({
     setWallContextMenu({ visible: false, x: 0, y: 0, wall: null, clickPt: null });
   };
 
+  const getContextWallIds = (w) => {
+    if (selectedWallIds && selectedWallIds.length > 0) {
+      if (!w || selectedWallIds.includes(w.id)) {
+        return selectedWallIds;
+      }
+    }
+    return w ? [w.id] : [];
+  };
+
   const handleWallDelete = () => {
     const w = wallContextMenu.wall;
-    const targetIds = selectedWallIds && selectedWallIds.length > 0
-      ? selectedWallIds
-      : (w ? [w.id] : []);
+    const targetIds = getContextWallIds(w);
     if (targetIds.length > 0 && deleteWalls) {
       deleteWalls(targetIds);
     }
@@ -3028,32 +3035,43 @@ export default function CanvasView({
 
   const handleWallMergeAligned = () => {
     const w = wallContextMenu.wall;
-    const targetIds = selectedWallIds && selectedWallIds.length > 0
-      ? selectedWallIds
-      : (w ? [w.id] : []);
-    if (autoMergeCollinearWalls) {
+    const targetIds = getContextWallIds(w);
+    if (targetIds.length > 0 && autoMergeCollinearWalls) {
       autoMergeCollinearWalls(targetIds);
     }
   };
 
   const handleWallChangeClass = (newClass) => {
     const w = wallContextMenu.wall;
-    if (w && updateWallsProperty) {
-      updateWallsProperty([w.id], "class_name", newClass);
+    const targetIds = getContextWallIds(w);
+    if (targetIds.length > 0 && updateWallsProperty) {
+      updateWallsProperty(targetIds, "class_name", newClass);
     }
   };
 
   const handleWallToggleLock = () => {
     const w = wallContextMenu.wall;
-    if (w && updateWallsProperty) {
-      updateWallsProperty([w.id], "locked", !w.locked);
+    const targetIds = getContextWallIds(w);
+    if (targetIds.length > 0 && updateWallsProperty) {
+      updateWallsProperty(targetIds, "locked", !w.locked);
     }
   };
 
   const handleWallToggleLbw = () => {
     const w = wallContextMenu.wall;
-    if (w && updateWallsProperty) {
-      updateWallsProperty([w.id], "is_lbw", !Boolean(w.is_lbw || w.is_load_bearing || w.lbw));
+    const targetIds = getContextWallIds(w);
+    if (targetIds.length > 0 && updateWallsProperty) {
+      const nextVal = !Boolean(w.is_lbw || w.is_load_bearing || w.lbw);
+      updateWallsProperty(targetIds, "is_lbw", nextVal);
+    }
+  };
+
+  const handleWallToggleRoofInclusion = () => {
+    const w = wallContextMenu.wall;
+    const targetIds = getContextWallIds(w);
+    if (targetIds.length > 0 && updateWallsProperty) {
+      const nextVal = !Boolean(w.exclude_from_roof || w.excludeFromRoof);
+      updateWallsProperty(targetIds, "exclude_from_roof", nextVal);
     }
   };
 
@@ -5989,6 +6007,7 @@ export default function CanvasView({
         x={wallContextMenu.x}
         y={wallContextMenu.y}
         wall={wallContextMenu.wall}
+        selectedCount={selectedWallIds && wallContextMenu.wall && selectedWallIds.includes(wallContextMenu.wall.id) ? selectedWallIds.length : 1}
         onClose={closeWallContextMenu}
         onDrawWall={() => {
           if (setInteractionMode) setInteractionMode("draw-wall");
@@ -6018,6 +6037,7 @@ export default function CanvasView({
         onAddPoint={handleWallStartCut}
         onToggleLock={handleWallToggleLock}
         onToggleLbw={handleWallToggleLbw}
+        onToggleRoofInclusion={handleWallToggleRoofInclusion}
       />
 
       {/* ===== ROOF CONTEXT MENU OVERLAY ===== */}
