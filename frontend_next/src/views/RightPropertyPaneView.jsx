@@ -1011,6 +1011,15 @@ export default function RightPropertyPaneView({
         { id: "lck-ai-2", type: "Aluminium Sliding Glass Door", spec: "2100x1800mm Double Glazed", reveal: "135mm Brick Veneer Reveal", qty: extDoorCnt }
       ]);
       aiValues = { building_level: "All Levels (Ground & Upper)", door_spec: "Solid Core Entry & Aluminium Sliding", weather_seal: "Parfix Sikaflex & Sarking Foil", perimeter_length: String(extLen) };
+    } else if (moduleId === "power_truss_braces") {
+      const spanM = cadMetrics.buildingWidth || (grandTotalLength ? Number((grandTotalLength * 0.25).toFixed(1)) : 8.5);
+      const runM = cadMetrics.buildingLength || (grandTotalLength ? Number((grandTotalLength * 0.4).toFixed(1)) : 14.0);
+      const qty = Math.floor(runM / 0.6) + 1;
+      const totalLm = Number((spanM * 2.8 * qty).toFixed(1));
+      setTrussEntries([
+        { id: "truss-ai-1", label: "T01 - Common Standard Truss", trussType: "common", spanM, runLengthM: runM, spacingMm: 600, quantity: qty, totalTimberLm: totalLm, speedbraceRolls: Math.ceil((runM * 2.5) / 50) }
+      ]);
+      aiValues = { bracing_type: "Pryda Speedbrace Galvanised Strap", truss_span: String(spanM), brace_qty: String(Math.ceil((runM * 2.5) / 50)) };
     } else if (moduleId === "final_fit") {
       aiValues = {
         handle_set: "Gainsborough Choice Lever Set",
@@ -1652,6 +1661,7 @@ export default function RightPropertyPaneView({
 
   // 7. Lockup Entries
   const [lockupEntries, setLockupEntries] = React.useState([]);
+  const [trussEntries, setTrussEntries] = React.useState([]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
   const [lckReveal, setLckReveal] = React.useState("100mm Timber Reveal");

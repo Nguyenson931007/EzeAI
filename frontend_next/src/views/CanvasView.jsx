@@ -2942,7 +2942,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage } = useAppModel();
+  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -2964,6 +2964,11 @@ export default function CanvasView({
     if (layerVisibility?.lintel === false) return [];
     return (lintelsByPage[currentPage] || []).filter(l => !hiddenItemIds?.has(l.id));
   }, [lintelsByPage, currentPage, layerVisibility, hiddenItemIds]);
+
+  const displayTrusses = useMemo(() => {
+    if (layerVisibility?.truss === false) return [];
+    return (trussesByPage[currentPage] || []).filter(t => !hiddenItemIds?.has(t.id));
+  }, [trussesByPage, currentPage, layerVisibility, hiddenItemIds]);
 
   const displayRoofs = useMemo(() => {
     if (layerVisibility?.roof === false) return [];
@@ -4212,6 +4217,48 @@ export default function CanvasView({
                 )}
               </g>
             )}
+
+            {/* Committed Trusses Layer */}
+            {displayTrusses.map(truss => (
+              <g key={`truss-group-${truss.id}`}>
+                {truss.subTrusses?.map(st => (
+                  <line
+                    key={`subtruss-${st.index}`}
+                    x1={st.p1.x}
+                    y1={st.p1.y}
+                    x2={st.p2.x}
+                    y2={st.p2.y}
+                    stroke="#f59e0b"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 3"
+                    opacity="0.85"
+                  />
+                ))}
+                {truss.startPoint && truss.endPoint && (
+                  <g>
+                    <line
+                      x1={truss.startPoint.x}
+                      y1={truss.startPoint.y}
+                      x2={truss.endPoint.x}
+                      y2={truss.endPoint.y}
+                      stroke="#d97706"
+                      strokeWidth="3.5"
+                    />
+                    <text
+                      x={(truss.startPoint.x + truss.endPoint.x) / 2}
+                      y={(truss.startPoint.y + truss.endPoint.y) / 2 - 8}
+                      fill="#b45309"
+                      fontSize="11"
+                      fontWeight="800"
+                      textAnchor="middle"
+                      style={{ userSelect: "none" }}
+                    >
+                      ⚡ {truss.label || "Truss Run"} ({truss.quantity || 0} pcs)
+                    </text>
+                  </g>
+                )}
+              </g>
+            ))}
 
             {/* Committed Roof Polygons Layer */}
             {displayRoofs.map(roof => {

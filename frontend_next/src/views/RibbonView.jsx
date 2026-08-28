@@ -11,6 +11,7 @@ import InsulationJobsModal from "@/components/InsulationJobsModal";
 import LockoutJobsModal from "@/components/LockoutJobsModal";
 import UserProfileModal from "@/components/UserProfileModal";
 import SettingsModal from "@/components/SettingsModal";
+import { createToolAiJwt } from "@/utils/toolAiSso";
 
 const CAD_ICONS = {
   NewPDF: () => (

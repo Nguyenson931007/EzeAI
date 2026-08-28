@@ -28,6 +28,7 @@ export const AppProvider = ({ children }) => {
   const [pdfOffsetsByPage, setPdfOffsetsByPage] = useState({});
   const [roofsByPage, setRoofsByPage] = useState({});
   const [lintelsByPage, setLintelsByPage] = useState({});
+  const [trussesByPage, setTrussesByPage] = useState({});
 
   const [activeTab, setActiveTab] = useState(() => safeGetItem("activeTab") || "Home");
   const [currentJobId, setCurrentJobId] = useState(null);
@@ -93,6 +94,7 @@ export const AppProvider = ({ children }) => {
     pdfOffsetsByPage, setPdfOffsetsByPage,
     roofsByPage, setRoofsByPage,
     lintelsByPage, setLintelsByPage,
+    trussesByPage, setTrussesByPage,
 
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId,
