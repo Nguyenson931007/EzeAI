@@ -641,6 +641,26 @@ function normalizeModuleId(rawStr) {
   return null;
 }
 
+function isSubtaskChecked(item) {
+  if (!item) return false;
+  if (typeof item === "string") return true;
+  if (typeof item !== "object") return false;
+
+  // Explicit false/0 flags
+  if (item.checked === false || item.checked === 0 || item.checked === "false" || item.checked === "0") return false;
+  if (item.enabled === false || item.enabled === 0 || item.enabled === "false" || item.enabled === "0") return false;
+  if (item.selected === false || item.selected === 0 || item.selected === "false" || item.selected === "0") return false;
+  if (item.is_selected === false || item.is_selected === 0 || item.is_selected === "false" || item.is_selected === "0") return false;
+  if (item.is_checked === false || item.is_checked === 0 || item.is_checked === "false" || item.is_checked === "0") return false;
+  if (item.active === false || item.active === 0 || item.active === "false" || item.active === "0") return false;
+  if (item.status === false || item.status === 0 || item.status === "0" || item.status === "false" || item.status === "inactive" || item.status === "unchecked") return false;
+  if (typeof item.percent === "number" && item.percent === 0) return false;
+  if (typeof item.percentage === "number" && item.percentage === 0) return false;
+  if (typeof item.progress === "number" && item.progress === 0 && item.checked === undefined && item.status === undefined) return false;
+
+  return true;
+}
+
 function resolveTaskModules(taskContext) {
   if (!taskContext) return null;
   
@@ -648,10 +668,9 @@ function resolveTaskModules(taskContext) {
     const list = taskContext.map(item => {
       if (typeof item === "string") return normalizeModuleId(item);
       if (item && typeof item === "object") {
-        if (item.id && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.id);
-        if (item.name && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.name);
-        if (item.module && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.module);
-        if (item.key && (item.checked !== false && item.enabled !== false)) return normalizeModuleId(item.key);
+        if (!isSubtaskChecked(item)) return null;
+        const nameCandidate = item.id || item.name || item.title || item.label || item.module || item.key || item.task_name || item.subtask || item.scope || item.type || item.task;
+        if (nameCandidate) return normalizeModuleId(nameCandidate);
       }
       return null;
     }).filter(Boolean);
@@ -673,7 +692,7 @@ function resolveTaskModules(taskContext) {
   if (typeof taskContext === "object") {
     const candidateFields = [
       "selectedModules", "selected_modules", "modules", "task_modules",
-      "subtasks", "items", "scopes", "task_list", "checklist", "active_modules"
+      "subtasks", "tasks", "items", "scopes", "task_list", "checklist", "active_modules", "data"
     ];
     for (const f of candidateFields) {
       if (taskContext[f]) {
@@ -683,7 +702,7 @@ function resolveTaskModules(taskContext) {
     }
     const matched = [];
     for (const [k, v] of Object.entries(taskContext)) {
-      if (v === true || v === 1 || v === "1" || v === "true") {
+      if (v === true || v === 1 || v === "1" || v === "true" || (typeof v === "object" && isSubtaskChecked(v))) {
         const norm = normalizeModuleId(k);
         if (norm && !matched.includes(norm)) matched.push(norm);
       }
@@ -829,6 +848,31 @@ export default function RightPropertyPaneView({
   const [enabledModuleIds, setEnabledModuleIds] = React.useState(() => getInitialEnabledModules());
   const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
   const addModulePopupRef = React.useRef(null);
+
+  // Dynamic sync enabledModuleIds when pendingEmsJob or selectedModules or URL params update
+  React.useEffect(() => {
+    const syncModulesFromContext = () => {
+      const resolved = getInitialEnabledModules();
+      if (resolved && resolved.length > 0) {
+        setEnabledModuleIds(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(resolved)) {
+            return resolved;
+          }
+          return prev;
+        });
+      }
+    };
+
+    syncModulesFromContext();
+
+    window.addEventListener("storage", syncModulesFromContext);
+    window.addEventListener("task-modules-updated", syncModulesFromContext);
+
+    return () => {
+      window.removeEventListener("storage", syncModulesFromContext);
+      window.removeEventListener("task-modules-updated", syncModulesFromContext);
+    };
+  }, [currentProjectName, user]);
 
   // Close Add Module popup on outside click
   React.useEffect(() => {

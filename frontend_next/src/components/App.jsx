@@ -534,6 +534,9 @@ export default function App() {
         // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
         localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("task-modules-updated"));
+        }
 
         const targetProjectName = jobInfo.job_number || ("Project " + String(idJobEms).slice(0, 8));
 
@@ -569,6 +572,9 @@ export default function App() {
     if (urlModules) {
       sessionStorage.setItem("selectedModules", urlModules);
       localStorage.setItem("selectedModules", urlModules);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("task-modules-updated"));
+      }
     }
 
     if (urlToken || urlUser) {
