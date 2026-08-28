@@ -466,16 +466,17 @@ export function useLintelController({
   }, [isDrawingLintel, currentLintel, getCurrentWalls, getCurrentLintels, getCurrentDoors, currentPage, realScale, scaleValue, setLintelsByPage, pushHistory, setSelectedId, setSelectedType, globalLengthOffset]);
 
   /**
-   * Recalculates finalLength for a single lintel using the rounding formula
+   * Recalculates or toggles finalLength for a single lintel using the rounding formula
    */
   const roundSingleLintel = useCallback((lintelId) => {
     const lintels = getCurrentLintels();
     const updated = lintels.map(l => {
       if (l.id === lintelId) {
+        const nextRounded = !l.isRounded;
         return {
           ...l,
-          isRounded: true,
-          finalLength: roundLintelLength(l.measuredLength)
+          isRounded: nextRounded,
+          finalLength: nextRounded ? roundLintelLength(l.measuredLength) : l.measuredLength
         };
       }
       return l;
@@ -489,44 +490,114 @@ export function useLintelController({
   }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory]);
 
   /**
-   * Recalculates finalLength for all lintels on the current page
+   * Rounds all unrounded lintels on the current page (preserves already rounded ones)
    */
   const roundAllLintels = useCallback(() => {
     const lintels = getCurrentLintels();
-    const updated = lintels.map(l => ({
-      ...l,
-      isRounded: true,
-      finalLength: roundLintelLength(l.measuredLength)
-    }));
+    let hasChanges = false;
+    const updated = lintels.map(l => {
+      if (l.isRounded) {
+        return l; // Already rounded, preserve as is
+      }
+      hasChanges = true;
+      const numMeasured = typeof l.measuredLength === 'number' ? l.measuredLength : (l.baseLength || 0);
+      return {
+        ...l,
+        isRounded: true,
+        finalLength: roundLintelLength(numMeasured)
+      };
+    });
 
-    setLintelsByPage(prev => ({
-      ...prev,
-      [currentPage]: updated
-    }));
-    pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
+    if (hasChanges) {
+      setLintelsByPage(prev => ({
+        ...prev,
+        [currentPage]: updated
+      }));
+      pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
+    }
+    return updated;
   }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory]);
 
   const updateLintel = useCallback((updatedLintel) => {
+    const currentScale = scaleValue || (realScale ? realScale / 1000 : 0.02);
+    const walls = getCurrentWalls();
     const lintels = getCurrentLintels();
+
     const updated = lintels.map(l => {
       if (l.id === updatedLintel.id) {
         // Auto-sync description with active category
         const cat = updatedLintel.category || 'lintel';
         const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
 
+        const offset = updatedLintel.lengthOffset !== undefined ? updatedLintel.lengthOffset : (globalLengthOffset || 0);
+        
+        // Check if user is mid-typing (empty input)
+        const isEditingEmpty = updatedLintel.measuredLength === "" || updatedLintel.measuredLength === null;
+
+        if (isEditingEmpty) {
+          return {
+            ...l,
+            ...updatedLintel,
+            description: desc,
+            measuredLength: ""
+          };
+        }
+
         const baseLen = updatedLintel.baseLength !== undefined 
           ? updatedLintel.baseLength 
-          : (updatedLintel.measuredLength - (updatedLintel.lengthOffset || 0));
+          : Math.max(0.01, (typeof updatedLintel.measuredLength === 'number' ? updatedLintel.measuredLength : (l.measuredLength || 0)) - offset);
         
-        const offset = updatedLintel.lengthOffset !== undefined ? updatedLintel.lengthOffset : (globalLengthOffset || 0);
-        const newMeasured = baseLen + offset;
+        const newMeasured = typeof updatedLintel.measuredLength === 'number' ? updatedLintel.measuredLength : (baseLen + offset);
         const newFinal = updatedLintel.isRounded 
           ? roundLintelLength(newMeasured) 
           : newMeasured;
 
+        // Recalculate 2D geometry (startOffset/endOffset or points) based on new base length
+        let newStartOffset = updatedLintel.startOffset !== undefined ? updatedLintel.startOffset : l.startOffset;
+        let newEndOffset = updatedLintel.endOffset !== undefined ? updatedLintel.endOffset : l.endOffset;
+        let newPoints = updatedLintel.points || l.points;
+
+        const targetPxLen = baseLen / currentScale;
+
+        if (updatedLintel.wallId || l.wallId) {
+          const targetWallId = updatedLintel.wallId || l.wallId;
+          const wall = walls.find(w => w.id === targetWallId);
+          if (wall && wall.centerline && wall.centerline.length === 2) {
+            const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+            const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+            const wallPxLen = Math.hypot(wp2.x - wp1.x, wp2.y - wp1.y);
+
+            if (wallPxLen > 0) {
+              const dt = targetPxLen / wallPxLen;
+              const startT = newStartOffset ?? 0;
+              if (startT + dt <= 1) {
+                newStartOffset = startT;
+                newEndOffset = startT + dt;
+              } else {
+                newEndOffset = 1;
+                newStartOffset = Math.max(0, 1 - dt);
+              }
+            }
+          }
+        } else if (newPoints && newPoints.length === 2) {
+          const p1 = { x: newPoints[0][0], y: newPoints[0][1] };
+          const p2 = { x: newPoints[1][0], y: newPoints[1][1] };
+          const currentPx = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+          const ux = (p2.x - p1.x) / currentPx;
+          const uy = (p2.y - p1.y) / currentPx;
+
+          newPoints = [
+            [p1.x, p1.y],
+            [p1.x + ux * targetPxLen, p1.y + uy * targetPxLen]
+          ];
+        }
+
         return {
           ...updatedLintel,
           description: desc,
+          startOffset: newStartOffset,
+          endOffset: newEndOffset,
+          points: newPoints,
           baseLength: baseLen,
           lengthOffset: offset,
           measuredLength: newMeasured,
@@ -542,7 +613,7 @@ export function useLintelController({
     }));
 
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, globalLengthOffset]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, globalLengthOffset, realScale, scaleValue]);
 
   const deleteLintel = useCallback((lintelId) => {
     const lintels = getCurrentLintels();

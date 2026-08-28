@@ -313,6 +313,8 @@ export default function App() {
     updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
     setRoofEdgeMode,
     exportRoofIO,
+    exportRoofInput,
+    generateRoofFromWalls,
     toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,
@@ -1333,6 +1335,7 @@ export default function App() {
         doorController={doorController}
         lintelController={lintelController}
         isDrawingRoof={isDrawingRoof} setIsDrawingRoof={setIsDrawingRoof}
+        generateRoofFromWalls={generateRoofFromWalls}
         setSelectedRoofId={setSelectedRoofId}
         setSelectedId={setSelectedId}
         setSelectedType={setSelectedType}
@@ -1396,6 +1399,7 @@ export default function App() {
         setShowPDF={setShowPDF}
         lastAutoSaveTime={lastAutoSaveTime}
         isAutoSaving={isAutoSaving}
+        exportRoofInput={exportRoofInput}
       />
 
       {activeTab === "Admin" ? (
@@ -1560,6 +1564,7 @@ export default function App() {
                     setRoofInteractionState={setRoofInteractionState}
                     setRoofEaveEdge={setRoofEaveEdge}
                     deleteRoof={deleteRoof}
+                    exportRoofInput={exportRoofInput}
                     roofs={roofsByPage[currentPage] || []}
                     currentPoly={currentPoly}
                     currentDoor={currentDoor}
@@ -1834,6 +1839,8 @@ export default function App() {
                 deleteRoof={deleteRoof}
                 deleteRoofVertex={deleteRoofVertex}
                 exportRoofIO={exportRoofIO}
+                exportRoofInput={exportRoofInput}
+                generateRoofFromWalls={generateRoofFromWalls}
                 setShow3D={setShow3D}
                 lintelController={lintelController}
                 selectedId={selectedId}

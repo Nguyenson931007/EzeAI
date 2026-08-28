@@ -293,6 +293,7 @@ export default function RibbonView({
   doorController,
   lintelController,
   isDrawingRoof, setIsDrawingRoof,
+  generateRoofFromWalls,
   setSelectedRoofId,
   setSelectedId,
   setSelectedType,
@@ -352,7 +353,8 @@ export default function RibbonView({
   showPDF, setShowPDF,
   // Auto-save
   lastAutoSaveTime,
-  isAutoSaving
+  isAutoSaving,
+  exportRoofInput
 }) {
   const { showAlert, showConfirm } = useDialog();
   const {
@@ -389,6 +391,21 @@ export default function RibbonView({
       setActiveAiTask(null);
     }
   }, [isDetecting, isSmartDetecting]);
+
+  const handleExportRoofInput = () => {
+    const pageRoofs = (roofsByPage && roofsByPage[currentPage]) ? roofsByPage[currentPage] : [];
+    if (pageRoofs.length === 0) {
+      showAlert("No roofs found on this page. Draw a roof polygon first.");
+      return;
+    }
+    pageRoofs.forEach(rf => {
+      if (exportRoofInput) {
+        exportRoofInput(rf.id);
+      } else if (typeof window !== "undefined" && window.RoofEngine) {
+        window.RoofEngine.exportRoofInput({ roof: rf, scaleFactor: scaleValue, realScale, download: true });
+      }
+    });
+  };
 
   const handleCreateNewProject = () => {
     if (setCurrentJobId) setCurrentJobId(null);
@@ -1360,11 +1377,19 @@ export default function RibbonView({
                   <span className="icon"><CAD_ICONS.Pdf /></span><span className="label">PDF</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('open-takeoff-modal'))} title="Export Excel takeoff spreadsheet">
-                  <span className="icon"><CAD_ICONS.Excel /></span><span className="label">Excel Takeoff</span>
+                  <span className="icon"><CAD_ICONS.Excel /></span><span className="label">Takeoff</span>
                 </button>
+                <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('export-wall-excel'))} title="Xuất bảng tính Excel khối lượng và kích thước tường">
+                  <span className="icon"><CAD_ICONS.Wall /></span><span className="label">Wall Excel</span>
+                </button>
+                {/* Debug raw export buttons
                 <button className="ribbon-btn accent" onClick={exportWallLabels} title="Export wall frame schema JS">
                   <span className="icon"><CAD_ICONS.Bolt /></span><span className="label">Export JS</span>
                 </button>
+                <button className="ribbon-btn" onClick={handleExportRoofInput} title="Export roof input JSON (V3 format)">
+                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Roof JSON</span>
+                </button>
+                */}
               </div>
               <span className="ribbon-group-title">EXPORT</span>
             </div>
@@ -1450,6 +1475,17 @@ export default function RibbonView({
                   title="Draw roof polygon"
                 >
                   <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Roof</span>
+                </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => {
+                    if (generateRoofFromWalls) {
+                      generateRoofFromWalls();
+                    }
+                  }}
+                  title="Auto-generate 3D Roof from wall footprint & thickness"
+                >
+                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Wall → Roof</span>
                 </button>
               </div>
               <span className="ribbon-group-title">STRUCTURE</span>
@@ -1589,6 +1625,9 @@ export default function RibbonView({
                 </button>
                 <button className="ribbon-btn" onClick={exportRoomLabels} title="Export rooms to dataset">
                   <span className="icon"><CAD_ICONS.Room /></span> <span className="label">Label Room</span>
+                </button>
+                <button className="ribbon-btn" onClick={handleExportRoofInput} title="Export current page roofs to dataset JSON">
+                  <span className="icon"><CAD_ICONS.Roof /></span> <span className="label">Label Roof</span>
                 </button>
                 <button className="ribbon-btn" onClick={() => {
                   const pagesWithRooms = pages.map((_, i) => ({

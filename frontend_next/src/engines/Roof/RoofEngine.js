@@ -8,7 +8,7 @@ import { ApiService } from "@/models/api.service";
  * - trimRoofEave: CAD Eave Overhang Clipping along Wall Boundaries
  * - optimizeRoofGraph: Planar Solver for interactive graph modifications
  */
-function getRealScaleMm(scaleFactor, realScale) {
+export function getMmPerPx(scaleFactor, realScale) {
   if (typeof realScale === 'number' && realScale > 0) {
     return realScale;
   }
@@ -18,7 +18,11 @@ function getRealScaleMm(scaleFactor, realScale) {
   return 20.0; // fallback: 20 mm per pixel
 }
 
+export const getRealScaleMm = getMmPerPx;
+
 const RoofEngine = {
+  getMmPerPx,
+  getRealScaleMm,
   /**
    * Prepares payload matching roof_1_input_v3.json format
    * @param {Object} params
@@ -307,7 +311,51 @@ const RoofEngine = {
   },
 
   /**
-   * 4. Export full 2D and 3D Input & Output data for inspection, debugging, and backup
+   * 4. Export exact roof input JSON payload matching roof_1_input_v3.json format
+   * @param {Object} params
+   * @param {Object} params.roof - Roof object
+   * @param {number} params.scaleFactor - Scale factor
+   * @param {number} params.realScale - Real calibrated mm per pixel
+   * @param {boolean} [params.download=true] - Trigger file download
+   * @param {string} [params.filename] - Custom output filename
+   */
+  exportRoofInput: function({ roof, scaleFactor, realScale, download = true, filename }) {
+    if (!roof) {
+      console.warn("RoofEngine.exportRoofInput: No roof provided.");
+      return null;
+    }
+
+    const payload = RoofEngine.createRoofPayload({ roof, scaleFactor, realScale });
+    if (!payload) {
+      console.warn("RoofEngine.exportRoofInput: Could not create payload from roof.", roof);
+      return null;
+    }
+
+    console.log("📦 [RoofEngine] Exported Roof Input JSON:", payload);
+
+    if (download && typeof window !== 'undefined') {
+      try {
+        const jsonStr = JSON.stringify(payload, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const safeName = (roof.name || `roof_${roof.id}`).replace(/[^a-z0-9_-]/gi, '_');
+        a.href = url;
+        a.download = filename || `${safeName}_input_v3.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error("Failed to trigger roof input download:", err);
+      }
+    }
+
+    return payload;
+  },
+
+  /**
+   * 5. Export full 2D and 3D Input & Output data for inspection, debugging, and backup
    */
   exportRoofIO: function({ roof, scaleFactor, realScale, download = true }) {
     if (!roof) {
@@ -411,6 +459,337 @@ const RoofEngine = {
     }
 
     return exportBundle;
+  },
+
+  /**
+   * Traces the exterior wall boundary cycle from active walls in CCW order.
+   * Extracts centerline points in mm and pixels along with individual wall thicknesses.
+   */
+  traceExteriorWallLoop: function(walls, realScale) {
+    if (!Array.isArray(walls) || walls.length < 3) return null;
+
+    const mmPerPx = typeof realScale === 'number' && realScale > 0 ? realScale : 20.0;
+    const snapTolPx = Math.max(3.0, 30.0 / mmPerPx); // ~30mm snap tolerance
+
+    // 1. Filter exterior walls
+    let extWalls = walls.filter(w => {
+      const cls = (w.class_name || w.type || w.wall_type || "").toLowerCase();
+      return cls.includes("exterior") || cls.includes("ext") || cls === "ext_wall" || w.is_exterior;
+    });
+
+    // Fallback if no walls explicitly tagged as exterior: use all non-partition walls
+    if (extWalls.length < 3) {
+      extWalls = walls.filter(w => {
+        const cls = (w.class_name || w.type || w.wall_type || "").toLowerCase();
+        return !cls.includes("interior") && !cls.includes("partition") && !cls.includes("part");
+      });
+    }
+    if (extWalls.length < 3) extWalls = [...walls];
+    if (extWalls.length < 3) return null;
+
+    // 2. Collect wall segments in pixel coordinates
+    const segments = [];
+    extWalls.forEach((w, wIdx) => {
+      let p1 = null;
+      let p2 = null;
+
+      if (Array.isArray(w.centerline_px) && w.centerline_px.length >= 2) {
+        p1 = { x: w.centerline_px[0][0], y: w.centerline_px[0][1] };
+        p2 = { x: w.centerline_px[1][0], y: w.centerline_px[1][1] };
+      } else if (Array.isArray(w.centerline) && w.centerline.length >= 2) {
+        const c1 = w.centerline[0];
+        const c2 = w.centerline[1];
+        p1 = { x: Array.isArray(c1) ? c1[0] : (c1.x ?? 0), y: Array.isArray(c1) ? c1[1] : (c1.y ?? 0) };
+        p2 = { x: Array.isArray(c2) ? c2[0] : (c2.x ?? 0), y: Array.isArray(c2) ? c2[1] : (c2.y ?? 0) };
+      } else if (Array.isArray(w.centerline_mm) && w.centerline_mm.length >= 2) {
+        p1 = { x: w.centerline_mm[0][0] / mmPerPx, y: w.centerline_mm[0][1] / mmPerPx };
+        p2 = { x: w.centerline_mm[1][0] / mmPerPx, y: w.centerline_mm[1][1] / mmPerPx };
+      }
+
+      if (p1 && p2 && Math.hypot(p2.x - p1.x, p2.y - p1.y) > 1.0) {
+        let thickMm = 90.0;
+        if (typeof w.thickness_mm === 'number' && w.thickness_mm > 0) {
+          thickMm = w.thickness_mm;
+        } else if (typeof w.thickness === 'number' && w.thickness > 0) {
+          // In EzeFloor, wall.thickness is standardly in mm (e.g. 70, 90, 110, 120, 200, 220)
+          thickMm = w.thickness >= 30 ? w.thickness : w.thickness * mmPerPx;
+        } else if (typeof w.thickness_px === 'number' && w.thickness_px > 0) {
+          thickMm = w.thickness_px * mmPerPx;
+        }
+
+        let heightMm = 2700.0;
+        if (typeof w.height_mm === 'number' && w.height_mm > 0) {
+          heightMm = w.height_mm;
+        } else if (typeof w.height_m === 'number' && w.height_m > 0) {
+          heightMm = w.height_m * 1000;
+        } else if (typeof w.height === 'number' && w.height > 0) {
+          heightMm = w.height >= 500 ? w.height : w.height * 1000;
+        }
+
+        segments.push({
+          id: w.id || `wall_${wIdx}`,
+          p1,
+          p2,
+          thicknessMm: thickMm,
+          heightMm: heightMm,
+          wall: w
+        });
+      }
+    });
+
+    if (segments.length < 3) return null;
+
+    // 3. Snap endpoints together into a unified vertex pool
+    const snappedVertices = [];
+    function getOrCreateVertex(pt) {
+      for (let i = 0; i < snappedVertices.length; i++) {
+        const sv = snappedVertices[i];
+        if (Math.hypot(sv.x - pt.x, sv.y - pt.y) <= snapTolPx) {
+          return i;
+        }
+      }
+      snappedVertices.push({ x: pt.x, y: pt.y });
+      return snappedVertices.length - 1;
+    }
+
+    const graphEdges = segments.map((seg, sIdx) => {
+      const u = getOrCreateVertex(seg.p1);
+      const v = getOrCreateVertex(seg.p2);
+      return { u, v, segment: seg, sIdx };
+    }).filter(e => e.u !== e.v);
+
+    // 4. Build adjacency graph
+    const adj = {};
+    for (let i = 0; i < snappedVertices.length; i++) adj[i] = [];
+    graphEdges.forEach(e => {
+      adj[e.u].push({ next: e.v, edge: e, dir: 1 });
+      adj[e.v].push({ next: e.u, edge: e, dir: -1 });
+    });
+
+    // 5. Trace the exterior closed cycle starting at left-most vertex
+    let startV = 0;
+    for (let i = 1; i < snappedVertices.length; i++) {
+      if (snappedVertices[i].x < snappedVertices[startV].x ||
+         (Math.abs(snappedVertices[i].x - snappedVertices[startV].x) < 1e-4 && snappedVertices[i].y < snappedVertices[startV].y)) {
+        startV = i;
+      }
+    }
+
+    const visitedEdges = new Set();
+    const cycle = [];
+    let currV = startV;
+    let maxSteps = segments.length * 2 + 10;
+    let prevV = null;
+
+    while (maxSteps-- > 0) {
+      const neighbors = adj[currV] || [];
+      let nextCandidate = null;
+
+      if (prevV === null) {
+        nextCandidate = neighbors[0];
+      } else {
+        const inDx = snappedVertices[currV].x - snappedVertices[prevV].x;
+        const inDy = snappedVertices[currV].y - snappedVertices[prevV].y;
+        const inAngle = Math.atan2(inDy, inDx);
+
+        let bestDiff = -Infinity;
+        for (const n of neighbors) {
+          if (n.next === prevV && neighbors.length > 1) continue;
+          const outDx = snappedVertices[n.next].x - snappedVertices[currV].x;
+          const outDy = snappedVertices[n.next].y - snappedVertices[currV].y;
+          const outAngle = Math.atan2(outDy, outDx);
+          let diff = outAngle - inAngle;
+          while (diff <= -Math.PI) diff += 2 * Math.PI;
+          while (diff > Math.PI) diff -= 2 * Math.PI;
+
+          if (diff > bestDiff) {
+            bestDiff = diff;
+            nextCandidate = n;
+          }
+        }
+        if (!nextCandidate && neighbors.length > 0) nextCandidate = neighbors[0];
+      }
+
+      if (!nextCandidate) break;
+
+      const edgeKey = `${Math.min(currV, nextCandidate.next)}_${Math.max(currV, nextCandidate.next)}`;
+      cycle.push({
+        vIdx: currV,
+        point: snappedVertices[currV],
+        edge: nextCandidate.edge
+      });
+      visitedEdges.add(edgeKey);
+
+      prevV = currV;
+      currV = nextCandidate.next;
+
+      if (currV === startV) {
+        break; // Loop completed!
+      }
+    }
+
+    if (cycle.length < 3 || currV !== startV) {
+      const simpleVertices = [];
+      const simpleThicknesses = [];
+      let avgHeight = 2700;
+      segments.forEach(seg => {
+        simpleVertices.push(seg.p1);
+        simpleThicknesses.push(seg.thicknessMm);
+        avgHeight = seg.heightMm || avgHeight;
+      });
+      return {
+        verticesPixels: simpleVertices,
+        verticesMm: simpleVertices.map(p => [p.x * mmPerPx, p.y * mmPerPx]),
+        edgeThicknessesMm: simpleThicknesses,
+        wallHeightMm: avgHeight
+      };
+    }
+
+    const loopVerticesPixels = cycle.map(c => c.point);
+    const loopThicknessesMm = cycle.map(c => c.edge.segment.thicknessMm);
+    const avgWallHeightMm = cycle.reduce((sum, c) => sum + (c.edge.segment.heightMm || 2700), 0) / cycle.length;
+
+    // 6. Ensure CCW in Cartesian space (CW in screen space where Y points down)
+    let signedArea = 0;
+    const n = loopVerticesPixels.length;
+    for (let i = 0; i < n; i++) {
+      const p1 = loopVerticesPixels[i];
+      const p2 = loopVerticesPixels[(i + 1) % n];
+      signedArea += (p1.x * p2.y - p2.x * p1.y);
+    }
+
+    if (signedArea < 0) {
+      loopVerticesPixels.reverse();
+      loopThicknessesMm.reverse();
+      loopThicknessesMm.push(loopThicknessesMm.shift());
+    }
+
+    return {
+      verticesPixels: loopVerticesPixels,
+      verticesMm: loopVerticesPixels.map(p => [p.x * mmPerPx, p.y * mmPerPx]),
+      edgeThicknessesMm: loopThicknessesMm,
+      wallHeightMm: avgWallHeightMm || 2700
+    };
+  },
+
+  /**
+   * Automatically generates a clean, production-ready Roof object from wall centerlines.
+   * Stage 1: Computes outer wall offset (w_i / 2) via CGAL straight skeleton.
+   * Stage 2: Extracts new eave contour as roof.polygon with OVH = 0.0mm.
+   * Stage 3: Runs full 3D plane & mesh builder on the new roof.
+   */
+  generateAutoRoofFromWalls: async function({
+    walls,
+    realScale,
+    scaleFactor,
+    defaultPitch = 22.5,
+    wallHeight = 2700,
+    existingRoofsCount = 0
+  }) {
+    const loopData = this.traceExteriorWallLoop(walls, realScale);
+    if (!loopData || !loopData.verticesPixels || loopData.verticesPixels.length < 3) {
+      throw new Error("Could not trace a closed exterior wall loop. Please ensure walls are connected.");
+    }
+
+    const mmPerPx = getRealScaleMm(scaleFactor, realScale);
+    const n = loopData.verticesMm.length;
+
+    // Stage 1: Compute outer wall offset (W_i / 2)
+    const wallHalfOffsets = loopData.edgeThicknessesMm.map(t => Math.max(10.0, (t || 90.0) / 2.0));
+    const offsetPayload = {
+      points: loopData.verticesMm,
+      angles: Array(n).fill(defaultPitch),
+      overhangs: wallHalfOffsets,
+      mode: 'topology',
+      roof_type: 'hip_gable',
+      eave_edge_index: 0,
+      wall_height: loopData.wallHeightMm || wallHeight,
+      scale_factor: mmPerPx,
+      raw_points_pixels: loopData.verticesPixels.map(p => [p.x, p.y])
+    };
+
+    const topoRes = await this.calculateTopology2D(offsetPayload);
+    if (!topoRes || !topoRes.result) {
+      throw new Error(topoRes?.detail || "Failed to compute outer wall polygon from CGAL.");
+    }
+
+    const rawTopology = topoRes.result;
+    const nodes = rawTopology.nodes || [];
+    const edges = rawTopology.edges || [];
+
+    // Stage 2: Extract the ordered offset contour vertices from CGAL topology
+    const contourEdges = edges.filter(e => e.is_contour || !e.is_bisector);
+    let outerPolygonPixels = [];
+
+    if (contourEdges.length >= 3) {
+      const contourAdj = {};
+      contourEdges.forEach(e => {
+        if (!contourAdj[e.source]) contourAdj[e.source] = [];
+        if (!contourAdj[e.target]) contourAdj[e.target] = [];
+        contourAdj[e.source].push(e.target);
+        contourAdj[e.target].push(e.source);
+      });
+
+      const startNodeId = contourEdges[0].source;
+      const visited = new Set();
+      let curr = startNodeId;
+      let prev = null;
+      let steps = nodes.length + 5;
+
+      while (steps-- > 0) {
+        visited.add(curr);
+        const nodeObj = nodes.find(nd => nd.id === curr);
+        if (nodeObj) {
+          outerPolygonPixels.push({
+            x: nodeObj.x / mmPerPx,
+            y: nodeObj.y / mmPerPx
+          });
+        }
+
+        const neighbors = (contourAdj[curr] || []).filter(nbr => nbr !== prev);
+        if (neighbors.length === 0) break;
+        const nextNode = neighbors.find(nbr => !visited.has(nbr)) || neighbors[0];
+        if (nextNode === startNodeId && outerPolygonPixels.length >= 3) break;
+        if (visited.has(nextNode)) break;
+
+        prev = curr;
+        curr = nextNode;
+      }
+    }
+
+    // Fallback if contour tracing produced < 3 points: use raw points
+    if (outerPolygonPixels.length < 3) {
+      outerPolygonPixels = loopData.verticesPixels.map(p => ({ x: p.x, y: p.y }));
+    }
+
+    const m = outerPolygonPixels.length;
+    const roofName = `Roof ${String.fromCharCode(65 + (existingRoofsCount % 26))}`;
+
+    // Stage 3: Create pristine Roof object (baseline OVH = 0mm)
+    const newRoof = {
+      id: `roof_${Date.now()}`,
+      name: roofName,
+      polygon: outerPolygonPixels,
+      angles: Array(m).fill(defaultPitch),
+      overhangs: Array(m).fill(0.0), // Baseline OVH = 0mm
+      roofType: 'hip_gable',
+      eaveEdgeIndex: 0,
+      wallHeight: loopData.wallHeightMm || wallHeight,
+      holes: [],
+      holeAngles: [],
+      v3Data: null,
+      isDirty: false
+    };
+
+    // Stage 4: Run full 3D pipeline on the new roof
+    const v3Data = await this.computeRoofPipeline({
+      roof: newRoof,
+      scaleFactor,
+      realScale
+    });
+    newRoof.v3Data = v3Data;
+
+    return newRoof;
   }
 };
 

@@ -2442,7 +2442,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       overhangs: Array(n).fill(0.0),     // Mặc định 0 mm cho N cạnh
       roofType: 'hip_gable',
       eaveEdgeIndex: 0,
-      wallHeight: defaultHeightVal || 2700,
+      wallHeight: 2700,
       holes: [],
       holeAngles: [],
       v3Data: null,
@@ -2504,6 +2504,70 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       realScale,
       download: true
     });
+  }
+
+  function exportRoofInput(roofId = selectedRoofId, filename) {
+    let targetRoof = null;
+    const pageRoofs = roofsByPage[currentPage] || [];
+    if (roofId) {
+      targetRoof = pageRoofs.find(r => r.id === roofId);
+    } else if (pageRoofs.length > 0) {
+      targetRoof = pageRoofs[0];
+    }
+    if (!targetRoof) {
+      if (showAlert) showAlert("No roof polygon found to export. Please draw a roof first.");
+      return null;
+    }
+
+    return RoofEngine.exportRoofInput({
+      roof: targetRoof,
+      scaleFactor: scaleValue,
+      realScale,
+      download: true,
+      filename
+    });
+  }
+
+  async function generateRoofFromWalls(options = {}) {
+    const pageWalls = wallsByPage[currentPage] || [];
+    if (!pageWalls || pageWalls.length < 3) {
+      if (showAlert) showAlert("No walls found on this page. Please detect or draw walls first.");
+      return null;
+    }
+
+    try {
+      setIsComputingRoof(true);
+      const pageRoofs = roofsByPage[currentPage] || [];
+      const defaultPitch = typeof options.defaultPitch === 'number' ? options.defaultPitch : 22.5;
+      const wallHeight = typeof options.wallHeight === 'number' ? options.wallHeight : 2700;
+
+      const newRoof = await RoofEngine.generateAutoRoofFromWalls({
+        walls: pageWalls,
+        realScale,
+        scaleFactor: scaleValue,
+        defaultPitch,
+        wallHeight,
+        existingRoofsCount: pageRoofs.length
+      });
+
+      if (!newRoof) {
+        throw new Error("Could not generate roof from walls.");
+      }
+
+      pushRoofHistory([...pageRoofs, newRoof]);
+      setSelectedRoofId(newRoof.id);
+      setSelectedId(newRoof.id);
+      setSelectedType("roof");
+      if (setInteractionMode) setInteractionMode("select");
+
+      return newRoof;
+    } catch (err) {
+      console.error("[RoofEngine] Generate Roof from Walls error:", err);
+      if (showAlert) showAlert(err.message || "Failed to generate roof from walls");
+      return null;
+    } finally {
+      setIsComputingRoof(false);
+    }
   }
 
   async function trimRoofEdge(roofId, edgeIndex) {
@@ -4373,6 +4437,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
     setRoofEdgeMode,
     exportRoofIO,
+    exportRoofInput,
+    generateRoofFromWalls,
     toggleDutchEdge, updateDutchOverhang, updateDutchRakeOverhang, updateDutchCutPoints,
     undoRoof, redoRoof,
     currentPoly, setCurrentPoly,

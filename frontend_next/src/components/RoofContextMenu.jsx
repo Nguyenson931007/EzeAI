@@ -15,6 +15,7 @@ const RoofContextMenu = ({
   onCancelDrawDutch,
   onUpdateRoofType,
   onTrimEdge,
+  onExportRoofInput,
   onDeleteRoof
 }) => {
   const menuRef = useRef(null);
@@ -245,6 +246,30 @@ const RoofContextMenu = ({
         <span>✂️</span>
         <span>Trim Eave Overhang</span>
       </div>
+
+      {/* Debug raw roof input JSON export
+      <div
+        style={{
+          padding: '7px 12px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          borderTop: '1px solid #1e293b',
+          color: '#38bdf8'
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+        onClick={(e) => {
+          e.stopPropagation();
+          onExportRoofInput?.(roof.id);
+          onClose();
+        }}
+      >
+        <span>📥</span>
+        <span>Export Input (JSON)</span>
+      </div>
+      */}
 
       {/* Delete Roof Action */}
       <div

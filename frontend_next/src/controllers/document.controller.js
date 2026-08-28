@@ -12,6 +12,10 @@
 import { useState } from "react";
 import { jsPDF } from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
+
+if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+}
 import { centroid, polygonAreaM2 as polygonAreaM2Util } from "@/utils/geometry";
 import { BASE_URL } from "@/models/api.service";
 import { useDialog } from "@/components/DialogContext";
