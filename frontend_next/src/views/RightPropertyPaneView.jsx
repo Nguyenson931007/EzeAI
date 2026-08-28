@@ -19,6 +19,22 @@ import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirti
 import floorTypesConfig from "@/constants/floorTypes.json";
 import RoofInspectorCard from "@/components/RoofInspectorCard";
 import { roundLintelLength } from "@/controllers/lintel.controller";
+import {
+  FrameHardwareTask,
+  EavesSoffitTask,
+  CladdingTask,
+  InsulationTask,
+  FlooringDeckingTask,
+  TimberPostsTask,
+  FixoutTask,
+  LockupTask,
+  ShelvingTask,
+  DoorsFurnitureTask,
+  FowPlumbingTask,
+  PowerTrussBracesTask,
+  FinalFitTask,
+  SheetScheduleTask
+} from "@/components/task-modules";
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -2401,6 +2417,66 @@ export default function RightPropertyPaneView({
 
   const isTaskModuleActive = EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
   const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
+
+  const cadMetrics = React.useMemo(() => {
+    const scale = realScale || 1;
+    let totalLenM = 0;
+    let extLenM = 0;
+    if (Array.isArray(walls)) {
+      walls.forEach(w => {
+        let lenM = 0;
+        if (typeof w.length_m === "number") lenM = w.length_m;
+        else if (typeof w.length === "number") lenM = w.length;
+        else if (Array.isArray(w.points) && w.points.length >= 2) {
+          const p1 = w.points[0];
+          const p2 = w.points[1];
+          const x1 = Array.isArray(p1) ? p1[0] : p1.x;
+          const y1 = Array.isArray(p1) ? p1[1] : p1.y;
+          const x2 = Array.isArray(p2) ? p2[0] : p2.x;
+          const y2 = Array.isArray(p2) ? p2[1] : p2.y;
+          const distPx = Math.hypot(x2 - x1, y2 - y1);
+          lenM = (distPx * scale) / 1000;
+        }
+        totalLenM += lenM;
+        const cls = typeof getWallClass === "function" ? getWallClass(w) : (w.class_name || w.type || "");
+        if (cls === "exterior_wall" || cls === "ext" || w.is_ext || w.is_exterior) {
+          extLenM += lenM;
+        }
+      });
+    }
+
+    let totalFloorM2 = 0;
+    if (Array.isArray(rooms)) {
+      rooms.forEach(r => {
+        totalFloorM2 += r.areaM2 || (r.area ? r.area / 1000000 : 0) || 0;
+      });
+    }
+
+    const currentRoofs = roofsByPage?.[currentPage] || [];
+    let totalRoofM2 = 0;
+    if (Array.isArray(currentRoofs)) {
+      currentRoofs.forEach(rf => {
+        totalRoofM2 += rf.areaM2 || rf.area || 0;
+      });
+    }
+
+    const grandLen = Number(totalLenM.toFixed(2));
+    const extLen = extLenM > 0 ? Number(extLenM.toFixed(2)) : Number((grandLen * 0.65).toFixed(2));
+    const flrArea = Number(totalFloorM2.toFixed(2));
+    const rfArea = Number(totalRoofM2.toFixed(2));
+    const perim = rfArea > 0 ? Number((Math.sqrt(rfArea) * 4).toFixed(2)) : grandLen;
+
+    return {
+      grandTotalLength: grandLen || 42.5,
+      grandTotalArea: flrArea || 112.5,
+      externalWallLength: extLen || 28.4,
+      totalFloorArea: flrArea || 112.5,
+      totalRoofArea: rfArea || 145.0,
+      perimeterM: perim || 45.0,
+      doorCount: Array.isArray(doors) ? doors.length : 8,
+      skirtingLm: Number((grandLen * 0.9).toFixed(1)) || 38.0
+    };
+  }, [walls, doors, rooms, realScale, roofsByPage, currentPage]);
 
   return (
     <div
@@ -6410,1205 +6486,160 @@ export default function RightPropertyPaneView({
 
             {/* 1. Frame Hardware */}
             {activeModuleTab.id === "frame_hardware" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Wall height</div>
-                  <select
-                    value={moduleFormData.frame_hardware?.wall_height || ""}
-                    onChange={(e) => handleModuleFormChange("frame_hardware", "wall_height", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="2400 mm">2400 mm</option>
-                    <option value="2550 mm">2550 mm</option>
-                    <option value="2700 mm">2700 mm</option>
-                    <option value="3000 mm">3000 mm</option>
-                    <option value="3300 mm">3300 mm</option>
-                    <option value="3600 mm">3600 mm</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Wall length</span>
-                    <span className="task-field-unit">lm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.frame_hardware?.wall_length || ""}
-                    onChange={(e) => handleModuleFormChange("frame_hardware", "wall_length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Wind classification</div>
-                  <select
-                    value={moduleFormData.frame_hardware?.wind_class || ""}
-                    onChange={(e) => handleModuleFormChange("frame_hardware", "wind_class", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="N1">N1 (Low)</option>
-                    <option value="N2">N2 (Standard)</option>
-                    <option value="N3">N3 (Moderate)</option>
-                    <option value="N4">N4 (High)</option>
-                    <option value="N5">N5 (Very High)</option>
-                    <option value="C1">C1 (Cyclonic)</option>
-                    <option value="C2">C2 (Cyclonic Severe)</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Base construction</div>
-                  <select
-                    value={moduleFormData.frame_hardware?.base_construction || ""}
-                    onChange={(e) => handleModuleFormChange("frame_hardware", "base_construction", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Concrete Slab">Concrete Slab</option>
-                    <option value="Timber Floor (Subfloor)">Timber Floor (Subfloor)</option>
-                    <option value="Brick Pier & Bearers">Brick Pier & Bearers</option>
-                    <option value="Suspended Concrete">Suspended Concrete</option>
-                  </select>
-                </div>
-              </>
+              <FrameHardwareTask
+                formData={moduleFormData.frame_hardware || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={{ grandTotalLength: cadMetrics.grandTotalLength }}
+                entries={frameWallEntries}
+                onSetEntries={setFrameWallEntries}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
-            {/* 2. Eaves & Soffit */}
+            {/* 2. Eaves Soffit */}
             {activeModuleTab.id === "eaves_soffit" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Building level</div>
-                  <select
-                    value={moduleFormData.eaves_soffit?.building_level || ""}
-                    onChange={(e) => handleModuleFormChange("eaves_soffit", "building_level", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Level 1 (Ground)">Level 1 (Ground)</option>
-                    <option value="Level 2 (First Floor)">Level 2 (First Floor)</option>
-                    <option value="Level 3 (Upper)">Level 3 (Upper)</option>
-                    <option value="All Levels">All Levels</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Eave width</span>
-                    <span className="task-field-unit">mm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.eaves_soffit?.eave_width || ""}
-                    onChange={(e) => handleModuleFormChange("eaves_soffit", "eave_width", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Total eave length</span>
-                    <span className="task-field-unit">lm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.eaves_soffit?.total_eave_length || ""}
-                    onChange={(e) => handleModuleFormChange("eaves_soffit", "total_eave_length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Soffit material</div>
-                  <select
-                    value={moduleFormData.eaves_soffit?.soffit_material || ""}
-                    onChange={(e) => handleModuleFormChange("eaves_soffit", "soffit_material", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="4.5mm HardieFlex / FC Sheet">4.5mm HardieFlex / FC Sheet</option>
-                    <option value="6mm Villaboard">6mm Villaboard</option>
-                    <option value="Timber Lining Board">Timber Lining Board</option>
-                    <option value="Aluminium Slats">Aluminium Slats</option>
-                    <option value="PVC / Vinyl Soffit">PVC / Vinyl Soffit</option>
-                  </select>
-                </div>
-              </>
+              <EavesSoffitTask
+                formData={moduleFormData.eaves_soffit || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={{ perimeterM: cadMetrics.perimeterM }}
+                entries={eavesEntries}
+                onSetEntries={setEavesEntries}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
-            {/* 3. Cladding - 3 Cards */}
+            {/* 3. Cladding */}
             {activeModuleTab.id === "cladding" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-                    🧱 1. External wall cladding measurements
-                  </div>
-                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Elevation</span>
-                        <input type="text" placeholder="Front Elevation" value={cladElev} onChange={(e) => setCladElev(e.target.value)} className="task-field-input" />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall height (mm)</span>
-                        <input type="text" placeholder="2700" value={cladHeight} onChange={(e) => setCladHeight(e.target.value)} className="task-field-input" />
-                      </div>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px" }}>
-                      <div>
-                        <span style={{ fontSize: "9.5px", color: "#64748b" }}>Wall length (mm)</span>
-                        <input type="text" placeholder="12500" value={cladLength} onChange={(e) => setCladLength(e.target.value)} className="task-field-input" />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "9.5px", color: "#64748b" }}>Openings (m²)</span>
-                        <input type="text" placeholder="4.2" value={cladOpenings} onChange={(e) => setCladOpenings(e.target.value)} className="task-field-input" />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "9.5px", color: "#64748b" }}>Waste %</span>
-                        <input type="text" placeholder="10" value={cladWaste} onChange={(e) => setCladWaste(e.target.value)} className="task-field-input" />
-                      </div>
-                    </div>
-                    <button type="button" onClick={handleAddCladdingWall} style={{ padding: "6px", background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
-                      + Add Wall Cladding
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-                    📋 2. Entered cladding walls ({claddingWallEntries.length})
-                  </div>
-                  <div style={{ padding: "8px", overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
-                      <thead>
-                        <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                          <th style={{ padding: "4px" }}>#</th>
-                          <th style={{ padding: "4px" }}>Elevation</th>
-                          <th style={{ padding: "4px" }}>H</th>
-                          <th style={{ padding: "4px" }}>L</th>
-                          <th style={{ padding: "4px" }}>Net m²</th>
-                          <th style={{ padding: "4px" }}>Total m²</th>
-                          <th style={{ padding: "4px" }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {claddingWallEntries.map((c, i) => (
-                          <tr key={c.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                            <td style={{ padding: "4px", fontWeight: 700 }}>{i + 1}</td>
-                            <td style={{ padding: "4px" }}>{c.elevation}</td>
-                            <td style={{ padding: "4px" }}>{c.height}mm</td>
-                            <td style={{ padding: "4px" }}>{c.length}mm</td>
-                            <td style={{ padding: "4px" }}>{c.netArea}</td>
-                            <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{c.totalArea}</td>
-                            <td style={{ padding: "4px", textAlign: "right" }}><button onClick={() => setCladdingWallEntries(p => p.filter(x => x.id !== c.id))} style={{ background: "none", border: "none", color: "#ef4444", fontWeight: 800 }}>✕</button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-                    📊 3. Automatic Cladding schedule
-                  </div>
-                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
-                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#1d4ed8" }}>{claddingWallEntries.reduce((s, c) => s + c.netArea, 0).toFixed(1)} m²</div>
-                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Net Cladding Area</div>
-                      </div>
-                      <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
-                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#047857" }}>{claddingWallEntries.reduce((s, c) => s + c.totalArea, 0).toFixed(1)} m²</div>
-                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Total with Waste</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <CladdingTask
+                formData={moduleFormData.cladding || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={{ externalWallLength: cadMetrics.externalWallLength }}
+                entries={claddingWallEntries}
+                onSetEntries={setCladdingWallEntries}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
-            {/* 4. Insulation - 3 Full Forms */}
+            {/* 4. Insulation */}
             {activeModuleTab.id === "insulation" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-                  <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span>🧱 1. Insulation Wall</span>
-                  </div>
-
-                  {/* Sub-block stacked tabs for Ext Wall, Int Wall, Partiwall */}
-                  <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {[
-                      { key: "external", label: "▼ Ext wall", defaultR: "R2.0", defaultProd: "0810608 - INS BATT R2.0 430MM" },
-                      { key: "internal", label: "▼ Int Wall", defaultR: "R1.5", defaultProd: "0810611 - INS SOUNDBATT R1.5" },
-                      { key: "partiwall", label: "▼ Partiwall", defaultR: "R2.5", defaultProd: "0810609 - INS BATT R2.5 430MM" }
-                    ].map(sub => (
-                      <div key={sub.key} style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden", background: "#fafafa" }}>
-                        <div style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "700", color: "#1e293b", background: "#f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span>{sub.label}</span>
-                          <span style={{ fontSize: "10px", color: "#64748b", fontWeight: "500" }}>
-                            ({insulationWallEntries.filter(w => w.type === sub.key).length} đã nhập)
-                          </span>
-                        </div>
-                        <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                            <div>
-                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Height (mm)</span>
-                              <input
-                                type="text"
-                                placeholder="2700"
-                                value={insWallType === sub.key ? insWallHeight : "2700"}
-                                onChange={(e) => { setInsWallType(sub.key); setInsWallHeight(e.target.value); }}
-                                className="task-field-input"
-                              />
-                            </div>
-                            <div>
-                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Length (mm)</span>
-                              <input
-                                type="text"
-                                placeholder="12000"
-                                value={insWallType === sub.key ? insWallLength : ""}
-                                onChange={(e) => { setInsWallType(sub.key); setInsWallLength(e.target.value); }}
-                                className="task-field-input"
-                              />
-                            </div>
-                          </div>
-
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                            <div>
-                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>R Value</span>
-                              <select
-                                value={insWallType === sub.key ? insWallRValue : sub.defaultR}
-                                onChange={(e) => { setInsWallType(sub.key); setInsWallRValue(e.target.value); }}
-                                className="task-field-select"
-                              >
-                                <option value="R1.5">R1.5 (Acoustic)</option>
-                                <option value="R2.0">R2.0 (Thermal)</option>
-                                <option value="R2.5">R2.5 (High Thermal)</option>
-                                <option value="R3.0">R3.0 (Wall/Ceiling)</option>
-                              </select>
-                            </div>
-                            <div>
-                              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Product</span>
-                              <select
-                                value={insWallType === sub.key ? insWallProduct : sub.defaultProd}
-                                onChange={(e) => { setInsWallType(sub.key); setInsWallProduct(e.target.value); }}
-                                className="task-field-select"
-                              >
-                                <option value="0810608 - INS BATT R2.0 430MM">0810608 - INS BATT R2.0 430MM</option>
-                                <option value="0810609 - INS BATT R2.5 430MM">0810609 - INS BATT R2.5 430MM</option>
-                                <option value="0810611 - INS SOUNDBATT R1.5">0810611 - INS SOUNDBATT R1.5</option>
-                                <option value="0810612 - INS SOUNDBATT R2.0">0810612 - INS SOUNDBATT R2.0</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", alignItems: "end" }}>
-                            <div>
-                              <span style={{ fontSize: "9.5px", color: "#64748b" }}>Raked (m²)</span>
-                              <input
-                                type="text"
-                                placeholder="0"
-                                value={insWallType === sub.key ? insWallRaked : "0"}
-                                onChange={(e) => { setInsWallType(sub.key); setInsWallRaked(e.target.value); }}
-                                className="task-field-input"
-                              />
-                            </div>
-                            <div>
-                              <span style={{ fontSize: "9.5px", color: "#64748b" }}>Door (m²)</span>
-                              <input
-                                type="text"
-                                placeholder="0"
-                                value={insWallType === sub.key ? insWallDoor : "0"}
-                                onChange={(e) => { setInsWallType(sub.key); setInsWallDoor(e.target.value); }}
-                                className="task-field-input"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setInsWallType(sub.key);
-                                handleAddInsulationWall(sub.key);
-                              }}
-                              style={{
-                                padding: "6px",
-                                background: "#1e3a8a",
-                                color: "#ffffff",
-                                border: "none",
-                                borderRadius: "5px",
-                                fontSize: "10.5px",
-                                fontWeight: "700",
-                                cursor: "pointer",
-                                height: "29px"
-                              }}
-                            >
-                              + Add wall
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Wall Entries Table Summary */}
-                  <div style={{ padding: "0 8px 8px 8px", overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
-                      <thead>
-                        <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                          <th style={{ padding: "4px" }}>#</th>
-                          <th style={{ padding: "4px" }}>Type</th>
-                          <th style={{ padding: "4px" }}>R</th>
-                          <th style={{ padding: "4px" }}>Product</th>
-                          <th style={{ padding: "4px" }}>H</th>
-                          <th style={{ padding: "4px" }}>L</th>
-                          <th style={{ padding: "4px" }}>Net m²</th>
-                          <th style={{ padding: "4px" }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {insulationWallEntries.map((w, idx) => (
-                          <tr key={w.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                            <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                            <td style={{ padding: "4px", textTransform: "capitalize", fontWeight: 600 }}>{w.type}</td>
-                            <td style={{ padding: "4px" }}>{w.rValue}</td>
-                            <td style={{ padding: "4px", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.productName}>{w.productCode}</td>
-                            <td style={{ padding: "4px" }}>{w.height}</td>
-                            <td style={{ padding: "4px" }}>{w.length}</td>
-                            <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.netArea}</td>
-                            <td style={{ padding: "4px", textAlign: "right" }}>
-                              <button
-                                onClick={() => handleRemoveInsulationWall(w.id)}
-                                style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                        {insulationWallEntries.length === 0 && (
-                          <tr>
-                            <td colSpan={8} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
-                              Chưa có dòng tường cách nhiệt nào.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* ── CARD 2: INSULATION FLOOR & CEILING ── */}
-                <div style={{
-                  background: "#ffffff",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: "8px",
-                  overflow: "hidden"
-                }}>
-                  <div style={{
-                    padding: "9px 12px",
-                    background: "#f8fafc",
-                    borderBottom: "1px solid #e2e8f0",
-                    fontWeight: "800",
-                    fontSize: "12px",
-                    color: "#0f2744"
-                  }}>
-                    🏠 2. Insulation Floor & Ceiling
-                  </div>
-
-                  <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Insulation Type</span>
-                        <select
-                          value={insAreaType}
-                          onChange={(e) => setInsAreaType(e.target.value)}
-                          className="task-field-select"
-                        >
-                          <option value="ceiling">Ceiling</option>
-                          <option value="floor">Floor</option>
-                        </select>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>R Value</span>
-                        <select
-                          value={insAreaRValue}
-                          onChange={(e) => setInsAreaRValue(e.target.value)}
-                          className="task-field-select"
-                        >
-                          <option value="R2.5">R2.5 (Underfloor)</option>
-                          <option value="R3.0">R3.0 (Ceiling / Floor)</option>
-                          <option value="R4.0">R4.0 (Ceiling Batt)</option>
-                          <option value="R5.0">R5.0 (Super Thermal)</option>
-                          <option value="R6.0">R6.0 (High Performance)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "6px" }}>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Product</span>
-                        <select
-                          value={insAreaProduct}
-                          onChange={(e) => setInsAreaProduct(e.target.value)}
-                          className="task-field-select"
-                        >
-                          <option value="0810620 - INS CEILING BATT R4.0 430MM">0810620 - INS CEILING BATT R4.0 430MM</option>
-                          <option value="0810621 - INS CEILING BATT R5.0 430MM">0810621 - INS CEILING BATT R5.0 430MM</option>
-                          <option value="0810625 - INS UNDERFLOOR BATT R2.5">0810625 - INS UNDERFLOOR BATT R2.5</option>
-                        </select>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Total Area (m²)</span>
-                        <input
-                          type="text"
-                          placeholder="112.5"
-                          value={insAreaValue}
-                          onChange={(e) => setInsAreaValue(e.target.value)}
-                          className="task-field-input"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleAddInsulationArea}
-                      style={{
-                        padding: "6px",
-                        background: "#2563eb",
-                        color: "#ffffff",
-                        border: "none",
-                        borderRadius: "5px",
-                        fontSize: "11px",
-                        fontWeight: "700",
-                        cursor: "pointer",
-                        marginTop: "2px"
-                      }}
-                    >
-                      + Add area
-                    </button>
-
-                    {/* Floor & Ceiling Entries Table */}
-                    <div style={{ marginTop: "4px", overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
-                        <thead>
-                          <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                            <th style={{ padding: "4px" }}>#</th>
-                            <th style={{ padding: "4px" }}>Type</th>
-                            <th style={{ padding: "4px" }}>R</th>
-                            <th style={{ padding: "4px" }}>Product</th>
-                            <th style={{ padding: "4px" }}>Area m²</th>
-                            <th style={{ padding: "4px" }}></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {insulationAreaEntries.map((a, idx) => (
-                            <tr key={a.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                              <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                              <td style={{ padding: "4px", textTransform: "capitalize", fontWeight: 600 }}>{a.type}</td>
-                              <td style={{ padding: "4px" }}>{a.rValue}</td>
-                              <td style={{ padding: "4px", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.productName}>{a.productCode}</td>
-                              <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{a.area}</td>
-                              <td style={{ padding: "4px", textAlign: "right" }}>
-                                <button
-                                  onClick={() => handleRemoveInsulationArea(a.id)}
-                                  style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
-                                >
-                                  ✕
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                          {insulationAreaEntries.length === 0 && (
-                            <tr>
-                              <td colSpan={6} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
-                                Chưa có diện tích trần / sàn cách nhiệt nào.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── CARD 3: AUTOMATIC INSULATION SCHEDULE ── */}
-                <div style={{
-                  background: "#ffffff",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: "8px",
-                  overflow: "hidden"
-                }}>
-                  <div style={{
-                    padding: "9px 12px",
-                    background: "#f8fafc",
-                    borderBottom: "1px solid #e2e8f0",
-                    fontWeight: "800",
-                    fontSize: "12px",
-                    color: "#0f2744"
-                  }}>
-                    📊 3. Automatic Insulation schedule
-                  </div>
-
-                  <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
-                      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
-                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#1d4ed8" }}>
-                          {insulationWallEntries.reduce((s, w) => s + (w.height / 1000 * w.length / 1000 + w.rakedArea), 0).toFixed(1)} m²
-                        </div>
-                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Wall H*L m²</div>
-                      </div>
-                      <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
-                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#047857" }}>
-                          {insulationWallEntries.reduce((s, w) => s + w.netArea, 0).toFixed(1)} m²
-                        </div>
-                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Wall Net Insulation</div>
-                      </div>
-                      <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", padding: "6px", borderRadius: "6px", textAlign: "center" }}>
-                        <div style={{ fontSize: "13px", fontWeight: "800", color: "#7e22ce" }}>
-                          {insulationAreaEntries.reduce((s, a) => s + a.area, 0).toFixed(1)} m²
-                        </div>
-                        <div style={{ fontSize: "9px", color: "#64748b", fontWeight: 600 }}>Floor/Ceiling m²</div>
-                      </div>
-                    </div>
-
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
-                        <thead>
-                          <tr style={{ background: "#0f172a", color: "#ffffff", textAlign: "left" }}>
-                            <th style={{ padding: "4px 6px" }}>Description</th>
-                            <th style={{ padding: "4px 6px" }}>Area m²</th>
-                            <th style={{ padding: "4px 6px" }}>Coverage</th>
-                            <th style={{ padding: "4px 6px" }}>Qty</th>
-                            <th style={{ padding: "4px 6px" }}>Code</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[
-                            ...insulationWallEntries.map(w => ({ desc: `${w.productName} (${w.type.toUpperCase()})`, area: w.netArea, coverage: 28.5, code: w.productCode })),
-                            ...insulationAreaEntries.map(a => ({ desc: `${a.productName} (${a.type.toUpperCase()})`, area: a.area, coverage: 16.5, code: a.productCode }))
-                          ].map((item, idx) => (
-                            <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                              <td style={{ padding: "4px 6px", fontWeight: 600, color: "#1e293b" }}>{item.desc}</td>
-                              <td style={{ padding: "4px 6px", fontWeight: 700 }}>{item.area}</td>
-                              <td style={{ padding: "4px 6px" }}>{item.coverage} m²</td>
-                              <td style={{ padding: "4px 6px", fontWeight: 800, color: "#10b981" }}>{Math.ceil(item.area / item.coverage)} Pack</td>
-                              <td style={{ padding: "4px 6px", color: "#64748b" }}>{item.code}</td>
-                            </tr>
-                          ))}
-                          {insulationWallEntries.length === 0 && insulationAreaEntries.length === 0 && (
-                            <tr>
-                              <td colSpan={5} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
-                                Chưa có số liệu tính toán tự động.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <InsulationTask
+                formData={moduleFormData.insulation || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                wallEntries={insulationWallEntries}
+                onSetWallEntries={setInsulationWallEntries}
+                areaEntries={insulationAreaEntries}
+                onSetAreaEntries={setInsulationAreaEntries}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
-            {/* 5. Shelving */}
-            {activeModuleTab.id === "shelving" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Room / robe label</div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.shelving?.room_label || ""}
-                    onChange={(e) => handleModuleFormChange("shelving", "room_label", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Shelf size</div>
-                  <select
-                    value={moduleFormData.shelving?.shelf_size || ""}
-                    onChange={(e) => handleModuleFormChange("shelving", "shelf_size", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="300mm Deep">300mm Deep</option>
-                    <option value="400mm Deep">400mm Deep</option>
-                    <option value="450mm Deep">450mm Deep</option>
-                    <option value="500mm Deep">500mm Deep</option>
-                    <option value="600mm Deep">600mm Deep</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Shelf type</div>
-                  <select
-                    value={moduleFormData.shelving?.shelf_type || ""}
-                    onChange={(e) => handleModuleFormChange("shelving", "shelf_type", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Melamine 16mm White">Melamine 16mm White</option>
-                    <option value="Timber Slat Shelf">Timber Slat Shelf</option>
-                    <option value="Wire Shelf ClosetMaid">Wire Shelf ClosetMaid</option>
-                    <option value="Laminate Heavy Duty">Laminate Heavy Duty</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Total length</span>
-                    <span className="task-field-unit">mm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.shelving?.total_length || ""}
-                    onChange={(e) => handleModuleFormChange("shelving", "total_length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 6. Flooring & Decking */}
+            {/* 5. Flooring & Decking */}
             {activeModuleTab.id === "flooring_decking" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Location / level</div>
-                  <select
-                    value={moduleFormData.flooring_decking?.location || ""}
-                    onChange={(e) => handleModuleFormChange("flooring_decking", "location", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Ground Floor Living">Ground Floor Living</option>
-                    <option value="Upper Floor">Upper Floor</option>
-                    <option value="Balcony / Outdoor Deck">Balcony / Outdoor Deck</option>
-                    <option value="Wet Areas (Bath/Ensuite)">Wet Areas (Bath/Ensuite)</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Flooring type</div>
-                  <select
-                    value={moduleFormData.flooring_decking?.flooring_type || ""}
-                    onChange={(e) => handleModuleFormChange("flooring_decking", "flooring_type", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Engineered Timber Flooring">Engineered Timber Flooring</option>
-                    <option value="Hybrid / Vinyl Plank">Hybrid / Vinyl Plank</option>
-                    <option value="Hardwood Timber Floor">Hardwood Timber Floor</option>
-                    <option value="Merbau Hardwood Decking">Merbau Hardwood Decking</option>
-                    <option value="Treated Pine Decking">Treated Pine Decking</option>
-                    <option value="ModWood Composite Decking">ModWood Composite Decking</option>
-                    <option value="Ceramic / Porcelain Tile">Ceramic / Porcelain Tile</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Floor area</span>
-                    <span className="task-field-unit">m²</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.flooring_decking?.floor_area || ""}
-                    onChange={(e) => handleModuleFormChange("flooring_decking", "floor_area", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Waste allowance</span>
-                    <span className="task-field-unit">%</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="10"
-                    value={moduleFormData.flooring_decking?.waste_allowance || ""}
-                    onChange={(e) => handleModuleFormChange("flooring_decking", "waste_allowance", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
+              <FlooringDeckingTask
+                formData={moduleFormData.flooring_decking || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
+                entries={flooringEntries}
+                onSetEntries={setFlooringEntries}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
-            {/* 7. Doors & Furniture */}
-            {activeModuleTab.id === "doors_furniture" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Item category</div>
-                  <select
-                    value={moduleFormData.doors_furniture?.category || ""}
-                    onChange={(e) => handleModuleFormChange("doors_furniture", "category", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Internal Swing Doors">Internal Swing Doors</option>
-                    <option value="Cavity Sliding Doors">Cavity Sliding Doors</option>
-                    <option value="Bi-Fold Doors">Bi-Fold Doors</option>
-                    <option value="Wardrobe Doors">Wardrobe Doors</option>
-                    <option value="Vanity Units">Vanity Units</option>
-                    <option value="Kitchen Cabinetry">Kitchen Cabinetry</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Model / finish</div>
-                  <select
-                    value={moduleFormData.doors_furniture?.finish || ""}
-                    onChange={(e) => handleModuleFormChange("doors_furniture", "finish", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Hollow Core Flush Paint Grade">Hollow Core Flush Paint Grade</option>
-                    <option value="Solid Core Timber Veneer">Solid Core Timber Veneer</option>
-                    <option value="Aluminium Glazed Door">Aluminium Glazed Door</option>
-                    <option value="Mirrored Sliding Door">Mirrored Sliding Door</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Dimensions</span>
-                    <span className="task-field-unit">mm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="2040 x 820 x 35"
-                    value={moduleFormData.doors_furniture?.dimensions || ""}
-                    onChange={(e) => handleModuleFormChange("doors_furniture", "dimensions", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Quantity</span>
-                    <span className="task-field-unit">qty</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="1"
-                    value={moduleFormData.doors_furniture?.quantity || ""}
-                    onChange={(e) => handleModuleFormChange("doors_furniture", "quantity", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 8. Timber Posts */}
+            {/* 6. Timber Posts */}
             {activeModuleTab.id === "timber_posts" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Post location</div>
-                  <input
-                    type="text"
-                    placeholder="Alfresco / Porch"
-                    value={moduleFormData.timber_posts?.location || ""}
-                    onChange={(e) => handleModuleFormChange("timber_posts", "location", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Timber size & grade</div>
-                  <select
-                    value={moduleFormData.timber_posts?.timber_size || ""}
-                    onChange={(e) => handleModuleFormChange("timber_posts", "timber_size", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="90x90mm F7 / H3 Treated Pine">90x90mm F7 / H3 Treated Pine</option>
-                    <option value="100x100mm Hardwood / Merbau">100x100mm Hardwood / Merbau</option>
-                    <option value="115x115mm GL8 Laminated Post">115x115mm GL8 Laminated Post</option>
-                    <option value="140x140mm Structural Hardwood">140x140mm Structural Hardwood</option>
-                    <option value="150x150mm Cypress / Ironbark">150x150mm Cypress / Ironbark</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Post height</span>
-                    <span className="task-field-unit">mm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="2700"
-                    value={moduleFormData.timber_posts?.height || ""}
-                    onChange={(e) => handleModuleFormChange("timber_posts", "height", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Quantity</span>
-                    <span className="task-field-unit">qty</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="1"
-                    value={moduleFormData.timber_posts?.quantity || ""}
-                    onChange={(e) => handleModuleFormChange("timber_posts", "quantity", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
+              <TimberPostsTask
+                formData={moduleFormData.timber_posts || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                entries={timberPostEntries}
+                onSetEntries={setTimberPostEntries}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
-            {/* 9. FOW Plumbing */}
-            {activeModuleTab.id === "fow_plumbing" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Plumbing fixture</div>
-                  <select
-                    value={moduleFormData.fow_plumbing?.fixture || ""}
-                    onChange={(e) => handleModuleFormChange("fow_plumbing", "fixture", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Water Closet (Toilet)">Water Closet (Toilet)</option>
-                    <option value="Bathroom Vanity Basin">Bathroom Vanity Basin</option>
-                    <option value="Kitchen Sink & Mixer">Kitchen Sink & Mixer</option>
-                    <option value="Shower Mixer & Rose">Shower Mixer & Rose</option>
-                    <option value="Bath Tub Spout">Bath Tub Spout</option>
-                    <option value="Laundry Tub & Tapware">Laundry Tub & Tapware</option>
-                    <option value="External Hose Cock">External Hose Cock</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Pipe specification</div>
-                  <select
-                    value={moduleFormData.fow_plumbing?.pipe_spec || ""}
-                    onChange={(e) => handleModuleFormChange("fow_plumbing", "pipe_spec", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="16mm PEX-a Water Pipe">16mm PEX-a Water Pipe</option>
-                    <option value="20mm PEX-a Water Pipe">20mm PEX-a Water Pipe</option>
-                    <option value="100mm PVC DWV Sewer Pipe">100mm PVC DWV Sewer Pipe</option>
-                    <option value="50mm PVC Waste Pipe">50mm PVC Waste Pipe</option>
-                    <option value="Copper Pipe Class B">Copper Pipe Class B</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Run length</span>
-                    <span className="task-field-unit">lm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.fow_plumbing?.length || ""}
-                    onChange={(e) => handleModuleFormChange("fow_plumbing", "length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Fixture count</span>
-                    <span className="task-field-unit">count</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="1"
-                    value={moduleFormData.fow_plumbing?.count || ""}
-                    onChange={(e) => handleModuleFormChange("fow_plumbing", "count", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 10. Power Truss Braces */}
-            {activeModuleTab.id === "power_truss_braces" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Truss / roof area</div>
-                  <select
-                    value={moduleFormData.power_truss_braces?.truss_area || ""}
-                    onChange={(e) => handleModuleFormChange("power_truss_braces", "truss_area", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Main Roof Truss System">Main Roof Truss System</option>
-                    <option value="Garage / Carport Truss">Garage / Carport Truss</option>
-                    <option value="Overhang / Hip Bracing">Overhang / Hip Bracing</option>
-                    <option value="Valley / Girder Bracing">Valley / Girder Bracing</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Brace type</div>
-                  <select
-                    value={moduleFormData.power_truss_braces?.brace_type || ""}
-                    onChange={(e) => handleModuleFormChange("power_truss_braces", "brace_type", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Speedbrace Tension Strapping (Metal)">Speedbrace Tension Strapping (Metal)</option>
-                    <option value="Diagonal Cross Bracing">Diagonal Cross Bracing</option>
-                    <option value="Plywood Structural Sheathing Bracing">Plywood Structural Sheathing Bracing</option>
-                    <option value="Hardboard Roof Bracing">Hardboard Roof Bracing</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Total run / span length</span>
-                    <span className="task-field-unit">lm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.power_truss_braces?.length || ""}
-                    onChange={(e) => handleModuleFormChange("power_truss_braces", "length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Fixing connector hardware</div>
-                  <select
-                    value={moduleFormData.power_truss_braces?.hardware || ""}
-                    onChange={(e) => handleModuleFormChange("power_truss_braces", "hardware", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Pryda Triple Grip & Nails">Pryda Triple Grip & Nails</option>
-                    <option value="Multi-Grip Joist Connectors">Multi-Grip Joist Connectors</option>
-                    <option value="Truss Boot / Girder Hangers">Truss Boot / Girder Hangers</option>
-                    <option value="Typhoon Structural Screws">Typhoon Structural Screws</option>
-                  </select>
-                </div>
-              </>
-            )}
-
-            {/* 11. Lockup */}
-            {activeModuleTab.id === "lock_up" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Building level / zone</div>
-                  <select
-                    value={moduleFormData.lock_up?.building_level || ""}
-                    onChange={(e) => handleModuleFormChange("lock_up", "building_level", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Ground Floor Lockup">Ground Floor Lockup</option>
-                    <option value="First Floor Lockup">First Floor Lockup</option>
-                    <option value="All Levels (Ground & Upper)">All Levels (Ground & Upper)</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">External door & window spec</div>
-                  <select
-                    value={moduleFormData.lock_up?.door_spec || ""}
-                    onChange={(e) => handleModuleFormChange("lock_up", "door_spec", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Solid Core Entry & Aluminium Sliding">Solid Core Entry & Aluminium Sliding</option>
-                    <option value="Aluminium Double Glazed Windows">Aluminium Double Glazed Windows</option>
-                    <option value="Timber French Doors & Glazed Windows">Timber French Doors & Glazed Windows</option>
-                    <option value="Bi-Fold Glass Doors & Louvres">Bi-Fold Glass Doors & Louvres</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Weather sealing & membrane</div>
-                  <select
-                    value={moduleFormData.lock_up?.weather_seal || ""}
-                    onChange={(e) => handleModuleFormChange("lock_up", "weather_seal", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Parfix Sikaflex & Sarking Foil">Parfix Sikaflex & Sarking Foil</option>
-                    <option value="HardieWrap Weather Barrier">HardieWrap Weather Barrier</option>
-                    <option value="Airstep Wall Wrap Membrane">Airstep Wall Wrap Membrane</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Lockup perimeter</span>
-                    <span className="task-field-unit">lm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.lock_up?.perimeter_length || ""}
-                    onChange={(e) => handleModuleFormChange("lock_up", "perimeter_length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* 12. Fixout */}
+            {/* 7. Fixout */}
             {activeModuleTab.id === "fixout" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Skirting profile & size</div>
-                  <select
-                    value={moduleFormData.fixout?.skirting_profile || ""}
-                    onChange={(e) => handleModuleFormChange("fixout", "skirting_profile", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="67x18mm MDF Single Rebatable / Colonial">67x18mm MDF Single Rebatable / Colonial</option>
-                    <option value="92x18mm Lambs-tongue Pine">92x18mm Lambs-tongue Pine</option>
-                    <option value="90x18mm Bullnose MDF">90x18mm Bullnose MDF</option>
-                    <option value="67x18mm Square Edge Timber">67x18mm Square Edge Timber</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Architrave spec</div>
-                  <select
-                    value={moduleFormData.fixout?.architrave_size || ""}
-                    onChange={(e) => handleModuleFormChange("fixout", "architrave_size", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="67x18mm MDF Architrave">67x18mm MDF Architrave</option>
-                    <option value="92x18mm Colonial Architrave">92x18mm Colonial Architrave</option>
-                    <option value="42x18mm Square Edge Trim">42x18mm Square Edge Trim</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Door jamb set type</div>
-                  <select
-                    value={moduleFormData.fixout?.jamb_type || ""}
-                    onChange={(e) => handleModuleFormChange("fixout", "jamb_type", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Single Rebated Pine Door Jamb Set">Single Rebated Pine Door Jamb Set</option>
-                    <option value="Split Jamb Set with Architraves">Split Jamb Set with Architraves</option>
-                    <option value="Cavity Sliding Jamb Kit">Cavity Sliding Jamb Kit</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Total trim & skirting length</span>
-                    <span className="task-field-unit">lm</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.fixout?.total_length || ""}
-                    onChange={(e) => handleModuleFormChange("fixout", "total_length", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
+              <FixoutTask
+                formData={moduleFormData.fixout || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                entries={fixoutDoorEntries}
+                onSetEntries={setFixoutDoorEntries}
+                onAddDataAI={handleAddDataAI}
+              />
+            )}
+
+            {/* 8. Lockup */}
+            {activeModuleTab.id === "lockup" && (
+              <LockupTask
+                formData={moduleFormData.lockup || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                entries={lockupEntries}
+                onSetEntries={setLockupEntries}
+                onAddDataAI={handleAddDataAI}
+              />
+            )}
+
+            {/* 9. Shelving */}
+            {activeModuleTab.id === "shelving" && (
+              <ShelvingTask
+                formData={moduleFormData.shelving || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                onAddDataAI={handleAddDataAI}
+              />
+            )}
+
+            {/* 10. Doors & Furniture */}
+            {activeModuleTab.id === "doors_furniture" && (
+              <DoorsFurnitureTask
+                formData={moduleFormData.doors_furniture || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                onAddDataAI={handleAddDataAI}
+              />
+            )}
+
+            {/* 11. FOW Plumbing */}
+            {activeModuleTab.id === "fow_plumbing" && (
+              <FowPlumbingTask
+                formData={moduleFormData.fow_plumbing || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                onAddDataAI={handleAddDataAI}
+              />
+            )}
+
+            {/* 12. Power Truss Braces */}
+            {activeModuleTab.id === "power_truss_braces" && (
+              <PowerTrussBracesTask
+                formData={moduleFormData.power_truss_braces || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
             {/* 13. Final Fit */}
             {activeModuleTab.id === "final_fit" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Door lever / handle model</div>
-                  <select
-                    value={moduleFormData.final_fit?.handle_set || ""}
-                    onChange={(e) => handleModuleFormChange("final_fit", "handle_set", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Gainsborough Choice Lever Set">Gainsborough Choice Lever Set</option>
-                    <option value="Lane Security Deadbolt & Latch Set">Lane Security Deadbolt & Latch Set</option>
-                    <option value="Samsung Smart Digital Fingerprint Lock">Samsung Smart Digital Fingerprint Lock</option>
-                    <option value="Tradeco Antique Brass Lever">Tradeco Antique Brass Lever</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Passage & privacy latch sets</span>
-                    <span className="task-field-unit">sets</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="7"
-                    value={moduleFormData.final_fit?.latch_count || ""}
-                    onChange={(e) => handleModuleFormChange("final_fit", "latch_count", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Door stop & hinge hardware</div>
-                  <select
-                    value={moduleFormData.final_fit?.door_stop_type || ""}
-                    onChange={(e) => handleModuleFormChange("final_fit", "door_stop_type", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Baseboard Rubber Door Stop & 100mm SS Hinges">Baseboard Rubber Door Stop & 100mm SS Hinges</option>
-                    <option value="Floor Mounted Satin Chrome Door Stop">Floor Mounted Satin Chrome Door Stop</option>
-                    <option value="Magnetic Catch Door Stop">Magnetic Catch Door Stop</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Entrance lockset</div>
-                  <select
-                    value={moduleFormData.final_fit?.entrance_lock || ""}
-                    onChange={(e) => handleModuleFormChange("final_fit", "entrance_lock", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="Gainsborough Trilock Keyed Set">Gainsborough Trilock Keyed Set</option>
-                    <option value="Lockwood Double Cylinder Deadlock">Lockwood Double Cylinder Deadlock</option>
-                    <option value="Keyless Electronic Keypad Entry">Keyless Electronic Keypad Entry</option>
-                  </select>
-                </div>
-              </>
+              <FinalFitTask
+                formData={moduleFormData.final_fit || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
             {/* 14. Sheet Schedule */}
             {activeModuleTab.id === "sheet_schedule" && (
-              <>
-                <div className="task-field-group">
-                  <div className="task-field-label">Wall plasterboard / FC sheet type</div>
-                  <select
-                    value={moduleFormData.sheet_schedule?.wall_sheet || ""}
-                    onChange={(e) => handleModuleFormChange("sheet_schedule", "wall_sheet", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="10mm Gyprock RE Plasterboard">10mm Gyprock RE Plasterboard</option>
-                    <option value="13mm FyTone Fire Resistant Board">13mm FyTone Fire Resistant Board</option>
-                    <option value="6mm Villaboard Wet Area Sheet">6mm Villaboard Wet Area Sheet</option>
-                    <option value="6mm HardieFlex Base Sheet">6mm HardieFlex Base Sheet</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Ceiling lining sheet type</div>
-                  <select
-                    value={moduleFormData.sheet_schedule?.ceiling_sheet || ""}
-                    onChange={(e) => handleModuleFormChange("sheet_schedule", "ceiling_sheet", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="10mm Supaceil Ceiling Board">10mm Supaceil Ceiling Board</option>
-                    <option value="13mm Soundchek Acoustic Board">13mm Soundchek Acoustic Board</option>
-                    <option value="10mm Standard Plasterboard">10mm Standard Plasterboard</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label">Sheet dimension / size</div>
-                  <select
-                    value={moduleFormData.sheet_schedule?.sheet_size || ""}
-                    onChange={(e) => handleModuleFormChange("sheet_schedule", "sheet_size", e.target.value)}
-                    className="task-field-select"
-                  >
-                    <option value="">Select...</option>
-                    <option value="2400 x 1200 mm">2400 x 1200 mm</option>
-                    <option value="3000 x 1200 mm">3000 x 1200 mm</option>
-                    <option value="3600 x 1200 mm">3600 x 1200 mm</option>
-                    <option value="4800 x 1200 mm">4800 x 1200 mm</option>
-                  </select>
-                </div>
-                <div className="task-field-group">
-                  <div className="task-field-label-row">
-                    <span>Total lining area</span>
-                    <span className="task-field-unit">m²</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder=""
-                    value={moduleFormData.sheet_schedule?.total_area || ""}
-                    onChange={(e) => handleModuleFormChange("sheet_schedule", "total_area", e.target.value)}
-                    className="task-field-input"
-                  />
-                </div>
-              </>
+              <SheetScheduleTask
+                formData={moduleFormData.sheet_schedule || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={cadMetrics}
+                onAddDataAI={handleAddDataAI}
+              />
             )}
 
           {/* Quick Takeoff Action / Output Preview */}
