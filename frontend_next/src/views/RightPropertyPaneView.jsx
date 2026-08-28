@@ -2444,7 +2444,7 @@ export default function RightPropertyPaneView({
           overflow: "hidden",
           background: "var(--bg-panel)"
         }}>
-          {explorerViewMode === "tree" ? (
+          {activePaneTab !== "summary" && activePaneTab !== "job_task" && explorerViewMode === "tree" ? (
         /* ══════════════════════════════════════════════════════
            TAB: EXPLORER / LAYERS TREE VIEW
            ══════════════════════════════════════════════════════ */
