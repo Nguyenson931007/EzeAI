@@ -34,7 +34,7 @@ import {
   PowerTrussBracesTask,
   FinalFitTask,
   SheetScheduleTask
-} from "@/components/task-modules";
+} from "@/components/cairns-hardware/tasks";
 
 /* ================================================================
    SVG DASHBOARD ICONS
