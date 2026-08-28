@@ -4,7 +4,6 @@ export const DEFAULT_SETTINGS = {
   autoSaveEnabled: true,
   autoSaveInterval: 30, // seconds
   autoSaveIndexedDB: true,
-  autoSaveCloud: true,
   showSaveIndicator: true
 };
 
@@ -309,23 +308,6 @@ export default function SettingsModal({ isOpen, onClose, onSave }) {
                         </span>
                         <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#64748b" }}>
                           Persists the active session locally even if internet connection drops or page refreshes.
-                        </p>
-                      </div>
-                    </label>
-
-                    <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.autoSaveCloud}
-                        onChange={(e) => handleChange("autoSaveCloud", e.target.checked)}
-                        style={{ marginTop: "3px" }}
-                      />
-                      <div>
-                        <span style={{ fontWeight: "600", fontSize: "13px", color: "#1e293b" }}>
-                          Cloud Database Project Auto-Save
-                        </span>
-                        <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#64748b" }}>
-                          Silently updates the active project in the central database in the background.
                         </p>
                       </div>
                     </label>

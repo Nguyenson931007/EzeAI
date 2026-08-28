@@ -750,15 +750,6 @@ export default function App() {
           });
         }
 
-        // B. Lưu lên Cloud Project nếu có tên dự án hợp lệ
-        if (appSettings.autoSaveCloud && currentProjectName && currentProjectName.trim() !== "" && currentProjectName !== "Untitled Project") {
-          try {
-            await apiSaveJob(currentProjectName, false, true); // silent = true
-          } catch (cloudErr) {
-            console.warn("[Auto-Save Cloud] Lỗi lưu ngầm:", cloudErr);
-          }
-        }
-
         const now = new Date();
         const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastAutoSaveTime(timeStr);
@@ -786,9 +777,7 @@ export default function App() {
     realScale,
     appSettings.autoSaveEnabled,
     appSettings.autoSaveInterval,
-    appSettings.autoSaveIndexedDB,
-    appSettings.autoSaveCloud,
-    apiSaveJob
+    appSettings.autoSaveIndexedDB
   ]);
 
   // ── 3D Multi-Monitor / Popout Synchronization via BroadcastChannel ──
