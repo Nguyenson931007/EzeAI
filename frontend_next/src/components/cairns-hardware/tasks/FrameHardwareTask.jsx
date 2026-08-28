@@ -14,20 +14,20 @@ export default function FrameHardwareTask({
   const [windClass, setWindClass] = useState("N2");
 
   const handleAddWall = () => {
-    const lenM = parseFloat(wallLength) || (cadMetrics.grandTotalLength || 32.5);
+    const lenM = parseFloat(wallLength) || (cadMetrics.grandTotalLength || 18.5);
     const hMm = parseInt(wallHeight, 10) || 2700;
     const spacingMm = parseInt(studSpacing, 10) || 450;
-    const count = Math.ceil((lenM * 1000) / spacingMm) + 1;
+    const count = Math.ceil((lenM * 1000) / spacingMm) + 2;
     const platesLm = Number((lenM * 2).toFixed(1));
 
     const newEntry = {
-      id: Date.now().toString(),
-      height: `${hMm}mm`,
-      length: `${lenM.toFixed(1)}m`,
-      spacing: `${spacingMm}mm`,
+      id: "frm-" + Date.now(),
+      height: `${hMm} mm`,
+      length: `${lenM.toFixed(1)} m`,
+      spacing: `${spacingMm} mm`,
       windClass,
-      studs: count,
-      plates: platesLm
+      studs: `${count} pcs`,
+      plates: `${platesLm} m`
     };
 
     if (onSetEntries) {
@@ -70,7 +70,7 @@ export default function FrameHardwareTask({
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Length (m)</span>
               <input
                 type="text"
-                placeholder={cadMetrics.grandTotalLength ? `${cadMetrics.grandTotalLength.toFixed(1)}` : "12.5"}
+                placeholder={cadMetrics.grandTotalLength ? `${cadMetrics.grandTotalLength.toFixed(1)}` : "18.5"}
                 value={wallLength}
                 onChange={(e) => setWallLength(e.target.value)}
                 className="task-field-input"
@@ -109,12 +109,12 @@ export default function FrameHardwareTask({
             type="button"
             onClick={handleAddWall}
             style={{
-              padding: "6px",
+              padding: "7px",
               background: "#1e3a8a",
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11px",
+              fontSize: "11.5px",
               fontWeight: "700",
               cursor: "pointer"
             }}
@@ -127,7 +127,7 @@ export default function FrameHardwareTask({
       {/* ── CARD 2: ENTERED FRAMING WALLS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Framing Walls ({entries.length})
+          📋 2. Entered Framing Walls ({(entries || []).length})
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -137,71 +137,41 @@ export default function FrameHardwareTask({
                 <th style={{ padding: "4px" }}>H</th>
                 <th style={{ padding: "4px" }}>L</th>
                 <th style={{ padding: "4px" }}>Spacing</th>
+                <th style={{ padding: "4px" }}>Wind</th>
                 <th style={{ padding: "4px" }}>Studs</th>
-                <th style={{ padding: "4px" }}>Plates Lm</th>
+                <th style={{ padding: "4px" }}>Plates</th>
                 <th style={{ padding: "4px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {entries.map((w, idx) => (
-                <tr key={w.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+              {(entries || []).map((w, idx) => (
+                <tr key={w.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
                   <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{w.height}</td>
-                  <td style={{ padding: "4px" }}>{w.length}</td>
-                  <td style={{ padding: "4px" }}>{w.spacing}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.studs} pcs</td>
-                  <td style={{ padding: "4px" }}>{w.plates}m</td>
+                  <td style={{ padding: "4px" }}>{w.height ? (typeof w.height === 'number' ? `${w.height}mm` : w.height) : "-"}</td>
+                  <td style={{ padding: "4px" }}>{w.length ? (typeof w.length === 'number' ? `${w.length}m` : w.length) : "-"}</td>
+                  <td style={{ padding: "4px" }}>{w.spacing || (w.studSpacing ? `${w.studSpacing}mm` : "450mm")}</td>
+                  <td style={{ padding: "4px" }}>{w.windClass || "-"}</td>
+                  <td style={{ padding: "4px", fontWeight: 700 }}>{w.studs || w.studsQty || "-"}</td>
+                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.plates ? (typeof w.plates === 'number' ? `${w.plates}m` : w.plates) : (w.platesLm ? `${w.platesLm}m` : "-")}</td>
                   <td style={{ padding: "4px", textAlign: "right" }}>
                     <button
                       onClick={() => handleRemoveEntry(w.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
+                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
                     >
                       ✕
                     </button>
                   </td>
                 </tr>
               ))}
-              {entries.length === 0 && (
+              {(!entries || entries.length === 0) && (
                 <tr>
-                  <td colSpan={7} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
+                  <td colSpan={8} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
                     No framing walls entered yet. Click '+ Add Wall Framing' or '+ Add data AI'.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* ── CARD 3: ADDITIONAL HARDWARE ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          🔩 3. Additional Tie-down Hardware
-        </div>
-        <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div className="task-field-group">
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Base Construction</span>
-            <select
-              value={formData.base_construction || "Slab on Ground"}
-              onChange={(e) => onChange && onChange("frame_hardware", "base_construction", e.target.value)}
-              className="task-field-select"
-            >
-              <option value="Slab on Ground">Concrete Slab on Ground</option>
-              <option value="Bearer & Joist">Subfloor Bearers & Joists</option>
-            </select>
-          </div>
-          <div className="task-field-group">
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Tie-Down Strapping</span>
-            <select
-              value={formData.tie_down || "Pryda Speedbrace / Strapping"}
-              onChange={(e) => onChange && onChange("frame_hardware", "tie_down", e.target.value)}
-              className="task-field-select"
-            >
-              <option value="Pryda Speedbrace / Strapping">Pryda Speedbrace / Strapping</option>
-              <option value="M10 Triple Grip Tie-Down">M10 Triple Grip Tie-Down</option>
-              <option value="Cyclone Framing Strap">Cyclone Framing Strap</option>
-            </select>
-          </div>
         </div>
       </div>
     </div>

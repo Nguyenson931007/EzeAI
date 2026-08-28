@@ -15,18 +15,18 @@ export default function CladdingTask({
   const [wastePercent, setWastePercent] = useState("10%");
 
   const handleAddCladdingWall = () => {
-    const lenM = parseFloat(wallLength) || (cadMetrics.externalWallLength || 28.4);
+    const lenM = parseFloat(wallLength) || (cadMetrics.externalWallLength || 14.5);
     const hMm = parseInt(wallHeight, 10) || 2700;
     const grossM2 = (lenM * hMm) / 1000;
     const openM2 = parseFloat(openingsArea) || 0;
-    const wasteRatio = 1 + (parseInt(wastePercent, 10) || 10) / 100;
-    const netM2 = Number((Math.max(0, grossM2 - openM2) * wasteRatio).toFixed(1));
+    const wasteNum = parseInt(wastePercent, 10) || 10;
+    const netM2 = Number((Math.max(0, grossM2 - openM2) * (1 + wasteNum / 100)).toFixed(2));
 
     const newEntry = {
-      id: Date.now().toString(),
+      id: "clad-" + Date.now(),
       elevation,
-      height: `${hMm}mm`,
-      length: `${lenM.toFixed(1)}m`,
+      height: `${hMm} mm`,
+      length: `${lenM.toFixed(1)} m`,
       openings: `${openM2.toFixed(1)} m²`,
       waste: wastePercent,
       netArea: `${netM2} m²`
@@ -121,12 +121,12 @@ export default function CladdingTask({
             type="button"
             onClick={handleAddCladdingWall}
             style={{
-              padding: "6px",
+              padding: "7px",
               background: "#1e3a8a",
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11px",
+              fontSize: "11.5px",
               fontWeight: "700",
               cursor: "pointer"
             }}
@@ -139,7 +139,7 @@ export default function CladdingTask({
       {/* ── CARD 2: ENTERED CLADDING WALLS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Cladding Walls ({entries.length})
+          📋 2. Entered Cladding Walls ({(entries || []).length})
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -150,32 +150,34 @@ export default function CladdingTask({
                 <th style={{ padding: "4px" }}>H</th>
                 <th style={{ padding: "4px" }}>L</th>
                 <th style={{ padding: "4px" }}>Openings</th>
+                <th style={{ padding: "4px" }}>Waste</th>
                 <th style={{ padding: "4px" }}>Net Area</th>
                 <th style={{ padding: "4px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {entries.map((w, idx) => (
-                <tr key={w.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+              {(entries || []).map((w, idx) => (
+                <tr key={w.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
                   <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{w.elevation}</td>
-                  <td style={{ padding: "4px" }}>{w.height}</td>
-                  <td style={{ padding: "4px" }}>{w.length}</td>
-                  <td style={{ padding: "4px" }}>{w.openings}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.netArea}</td>
+                  <td style={{ padding: "4px" }}>{w.elevation || "-"}</td>
+                  <td style={{ padding: "4px" }}>{w.height ? (typeof w.height === 'number' ? `${w.height}mm` : w.height) : "-"}</td>
+                  <td style={{ padding: "4px" }}>{w.length ? (typeof w.length === 'number' ? `${(w.length > 500 ? w.length / 1000 : w.length).toFixed(1)}m` : w.length) : "-"}</td>
+                  <td style={{ padding: "4px" }}>{w.openings ? (typeof w.openings === 'number' ? `${w.openings} m²` : w.openings) : "-"}</td>
+                  <td style={{ padding: "4px" }}>{w.waste ? (typeof w.waste === 'number' ? `${w.waste}%` : w.waste) : "-"}</td>
+                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.netArea ? (typeof w.netArea === 'number' ? `${w.netArea} m²` : w.netArea) : (w.totalArea ? `${w.totalArea} m²` : "-")}</td>
                   <td style={{ padding: "4px", textAlign: "right" }}>
                     <button
                       onClick={() => handleRemoveEntry(w.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
+                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
                     >
                       ✕
                     </button>
                   </td>
                 </tr>
               ))}
-              {entries.length === 0 && (
+              {(!entries || entries.length === 0) && (
                 <tr>
-                  <td colSpan={7} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
+                  <td colSpan={8} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
                     No cladding walls entered yet. Click '+ Add Wall Cladding' or '+ Add data AI'.
                   </td>
                 </tr>

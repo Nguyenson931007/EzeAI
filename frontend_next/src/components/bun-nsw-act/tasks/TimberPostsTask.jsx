@@ -20,13 +20,13 @@ export default function TimberPostsTask({
     const totalLm = Number(((qtyNum * hMm) / 1000).toFixed(1));
 
     const newEntry = {
-      id: Date.now().toString(),
+      id: "pst-" + Date.now(),
       location: postLocation,
       spec: timberSpec,
-      height: `${hMm}mm`,
+      height: `${hMm} mm`,
       qty: `${qtyNum} pcs`,
       support: postSupport,
-      totalLm: `${totalLm}m`
+      totalLm: `${totalLm} m`
     };
 
     if (onSetEntries) {
@@ -120,12 +120,12 @@ export default function TimberPostsTask({
             type="button"
             onClick={handleAddPost}
             style={{
-              padding: "6px",
+              padding: "7px",
               background: "#1e3a8a",
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11px",
+              fontSize: "11.5px",
               fontWeight: "700",
               cursor: "pointer"
             }}
@@ -138,7 +138,7 @@ export default function TimberPostsTask({
       {/* ── CARD 2: ENTERED TIMBER & POSTS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Timber & Posts ({entries.length})
+          📋 2. Entered Timber & Posts ({(entries || []).length})
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -149,32 +149,32 @@ export default function TimberPostsTask({
                 <th style={{ padding: "4px" }}>Spec</th>
                 <th style={{ padding: "4px" }}>H</th>
                 <th style={{ padding: "4px" }}>Qty</th>
-                <th style={{ padding: "4px" }}>Total Lm</th>
+                <th style={{ padding: "4px" }}>Total</th>
                 <th style={{ padding: "4px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {entries.map((item, idx) => (
-                <tr key={item.id} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+              {(entries || []).map((item, idx) => (
+                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
                   <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{item.location}</td>
-                  <td style={{ padding: "4px", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.spec}>{item.spec}</td>
-                  <td style={{ padding: "4px" }}>{item.height}</td>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{item.qty}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.totalLm}</td>
+                  <td style={{ padding: "4px" }}>{item.location || "-"}</td>
+                  <td style={{ padding: "4px", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.spec}>{item.spec || "-"}</td>
+                  <td style={{ padding: "4px" }}>{item.height ? (typeof item.height === 'number' ? `${item.height}mm` : item.height) : "-"}</td>
+                  <td style={{ padding: "4px", fontWeight: 700 }}>{item.qty ? (typeof item.qty === 'number' ? `${item.qty} pcs` : item.qty) : "-"}</td>
+                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.totalLm ? (typeof item.totalLm === 'number' ? `${item.totalLm}m` : item.totalLm) : "-"}</td>
                   <td style={{ padding: "4px", textAlign: "right" }}>
                     <button
                       onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800 }}
+                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
                     >
                       ✕
                     </button>
                   </td>
                 </tr>
               ))}
-              {entries.length === 0 && (
+              {(!entries || entries.length === 0) && (
                 <tr>
-                  <td colSpan={7} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
+                  <td colSpan={7} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
                     No posts entered yet. Click '+ Add Post / Beam Item' or '+ Add data AI'.
                   </td>
                 </tr>

@@ -1435,13 +1435,8 @@ export default function RightPropertyPaneView({
   }, [isResizing, panelWidth]);
 
   // ── INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) ──
-  const [insulationWallEntries, setInsulationWallEntries] = React.useState([
-    { id: "ins-w1", type: "external", rValue: "R2.0", productCode: "0810608", productName: "0810608 - INS BATT R2.0 430MM", height: 2700, length: 14500, rakedArea: 0, doorArea: 4.2, netArea: 34.95 },
-    { id: "ins-w2", type: "internal", rValue: "R1.5", productCode: "0810611", productName: "0810611 - INS SOUNDBATT R1.5", height: 2700, length: 8200, rakedArea: 0, doorArea: 2.1, netArea: 20.04 }
-  ]);
-  const [insulationAreaEntries, setInsulationAreaEntries] = React.useState([
-    { id: "ins-a1", type: "ceiling", rValue: "R4.0", productCode: "0810620", productName: "0810620 - INS CEILING BATT R4.0 430MM", area: 112.5 }
-  ]);
+  const [insulationWallEntries, setInsulationWallEntries] = React.useState([]);
+  const [insulationAreaEntries, setInsulationAreaEntries] = React.useState([]);
 
   const [insWallType, setInsWallType] = React.useState("external");
   const [insWallHeight, setInsWallHeight] = React.useState("2700");
@@ -1512,9 +1507,7 @@ export default function RightPropertyPaneView({
 
   // ── MULTI-CARD FORM STATES FOR ALL OTHER MODULES ──
   // 1. Cladding Entries
-  const [claddingWallEntries, setCladdingWallEntries] = React.useState([
-    { id: "clad-1", elevation: "Front Elevation (Side A)", height: 2700, length: 12500, openings: 4.2, waste: 10, grossArea: 33.75, netArea: 29.55, totalArea: 32.51 }
-  ]);
+  const [claddingWallEntries, setCladdingWallEntries] = React.useState([]);
   const [cladElev, setCladElev] = React.useState("Front Elevation");
   const [cladHeight, setCladHeight] = React.useState("2700");
   const [cladLength, setCladLength] = React.useState("");
@@ -1545,9 +1538,7 @@ export default function RightPropertyPaneView({
   };
 
   // 2. Eaves Entries
-  const [eavesEntries, setEavesEntries] = React.useState([
-    { id: "eave-1", level: "Ground Floor", width: 450, length: 24.5, area: 11.03 }
-  ]);
+  const [eavesEntries, setEavesEntries] = React.useState([]);
   const [eaveLevel, setEaveLevel] = React.useState("Ground Floor");
   const [eaveWidth, setEaveWidth] = React.useState("450");
   const [eaveLength, setEaveLength] = React.useState("");
@@ -1568,9 +1559,7 @@ export default function RightPropertyPaneView({
   };
 
   // 3. Flooring Entries
-  const [flooringEntries, setFlooringEntries] = React.useState([
-    { id: "flr-1", level: "Ground Floor GF", room: "Living & Dining Room", type: "Hybrid / Vinyl Plank", area: 54.2, waste: 10, totalArea: 59.62 }
-  ]);
+  const [flooringEntries, setFlooringEntries] = React.useState([]);
   const [flrLevel, setFlrLevel] = React.useState("Ground Floor GF");
   const [flrRoom, setFlrRoom] = React.useState("");
   const [flrType, setFlrType] = React.useState("Hybrid / Vinyl Plank");
@@ -1596,9 +1585,7 @@ export default function RightPropertyPaneView({
   };
 
   // 4. Frame Hardware Entries
-  const [frameWallEntries, setFrameWallEntries] = React.useState([
-    { id: "frm-1", height: 2700, length: 18.5, studSpacing: 450, windClass: "N2", platesLm: 37.0, studsQty: 42 }
-  ]);
+  const [frameWallEntries, setFrameWallEntries] = React.useState([]);
   const [frmHeight, setFrmHeight] = React.useState("2700");
   const [frmLength, setFrmLength] = React.useState("");
   const [frmStudSpacing, setFrmStudSpacing] = React.useState("450");
@@ -1624,9 +1611,7 @@ export default function RightPropertyPaneView({
   };
 
   // 5. Timber Post Entries
-  const [timberPostEntries, setTimberPostEntries] = React.useState([
-    { id: "pst-1", location: "Alfresco & Porch", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 3, supportType: "Hot-Dip Galvanized Stirrup" }
-  ]);
+  const [timberPostEntries, setTimberPostEntries] = React.useState([]);
   const [pstLocation, setPstLocation] = React.useState("");
   const [pstSpec, setPstSpec] = React.useState("90x90mm F7 / H3 Treated Pine");
   const [pstHeight, setPstHeight] = React.useState("2700");
@@ -1648,9 +1633,7 @@ export default function RightPropertyPaneView({
   };
 
   // 6. Fixout Door Entries
-  const [fixoutDoorEntries, setFixoutDoorEntries] = React.useState([
-    { id: "fix-1", doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: 6 }
-  ]);
+  const [fixoutDoorEntries, setFixoutDoorEntries] = React.useState([]);
   const [fixDoorType, setFixDoorType] = React.useState("Internal Swing Door");
   const [fixJambType, setFixJambType] = React.useState("Single Rebated Pine Jamb Set");
   const [fixArchitraveSpec, setFixArchitraveSpec] = React.useState("67x18mm MDF Architrave");
@@ -1668,10 +1651,7 @@ export default function RightPropertyPaneView({
   };
 
   // 7. Lockup Entries
-  const [lockupEntries, setLockupEntries] = React.useState([
-    { id: "lck-1", type: "Solid Core Entry Door", spec: "2040x820x40mm Timber Entry", reveal: "100mm Timber Reveal", qty: 1 },
-    { id: "lck-2", type: "Aluminium Sliding Glass Door", spec: "2100x1800mm Double Glazed", reveal: "135mm Brick Veneer Reveal", qty: 2 }
-  ]);
+  const [lockupEntries, setLockupEntries] = React.useState([]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
   const [lckReveal, setLckReveal] = React.useState("100mm Timber Reveal");
@@ -6571,9 +6551,9 @@ export default function RightPropertyPaneView({
             )}
 
             {/* 8. Lockup */}
-            {activeModuleTab.id === "lockup" && (
+            {(activeModuleTab.id === "lockup" || activeModuleTab.id === "lock_up") && (
               <LockupTask
-                formData={moduleFormData.lockup || {}}
+                formData={moduleFormData.lockup || moduleFormData.lock_up || {}}
                 onChange={handleModuleFormChange}
                 cadMetrics={cadMetrics}
                 entries={lockupEntries}
@@ -6654,15 +6634,15 @@ export default function RightPropertyPaneView({
             marginTop: "auto"
           }}>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span>📊 Trạng thái tính toán Takeoff</span>
+              <span>📊 Takeoff Calculation Status</span>
               <span style={{ fontSize: "10px", color: "#10b981", fontWeight: 800 }}>READY</span>
             </div>
             <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4" }}>
-              Dữ liệu nhập liệu sẽ được liên kết trực tiếp với bảng khối lượng BOQ và bản vẽ CAD.
+              Input data will be directly linked with the BOQ and CAD drawings.
             </div>
             <button
               onClick={() => {
-                alert(`Đã lưu dữ liệu cho module: ${activeModuleTab.title}`);
+                alert(`Saved data for module: ${activeModuleTab.title}`);
               }}
               style={{
                 width: "100%",
@@ -6677,7 +6657,7 @@ export default function RightPropertyPaneView({
                 boxShadow: "0 1px 3px rgba(37,99,235,0.2)"
               }}
             >
-              Lưu & Áp dụng Takeoff
+              Save & Apply Takeoff
             </button>
           </div>
         </div>
