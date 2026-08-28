@@ -269,7 +269,8 @@ export default function App() {
     ocr: true,
     labels: true,
     lintel: true,
-    roof: true
+    roof: true,
+    truss: true
   });
   const [hiddenItemIds, setHiddenItemIds] = useState(new Set());
   const toggleItemVisibility = useCallback((id) => {
@@ -1331,6 +1332,7 @@ export default function App() {
         lintelController={lintelController}
         isDrawingRoof={isDrawingRoof} setIsDrawingRoof={setIsDrawingRoof}
         generateRoofFromWalls={generateRoofFromWalls}
+        selectedRoofId={selectedRoofId}
         setSelectedRoofId={setSelectedRoofId}
         setSelectedId={setSelectedId}
         setSelectedType={setSelectedType}

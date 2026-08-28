@@ -12,6 +12,7 @@ import LockoutJobsModal from "@/components/LockoutJobsModal";
 import UserProfileModal from "@/components/UserProfileModal";
 import SettingsModal from "@/components/SettingsModal";
 import { createToolAiJwt } from "@/utils/toolAiSso";
+import TrussEngine from "@/engines/Truss";
 
 const CAD_ICONS = {
   NewPDF: () => (
@@ -295,8 +296,9 @@ export default function RibbonView({
   lintelController,
   isDrawingRoof, setIsDrawingRoof,
   generateRoofFromWalls,
+  selectedRoofId = null,
   setSelectedRoofId,
-  setSelectedId,
+  selectedId, setSelectedId,
   setSelectedType,
   isMeasuring, setIsMeasuring, setMeasurePoints,
   isDistancing, setIsDistancing, setDistancePoints, setDistanceResults,
@@ -317,7 +319,7 @@ export default function RibbonView({
   workspaceMode = "split", setWorkspaceMode,
   layerVisibility, setLayerVisibility,
   // Handlers from App.jsx
-  handleLogout,
+  
   handleSaveJob,
   undo, redo,
   deleteItem, deleteAllRooms,
@@ -368,6 +370,7 @@ export default function RibbonView({
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
     roofsByPage, setRoofsByPage,
+    trussesByPage, setTrussesByPage,
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage,
     wasteByPage, setWasteByPage,
@@ -386,6 +389,109 @@ export default function RibbonView({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [activeAiTask, setActiveAiTask] = useState(null); // 'wall' | 'door' | 'roof' | 'room' | null
   const userMenuRef = useRef(null);
+
+  const handleGenerateTruss = () => {
+    try {
+      const currentRoofs = roofsByPage?.[currentPage] || [];
+      const currentRooms = roomsByPage?.[currentPage] || [];
+      const currentWalls = wallsByPage?.[currentPage] || [];
+
+      let newTruss = null;
+
+      if (currentRoofs && currentRoofs.length > 0) {
+        const selectedRoof = currentRoofs[0];
+        newTruss = TrussEngine.generateTrussesFromRoof(selectedRoof, scaleValue, realScale);
+      } else if (currentRooms.length > 0 || currentWalls.length > 0) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        currentRooms.forEach(room => {
+          (room.polygon || []).forEach(p => {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+          });
+        });
+        currentWalls.forEach(wall => {
+          if (wall.p1) {
+            if (wall.p1.x < minX) minX = wall.p1.x;
+            if (wall.p1.x > maxX) maxX = wall.p1.x;
+            if (wall.p1.y < minY) minY = wall.p1.y;
+            if (wall.p1.y > maxY) maxY = wall.p1.y;
+          }
+          if (wall.p2) {
+            if (wall.p2.x < minX) minX = wall.p2.x;
+            if (wall.p2.x > maxX) maxX = wall.p2.x;
+            if (wall.p2.y < minY) minY = wall.p2.y;
+            if (wall.p2.y > maxY) maxY = wall.p2.y;
+          }
+        });
+
+        if (minX < maxX && minY < maxY) {
+          const scale = (scaleValue && scaleValue > 0) ? (1 / scaleValue) : (realScale || 0.02);
+          const widthM = (maxX - minX) * scale;
+          const heightM = (maxY - minY) * scale;
+          const spanM = Math.max(3, Math.min(widthM, heightM) || 8.5);
+          const runLengthM = Math.max(4, Math.max(widthM, heightM) || 12.0);
+
+          let startPoint, endPoint;
+          if (widthM <= heightM) {
+            startPoint = { x: minX, y: minY };
+            endPoint = { x: maxX, y: minY };
+          } else {
+            startPoint = { x: minX, y: minY };
+            endPoint = { x: minX, y: maxY };
+          }
+
+          newTruss = TrussEngine.generateParallelTrussLayout({
+            startPoint,
+            endPoint,
+            spanM,
+            runLengthM,
+            spacingMm: 600,
+            pitchDeg: 22.5,
+            label: "T01 (Auto-Building)"
+          });
+        }
+      }
+
+      if (!newTruss) {
+        // Fallback: place in middle of drawing/image
+        const cx = (imgSize?.w || 1200) * 0.35;
+        const cy = (imgSize?.h || 900) * 0.35;
+        const spanPx = (imgSize?.w || 1200) * 0.3;
+        const runPx = (imgSize?.h || 900) * 0.35;
+
+        newTruss = TrussEngine.generateParallelTrussLayout({
+          startPoint: { x: cx, y: cy },
+          endPoint: { x: cx + spanPx, y: cy },
+          spanM: 8.5,
+          runLengthM: 14.0,
+          spacingMm: 600,
+          pitchDeg: 22.5,
+          label: "T01 (Layout)"
+        });
+      }
+
+      if (newTruss && setTrussesByPage) {
+        setTrussesByPage(prev => {
+          const existing = prev?.[currentPage] || [];
+          return {
+            ...prev,
+            [currentPage]: [...existing, newTruss]
+          };
+        });
+        if (setLayerVisibility) {
+          setLayerVisibility(prev => ({ ...prev, truss: true }));
+        }
+        if (showAlert) {
+          showAlert(`⚡ Generated ${newTruss.quantity} roof trusses (Span: ${newTruss.spanM}m, Spacing: ${newTruss.spacingMm}mm) successfully!`);
+        }
+      }
+    } catch (err) {
+      console.error("[Truss] Error generating trusses:", err);
+    }
+  };
+
 
   useEffect(() => {
     if (!isDetecting && !isSmartDetecting) {
@@ -1176,6 +1282,16 @@ export default function RibbonView({
                   </span>
                   <span className="label">Wall &rarr; Room</span>
                 </button>
+                <button
+                  className="ribbon-btn accent"
+                  onClick={() => {
+                    handleGenerateTruss();
+                  }}
+                  title="Auto-generate Roof Trusses from Roof/Walls"
+                >
+                  <span className="icon" style={{ fontSize: "16px" }}>⚡</span>
+                  <span className="label">Roof &rarr; Truss</span>
+                </button>
               </div>
             </div>
             <div className="ribbon-divider" />
@@ -1285,8 +1401,16 @@ export default function RibbonView({
                   <span className="icon" style={{ fontSize: "21px" }}>⌂</span><span className="label">Roof</span>
                 </button>
                 <button
+                  className={`ribbon-btn ${layerVisibility?.truss !== false ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, truss: prev?.truss === false ? true : false }))}
+                  title="Toggle Roof Trusses Layer"
+                >
+                  <span className="icon" style={{ fontSize: "16px" }}>⚡</span>
+                  <span className="label">Trusses</span>
+                </button>
+                <button
                   className="ribbon-btn"
-                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true, labels: true, lintel: true, roof: true })}
+                  onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true, labels: true, lintel: true, roof: true, truss: true })}
                   title="Show all drawing layers"
                 >
                   <span className="icon"><CAD_ICONS.Eye /></span><span className="label">All</span>
