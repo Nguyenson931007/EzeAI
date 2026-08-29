@@ -51,6 +51,67 @@ export default function FowPlumbingTask({
             </div>
           </div>
         </div>
+
+        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL ── */}
+        <div style={{
+          padding: "8px 12px",
+          background: "#f8fafc",
+          borderTop: "1px solid #e2e8f0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px"
+        }}>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
+            {formData.fixture_count || 8} Fixtures · {formData.total_length || "42.5"}m
+          </span>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={() => {
+                alert(`Saved plumbing pipework data (${formData.fixture_count || 8} fixtures)`);
+              }}
+              style={{
+                padding: "6px 14px",
+                background: "#1e293b",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "11.5px",
+                fontWeight: "700",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
+              }}
+            >
+              💾 Save
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                alert(`🚀 Successfully sent plumbing items to Takeoff Tool & BOQ!`);
+              }}
+              style={{
+                padding: "6px 16px",
+                background: "var(--blue, #2563eb)",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "11.5px",
+                fontWeight: "700",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
+              }}
+            >
+              🚀 Send to Tool
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -4039,20 +4039,21 @@ export default function BOQTable({
         WebkitOverflowScrolling: "touch"
       }}>
         {[
-          { id: "job_startup", label: "Job Startup Page", icon: "📋" },
-          { id: "flooring_decking", label: "Flooring & Decking", icon: "🪵" },
-          { id: "frame_hardware", label: "Frame Hardware", icon: "🔩" },
-          { id: "cladding", label: "Cladding", icon: "🧱" },
-          { id: "eaves_soffits", label: "Eaves & Soffits", icon: "🏠" },
-          { id: "insulation", label: "Insulation", icon: "🧽" },
-          { id: "opening", label: "Opening", icon: "🚪" },
-          { id: "Lock_up", label: "Lock Up", icon: "🔒" },
-          { id: "fixout", label: "Fixout", icon: "🛠️" },
-          { id: "reveal", label: "Reveal", icon: "🖼️" },
-          { id: "final_fit", label: "Final Fit", icon: "✨" },
-          { id: "shelving", label: "Shelving", icon: "🗄️" },
-          { id: "fow_plumbing", label: "FOW Plumbing", icon: "🚰" },
-          { id: "beams_posts", label: "Beams & Posts", icon: "🏗️" }
+          { id: "frame_hardware", label: "01 Frame Hardware", icon: "🔩" },
+          { id: "flooring_decking", label: "02 Flooring & Decking - GF", icon: "🪵" },
+          { id: "hebel_flooring", label: "03 Hebel Flooring", icon: "🧱" },
+          { id: "insulation", label: "04 Insulation", icon: "🧽" },
+          { id: "eaves_soffits", label: "05 Eaves & Soffit", icon: "🏠" },
+          { id: "cladding", label: "06 Cladding", icon: "🧱" },
+          { id: "Lock_up", label: "07 Lockup", icon: "🔒" },
+          { id: "shelving", label: "08 Shelving", icon: "🗄️" },
+          { id: "beams_posts", label: "09 Beams & Posts", icon: "🏗️" },
+          { id: "power_truss_braces", label: "10 Power Truss Braces", icon: "📐" },
+          { id: "doors_furniture", label: "11 Doors & Furniture", icon: "🛋️" },
+          { id: "fow_plumbing", label: "12 FOW Plumbing", icon: "🚰" },
+          { id: "fixout", label: "13 Fixout", icon: "🛠️" },
+          { id: "final_fit", label: "14 Final Fit", icon: "✨" },
+          { id: "sheet_schedule", label: "15 Sheet Schedule", icon: "📋" }
         ].map(tab => {
           const isActive = viewMode === tab.id;
           return (

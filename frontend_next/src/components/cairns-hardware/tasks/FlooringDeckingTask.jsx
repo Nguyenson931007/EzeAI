@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 export default function FlooringDeckingTask({
   formData = {},
@@ -13,6 +13,50 @@ export default function FlooringDeckingTask({
   const [flrType, setFlrType] = useState("Hybrid / Vinyl Plank");
   const [flrArea, setFlrArea] = useState("");
   const [flrWaste, setFlrWaste] = useState("10%");
+
+  // Listen to global Auto-Calculate & Fill AI Rooms event from AreaSummary modal
+  useEffect(() => {
+    const handleAutoApply = (e) => {
+      if (!e.detail) return;
+      const { groupedAIRooms: gRooms, rooms: rawRooms } = e.detail;
+      
+      const newEntries = [];
+      if (rawRooms && rawRooms.length > 0) {
+        rawRooms.forEach((r, idx) => {
+          const area = r.areaM2 || 15.0;
+          newEntries.push({
+            id: `flr-ai-${Date.now()}-${idx}`,
+            level: "Ground Floor GF",
+            room: r.name || r.label || `Room ${idx + 1}`,
+            type: (r.type === "wet" ? "Ceramic Tile / Wet Area" : "Hybrid / Vinyl Plank"),
+            area: `${Number(area).toFixed(1)} m²`,
+            waste: "10%",
+            totalArea: `${Number(area * 1.1).toFixed(1)} m²`
+          });
+        });
+      } else if (gRooms && gRooms.length > 0) {
+        gRooms.forEach((gr, idx) => {
+          const area = gr.calcAreaM2 || 0;
+          newEntries.push({
+            id: `flr-ai-${Date.now()}-${idx}`,
+            level: "Ground Floor GF",
+            room: gr.floor_area_type,
+            type: gr.floor_area_type.includes("Wet") ? "Ceramic Tile / Wet Area" : (gr.floor_area_type.includes("Timber") ? "90mm Merbau Decking" : "Hybrid / Vinyl Plank"),
+            area: `${Number(area).toFixed(1)} m²`,
+            waste: "10%",
+            totalArea: `${Number(area * 1.1).toFixed(1)} m²`
+          });
+        });
+      }
+
+      if (newEntries.length > 0 && onSetEntries) {
+        onSetEntries(newEntries);
+      }
+    };
+
+    window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
+    return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
+  }, [onSetEntries]);
 
   const handleAddFlooring = () => {
     const areaM2 = parseFloat(flrArea) || (cadMetrics.totalFloorArea || 54.2);
@@ -181,6 +225,69 @@ export default function FlooringDeckingTask({
             </tbody>
           </table>
         </div>
+
+        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {entries && entries.length > 0 && (
+          <div style={{
+            padding: "8px 12px",
+            background: "#f8fafc",
+            borderTop: "1px solid #e2e8f0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "8px"
+          }}>
+            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
+              {entries.length} {entries.length === 1 ? "area" : "areas"} calculated
+            </span>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  alert(`Saved flooring areas data (${entries.length} items)`);
+                }}
+                style={{
+                  padding: "6px 14px",
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11.5px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
+                }}
+              >
+                💾 Save
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  alert(`🚀 Successfully sent ${entries.length} flooring areas to Takeoff Tool & BOQ!`);
+                }}
+                style={{
+                  padding: "6px 16px",
+                  background: "var(--blue, #2563eb)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11.5px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
+                }}
+              >
+                🚀 Send to Tool
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

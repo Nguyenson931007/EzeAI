@@ -19,22 +19,25 @@ import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirti
 import floorTypesConfig from "@/constants/floorTypes.json";
 import RoofInspectorCard from "@/components/RoofInspectorCard";
 import { roundLintelLength } from "@/controllers/lintel.controller";
-import {
-  FrameHardwareTask,
-  EavesSoffitTask,
-  CladdingTask,
-  InsulationTask,
-  FlooringDeckingTask,
-  TimberPostsTask,
-  FixoutTask,
-  LockupTask,
-  ShelvingTask,
-  DoorsFurnitureTask,
-  FowPlumbingTask,
-  PowerTrussBracesTask,
-  FinalFitTask,
-  SheetScheduleTask
-} from "@/components/cairns-hardware/tasks";
+import * as CairnsHardwareTasks from "@/components/cairns-hardware/tasks";
+import * as BunNswActTasks from "@/components/bun-nsw-act/tasks";
+import * as AtsFtTasks from "@/components/ats-ft/tasks";
+import * as BunSaTasks from "@/components/bun-sa/tasks";
+import * as BunSeqldTasks from "@/components/bun-seqld/tasks";
+import * as BunTasTasks from "@/components/bun-tas/tasks";
+import * as BunVicTasks from "@/components/bun-vic/tasks";
+import * as BunningsQldTasks from "@/components/bunnings-qld/tasks";
+
+export const CUSTOMER_TASK_PACKS = {
+  "bun-nsw-act": { name: "Bunnings NSW / ACT", short: "NSW / ACT", tasks: BunNswActTasks },
+  "cairns-hardware": { name: "Cairns Hardware", short: "Cairns HW", tasks: CairnsHardwareTasks },
+  "bunnings-qld": { name: "Bunnings QLD", short: "BUN QLD", tasks: BunningsQldTasks },
+  "bun-vic": { name: "Bunnings VIC", short: "BUN VIC", tasks: BunVicTasks },
+  "bun-seqld": { name: "Bunnings SEQLD", short: "BUN SEQLD", tasks: BunSeqldTasks },
+  "bun-sa": { name: "Bunnings SA", short: "BUN SA", tasks: BunSaTasks },
+  "bun-tas": { name: "Bunnings TAS", short: "BUN TAS", tasks: BunTasTasks },
+  "ats-ft": { name: "ATS - FT", short: "ATS FT", tasks: AtsFtTasks }
+};
 
 /* ================================================================
    SVG DASHBOARD ICONS
@@ -406,23 +409,55 @@ export function getDoorWindowDisplayWidthMm(d, realScale, scaleValue) {
 // ── EXTRA TAKEOFF & CONFIG MODULE TABS ──
 const EXTRA_MODULE_TABS = [
   {
-    id: "cladding",
-    label: "Cladding",
-    title: "Cladding",
+    id: "frame_hardware",
+    label: "01 Frame HW",
+    title: "01 Frame Hardware",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="3" width="18" height="5" rx="1" />
-        <rect x="3" y="10" width="18" height="5" rx="1" />
-        <rect x="3" y="17" width="18" height="5" rx="1" />
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    )
+  },
+  {
+    id: "flooring_decking",
+    label: "02 Floor/Deck",
+    title: "02 Flooring & Decking - GF",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v6M15 9v6M9 15v6" />
+      </svg>
+    )
+  },
+  {
+    id: "hebel_flooring",
+    label: "03 Hebel Flr",
+    title: "03 Hebel Flooring",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+      </svg>
+    )
+  },
+  {
+    id: "insulation",
+    label: "04 Insulation",
+    title: "04 Insulation",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="M12 8v8M8 12h8" />
       </svg>
     )
   },
   {
     id: "eaves_soffit",
-    label: "Eaves Soffit",
-    title: "Eaves Soffit",
+    label: "05 Eaves/Soffit",
+    title: "05 Eaves & Soffit",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3 9l9-6 9 6" />
         <path d="M4 10v10h16V10" />
         <path d="M2 10h20" strokeWidth="2" />
@@ -430,33 +465,66 @@ const EXTRA_MODULE_TABS = [
     )
   },
   {
-    id: "flooring_decking",
-    label: "Flooring",
-    title: "Flooring & Decking",
+    id: "cladding",
+    label: "06 Cladding",
+    title: "06 Cladding",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M3 9h18M3 15h18M9 3v6M15 9v6M9 15v6" />
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="3" width="18" height="5" rx="1" />
+        <rect x="3" y="10" width="18" height="5" rx="1" />
+        <rect x="3" y="17" width="18" height="5" rx="1" />
       </svg>
     )
   },
   {
-    id: "frame_hardware",
-    label: "Frame HW",
-    title: "Frame Hardware",
+    id: "lock_up",
+    label: "07 Lockup",
+    title: "07 Lockup",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+    )
+  },
+  {
+    id: "shelving",
+    label: "08 Shelving",
+    title: "08 Shelving",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M4 4v16M20 4v16M4 7h16M4 12h16M4 17h16" />
+      </svg>
+    )
+  },
+  {
+    id: "timber_posts",
+    label: "09 Beams/Posts",
+    title: "09 Beams & Posts",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="6" y="3" width="12" height="18" rx="1" />
+        <path d="M6 8h12M6 16h12M12 3v18" />
+      </svg>
+    )
+  },
+  {
+    id: "power_truss_braces",
+    label: "10 Truss Braces",
+    title: "10 Power Truss Braces",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M3 20h18L12 4z" />
+        <path d="M12 4v16M7.5 12l4.5 8M16.5 12l-4.5 8" />
       </svg>
     )
   },
   {
     id: "doors_furniture",
-    label: "Furniture",
-    title: "Doors & Furniture",
+    label: "11 Furniture",
+    title: "11 Doors & Furniture",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3" />
         <path d="M3 11v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" />
         <path d="M5 18v2M19 18v2" />
@@ -464,43 +532,11 @@ const EXTRA_MODULE_TABS = [
     )
   },
   {
-    id: "insulation",
-    label: "Insulation",
-    title: "Insulation",
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        <path d="M12 8v8M8 12h8" />
-      </svg>
-    )
-  },
-  {
-    id: "timber_posts",
-    label: "Timber Posts",
-    title: "Timber Posts",
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="6" y="3" width="12" height="18" rx="1" />
-        <path d="M6 8h12M6 16h12M12 3v18" />
-      </svg>
-    )
-  },
-  {
-    id: "shelving",
-    label: "Shelving",
-    title: "Shelving",
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M4 4v16M20 4v16M4 7h16M4 12h16M4 17h16" />
-      </svg>
-    )
-  },
-  {
     id: "fow_plumbing",
-    label: "Plumbing",
-    title: "FOW Plumbing",
+    label: "12 Plumbing",
+    title: "12 FOW Plumbing",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M6 3v6a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V3" />
         <path d="M12 12v9" />
         <circle cx="12" cy="18" r="2.5" />
@@ -508,33 +544,11 @@ const EXTRA_MODULE_TABS = [
     )
   },
   {
-    id: "power_truss_braces",
-    label: "Truss Braces",
-    title: "Power Truss Braces",
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M3 20h18L12 4z" />
-        <path d="M12 4v16M7.5 12l4.5 8M16.5 12l-4.5 8" />
-      </svg>
-    )
-  },
-  {
-    id: "lock_up",
-    label: "Lockup",
-    title: "Lockup & Enclosure",
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-    )
-  },
-  {
     id: "fixout",
-    label: "Fixout",
-    title: "Fixout & Trims",
+    label: "13 Fixout",
+    title: "13 Fixout & Trims",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
         <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" />
       </svg>
@@ -542,10 +556,10 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "final_fit",
-    label: "Final Fit",
-    title: "Final Fit & Hardware",
+    label: "14 Final Fit",
+    title: "14 Final Fit & Hardware",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <circle cx="7.5" cy="15.5" r="4.5" />
         <path d="m21 2-9.6 9.6M15.5 7.5l3 3" />
       </svg>
@@ -553,10 +567,10 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "sheet_schedule",
-    label: "Sheet Sched",
-    title: "Sheet Schedule (Gyprock & FC)",
+    label: "15 Sheet Sched",
+    title: "15 Sheet Schedule (Gyprock & FC)",
     icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
         <polyline points="14 2 14 8 20 8" />
         <line x1="16" y1="13" x2="8" y2="13" />
@@ -570,56 +584,57 @@ const EXTRA_MODULE_TABS = [
 const ALL_MODULE_IDS = EXTRA_MODULE_TABS.map(m => m.id);
 
 const MODULE_KEY_MAP = {
-  "cladding": "cladding",
-  "clad": "cladding",
-  "wall_cladding": "cladding",
-  "wall cladding": "cladding",
+  "frame_hardware": "frame_hardware",
+  "frame hardware": "frame_hardware",
+  "frame": "frame_hardware",
+  "hardware": "frame_hardware",
+  "frame_hw": "frame_hardware",
+  "frame hw": "frame_hardware",
   "eaves_soffit": "eaves_soffit",
   "eaves_soffits": "eaves_soffit",
   "eaves & soffit": "eaves_soffit",
   "eaves & soffits": "eaves_soffit",
+  "eaves and soffit": "eaves_soffit",
+  "eaves and soffits": "eaves_soffit",
   "eaves soffit": "eaves_soffit",
   "eaves": "eaves_soffit",
   "soffit": "eaves_soffit",
   "soffits": "eaves_soffit",
+  "cladding": "cladding",
+  "clad": "cladding",
+  "wall_cladding": "cladding",
+  "wall cladding": "cladding",
+  "insulation": "insulation",
+  "insulations": "insulation",
+  "lock_up": "lock_up",
+  "lock up": "lock_up",
+  "lockup": "lock_up",
+  "lock-up": "lock_up",
+  "shelving": "shelving",
+  "shelves": "shelving",
+  "shelf": "shelving",
+  "shelvings": "shelving",
+  "timber_posts": "timber_posts",
+  "timber posts": "timber_posts",
+  "timber_post": "timber_posts",
+  "timber post": "timber_posts",
+  "posts": "timber_posts",
+  "post": "timber_posts",
+  "beams_posts": "timber_posts",
+  "beams & posts": "timber_posts",
+  "beams and posts": "timber_posts",
+  "beams posts": "timber_posts",
+  "beams": "timber_posts",
   "flooring_decking": "flooring_decking",
   "flooring & decking": "flooring_decking",
   "flooring": "flooring_decking",
   "decking": "flooring_decking",
   "flooring decking": "flooring_decking",
   "floor_decking": "flooring_decking",
-  "frame_hardware": "frame_hardware",
-  "frame hardware": "frame_hardware",
-  "hardware": "frame_hardware",
-  "frame_hw": "frame_hardware",
-  "frame hw": "frame_hardware",
-  "frame": "frame_hardware",
-  "doors_furniture": "doors_furniture",
-  "doors & furniture": "doors_furniture",
-  "doors furniture": "doors_furniture",
-  "furniture": "doors_furniture",
-  "doors": "doors_furniture",
-  "door_furniture": "doors_furniture",
-  "opening": "doors_furniture",
-  "insulation": "insulation",
-  "insulations": "insulation",
-  "timber_posts": "timber_posts",
-  "timber posts": "timber_posts",
-  "timber_post": "timber_posts",
-  "timber post": "timber_posts",
-  "posts": "timber_posts",
-  "beams_posts": "timber_posts",
-  "beams & posts": "timber_posts",
-  "post": "timber_posts",
-  "shelving": "shelving",
-  "shelves": "shelving",
-  "shelf": "shelving",
-  "shelvings": "shelving",
-  "fow_plumbing": "fow_plumbing",
-  "fow plumbing": "fow_plumbing",
-  "plumbing": "fow_plumbing",
-  "fow": "fow_plumbing",
-  "plumb": "fow_plumbing",
+  "hebel": "flooring_decking",
+  "hebel flooring": "flooring_decking",
+  "hebel_flooring": "flooring_decking",
+  "hebel floor": "flooring_decking",
   "power_truss_braces": "power_truss_braces",
   "power truss braces": "power_truss_braces",
   "truss_braces": "power_truss_braces",
@@ -627,10 +642,18 @@ const MODULE_KEY_MAP = {
   "truss": "power_truss_braces",
   "braces": "power_truss_braces",
   "power truss": "power_truss_braces",
-  "lock_up": "lock_up",
-  "lock up": "lock_up",
-  "lockup": "lock_up",
-  "lock-up": "lock_up",
+  "doors_furniture": "doors_furniture",
+  "doors & furniture": "doors_furniture",
+  "doors furniture": "doors_furniture",
+  "furniture": "doors_furniture",
+  "doors": "doors_furniture",
+  "door_furniture": "doors_furniture",
+  "opening": "doors_furniture",
+  "fow_plumbing": "fow_plumbing",
+  "fow plumbing": "fow_plumbing",
+  "plumbing": "fow_plumbing",
+  "fow": "fow_plumbing",
+  "plumb": "fow_plumbing",
   "fixout": "fixout",
   "fix out": "fixout",
   "fix-out": "fixout",
@@ -865,6 +888,55 @@ export default function RightPropertyPaneView({
   const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
   const addModulePopupRef = React.useRef(null);
 
+  // ── CUSTOMER / CLIENT TASK FORM SELECTION ──
+  const [selectedCustomerClient, setSelectedCustomerClient] = React.useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("selectedCustomerClient") || sessionStorage.getItem("selectedCustomerClient") || "bun-nsw-act";
+    }
+    return "bun-nsw-act";
+  });
+
+  const activeCustomerTasks = React.useMemo(() => {
+    const pack = CUSTOMER_TASK_PACKS[selectedCustomerClient]?.tasks || BunNswActTasks;
+    const fallback = BunNswActTasks;
+    const fallback2 = CairnsHardwareTasks;
+    return {
+      FrameHardwareTask: pack.FrameHardwareTask || fallback.FrameHardwareTask || fallback2.FrameHardwareTask,
+      EavesSoffitTask: pack.EavesSoffitTask || fallback.EavesSoffitTask || fallback2.EavesSoffitTask,
+      CladdingTask: pack.CladdingTask || fallback.CladdingTask || fallback2.CladdingTask,
+      InsulationTask: pack.InsulationTask || fallback.InsulationTask || fallback2.InsulationTask,
+      FlooringDeckingTask: pack.FlooringDeckingTask || fallback.FlooringDeckingTask || fallback2.FlooringDeckingTask,
+      HebelFlooringTask: pack.HebelFlooringTask || fallback.HebelFlooringTask || pack.FlooringDeckingTask || fallback.FlooringDeckingTask,
+      TimberPostsTask: pack.TimberPostsTask || fallback.TimberPostsTask || fallback2.TimberPostsTask,
+      FixoutTask: pack.FixoutTask || fallback.FixoutTask || fallback2.FixoutTask,
+      LockupTask: pack.LockupTask || fallback.LockupTask || fallback2.LockupTask,
+      ShelvingTask: pack.ShelvingTask || fallback.ShelvingTask || fallback2.ShelvingTask,
+      DoorsFurnitureTask: pack.DoorsFurnitureTask || fallback.DoorsFurnitureTask || fallback2.DoorsFurnitureTask,
+      FowPlumbingTask: pack.FowPlumbingTask || fallback.FowPlumbingTask || fallback2.FowPlumbingTask,
+      PowerTrussBracesTask: pack.PowerTrussBracesTask || fallback.PowerTrussBracesTask || fallback2.PowerTrussBracesTask,
+      FinalFitTask: pack.FinalFitTask || fallback.FinalFitTask || fallback2.FinalFitTask,
+      SheetScheduleTask: pack.SheetScheduleTask || fallback.SheetScheduleTask || fallback2.SheetScheduleTask
+    };
+  }, [selectedCustomerClient]);
+
+  const {
+    FrameHardwareTask,
+    EavesSoffitTask,
+    CladdingTask,
+    InsulationTask,
+    FlooringDeckingTask,
+    HebelFlooringTask,
+    TimberPostsTask,
+    FixoutTask,
+    LockupTask,
+    ShelvingTask,
+    DoorsFurnitureTask,
+    FowPlumbingTask,
+    PowerTrussBracesTask,
+    FinalFitTask,
+    SheetScheduleTask
+  } = activeCustomerTasks;
+
   // Dynamic sync enabledModuleIds when pendingEmsJob or selectedModules or URL params update
   React.useEffect(() => {
     const syncModulesFromContext = () => {
@@ -904,7 +976,7 @@ export default function RightPropertyPaneView({
 
   // If current active tab is a module that became disabled, fallback to explorer
   React.useEffect(() => {
-    if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task") {
+    if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed") {
       if (!enabledModuleIds.includes(activePaneTab)) {
         setActivePaneTab("explorer");
       }
@@ -947,6 +1019,18 @@ export default function RightPropertyPaneView({
         ...(moduleId === "doors_furniture" || moduleId === "fow_plumbing" ? { quantity: "1", count: "1" } : {})
       }
     }));
+  };
+
+  // Handler for selecting an entry in task tables — highlights matching objects on canvas
+  const handleSelectEntry = (entry) => {
+    if (!entry) {
+      // Deselected — clear canvas highlight
+      console.log("[TaskPanel] Entry deselected, clearing canvas highlight");
+      return;
+    }
+    console.log("[TaskPanel] Entry selected:", entry);
+    // TODO: Wire to canvas/CAD selection system to highlight matching walls/doors/floors
+    // e.g. selectWallsByType(entry.baseType, entry.height)
   };
 
   const handleAddDataAI = (moduleId) => {
@@ -1567,8 +1651,9 @@ export default function RightPropertyPaneView({
     setEaveLength("");
   };
 
-  // 3. Flooring Entries
+  // 3. Flooring Entries & Hebel Flooring Entries
   const [flooringEntries, setFlooringEntries] = React.useState([]);
+  const [hebelFlooringEntries, setHebelFlooringEntries] = React.useState([]);
   const [flrLevel, setFlrLevel] = React.useState("Ground Floor GF");
   const [flrRoom, setFlrRoom] = React.useState("");
   const [flrType, setFlrType] = React.useState("Hybrid / Vinyl Plank");
@@ -2477,30 +2562,32 @@ export default function RightPropertyPaneView({
         height: "100%",
         overflow: "hidden",
         position: "relative",
-        width: `${panelWidth}px`,
+        width: activePaneTab === "collapsed" ? "60px" : `${panelWidth}px`,
         transition: isResizing ? "none" : "width 0.15s ease"
       }}
     >
       {/* ── RESIZE DRAG HANDLE (Mép trái của panel) ── */}
-      <div
-        onMouseDown={handleMouseDownResize}
-        title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: "7px",
-          cursor: "ew-resize",
-          zIndex: 999,
-          background: isResizing ? "rgba(37,99,235,0.6)" : "transparent",
-          transition: "background 0.2s ease"
-        }}
-        onMouseEnter={(e) => { if (!isResizing) e.currentTarget.style.background = "rgba(37,99,235,0.25)"; }}
-        onMouseLeave={(e) => { if (!isResizing) e.currentTarget.style.background = "transparent"; }}
-      />
+      {activePaneTab !== "collapsed" && (
+        <div
+          onMouseDown={handleMouseDownResize}
+          title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: "7px",
+            cursor: "ew-resize",
+            zIndex: 999,
+            background: isResizing ? "rgba(37,99,235,0.6)" : "transparent",
+            transition: "background 0.2s ease"
+          }}
+          onMouseEnter={(e) => { if (!isResizing) e.currentTarget.style.background = "rgba(37,99,235,0.25)"; }}
+          onMouseLeave={(e) => { if (!isResizing) e.currentTarget.style.background = "transparent"; }}
+        />
+      )}
       {/* ── LEFT COLUMN 1: PROPERTIES & MODEL EXPLORER / SUMMARY / JOB TASK (RENDERED ONLY WHEN EXPLORER TAB IS ACTIVE) ── */}
-      {!isTaskModuleActive && (
+      {!isTaskModuleActive && activePaneTab !== "collapsed" && (
         <div style={{
           width: "100%",
           flex: 1,
@@ -2516,10 +2603,30 @@ export default function RightPropertyPaneView({
            ══════════════════════════════════════════════════════ */
         <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "10px", overflowY: "auto", flex: 1 }}>
           {/* Project Title & Status Bar */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
             <div style={{ fontSize: "11px", fontWeight: 800, color: "var(--blue)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
               PROJECT: {currentProjectName || "Modern House"}
             </div>
+            <button
+              onClick={() => setActivePaneTab("collapsed")}
+              title="Close panel"
+              style={{
+                background: "transparent",
+                color: "#94a3b8",
+                border: "none",
+                borderRadius: "6px",
+                padding: "2px 5px",
+                fontSize: "16px",
+                fontWeight: "800",
+                cursor: "pointer",
+                lineHeight: 1,
+                transition: "color 0.15s ease"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
+              onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
+            >
+              ✕
+            </button>
           </div>
 
           {/* Search Box */}
@@ -3666,28 +3773,50 @@ export default function RightPropertyPaneView({
                 ({Math.min(taskDisplayLimit, filteredTasks.length)}/{filteredTasks.length})
               </span>
             </div>
-            <button
-              onClick={() => fetchTasks(true)}
-              disabled={taskLoading}
-              title="Làm mới danh sách từ TaskList"
-              style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "#e2e8f0",
-                padding: "4px 8px",
-                borderRadius: "5px",
-                cursor: taskLoading ? "not-allowed" : "pointer",
-                fontSize: "11px",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-              </svg>
-              {taskLoading ? "Loading..." : "Refresh"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button
+                onClick={() => fetchTasks(true)}
+                disabled={taskLoading}
+                title="Làm mới danh sách từ TaskList"
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  color: "#e2e8f0",
+                  padding: "4px 8px",
+                  borderRadius: "5px",
+                  cursor: taskLoading ? "not-allowed" : "pointer",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px"
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                {taskLoading ? "Loading..." : "Refresh"}
+              </button>
+              <button
+                onClick={() => setActivePaneTab("collapsed")}
+                title="Close task pane"
+                style={{
+                  background: "transparent",
+                  color: "#94a3b8",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "2px 5px",
+                  fontSize: "16px",
+                  fontWeight: "800",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                  transition: "color 0.15s ease"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           {/* Search Box */}
@@ -4036,9 +4165,31 @@ export default function RightPropertyPaneView({
               <span style={{ fontSize: "14px", fontWeight: 900 }}>←</span>
               <span>Back to Explorer / Layers</span>
             </button>
-            <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", padding: "3px 8px", borderRadius: "12px", textTransform: "uppercase" }}>
-              {selectedType ? selectedType.toUpperCase() : "PROPERTIES"}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", padding: "3px 8px", borderRadius: "12px", textTransform: "uppercase" }}>
+                {selectedType ? selectedType.toUpperCase() : "PROPERTIES"}
+              </span>
+              <button
+                onClick={() => setActivePaneTab("collapsed")}
+                title="Close properties pane"
+                style={{
+                  background: "transparent",
+                  color: "#94a3b8",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "2px 5px",
+                  fontSize: "16px",
+                  fontWeight: "800",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                  transition: "color 0.15s ease"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           {/* ── PROPERTIES ── */}
@@ -5627,6 +5778,43 @@ export default function RightPropertyPaneView({
            TAB: SUMMARY (Tổng hợp Wall, Floor, Roof, Door, Skirting, Window & Export)
            ══════════════════════════════════════════════════════ */
         <div style={{ overflowY: "auto", flex: 1, paddingBottom: "20px" }}>
+          {/* Summary Header with Close Button */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            position: "sticky",
+            top: 0,
+            zIndex: 25
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+              <span style={{ fontSize: "12.5px", fontWeight: "800", color: "#0f2744" }}>Summary & Takeoffs</span>
+            </div>
+            <button
+              onClick={() => setActivePaneTab("collapsed")}
+              title="Close summary pane"
+              style={{
+                background: "transparent",
+                color: "#94a3b8",
+                border: "none",
+                borderRadius: "6px",
+                padding: "2px 5px",
+                fontSize: "16px",
+                fontWeight: "800",
+                cursor: "pointer",
+                lineHeight: 1,
+                transition: "color 0.15s ease"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
+              onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
+            >
+              ✕
+            </button>
+          </div>
           {/* ── WALL SUMMARY COLLAPSIBLE GROUP ── */}
           <CollapsibleSection
             title="Wall Summary"
@@ -6356,7 +6544,7 @@ export default function RightPropertyPaneView({
       )}
 
       {/* ── SINGLE COLUMN TASK CALCULATION FORM PANEL (REPLACES PROPERTIES WHEN A TASK TAB IS ACTIVE) ── */}
-      {isTaskModuleActive && activeModuleTab && (
+      {isTaskModuleActive && activeModuleTab && activePaneTab !== "collapsed" && (
         <div style={{
           width: "100%",
           flex: 1,
@@ -6408,43 +6596,85 @@ export default function RightPropertyPaneView({
                   Reset data
                 </button>
                 <button
-                  onClick={() => handleAddDataAI(activeModuleTab.id)}
-                  title="Tự động tính toán & điền dữ liệu AI từ bản vẽ"
-                  style={{
-                    background: "#eff6ff",
-                    color: "#1d4ed8",
-                    border: "1px solid #93c5fd",
-                    borderRadius: "6px",
-                    padding: "4px 9px",
-                    fontSize: "11px",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "3px",
-                    boxShadow: "0 1px 2px rgba(37,99,235,0.08)"
-                  }}
-                >
-                  <span>+ Add data AI</span>
-                </button>
-                <button
-                  onClick={() => setActivePaneTab("explorer")}
-                  title="Đóng khung task"
+                  onClick={() => setActivePaneTab("collapsed")}
+                  title="Close task pane"
                   style={{
                     background: "transparent",
                     color: "#94a3b8",
                     border: "none",
                     borderRadius: "6px",
                     padding: "2px 5px",
-                    fontSize: "14px",
-                    fontWeight: "700",
-                    cursor: "pointer"
+                    fontSize: "16px",
+                    fontWeight: "800",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                    transition: "color 0.15s ease"
                   }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
+                  onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
                 >
                   ✕
                 </button>
               </div>
             </div>
+            {/* Customer Form Selector Toolbar */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "8px",
+              padding: "6px 10px",
+              marginTop: "2px"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span>🏢 Client:</span>
+                </span>
+                <select
+                  value={selectedCustomerClient}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedCustomerClient(val);
+                    try {
+                      localStorage.setItem("selectedCustomerClient", val);
+                      sessionStorage.setItem("selectedCustomerClient", val);
+                    } catch (_) {}
+                  }}
+                  style={{
+                    padding: "3px 8px",
+                    fontSize: "11.5px",
+                    fontWeight: "700",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f2744",
+                    cursor: "pointer",
+                    outline: "none",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.04)"
+                  }}
+                >
+                  {Object.entries(CUSTOMER_TASK_PACKS).map(([key, info]) => (
+                    <option key={key} value={key}>
+                      {info.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span style={{
+                fontSize: "10.5px",
+                fontWeight: "700",
+                color: "#2563eb",
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                padding: "2px 7px",
+                borderRadius: "12px"
+              }}>
+                {CUSTOMER_TASK_PACKS[selectedCustomerClient]?.short || selectedCustomerClient}
+              </span>
+            </div>
+
             {aiGeneratedSuccess === activeModuleTab.id && (
               <div style={{
                 background: "#ecfdf5",
@@ -6458,7 +6688,7 @@ export default function RightPropertyPaneView({
                 alignItems: "center",
                 gap: "5px"
               }}>
-                <span>✨ Đã tự động phân tích & điền dữ liệu AI từ bản vẽ!</span>
+                <span>✨ Automatically analyzed & populated AI data from drawing!</span>
               </div>
             )}
           </div>
@@ -6472,6 +6702,7 @@ export default function RightPropertyPaneView({
                 entries={frameWallEntries}
                 onSetEntries={setFrameWallEntries}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
@@ -6510,10 +6741,11 @@ export default function RightPropertyPaneView({
                 areaEntries={insulationAreaEntries}
                 onSetAreaEntries={setInsulationAreaEntries}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
-            {/* 5. Flooring & Decking */}
+            {/* 2. Flooring & Decking - GF */}
             {activeModuleTab.id === "flooring_decking" && (
               <FlooringDeckingTask
                 formData={moduleFormData.flooring_decking || {}}
@@ -6521,6 +6753,18 @@ export default function RightPropertyPaneView({
                 cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
                 entries={flooringEntries}
                 onSetEntries={setFlooringEntries}
+                onAddDataAI={handleAddDataAI}
+              />
+            )}
+
+            {/* 3. Hebel Flooring */}
+            {activeModuleTab.id === "hebel_flooring" && (
+              <HebelFlooringTask
+                formData={moduleFormData.hebel_flooring || {}}
+                onChange={handleModuleFormChange}
+                cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
+                entries={hebelFlooringEntries}
+                onSetEntries={setHebelFlooringEntries}
                 onAddDataAI={handleAddDataAI}
               />
             )}
@@ -6621,44 +6865,6 @@ export default function RightPropertyPaneView({
               />
             )}
 
-          {/* Quick Takeoff Action / Output Preview */}
-          <div style={{
-            background: "#f1f5f9",
-            border: "1px solid #e2e8f0",
-            borderRadius: "8px",
-            padding: "10px 12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            marginTop: "auto"
-          }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span>📊 Takeoff Calculation Status</span>
-              <span style={{ fontSize: "10px", color: "#10b981", fontWeight: 800 }}>READY</span>
-            </div>
-            <div style={{ fontSize: "11px", color: "#64748b", lineHeight: "1.4" }}>
-              Input data will be directly linked with the BOQ and CAD drawings.
-            </div>
-            <button
-              onClick={() => {
-                alert(`Saved data for module: ${activeModuleTab.title}`);
-              }}
-              style={{
-                width: "100%",
-                padding: "7px",
-                background: "var(--blue)",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "6px",
-                fontSize: "11.5px",
-                fontWeight: 700,
-                cursor: "pointer",
-                boxShadow: "0 1px 3px rgba(37,99,235,0.2)"
-              }}
-            >
-              Save & Apply Takeoff
-            </button>
-          </div>
         </div>
       )}
 
@@ -6668,32 +6874,32 @@ export default function RightPropertyPaneView({
         <button
           title="Properties & Model Explorer"
           onClick={() => {
-            setActivePaneTab("explorer");
+            setActivePaneTab(prev => prev === "explorer" ? "collapsed" : "explorer");
           }}
           className={`rp-side-tab-btn ${activePaneTab === "explorer" ? "active" : ""}`}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
-          <span style={{ transform: "scale(0.92)", letterSpacing: "-0.2px", lineHeight: "1.1" }}>Properties</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
+          <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Properties</span>
         </button>
 
         {/* Summary tab */}
         <button
           title="Takeoff & Geometry Summary"
-          onClick={() => setActivePaneTab("summary")}
+          onClick={() => setActivePaneTab(prev => prev === "summary" ? "collapsed" : "summary")}
           className={`rp-side-tab-btn ${activePaneTab === "summary" ? "active" : ""}`}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
-          <span style={{ transform: "scale(0.92)", letterSpacing: "-0.2px", lineHeight: "1.1" }}>Summary</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+          <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Summary</span>
         </button>
 
         {/* Task HW tab */}
         <button
           title="Task Groups HW"
-          onClick={() => setActivePaneTab("job_task")}
+          onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
           className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
         >
           <div style={{ position: "relative", display: "inline-flex" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
             {taskListJobs.filter(t => t.has_local_job).length > 0 && (
               <span style={{
                 position: "absolute",
@@ -6716,7 +6922,7 @@ export default function RightPropertyPaneView({
               </span>
             )}
           </div>
-          <span style={{ transform: "scale(0.92)", letterSpacing: "-0.2px", lineHeight: "1.1" }}>Task HW</span>
+          <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
         </button>
 
         {/* Divider */}
@@ -6727,11 +6933,11 @@ export default function RightPropertyPaneView({
           <button
             key={mod.id}
             title={mod.title}
-            onClick={() => setActivePaneTab(mod.id)}
+            onClick={() => setActivePaneTab(prev => prev === mod.id ? "collapsed" : mod.id)}
             className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
           >
             {mod.icon}
-            <span style={{ transform: "scale(0.88)", letterSpacing: "-0.2px", lineHeight: "1.1", textAlign: "center" }}>
+            <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
               {mod.label}
             </span>
           </button>
@@ -6740,26 +6946,26 @@ export default function RightPropertyPaneView({
         {/* ── ADD MODULE [+] BUTTON & POPUP ── */}
         <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>
           <button
-            title="Thêm Module / Add Module (+)"
+            title="Add Module (+)"
             onClick={(e) => {
               e.stopPropagation();
               setShowAddModulePopup(prev => !prev);
             }}
             className="rp-side-tab-btn"
             style={{
-              border: "1px dashed #94a3b8",
+              border: "1.5px dashed #94a3b8",
               background: showAddModulePopup ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.7)",
-              color: showAddModulePopup ? "var(--blue)" : "#64748b",
-              padding: "5px 2px",
+              color: showAddModulePopup ? "var(--blue)" : "#334155",
+              padding: "6px 2px",
               boxShadow: "none"
             }}
           >
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <circle cx="12" cy="12" r="9" />
               <line x1="12" y1="8" x2="12" y2="16" />
               <line x1="8" y1="12" x2="16" y2="12" />
             </svg>
-            <span style={{ fontSize: "8px", fontWeight: 700, transform: "scale(0.9)", letterSpacing: "-0.2px" }}>
+            <span style={{ fontSize: "9.5px", fontWeight: 800, letterSpacing: "-0.2px" }}>
               + Add
             </span>
           </button>
@@ -6795,7 +7001,7 @@ export default function RightPropertyPaneView({
                 background: "#f8fafc"
               }}>
                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>📦 Quản lý Module</span>
+                  <span>📦 Manage Modules</span>
                   <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
                     ({enabledModuleIds.length}/{EXTRA_MODULE_TABS.length})
                   </span>

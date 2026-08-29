@@ -312,6 +312,35 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
 
     setEditedData(newEdits);
     setCustomRows(prev => [...prev.filter(r => !r.rowKey.startsWith("ai_filled_")), ...newCustomRows]);
+
+    // Broadcast calculated AI room areas to Flooring & Decking task pane
+    let dryTotal = 0;
+    let wetTotal = 0;
+    let timberTotal = 0;
+    let tileTotal = 0;
+
+    groupedAIRooms.forEach(r => {
+      const t = (r.floor_area_type || "").toLowerCase();
+      const val = parseFloat(r.calcAreaM2) || 0;
+      if (t === "dry") dryTotal += val;
+      else if (t === "wet") wetTotal += val;
+      else if (t.includes("timber")) timberTotal += val;
+      else if (t.includes("tile") || t.includes("balcony")) tileTotal += val;
+    });
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("ezefloor:apply_ai_rooms_to_flooring", {
+        detail: {
+          dryArea: dryTotal > 0 ? Number(dryTotal.toFixed(1)) : "",
+          wetArea: wetTotal > 0 ? Number(wetTotal.toFixed(1)) : "",
+          balconyArea: tileTotal > 0 ? Number(tileTotal.toFixed(1)) : "",
+          otherArea: timberTotal > 0 ? Number(timberTotal.toFixed(1)) : "",
+          otherTypeArea: "Decking Input",
+          groupedAIRooms: groupedAIRooms,
+          rooms: rooms
+        }
+      }));
+    }
   };
 
   /** Auto-populate area data from rooms in real-time when entering Step 2, only if no DB records exist yet */

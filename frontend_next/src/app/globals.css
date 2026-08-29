@@ -929,12 +929,12 @@ html, body {
 .rp-side-tab-bar {
   display: flex;
   flex-direction: column;
-  width: 54px;
-  min-width: 54px;
+  width: 60px;
+  min-width: 60px;
   background: var(--bg-panel-secondary, #f8fafc);
   border-left: 1px solid var(--border);
   padding: 6px 3px;
-  gap: 4px;
+  gap: 5px;
   align-items: center;
   flex-shrink: 0;
   z-index: 20;
@@ -954,8 +954,9 @@ html, body {
 
 .rp-side-tab-btn {
   width: 100%;
-  padding: 8px 2px 6px 2px;
-  font-size: 9px;
+  padding: 7px 2px 5px 2px;
+  font-size: 10px;
+  font-weight: 700;
   border-radius: 8px;
   cursor: pointer;
   display: flex;
@@ -967,20 +968,25 @@ html, body {
   position: relative;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-dim);
+  color: #334155;
+  text-align: center;
 }
 
 .rp-side-tab-btn:hover:not(.active) {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text);
+  background: rgba(0, 0, 0, 0.08);
+  color: #0f172a;
 }
 
 .rp-side-tab-btn.active {
-  color: #ffffff;
-  background: var(--blue);
-  border-color: var(--blue);
-  font-weight: 700;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+  color: #ffffff !important;
+  background: var(--blue, #2563eb);
+  border-color: var(--blue, #2563eb);
+  font-weight: 800;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.35);
+}
+
+.rp-side-tab-btn.active span {
+  color: #ffffff !important;
 }
 
 /* ===== TASK CALCULATION FORM ===== */
