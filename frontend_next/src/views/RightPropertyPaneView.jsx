@@ -1480,18 +1480,11 @@ export default function RightPropertyPaneView({
     date: ""
   });
 
-  // ── DYNAMIC PANEL RESIZING STATE ──
-  const [panelWidth, setPanelWidth] = React.useState(() => {
-    try {
-      const saved = localStorage.getItem("ezefloor_panel_width");
-      if (saved) {
-        const val = Number(saved);
-        if (!isNaN(val) && val >= 310 && val <= 850) return val;
-      }
-    } catch (_) {}
-    return 420; // Tăng độ rộng mặc định từ 310px lên 420px cho form task rộng rãi
-  });
-
+  // ── DYNAMIC TASK EXPANSION & DRAG RESIZING STATE ──
+  const isTaskModuleActive = EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
+  const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
+  const [isTaskExpanded, setIsTaskExpanded] = React.useState(false);
+  const [taskPanelWidth, setTaskPanelWidth] = React.useState(420);
   const [isResizing, setIsResizing] = React.useState(false);
   const startXRef = React.useRef(0);
   const startWidthRef = React.useRef(0);
@@ -1500,7 +1493,7 @@ export default function RightPropertyPaneView({
     e.preventDefault();
     setIsResizing(true);
     startXRef.current = e.clientX;
-    startWidthRef.current = panelWidth;
+    startWidthRef.current = taskPanelWidth;
   };
 
   React.useEffect(() => {
@@ -1508,15 +1501,15 @@ export default function RightPropertyPaneView({
 
     const handleMouseMove = (e) => {
       const deltaX = startXRef.current - e.clientX;
-      const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, 310), 850);
-      setPanelWidth(newWidth);
+      const maxW = typeof window !== "undefined" ? Math.round(window.innerWidth * 0.88) : 1450;
+      const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, 360), maxW);
+      setTaskPanelWidth(newWidth);
+      if (newWidth > 600) setIsTaskExpanded(true);
+      else setIsTaskExpanded(false);
     };
 
     const handleMouseUp = () => {
       setIsResizing(false);
-      try {
-        localStorage.setItem("ezefloor_panel_width", String(panelWidth));
-      } catch (_) {}
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -1525,7 +1518,27 @@ export default function RightPropertyPaneView({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isResizing, panelWidth]);
+  }, [isResizing]);
+
+  const toggleTaskExpanded = () => {
+    if (isTaskExpanded) {
+      setTaskPanelWidth(420);
+      setIsTaskExpanded(false);
+    } else {
+      const expandedW = typeof window !== "undefined" ? Math.max(Math.min(Math.round(window.innerWidth * 0.78), 1400), 980) : 1150;
+      setTaskPanelWidth(expandedW);
+      setIsTaskExpanded(true);
+    }
+  };
+
+  const calculatedPanelWidth = React.useMemo(() => {
+    if (activePaneTab === "collapsed") return 60;
+    if (isTaskModuleActive) {
+      return taskPanelWidth;
+    }
+    // Properties / Explorer / Summary / Job tasks standard fixed width
+    return 380;
+  }, [activePaneTab, isTaskModuleActive, taskPanelWidth]);
 
   // ── INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) ──
   const [insulationWallEntries, setInsulationWallEntries] = React.useState([]);
@@ -1677,6 +1690,198 @@ export default function RightPropertyPaneView({
     setFlrArea("");
     setFlrRoom("");
   };
+
+  // Global listener for Auto-Calculate & Fill AI Rooms from AreaSummary modal
+  React.useEffect(() => {
+    const handleGlobalApplyAIRooms = (e) => {
+      if (!e.detail) return;
+      const { dryArea: d, wetArea: w, balconyArea: b, otherArea: o, otherTypeArea: ot, rooms } = e.detail;
+
+      setModuleFormData(prev => ({
+        ...prev,
+        flooring_decking: {
+          ...(prev.flooring_decking || {}),
+          dryArea: d ? String(d) : prev.flooring_decking?.dryArea || "",
+          wetArea: w ? String(w) : prev.flooring_decking?.wetArea || "",
+          balconyArea: b ? String(b) : prev.flooring_decking?.balconyArea || "",
+          otherArea: o ? String(o) : prev.flooring_decking?.otherArea || "",
+          otherTypeArea: ot || prev.flooring_decking?.otherTypeArea || "Decking Input",
+          location: "Ground Floor",
+          flooring_type: "Hybrid / Vinyl Plank",
+          floor_area: d ? String(d) : String(w || 54.2),
+          waste_allowance: "10"
+        },
+        hebel_flooring: {
+          ...(prev.hebel_flooring || {}),
+          dryArea: d ? String(d) : prev.hebel_flooring?.dryArea || "",
+          wetArea: w ? String(w) : prev.hebel_flooring?.wetArea || "",
+          balconyArea: b ? String(b) : prev.hebel_flooring?.balconyArea || "",
+          otherArea: o ? String(o) : prev.hebel_flooring?.otherArea || "",
+          otherTypeArea: ot || prev.hebel_flooring?.otherTypeArea || "Decking Input"
+        }
+      }));
+
+      // Auto-generate room entries for Cairns Hardware & standard list
+      const roomList = (rooms || []).filter(r => r.areaM2 || r.area || r.room_name || r.name || r.polygon);
+      if (roomList.length > 0) {
+        const generated = roomList.map((r, idx) => {
+          const roomName = (r.room_name || r.name || r.label || `Room ${idx + 1}`).trim();
+          let areaNum = 0;
+          if (r.areaM2 && !isNaN(r.areaM2)) {
+            areaNum = parseFloat(r.areaM2);
+          } else if (r.area && !isNaN(r.area)) {
+            areaNum = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
+          } else {
+            areaNum = 14.5;
+          }
+          areaNum = Number(areaNum.toFixed(2));
+
+          const isWet = /bath|ensuite|wc|powder|laundry|shower/i.test(roomName) || r.type === "wet";
+          const isDeck = /deck|porch|verandah|patio/i.test(roomName) || (r.type && r.type.includes("timber"));
+          const isBalcony = /balcony|alfresco|terrace/i.test(roomName) || (r.type && r.type.includes("tile"));
+          const isGarage = /garage/i.test(roomName);
+
+          const flType = isWet ? "Wet Area Ceramic Tile" : (isDeck ? "90mm Merbau Decking" : (isBalcony ? "Exterior Non-Slip Tile" : (isGarage ? "Concrete Epoxy / Sealed" : "Hybrid / Vinyl Plank")));
+
+          return {
+            id: `flr-ai-${r.id || idx}-${Date.now()}`,
+            level: "Ground Floor GF",
+            room: roomName,
+            type: r.floor_type || flType,
+            area: `${areaNum} m²`,
+            waste: "10%",
+            totalArea: `${Number((areaNum * 1.1).toFixed(2))} m²`
+          };
+        });
+        setFlooringEntries(generated);
+        setHebelFlooringEntries(generated);
+      }
+
+      // Auto-switch right pane tab to Flooring & Decking task so the user sees the filled form immediately
+      setEnabledModuleIds(prev => prev.includes("flooring_decking") ? prev : [...prev, "flooring_decking"]);
+      setActivePaneTab("flooring_decking");
+      setTaskPanelWidth(prev => Math.max(prev, 420));
+
+      setAiGeneratedSuccess("flooring_decking");
+      setTimeout(() => setAiGeneratedSuccess(null), 3000);
+    };
+
+    // ── 2. LOCKUP EVENT LISTENER ──
+    const handleGlobalApplyLockup = (e) => {
+      if (!e.detail) return;
+      const { doors: rawDoors = [], lockoutRows = [] } = e.detail;
+
+      const sourceList = lockoutRows.length > 0 ? lockoutRows : rawDoors;
+      if (sourceList.length > 0) {
+        const generated = sourceList.map((d, idx) => {
+          const dLabel = (d.label || d.door_name || d.name || `D${idx + 1}`).trim();
+          const dW = d.width || 820;
+          const dH = d.height || 2040;
+          const isExt = d.scope === "external" || d.isExternal || /entry|front|back|patio|balcony|sliding/i.test(dLabel);
+
+          return {
+            id: `lck-ai-${d.id || idx}-${Date.now()}`,
+            // NSW ACT columns
+            category: isExt ? "External Door" : "Internal Loose Jamb",
+            location: dLabel,
+            door: d.door || d.product || (isExt ? "SOLID CORE TIMBER DOOR 2040X820X40MM" : "FLUSH PANEL HONEYCOMB CORE 2040X820X35MM"),
+            size: `${dH}×${dW}`,
+            thicks: `${d.thickness || (isExt ? 40 : 35)}mm`,
+            jambWall: d.jamb_or_wall || "90mm Wall",
+            jambSize: d.jamb_size || "112×19mm 5.4m Loose Jamb",
+            hung: d.hung || (isExt ? "RH Pre Hung" : "Hung A"),
+            type: d.door_type || (isExt ? "Solid Core Entry" : "Type A"),
+            hfHo: d.internal_type || "HF",
+            color: d.color || "CHR",
+            stop: d.door_stop || "Cushion",
+            qty: d.default_qty || d.qty || 1,
+
+            // Cairns Hardware columns
+            doorLabel: dLabel,
+            configuration: isExt ? "Single Leaf External Entry" : "Single Swing Internal",
+            frameMaterial: d.jamb_or_wall || "90mm Timber Stud Frame",
+            weatherstrip: isExt ? "Raven RP4 Door Bottom Seal" : "Internal Draught Strip"
+          };
+        });
+
+        setLockupEntries(generated);
+        setFixoutDoorEntries(generated.map(g => ({
+          id: `fix-${g.id}`,
+          doorType: g.door,
+          jambType: g.jambSize,
+          architraveSpec: "67x18mm MDF Single Rebate Architrave",
+          qty: g.qty
+        })));
+      }
+
+      setEnabledModuleIds(prev => prev.includes("lockup") ? prev : [...prev, "lockup"]);
+      setActivePaneTab("lockup");
+      setTaskPanelWidth(prev => Math.max(prev, 420));
+
+      setAiGeneratedSuccess("lockup");
+      setTimeout(() => setAiGeneratedSuccess(null), 3000);
+    };
+
+    // ── 3. FRAMEWORK EVENT LISTENER ──
+    const handleGlobalApplyFramework = (e) => {
+      if (!e.detail) return;
+      const { wallEntries = [] } = e.detail;
+      if (wallEntries.length > 0) {
+        setFrameWallEntries(wallEntries);
+      }
+
+      setEnabledModuleIds(prev => prev.includes("frame_hardware") ? prev : [...prev, "frame_hardware"]);
+      setActivePaneTab("frame_hardware");
+      setTaskPanelWidth(prev => Math.max(prev, 420));
+
+      setAiGeneratedSuccess("frame_hardware");
+      setTimeout(() => setAiGeneratedSuccess(null), 3000);
+    };
+
+    // ── 4. INSULATION EVENT LISTENER ──
+    const handleGlobalApplyInsulation = (e) => {
+      if (!e.detail) return;
+      const { insulationRows = [] } = e.detail;
+      if (insulationRows.length > 0) {
+        const wallRows = insulationRows.map((r, idx) => {
+          const isExt = (r.wall_type || "").toLowerCase().includes("ext");
+          const netA = Math.max(0, ((r.wall_height || 2700) / 1000) * ((r.wall_length || 0) / 1000) + (r.total_area_raked || 0) - (r.total_area_door || 0));
+          return {
+            id: `ins-w-ai-${Date.now()}-${idx}`,
+            type: isExt ? "external" : "internal",
+            rValue: isExt ? "R2.5" : "R2.0",
+            productCode: isExt ? "0810610" : "0810608",
+            productName: isExt ? "0810610 - INS BATT R2.5 430MM" : "0810608 - INS BATT R2.0 430MM",
+            height: r.wall_height || 2700,
+            length: r.wall_length || 0,
+            rakedArea: r.total_area_raked || 0,
+            doorArea: r.total_area_door || 0,
+            netArea: Number(netA.toFixed(2))
+          };
+        });
+        setInsulationWallEntries(wallRows);
+      }
+
+      setEnabledModuleIds(prev => prev.includes("insulation") ? prev : [...prev, "insulation"]);
+      setActivePaneTab("insulation");
+      setTaskPanelWidth(prev => Math.max(prev, 420));
+
+      setAiGeneratedSuccess("insulation");
+      setTimeout(() => setAiGeneratedSuccess(null), 3000);
+    };
+
+    window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleGlobalApplyAIRooms);
+    window.addEventListener("ezefloor:apply_ai_doors_to_lockup", handleGlobalApplyLockup);
+    window.addEventListener("ezefloor:apply_ai_walls_to_framework", handleGlobalApplyFramework);
+    window.addEventListener("ezefloor:apply_ai_insulation_to_task", handleGlobalApplyInsulation);
+
+    return () => {
+      window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleGlobalApplyAIRooms);
+      window.removeEventListener("ezefloor:apply_ai_doors_to_lockup", handleGlobalApplyLockup);
+      window.removeEventListener("ezefloor:apply_ai_walls_to_framework", handleGlobalApplyFramework);
+      window.removeEventListener("ezefloor:apply_ai_insulation_to_task", handleGlobalApplyInsulation);
+    };
+  }, []);
 
   // 4. Frame Hardware Entries
   const [frameWallEntries, setFrameWallEntries] = React.useState([]);
@@ -2490,9 +2695,6 @@ export default function RightPropertyPaneView({
     return list;
   }, [taskListJobs, staffScope, myStaffCode, taskFilter, taskSearch]);
 
-  const isTaskModuleActive = EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
-  const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
-
   const cadMetrics = React.useMemo(() => {
     const scale = realScale || 1;
     let totalLenM = 0;
@@ -2560,14 +2762,62 @@ export default function RightPropertyPaneView({
         display: "flex",
         flexDirection: "row",
         height: "100%",
-        overflow: "hidden",
+        overflow: "visible",
         position: "relative",
-        width: activePaneTab === "collapsed" ? "60px" : `${panelWidth}px`,
-        transition: isResizing ? "none" : "width 0.15s ease"
+        width: `${calculatedPanelWidth}px`,
+        transition: isResizing ? "none" : "width 0.22s cubic-bezier(0.4, 0, 0.2, 1)"
       }}
     >
-      {/* ── RESIZE DRAG HANDLE (Mép trái của panel) ── */}
-      {activePaneTab !== "collapsed" && (
+      {/* ── EXPAND / COLLAPSE TAB BUTTON ATTACHED TO LEFT EDGE (« / ») ── */}
+      {isTaskModuleActive && activePaneTab !== "collapsed" && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleTaskExpanded();
+          }}
+          title={isTaskExpanded ? "Thu gọn form task (»)" : "Mở rộng form task hết cỡ («)"}
+          style={{
+            position: "absolute",
+            left: "-20px",
+            top: "12px",
+            width: "20px",
+            height: "40px",
+            background: isTaskExpanded ? "#eff6ff" : "#ffffff",
+            border: isTaskExpanded ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+            borderRight: "none",
+            borderRadius: "6px 0 0 6px",
+            boxShadow: "-3px 2px 8px rgba(0,0,0,0.12)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            zIndex: 1001,
+            color: isTaskExpanded ? "#1d4ed8" : "#3b82f6",
+            fontSize: "14px",
+            fontWeight: "900",
+            padding: 0,
+            transition: "all 0.15s ease",
+            lineHeight: 1
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = isTaskExpanded ? "#dbeafe" : "#eff6ff";
+            e.currentTarget.style.color = "#1d4ed8";
+            e.currentTarget.style.width = "22px";
+            e.currentTarget.style.left = "-22px";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = isTaskExpanded ? "#eff6ff" : "#ffffff";
+            e.currentTarget.style.color = isTaskExpanded ? "#1d4ed8" : "#3b82f6";
+            e.currentTarget.style.width = "20px";
+            e.currentTarget.style.left = "-20px";
+          }}
+        >
+          {isTaskExpanded ? "»" : "«"}
+        </button>
+      )}
+
+      {/* ── RESIZE DRAG HANDLE (CHỈ HIỆN TRÊN FORM TASK ĐỂ KÉO THAY ĐỔI WIDTH) ── */}
+      {isTaskModuleActive && activePaneTab !== "collapsed" && (
         <div
           onMouseDown={handleMouseDownResize}
           title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"

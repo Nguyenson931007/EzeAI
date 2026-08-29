@@ -318,7 +318,7 @@ export default function InsulationTask({
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11.5px",
+              fontSize: "10.5px",
               fontWeight: "700",
               cursor: "pointer",
               marginTop: "2px"
@@ -345,7 +345,7 @@ export default function InsulationTask({
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                 <th style={{ padding: "4px" }}>#</th>
-                <th style={{ padding: "4px" }}>Category / Type</th>
+                <th style={{ padding: "4px" }}>Type</th>
                 <th style={{ padding: "4px" }}>R-Value</th>
                 <th style={{ padding: "4px" }}>Product</th>
                 <th style={{ padding: "4px" }}>Dimensions</th>
@@ -429,7 +429,7 @@ export default function InsulationTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL DIRECTLY UNDER COMBINED TABLE (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT DIRECTLY UNDER COMBINED TABLE (ONLY WHEN RESULTS EXIST) ── */}
         {combinedEntries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -450,12 +450,12 @@ export default function InsulationTask({
                   alert(`Saved insulation data (${combinedEntries.length} items, ${totalCombinedArea.toFixed(2)} m²)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -472,12 +472,12 @@ export default function InsulationTask({
                   alert(`🚀 Successfully sent ${combinedEntries.length} insulation items (${totalCombinedArea.toFixed(2)} m²) to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -486,7 +486,7 @@ export default function InsulationTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

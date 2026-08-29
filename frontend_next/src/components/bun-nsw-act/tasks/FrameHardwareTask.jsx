@@ -11,6 +11,8 @@ export default function FrameHardwareTask({
 }) {
   const tableRef = useRef(null);
   const [selectedEntryId, setSelectedEntryId] = useState(null);
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
   // Slab Floor State
   const [slabWallHeight, setSlabWallHeight] = useState("Select...");
   const [slabWallLength, setSlabWallLength] = useState("");
@@ -22,6 +24,29 @@ export default function FrameHardwareTask({
   const [timberWallLength, setTimberWallLength] = useState("");
   const [timberSpacing, setTimberSpacing] = useState("900");
   const [timberRodSize, setTimberRodSize] = useState("M12");
+
+  const handleSaveInlineEdit = (id) => {
+    const lenVal = parseFloat(editRowData.length) || 0;
+    const spacingVal = parseFloat(editRowData.spacing) || 900;
+    const hVal = parseFloat(editRowData.height) || 2700;
+    const demand = (lenVal / spacingVal).toFixed(2);
+    const rodCount = Math.ceil(lenVal / spacingVal) || 1;
+    const rodLen = hVal <= 2440 ? 2700 : (hVal <= 2740 ? 3000 : 3600);
+
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData,
+      height: editRowData.height ? (String(editRowData.height).includes("mm") ? editRowData.height : `${editRowData.height} mm`) : item.height,
+      length: editRowData.length ? (String(editRowData.length).includes("mm") ? editRowData.length : `${editRowData.length} mm`) : item.length,
+      spacing: editRowData.spacing ? (String(editRowData.spacing).includes("mm") ? editRowData.spacing : `${editRowData.spacing} mm`) : item.spacing,
+      rodDemand: demand,
+      rodsQty: `${rodCount} pcs`,
+      rodMapping: `${rodCount} x ${item.rodSize || "M12"} Rod ${rodLen}`
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
 
   const WALL_HEIGHT_OPTIONS = [
     "Select...",
@@ -39,15 +64,20 @@ export default function FrameHardwareTask({
     const lenMm = parseFloat(slabWallLength) || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 18500);
     const hMm = slabWallHeight !== "Select..." ? parseInt(slabWallHeight, 10) : 2440;
     const spacingMm = parseInt(slabSpacing, 10) || 900;
-    const rodCount = Math.ceil(lenMm / spacingMm) + 1;
+    const demand = (lenMm / spacingMm).toFixed(2);
+    const rodCount = Math.ceil(lenMm / spacingMm) || 1;
+    const rodLength = hMm <= 2440 ? 2700 : (hMm <= 2740 ? 3000 : 3600);
 
     const newEntry = {
       id: "slab-" + Date.now(),
       baseType: "Concrete Slab",
+      theWallAbove: "ON CONCRETE SLAB FLOOR",
       height: `${hMm} mm`,
       length: `${lenMm} mm`,
       spacing: `${spacingMm} mm`,
       rodSize: slabRodSize,
+      rodDemand: demand,
+      rodMapping: `${rodCount} x ${slabRodSize} Rod ${rodLength}`,
       rodsQty: `${rodCount} pcs`
     };
 
@@ -65,15 +95,20 @@ export default function FrameHardwareTask({
     const lenMm = parseFloat(timberWallLength) || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 18500);
     const hMm = timberWallHeight !== "Select..." ? parseInt(timberWallHeight, 10) : 2440;
     const spacingMm = parseInt(timberSpacing, 10) || 900;
-    const rodCount = Math.ceil(lenMm / spacingMm) + 1;
+    const demand = (lenMm / spacingMm).toFixed(2);
+    const rodCount = Math.ceil(lenMm / spacingMm) || 1;
+    const rodLength = hMm <= 2440 ? 2700 : (hMm <= 2740 ? 3000 : 3600);
 
     const newEntry = {
       id: "tmb-" + Date.now(),
       baseType: "Timber Floor",
+      theWallAbove: "ON TIMBER FLOOR",
       height: `${hMm} mm`,
       length: `${lenMm} mm`,
       spacing: `${spacingMm} mm`,
       rodSize: timberRodSize,
+      rodDemand: demand,
+      rodMapping: `${rodCount} x ${timberRodSize} Rod ${rodLength}`,
       rodsQty: `${rodCount} pcs`
     };
 
@@ -133,7 +168,7 @@ export default function FrameHardwareTask({
                   value={slabWallHeight}
                   onChange={(e) => setSlabWallHeight(e.target.value)}
                   className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
                   {WALL_HEIGHT_OPTIONS.map(opt => (
                     <option key={opt} value={opt}>{opt}</option>
@@ -155,7 +190,7 @@ export default function FrameHardwareTask({
                   style={{
                     width: "100%",
                     padding: "6px 8px",
-                    fontSize: "11.5px",
+                    fontSize: "10.5px",
                     borderRadius: "5px",
                     border: "1px solid #fde047",
                     background: "#fffbeb",
@@ -177,7 +212,7 @@ export default function FrameHardwareTask({
                   style={{
                     width: "100%",
                     padding: "6px 8px",
-                    fontSize: "11.5px",
+                    fontSize: "10.5px",
                     borderRadius: "5px",
                     border: "1px solid #fde047",
                     background: "#fffbeb",
@@ -193,7 +228,7 @@ export default function FrameHardwareTask({
                   value={slabRodSize}
                   onChange={(e) => setSlabRodSize(e.target.value)}
                   className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
                   <option value="M12">M12</option>
                   <option value="M16">M16</option>
@@ -241,7 +276,7 @@ export default function FrameHardwareTask({
                   value={timberWallHeight}
                   onChange={(e) => setTimberWallHeight(e.target.value)}
                   className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
                   {WALL_HEIGHT_OPTIONS.map(opt => (
                     <option key={opt} value={opt}>{opt}</option>
@@ -263,7 +298,7 @@ export default function FrameHardwareTask({
                   style={{
                     width: "100%",
                     padding: "6px 8px",
-                    fontSize: "11.5px",
+                    fontSize: "10.5px",
                     borderRadius: "5px",
                     border: "1px solid #fde047",
                     background: "#fffbeb",
@@ -285,7 +320,7 @@ export default function FrameHardwareTask({
                   style={{
                     width: "100%",
                     padding: "6px 8px",
-                    fontSize: "11.5px",
+                    fontSize: "10.5px",
                     borderRadius: "5px",
                     border: "1px solid #fde047",
                     background: "#fffbeb",
@@ -301,7 +336,7 @@ export default function FrameHardwareTask({
                   value={timberRodSize}
                   onChange={(e) => setTimberRodSize(e.target.value)}
                   className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
                   <option value="M12">M12</option>
                   <option value="M16">M16</option>
@@ -332,58 +367,187 @@ export default function FrameHardwareTask({
         </div>
       </div>
 
-      {/* ── CARD 2: ENTERED FRAMING WALLS ── */}
+      {/* ── CARD 2: ENTERED WALLS ── */}
       <div ref={tableRef} style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Framing Walls ({(entries || []).length})
+        <div style={{
+          padding: "9px 12px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          fontWeight: "800",
+          fontSize: "12px",
+          color: "#0f2744",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px"
+        }}>
+          <span>▼ 2. Entered walls ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
-              <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                <th style={{ padding: "4px" }}>#</th>
-                <th style={{ padding: "4px" }}>Base</th>
-                <th style={{ padding: "4px" }}>Height</th>
-                <th style={{ padding: "4px" }}>Length</th>
-                <th style={{ padding: "4px" }}>Spacing</th>
-                <th style={{ padding: "4px" }}>Rod Size</th>
-                <th style={{ padding: "4px" }}>Rods</th>
-                <th style={{ padding: "4px" }}></th>
+              <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
+                <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
+                <th style={{ padding: "6px 8px" }}>The Wall Above</th>
+                <th style={{ padding: "6px 8px" }}>Wall Height</th>
+                <th style={{ padding: "6px 8px" }}>Wall Length</th>
+                <th style={{ padding: "6px 8px" }}>Spacing</th>
+                <th style={{ padding: "6px 8px", textAlign: "center" }}>Rod demand</th>
+                <th style={{ padding: "6px 8px" }}>Rod mapping</th>
+                <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
               {(entries || []).map((w, idx) => {
                 const isSelected = selectedEntryId === w.id;
+                const isRowEditing = editingRowId === w.id;
+                const rawAbove = w.theWallAbove || "";
+                const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
+                const wallAboveLabel = isTimber ? "Timber" : "Slab";
+                const demandVal = w.rodDemand || (parseFloat(w.length) && parseFloat(w.spacing) ? (parseFloat(w.length) / parseFloat(w.spacing)).toFixed(2) : "0.00");
+                const mappingVal = w.rodMapping || `${w.rodsQty || "1 pcs"} · ${w.rodSize || "M12"}`;
+
                 return (
                   <tr
                     key={w.id || idx}
                     onClick={() => {
-                      setSelectedEntryId(isSelected ? null : w.id);
-                      if (onSelectEntry) onSelectEntry(isSelected ? null : w);
+                      if (!isRowEditing) {
+                        setSelectedEntryId(isSelected ? null : w.id);
+                        if (onSelectEntry) onSelectEntry(isSelected ? null : w);
+                      }
                     }}
                     style={{
                       borderBottom: "1px solid #e2e8f0",
-                      background: isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"),
-                      cursor: "pointer",
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                      cursor: isRowEditing ? "default" : "pointer",
                       outline: isSelected ? "2px solid #3b82f6" : "none",
                       outlineOffset: "-1px",
                       transition: "background 0.15s ease"
                     }}
                   >
-                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                    <td style={{ padding: "4px" }}>{w.baseType || "Slab"}</td>
-                    <td style={{ padding: "4px" }}>{w.height}</td>
-                    <td style={{ padding: "4px" }}>{w.length}</td>
-                    <td style={{ padding: "4px" }}>{w.spacing}</td>
-                    <td style={{ padding: "4px", fontWeight: 700 }}>{w.rodSize}</td>
-                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.rodsQty}</td>
-                    <td style={{ padding: "4px", textAlign: "right" }}>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
-                        style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                      >
-                        ✕
-                      </button>
+                    <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                    <td style={{ padding: "6px 8px" }}>
+                      <span style={{
+                        background: isTimber ? "#fef3c7" : "#fee2e2",
+                        color: isTimber ? "#92400e" : "#991b1b",
+                        padding: "2px 8px",
+                        borderRadius: "10px",
+                        fontWeight: 800,
+                        fontSize: "9.5px",
+                        letterSpacing: "0.3px",
+                        display: "inline-block",
+                        textTransform: "uppercase"
+                      }}>
+                        {wallAboveLabel}
+                      </span>
+                    </td>
+
+                    {/* Wall Height */}
+                    <td style={{ padding: "6px 8px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.height || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
+                          style={{ width: "65px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        w.height
+                      )}
+                    </td>
+
+                    {/* Wall Length */}
+                    <td style={{ padding: "6px 8px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.length || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, length: e.target.value })}
+                          style={{ width: "75px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        w.length
+                      )}
+                    </td>
+
+                    {/* Spacing */}
+                    <td style={{ padding: "6px 8px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.spacing || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, spacing: e.target.value })}
+                          style={{ width: "60px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        w.spacing
+                      )}
+                    </td>
+
+                    <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                      <span style={{
+                        background: "#dcfce7",
+                        color: "#15803d",
+                        padding: "2px 8px",
+                        borderRadius: "10px",
+                        fontWeight: 700,
+                        fontSize: "10px",
+                        display: "inline-block"
+                      }}>
+                        {demandVal}
+                      </span>
+                    </td>
+                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1e293b" }}>{mappingVal}</td>
+
+                    {/* Actions: Edit on left of X */}
+                    <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(w.id);
+                              setEditRowData({
+                                ...w,
+                                height: String(w.height || "2700").replace("mm", "").trim(),
+                                length: String(w.length || "0").replace("mm", "").replace("m", "").trim(),
+                                spacing: String(w.spacing || "900").replace("mm", "").trim()
+                              });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit wall"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Remove wall"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -391,7 +555,7 @@ export default function FrameHardwareTask({
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={8} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No framing walls entered yet. Fill the form above and click '+ Add wall'.
+                    No walls entered. Enter wall specifications above.
                   </td>
                 </tr>
               )}
@@ -399,7 +563,7 @@ export default function FrameHardwareTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {entries && entries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -420,12 +584,12 @@ export default function FrameHardwareTask({
                   alert(`Saved framing walls data (${entries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -442,12 +606,12 @@ export default function FrameHardwareTask({
                   alert(`🚀 Successfully sent ${entries.length} framing wall items to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -456,7 +620,7 @@ export default function FrameHardwareTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

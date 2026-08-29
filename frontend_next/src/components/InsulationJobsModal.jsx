@@ -277,6 +277,15 @@ export default function InsulationJobsModal({
 
         setEditedData(newEditedData);
         setCustomRows(newCustomRows);
+
+        if (typeof window !== "undefined" && res.rows.length > 0) {
+          window.dispatchEvent(new CustomEvent("ezefloor:apply_ai_insulation_to_task", {
+            detail: {
+              insulationRows: res.rows,
+              walls: walls
+            }
+          }));
+        }
       }
     } catch (e) {
       console.error("Error calculating insulation:", e);

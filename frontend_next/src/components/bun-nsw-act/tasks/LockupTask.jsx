@@ -119,6 +119,19 @@ export default function LockupTask({
   const [looseIntInternalType, setLooseIntInternalType] = useState("HF");
   const [looseIntColor, setLooseIntColor] = useState("CHR");
 
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+
+  const handleSaveInlineEdit = (id) => {
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
+
   const handleAddDoor = (item) => {
     const newEntry = {
       id: "door-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
@@ -695,25 +708,10 @@ export default function LockupTask({
           fontSize: "12px",
           color: "#0f2744",
           display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center"
+          alignItems: "center",
+          gap: "6px"
         }}>
           <span>▼ 2. Entered doors ({(entries || []).length})</span>
-          <button
-            type="button"
-            style={{
-              padding: "3px 10px",
-              background: "#ffffff",
-              border: "1px solid #cbd5e1",
-              borderRadius: "4px",
-              fontSize: "11px",
-              fontWeight: 700,
-              color: "#334155",
-              cursor: "pointer"
-            }}
-          >
-            Edit
-          </button>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -733,36 +731,248 @@ export default function LockupTask({
                 <th style={{ padding: "4px" }}>Color</th>
                 <th style={{ padding: "4px" }}>Stop</th>
                 <th style={{ padding: "4px" }}>Qty</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((item, idx) => (
-                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{item.category}</td>
-                  <td style={{ padding: "4px" }}>{item.location}</td>
-                  <td style={{ padding: "4px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.product || item.door}>{item.door || item.product}</td>
-                  <td style={{ padding: "4px" }}>{item.size}</td>
-                  <td style={{ padding: "4px" }}>{item.thicks}</td>
-                  <td style={{ padding: "4px" }}>{item.jambWall}</td>
-                  <td style={{ padding: "4px" }}>{item.jambSize}</td>
-                  <td style={{ padding: "4px" }}>{item.hung}</td>
-                  <td style={{ padding: "4px" }}>{item.type}</td>
-                  <td style={{ padding: "4px" }}>{item.hfHo}</td>
-                  <td style={{ padding: "4px" }}>{item.color}</td>
-                  <td style={{ padding: "4px" }}>{item.stop}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.qty}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(entries || []).map((item, idx) => {
+                const isRowEditing = editingRowId === item.id;
+
+                return (
+                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    
+                    {/* Category */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.category !== undefined ? editRowData.category : (item.category || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, category: e.target.value })}
+                          style={{ width: "65px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.category
+                      )}
+                    </td>
+
+                    {/* Location */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.location !== undefined ? editRowData.location : (item.location || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, location: e.target.value })}
+                          style={{ width: "60px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.location
+                      )}
+                    </td>
+
+                    {/* Door */}
+                    <td style={{ padding: "4px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.product || item.door}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.door !== undefined ? editRowData.door : (item.door || item.product || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, door: e.target.value, product: e.target.value })}
+                          style={{ width: "100px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.door || item.product
+                      )}
+                    </td>
+
+                    {/* Size */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.size !== undefined ? editRowData.size : (item.size || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, size: e.target.value })}
+                          style={{ width: "55px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.size
+                      )}
+                    </td>
+
+                    {/* Thicks */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.thicks !== undefined ? editRowData.thicks : (item.thicks || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, thicks: e.target.value })}
+                          style={{ width: "35px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.thicks
+                      )}
+                    </td>
+
+                    {/* Jamb Wall */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.jambWall !== undefined ? editRowData.jambWall : (item.jambWall || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, jambWall: e.target.value })}
+                          style={{ width: "55px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.jambWall
+                      )}
+                    </td>
+
+                    {/* Jamb Size */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.jambSize !== undefined ? editRowData.jambSize : (item.jambSize || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, jambSize: e.target.value })}
+                          style={{ width: "65px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.jambSize
+                      )}
+                    </td>
+
+                    {/* Hung */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.hung !== undefined ? editRowData.hung : (item.hung || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, hung: e.target.value })}
+                          style={{ width: "50px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.hung
+                      )}
+                    </td>
+
+                    {/* Type */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.type !== undefined ? editRowData.type : (item.type || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, type: e.target.value })}
+                          style={{ width: "45px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.type
+                      )}
+                    </td>
+
+                    {/* HF/HO */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.hfHo !== undefined ? editRowData.hfHo : (item.hfHo || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, hfHo: e.target.value })}
+                          style={{ width: "40px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.hfHo
+                      )}
+                    </td>
+
+                    {/* Color */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.color !== undefined ? editRowData.color : (item.color || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, color: e.target.value })}
+                          style={{ width: "40px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.color
+                      )}
+                    </td>
+
+                    {/* Stop */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.stop !== undefined ? editRowData.stop : (item.stop || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, stop: e.target.value })}
+                          style={{ width: "45px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.stop
+                      )}
+                    </td>
+
+                    {/* Qty */}
+                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          value={editRowData.qty !== undefined ? editRowData.qty : (item.qty || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
+                          style={{ width: "35px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.qty
+                      )}
+                    </td>
+
+                    {/* Actions: Edit on left of X */}
+                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(item.id);
+                              setEditRowData({ ...item });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={15} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
@@ -774,7 +984,7 @@ export default function LockupTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {entries && entries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -795,12 +1005,12 @@ export default function LockupTask({
                   alert(`Saved lockup doors data (${entries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -817,12 +1027,12 @@ export default function LockupTask({
                   alert(`🚀 Successfully sent ${entries.length} lockup doors to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -831,7 +1041,7 @@ export default function LockupTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

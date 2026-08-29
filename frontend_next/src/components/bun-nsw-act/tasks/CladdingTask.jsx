@@ -10,6 +10,25 @@ export default function CladdingTask({
 }) {
   const [wallHeight, setWallHeight] = useState("2.44");
   const [wallLength, setWallLength] = useState("");
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+
+  const handleSaveInlineEdit = (id) => {
+    const h = parseFloat(editRowData.height) || 2.44;
+    const l = parseFloat(editRowData.length) || 0;
+    const a = Number((h * l).toFixed(2));
+
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData,
+      height: editRowData.height ? (String(editRowData.height).includes("m") ? editRowData.height : `${h} m`) : item.height,
+      length: editRowData.length ? (String(editRowData.length).includes("m") ? editRowData.length : `${l} m`) : item.length,
+      area: `${a} m²`
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
 
   const calcArea = () => {
     const h = parseFloat(wallHeight) || 0;
@@ -75,7 +94,7 @@ export default function CladdingTask({
               style={{
                 width: "100%",
                 padding: "6px 8px",
-                fontSize: "11.5px",
+                fontSize: "10.5px",
                 borderRadius: "5px",
                 border: "1px solid #fde047",
                 background: "#fffbeb",
@@ -99,7 +118,7 @@ export default function CladdingTask({
               style={{
                 width: "100%",
                 padding: "6px 8px",
-                fontSize: "11.5px",
+                fontSize: "10.5px",
                 borderRadius: "5px",
                 border: "1px solid #fde047",
                 background: "#fffbeb",
@@ -140,7 +159,7 @@ export default function CladdingTask({
               style={{
                 width: "100%",
                 padding: "6px 8px",
-                fontSize: "11.5px",
+                fontSize: "10.5px",
                 borderRadius: "5px",
                 border: "1px solid #cbd5e1",
                 background: "#f8fafc",
@@ -166,26 +185,100 @@ export default function CladdingTask({
                 <th style={{ padding: "4px" }}>Wall Height</th>
                 <th style={{ padding: "4px" }}>Wall Length</th>
                 <th style={{ padding: "4px" }}>Total Area</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((w, idx) => (
-                <tr key={w.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{w.height}</td>
-                  <td style={{ padding: "4px" }}>{w.length}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.area}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(w.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(entries || []).map((w, idx) => {
+                const isRowEditing = editingRowId === w.id;
+
+                return (
+                  <tr key={w.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    
+                    {/* Height */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.height || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
+                          style={{ width: "55px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        w.height
+                      )}
+                    </td>
+
+                    {/* Length */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.length || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, length: e.target.value })}
+                          style={{ width: "55px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        w.length
+                      )}
+                    </td>
+
+                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.area}</td>
+
+                    {/* Actions: Edit on left of X */}
+                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(w.id);
+                              setEditRowData({
+                                ...w,
+                                height: String(w.height || "2.44").replace("m", "").trim(),
+                                length: String(w.length || "0").replace("m", "").trim()
+                              });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={5} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
@@ -197,7 +290,7 @@ export default function CladdingTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {entries && entries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -218,12 +311,12 @@ export default function CladdingTask({
                   alert(`Saved cladding walls data (${entries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -240,12 +333,12 @@ export default function CladdingTask({
                   alert(`🚀 Successfully sent ${entries.length} cladding wall items to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -254,7 +347,7 @@ export default function CladdingTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

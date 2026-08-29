@@ -512,7 +512,7 @@ export default function InsulationTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {wallEntries && wallEntries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -533,12 +533,12 @@ export default function InsulationTask({
                   alert(`Saved insulation data (${wallEntries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -555,12 +555,12 @@ export default function InsulationTask({
                   alert(`🚀 Successfully sent ${wallEntries.length} insulation wall items to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -569,7 +569,7 @@ export default function InsulationTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

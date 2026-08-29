@@ -33,6 +33,23 @@ export default function TimberPostsTask({
   const [postProduct, setPostProduct] = useState("Auto select by height");
   const [postQty, setPostQty] = useState("1");
   const [galSupports, setGalSupports] = useState("0");
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+
+  const handleSaveInlineEdit = (id) => {
+    const qty = parseInt(editRowData.qty, 10) || 1;
+    const h = editRowData.height || "2700";
+
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData,
+      height: editRowData.height ? (String(editRowData.height).includes("mm") ? editRowData.height : `${h}mm`) : item.height,
+      qty
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
 
   const getSelectedStockDescription = () => {
     if (postType === "Please Select" || !postHeight) {
@@ -113,7 +130,7 @@ export default function TimberPostsTask({
                 value={postType}
                 onChange={(e) => setPostType(e.target.value)}
                 className="task-field-select"
-                style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
                 {POST_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
@@ -129,7 +146,7 @@ export default function TimberPostsTask({
                 placeholder="Required"
                 value={postHeight}
                 onChange={(e) => setPostHeight(e.target.value)}
-                style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
               />
             </div>
 
@@ -139,7 +156,7 @@ export default function TimberPostsTask({
                 value={postSize}
                 onChange={(e) => setPostSize(e.target.value)}
                 className="task-field-select"
-                style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
                 {POST_SIZE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
@@ -151,7 +168,7 @@ export default function TimberPostsTask({
                 value={postProduct}
                 onChange={(e) => setPostProduct(e.target.value)}
                 className="task-field-select"
-                style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
                 <option value="Auto select by height">Auto select by height</option>
                 <option value="90x90 Solid Post @ 2.4m">90x90 Solid Post @ 2.4m</option>
@@ -167,7 +184,7 @@ export default function TimberPostsTask({
                 type="number"
                 value={postQty}
                 onChange={(e) => setPostQty(e.target.value)}
-                style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
               />
             </div>
 
@@ -197,7 +214,7 @@ export default function TimberPostsTask({
               type="number"
               value={galSupports}
               onChange={(e) => setGalSupports(e.target.value)}
-              style={{ width: "100%", padding: "6px 8px", fontSize: "11.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+              style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
             />
           </div>
 
@@ -228,26 +245,112 @@ export default function TimberPostsTask({
                 <th style={{ padding: "4px" }}>Post height</th>
                 <th style={{ padding: "4px" }}>Selected stock</th>
                 <th style={{ padding: "4px" }}>Qty</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((item, idx) => (
-                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{item.height}</td>
-                  <td style={{ padding: "4px", fontWeight: 600 }}>{item.stock || `${item.type} ${item.size}`}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.qty}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(entries || []).map((item, idx) => {
+                const isRowEditing = editingRowId === item.id;
+
+                return (
+                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    
+                    {/* Height */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.height || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
+                          style={{ width: "60px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.height
+                      )}
+                    </td>
+
+                    {/* Selected stock */}
+                    <td style={{ padding: "4px", fontWeight: 600 }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.stock || item.stock || `${item.type || ""} ${item.size || ""}`}
+                          onChange={(e) => setEditRowData({ ...editRowData, stock: e.target.value })}
+                          style={{ width: "130px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.stock || `${item.type} ${item.size}`
+                      )}
+                    </td>
+
+                    {/* Qty */}
+                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          value={editRowData.qty || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
+                          style={{ width: "40px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.qty
+                      )}
+                    </td>
+
+                    {/* Actions: Edit on left of X */}
+                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(item.id);
+                              setEditRowData({
+                                ...item,
+                                height: String(item.height || "2700").replace("mm", "").trim(),
+                                qty: String(item.qty || "1").trim()
+                              });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={5} style={{ padding: "8px", textAlign: "center", color: "#94a3b8" }}>
@@ -302,7 +405,7 @@ export default function TimberPostsTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {((entries && entries.length > 0) || (scheduleItems && scheduleItems.length > 0)) && (
           <div style={{
             padding: "8px 12px",
@@ -323,12 +426,12 @@ export default function TimberPostsTask({
                   alert(`Saved timber posts data (${(entries || []).length} posts)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -345,12 +448,12 @@ export default function TimberPostsTask({
                   alert(`🚀 Successfully sent ${(entries || []).length} timber posts to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -359,7 +462,7 @@ export default function TimberPostsTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

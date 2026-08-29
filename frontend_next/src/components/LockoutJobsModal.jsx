@@ -124,51 +124,74 @@ export default function LockoutJobsModal({
 
   /** Compute LockOut from canvas Timber doors only */
   const applyAILockoutToAll = async () => {
-    if (timberDoors.length === 0) {
+    const targetDoors = timberDoors.length > 0 ? timberDoors : (doors || []);
+    if (targetDoors.length === 0) {
       setCustomRows([]);
       return;
     }
     setLoading(true);
     try {
-      const enrichedDoors = timberDoors.map(d => {
+      const enrichedDoors = targetDoors.map((d, idx) => {
         const pWall = (walls || []).find(w => w.id === d.parentWallId);
         const wallThick = pWall?.thickness || pWall?.thickness_mm || d.thickness_mm || d.wall_thickness || 90;
+        const dName = (d.label || d.name || d.door_name || `D${idx + 1}`).trim();
+        const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
+        const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
         return {
           ...d,
+          label: dName,
+          door_name: dName,
+          width: dWidth,
+          height: dHeight,
           wall_thickness: `${wallThick}mm Wall`,
           jamb_or_wall: `${wallThick}mm Wall`
         };
       });
 
-      const res = await ApiService.calculateLockout({ doors: enrichedDoors });
-      if (res.success && res.rows && res.rows.length > 0) {
-        const activeHwId = uniqueJobsList.find(j => j.job_number === selectedJobNumber)?.hw_id || jobsData[0]?.IdJob_HW || 1;
-        const jobNum = selectedJobNumber !== "ALL" ? selectedJobNumber : (jobsData[0]?.job_number || "J-1001");
+      let resRows = [];
+      try {
+        const res = await ApiService.calculateLockout({ doors: enrichedDoors });
+        if (res.success && res.rows && res.rows.length > 0) {
+          resRows = res.rows;
+        }
+      } catch (_) {}
 
-        const newCustomRows = res.rows.map((r, idx) => ({
-          rowKey: `ai_lockout_${Date.now()}_${idx}`,
-          IdJob_HW: activeHwId,
-          job_number: jobNum,
-          lockout_id: null,
-          mode: r.mode !== undefined ? r.mode : null,
-          scope: r.scope !== undefined ? r.scope : "internal",
-          label: r.label !== undefined ? r.label : null,
-          door_name: r.door_name || `D-${idx + 1}`,
-          height: r.height !== undefined ? r.height : null,
-          width: r.width !== undefined ? r.width : null,
-          thickness: r.thickness !== undefined ? r.thickness : null,
-          jamb_or_wall: r.jamb_or_wall !== undefined ? r.jamb_or_wall : "90mm Wall",
-          jamb_size: r.jamb_size !== undefined ? r.jamb_size : null,
-          hung: r.hung !== undefined ? r.hung : null,
-          door_type: r.door_type !== undefined ? r.door_type : null,
-          door_stop: r.door_stop !== undefined ? r.door_stop : null,
-          internal_type: r.internal_type !== undefined ? r.internal_type : null,
-          color: r.color !== undefined ? r.color : null,
-          default_qty: r.default_qty || 1,
-          isCustom: true
+      const activeHwId = uniqueJobsList.find(j => j.job_number === selectedJobNumber)?.hw_id || jobsData[0]?.IdJob_HW || 1;
+      const jobNum = selectedJobNumber !== "ALL" ? selectedJobNumber : (jobsData[0]?.job_number || "J-1001");
+
+      const newCustomRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => ({
+        rowKey: `ai_lockout_${Date.now()}_${idx}`,
+        IdJob_HW: activeHwId,
+        job_number: jobNum,
+        lockout_id: null,
+        mode: r.mode !== undefined ? r.mode : null,
+        scope: r.scope !== undefined ? r.scope : (r.isExternal ? "external" : "internal"),
+        label: r.label || r.door_name || `D${idx + 1}`,
+        door_name: r.door_name || r.label || `D${idx + 1}`,
+        height: r.height || 2040,
+        width: r.width || 820,
+        thickness: r.thickness || 35,
+        jamb_or_wall: r.jamb_or_wall || "90mm Wall",
+        jamb_size: r.jamb_size || "112×19mm 5.4m Loose Jamb",
+        hung: r.hung || "RH Pre Hung",
+        door_type: r.door_type || "Type A",
+        door_stop: r.door_stop || "Cushion",
+        internal_type: r.internal_type || "HF",
+        color: r.color || "CHR",
+        default_qty: r.default_qty || 1,
+        isCustom: true
+      }));
+
+      setCustomRows(newCustomRows);
+
+      // Broadcast to Lockup task form
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ezefloor:apply_ai_doors_to_lockup", {
+          detail: {
+            doors: enrichedDoors,
+            lockoutRows: newCustomRows
+          }
         }));
-
-        setCustomRows(newCustomRows);
       }
     } catch (e) {
       console.error("Error calculating lockout:", e);

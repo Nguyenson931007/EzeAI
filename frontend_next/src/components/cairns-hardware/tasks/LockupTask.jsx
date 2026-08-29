@@ -12,6 +12,18 @@ export default function LockupTask({
   const [configuration, setConfiguration] = useState("");
   const [frameMaterial, setFrameMaterial] = useState("");
   const [weatherstrip, setWeatherstrip] = useState("");
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+
+  const handleSaveInlineEdit = (id) => {
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
 
   const handleAddLockup = () => {
     if (!doorLabel && !configuration && !frameMaterial && !weatherstrip) {
@@ -116,12 +128,12 @@ export default function LockupTask({
             type="button"
             onClick={handleAddLockup}
             style={{
-              padding: "7px",
-              background: "#1e3a8a",
+              padding: "4px 8px",
+              background: "#0f2744",
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11.5px",
+              fontSize: "12px",
               fontWeight: "700",
               cursor: "pointer",
               marginTop: "4px"
@@ -134,8 +146,18 @@ export default function LockupTask({
 
       {/* ── CARD 2: ENTERED LOCKUP ITEMS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Lockup Items ({(entries || []).length})
+        <div style={{
+          padding: "9px 12px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          fontWeight: "800",
+          fontSize: "12px",
+          color: "#0f2744",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px"
+        }}>
+          <span>📋 2. Entered Lockup Items ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -146,31 +168,132 @@ export default function LockupTask({
                 <th style={{ padding: "4px" }}>Configuration</th>
                 <th style={{ padding: "4px" }}>Frame material</th>
                 <th style={{ padding: "4px" }}>Weatherstrip</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((item, idx) => (
-                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px", fontWeight: 600 }}>{item.doorLabel || item.spec || item.type || "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.configuration || item.type || "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.frameMaterial || item.reveal || "-"}</td>
-                  <td style={{ padding: "4px", color: "var(--blue)", fontWeight: 600 }}>{item.weatherstrip || (item.qty ? `${item.qty}` : "-")}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(entries || []).map((item, idx) => {
+                const isRowEditing = editingRowId === item.id;
+
+                return (
+                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    
+                    {/* Door label */}
+                    <td style={{ padding: "4px", fontWeight: 600 }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.doorLabel !== undefined ? editRowData.doorLabel : (item.doorLabel || item.spec || item.type || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, doorLabel: e.target.value })}
+                          style={{ width: "80px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.doorLabel || item.spec || item.type || "-"
+                      )}
+                    </td>
+
+                    {/* Configuration */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.configuration !== undefined ? editRowData.configuration : (item.configuration || item.type || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, configuration: e.target.value })}
+                          style={{ width: "90px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.configuration || item.type || "-"
+                      )}
+                    </td>
+
+                    {/* Frame material */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.frameMaterial !== undefined ? editRowData.frameMaterial : (item.frameMaterial || item.reveal || "")}
+                          onChange={(e) => setEditRowData({ ...editRowData, frameMaterial: e.target.value })}
+                          style={{ width: "85px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.frameMaterial || item.reveal || "-"
+                      )}
+                    </td>
+
+                    {/* Weatherstrip */}
+                    <td style={{ padding: "4px", color: "var(--blue)", fontWeight: 600 }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.weatherstrip !== undefined ? editRowData.weatherstrip : (item.weatherstrip || (item.qty ? `${item.qty}` : ""))}
+                          onChange={(e) => setEditRowData({ ...editRowData, weatherstrip: e.target.value })}
+                          style={{ width: "70px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.weatherstrip || (item.qty ? `${item.qty}` : "-")
+                      )}
+                    </td>
+
+                    {/* Actions: Edit on left of X */}
+                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(item.id);
+                              setEditRowData({
+                                ...item,
+                                doorLabel: item.doorLabel || item.spec || item.type || "",
+                                configuration: item.configuration || item.type || "",
+                                frameMaterial: item.frameMaterial || item.reveal || "",
+                                weatherstrip: item.weatherstrip || (item.qty ? `${item.qty}` : "")
+                              });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={6} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No lockup items entered yet. Fill the form above and click '+ Add Lockup Entry' or '+ Add data AI'.
+                    No lockup items entered yet. Fill the form above and click '+ Add Lockup Entry'.
                   </td>
                 </tr>
               )}
@@ -178,7 +301,7 @@ export default function LockupTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {entries && entries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -199,12 +322,12 @@ export default function LockupTask({
                   alert(`Saved lockup doors data (${entries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -221,12 +344,12 @@ export default function LockupTask({
                   alert(`🚀 Successfully sent ${entries.length} lockup doors to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -235,7 +358,7 @@ export default function LockupTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

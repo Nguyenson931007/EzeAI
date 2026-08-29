@@ -13,6 +13,28 @@ export default function FlooringDeckingTask({
   const [flrType, setFlrType] = useState("Hybrid / Vinyl Plank");
   const [flrArea, setFlrArea] = useState("");
   const [flrWaste, setFlrWaste] = useState("10%");
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+
+  const handleSaveInlineEdit = (id) => {
+    const updatedList = (entries || []).map(item => {
+      if (item.id === id) {
+        const netAreaNum = parseFloat(editRowData.area) || parseFloat(item.area) || 0;
+        const wasteNum = parseInt(editRowData.waste || item.waste, 10) || 10;
+        const totalAreaNum = Number((netAreaNum * (1 + wasteNum / 100)).toFixed(2));
+        return {
+          ...item,
+          ...editRowData,
+          area: `${netAreaNum} m²`,
+          totalArea: `${totalAreaNum} m²`
+        };
+      }
+      return item;
+    });
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
 
   // Listen to global Auto-Calculate & Fill AI Rooms event from AreaSummary modal
   useEffect(() => {
@@ -23,54 +45,68 @@ export default function FlooringDeckingTask({
       const newEntries = [];
       if (rawRooms && rawRooms.length > 0) {
         rawRooms.forEach((r, idx) => {
-          const area = r.areaM2 || 15.0;
+          const roomName = (r.room_name || r.name || r.label || `Room ${idx + 1}`).trim();
+          let area = 0;
+          if (r.areaM2 && !isNaN(r.areaM2)) {
+            area = parseFloat(r.areaM2);
+          } else if (r.area && !isNaN(r.area)) {
+            area = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
+          } else if (r.calcAreaM2) {
+            area = parseFloat(r.calcAreaM2);
+          } else {
+            area = 15.0;
+          }
+
+          const isWet = /bath|ensuite|wc|powder|laundry|shower/i.test(roomName) || r.type === "wet";
+          const isDeck = /deck|porch|verandah|patio/i.test(roomName) || (r.type && r.type.includes("timber"));
+          const isBalcony = /balcony|alfresco|terrace/i.test(roomName) || (r.type && r.type.includes("tile"));
+          const isGarage = /garage/i.test(roomName);
+
+          const flType = isWet ? "Ceramic Tile / Wet Area" : (isDeck ? "90mm Merbau Decking" : (isBalcony ? "Exterior Non-Slip Tile" : (isGarage ? "Concrete Epoxy / Sealed" : "Hybrid / Vinyl Plank")));
+
           newEntries.push({
             id: `flr-ai-${Date.now()}-${idx}`,
             level: "Ground Floor GF",
-            room: r.name || r.label || `Room ${idx + 1}`,
-            type: (r.type === "wet" ? "Ceramic Tile / Wet Area" : "Hybrid / Vinyl Plank"),
+            room: roomName,
+            type: r.floor_type || flType,
             area: `${Number(area).toFixed(1)} m²`,
             waste: "10%",
             totalArea: `${Number(area * 1.1).toFixed(1)} m²`
           });
-        });
-      } else if (gRooms && gRooms.length > 0) {
-        gRooms.forEach((gr, idx) => {
-          const area = gr.calcAreaM2 || 0;
-          newEntries.push({
-            id: `flr-ai-${Date.now()}-${idx}`,
-            level: "Ground Floor GF",
-            room: gr.floor_area_type,
-            type: gr.floor_area_type.includes("Wet") ? "Ceramic Tile / Wet Area" : (gr.floor_area_type.includes("Timber") ? "90mm Merbau Decking" : "Hybrid / Vinyl Plank"),
-            area: `${Number(area).toFixed(1)} m²`,
-            waste: "10%",
-            totalArea: `${Number(area * 1.1).toFixed(1)} m²`
+            newEntries.push({
+              id: `flr-ai-${Date.now()}-${idx}`,
+              level: "Ground Floor GF",
+              room: gr.floor_area_type,
+              type: gr.floor_area_type.includes("Wet") ? "Ceramic Tile / Wet Area" : (gr.floor_area_type.includes("Timber") ? "90mm Merbau Decking" : "Hybrid / Vinyl Plank"),
+              area: `${Number(area).toFixed(1)} m²`,
+              waste: "10%",
+              totalArea: `${Number(area * 1.1).toFixed(1)} m²`
+            });
           });
-        });
-      }
+        }
 
-      if (newEntries.length > 0 && onSetEntries) {
-        onSetEntries(newEntries);
-      }
-    };
+        if (newEntries.length > 0 && onSetEntries) {
+          onSetEntries(prev => [...(prev || []), ...newEntries]);
+        }
+      };
 
-    window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
-    return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
-  }, [onSetEntries]);
+      window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
+      return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
+    }, [onSetEntries]);
 
   const handleAddFlooring = () => {
-    const areaM2 = parseFloat(flrArea) || (cadMetrics.totalFloorArea || 54.2);
+    const netAreaNum = parseFloat(flrArea) || (cadMetrics.totalFloorArea ? Number((cadMetrics.totalFloorArea * 0.4).toFixed(1)) : 22.5);
     const wasteNum = parseInt(flrWaste, 10) || 10;
-    const totalM2 = Number((areaM2 * (1 + wasteNum / 100)).toFixed(2));
+    const totalAreaNum = Number((netAreaNum * (1 + wasteNum / 100)).toFixed(2));
 
     const newEntry = {
       id: "flr-" + Date.now(),
       level: flrLevel,
       room: flrRoom,
       type: flrType,
-      area: `${areaM2.toFixed(1)} m²`,
+      area: `${netAreaNum} m²`,
       waste: flrWaste,
-      totalArea: `${totalM2} m²`
+      totalArea: `${totalAreaNum} m²`
     };
 
     if (onSetEntries) {
@@ -87,74 +123,79 @@ export default function FlooringDeckingTask({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {/* ── CARD 1: FLOORING SETUP ── */}
+      {/* ── CARD 1: FLOORING CONFIGURATION ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📐 1. Flooring & Decking Area Input
+          📐 1. Flooring & Decking Configuration
         </div>
         <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Building Level</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor Level</span>
               <select
                 value={flrLevel}
                 onChange={(e) => setFlrLevel(e.target.value)}
                 className="task-field-select"
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
                 <option value="Ground Floor GF">Ground Floor GF</option>
-                <option value="First Floor FF">First Floor FF</option>
-                <option value="External Alfresco">External Alfresco</option>
+                <option value="First Floor L1">First Floor L1</option>
+                <option value="Second Floor L2">Second Floor L2</option>
               </select>
             </div>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Room / Space</span>
-              <select
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Room / Area</span>
+              <input
+                type="text"
+                placeholder="e.g. Living & Dining"
                 value={flrRoom}
                 onChange={(e) => setFlrRoom(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="Living & Dining Room">Living & Dining Room</option>
-                <option value="Bedrooms & Hallway">Bedrooms & Hallway</option>
-                <option value="Kitchen & Meals">Kitchen & Meals</option>
-                <option value="Outdoor Decking">Outdoor Decking</option>
-              </select>
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+              />
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 0.7fr", gap: "6px" }}>
+          <div>
+            <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Flooring / Decking Material</span>
+            <select
+              value={flrType}
+              onChange={(e) => setFlrType(e.target.value)}
+              className="task-field-select"
+              style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+            >
+              <option value="Hybrid / Vinyl Plank">Hybrid / Vinyl Plank (Dry Areas)</option>
+              <option value="Wet Area Ceramic Tile">Wet Area Ceramic Tile (Bath / Ensuite / WC)</option>
+              <option value="90mm Merbau Decking">90mm Merbau Hardwood Decking (Outdoor / Porch)</option>
+              <option value="140mm ModWood Composite">140mm ModWood Composite Decking</option>
+              <option value="Exterior Non-Slip Tile">Exterior Non-Slip Tile (Balcony / Alfresco)</option>
+              <option value="Carpet & Underlay">Carpet & Underlay (Bedrooms)</option>
+              <option value="Engineered Oak Timber">Engineered Oak Timber Flooring</option>
+              <option value="Concrete Epoxy / Sealed">Concrete Epoxy / Sealed Garage Floor</option>
+            </select>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: "6px" }}>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Material</span>
-              <select
-                value={flrType}
-                onChange={(e) => setFlrType(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="Hybrid / Vinyl Plank">Hybrid / Vinyl Plank</option>
-                <option value="Engineered Timber">Engineered Timber</option>
-                <option value="Solid Timber Flooring">Solid Timber Flooring</option>
-                <option value="90mm Merbau Decking">90mm Merbau Decking</option>
-              </select>
-            </div>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Area (m²)</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Net Area (m²)</span>
               <input
-                type="text"
-                placeholder={cadMetrics.totalFloorArea ? `${cadMetrics.totalFloorArea.toFixed(1)}` : "54.2"}
+                type="number"
+                placeholder={`e.g. ${cadMetrics.totalFloorArea ? (cadMetrics.totalFloorArea * 0.4).toFixed(1) : "22.5"}`}
                 value={flrArea}
                 onChange={(e) => setFlrArea(e.target.value)}
-                className="task-field-input"
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
               />
             </div>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Waste %</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Waste Allowance</span>
               <select
                 value={flrWaste}
                 onChange={(e) => setFlrWaste(e.target.value)}
                 className="task-field-select"
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                <option value="5%">5%</option>
-                <option value="10%">10%</option>
-                <option value="15%">15%</option>
+                <option value="5%">5% Waste</option>
+                <option value="10%">10% Waste</option>
+                <option value="15%">15% Waste</option>
               </select>
             </div>
           </div>
@@ -163,14 +204,15 @@ export default function FlooringDeckingTask({
             type="button"
             onClick={handleAddFlooring}
             style={{
-              padding: "7px",
-              background: "#1e3a8a",
+              padding: "4px 8px",
+              background: "#0f2744",
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11.5px",
+              fontSize: "12px",
               fontWeight: "700",
-              cursor: "pointer"
+              cursor: "pointer",
+              marginTop: "4px"
             }}
           >
             + Add Flooring Area
@@ -180,8 +222,18 @@ export default function FlooringDeckingTask({
 
       {/* ── CARD 2: ENTERED FLOORING AREAS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Flooring Areas ({(entries || []).length})
+        <div style={{
+          padding: "9px 12px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          fontWeight: "800",
+          fontSize: "12px",
+          color: "#0f2744",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px"
+        }}>
+          <span>📋 2. Entered Flooring Areas ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -193,32 +245,131 @@ export default function FlooringDeckingTask({
                 <th style={{ padding: "4px" }}>Material</th>
                 <th style={{ padding: "4px" }}>Net</th>
                 <th style={{ padding: "4px" }}>Total</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((item, idx) => (
-                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{item.level || "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.room || "-"}</td>
-                  <td style={{ padding: "4px", maxWidth: "80px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.type}>{item.type || "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.area ? (typeof item.area === 'number' ? `${item.area} m²` : item.area) : "-"}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.totalArea ? (typeof item.totalArea === 'number' ? `${item.totalArea} m²` : item.totalArea) : "-"}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(entries || []).map((item, idx) => {
+                const isRowEditing = editingRowId === item.id;
+
+                return (
+                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    
+                    {/* Level */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.level || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, level: e.target.value })}
+                          style={{ width: "60px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.level || "-"
+                      )}
+                    </td>
+
+                    {/* Room */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.room || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, room: e.target.value })}
+                          style={{ width: "70px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.room || "-"
+                      )}
+                    </td>
+
+                    {/* Material */}
+                    <td style={{ padding: "4px", maxWidth: "80px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.type}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.type || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, type: e.target.value })}
+                          style={{ width: "80px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.type || "-"
+                      )}
+                    </td>
+
+                    {/* Net */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.area || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, area: e.target.value })}
+                          style={{ width: "45px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.area ? (typeof item.area === 'number' ? `${item.area} m²` : item.area) : "-"
+                      )}
+                    </td>
+
+                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.totalArea ? (typeof item.totalArea === 'number' ? `${item.totalArea} m²` : item.totalArea) : "-"}</td>
+
+                    {/* Actions: Edit icon on left of X */}
+                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(item.id);
+                              setEditRowData({
+                                ...item,
+                                area: String(item.area || "").replace("m²", "").trim()
+                              });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={7} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No flooring areas entered yet. Click '+ Add Flooring Area' or '+ Add data AI'.
+                    No flooring areas entered yet. Fill the form above and click '+ Add Flooring Area'.
                   </td>
                 </tr>
               )}
@@ -226,7 +377,7 @@ export default function FlooringDeckingTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {entries && entries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -247,12 +398,12 @@ export default function FlooringDeckingTask({
                   alert(`Saved flooring areas data (${entries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -269,12 +420,12 @@ export default function FlooringDeckingTask({
                   alert(`🚀 Successfully sent ${entries.length} flooring areas to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -283,7 +434,7 @@ export default function FlooringDeckingTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>

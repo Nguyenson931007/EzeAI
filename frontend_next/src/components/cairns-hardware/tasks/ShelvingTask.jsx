@@ -78,7 +78,7 @@ export default function ShelvingTask({
           </div>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT ── */}
         <div style={{
           padding: "8px 12px",
           background: "#f8fafc",
@@ -98,12 +98,12 @@ export default function ShelvingTask({
                 alert(`Saved shelving configuration for: ${formData.room || "Walk-in Robe"}`);
               }}
               style={{
-                padding: "6px 14px",
+                padding: "4px 8px",
                 background: "#1e293b",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: "5px",
-                fontSize: "11.5px",
+                fontSize: "10.5px",
                 fontWeight: "700",
                 cursor: "pointer",
                 display: "flex",
@@ -120,12 +120,12 @@ export default function ShelvingTask({
                 alert(`🚀 Successfully sent shelving items to Takeoff Tool & BOQ!`);
               }}
               style={{
-                padding: "6px 16px",
+                padding: "4px 10px",
                 background: "var(--blue, #2563eb)",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: "5px",
-                fontSize: "11.5px",
+                fontSize: "10.5px",
                 fontWeight: "700",
                 cursor: "pointer",
                 display: "flex",
@@ -134,7 +134,7 @@ export default function ShelvingTask({
                 boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
               }}
             >
-              🚀 Send to Tool
+              🚀 Procurement
             </button>
           </div>
         </div>

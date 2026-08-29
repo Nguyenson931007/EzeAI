@@ -604,9 +604,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
    */
   function applyAILengthsToAll() {
     const newEdits = {};
+    const wallEntriesForTask = [];
+
     groupedJobRows.forEach(jobGroup => {
-      jobGroup.subRows.forEach(row => {
-        const rowHeight = getDisplayHeight(row);
+      jobGroup.subRows.forEach((row, idx) => {
+        const rowHeight = getDisplayHeight(row) || 2440;
         const hKey = `${row.floorType === "Slab" ? "Slab" : "Timber"}_${rowHeight}`;
 
         let sumAllPagesMm = 0;
@@ -624,11 +626,39 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
             wall_length: Math.round(sumAllPagesMm),
             wall_height: rowHeight
           };
+
+          const spacingMm = 900;
+          const demand = (sumAllPagesMm / spacingMm).toFixed(2);
+          const rodCount = Math.ceil(sumAllPagesMm / spacingMm) || 1;
+          const rodLength = rowHeight <= 2440 ? 2700 : (rowHeight <= 2740 ? 3000 : 3600);
+          const baseTypeStr = row.floorType === "Slab" ? "Concrete Slab" : "Timber Floor";
+
+          wallEntriesForTask.push({
+            id: `frm-ai-${row.floorType}-${rowHeight}-${Date.now()}-${idx}`,
+            baseType: baseTypeStr,
+            theWallAbove: row.floorType === "Slab" ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
+            height: `${rowHeight} mm`,
+            length: `${Math.round(sumAllPagesMm)} mm`,
+            spacing: `${spacingMm} mm`,
+            rodSize: "M12",
+            rodDemand: demand,
+            rodMapping: `${rodCount} x M12 Rod ${rodLength}`,
+            rodsQty: `${rodCount} pcs`
+          });
         }
       });
     });
     setEditedData(prev => ({ ...prev, ...newEdits }));
     setIsAccumulatedView(true);
+
+    if (typeof window !== "undefined" && wallEntriesForTask.length > 0) {
+      window.dispatchEvent(new CustomEvent("ezefloor:apply_ai_walls_to_framework", {
+        detail: {
+          wallEntries: wallEntriesForTask,
+          walls: walls
+        }
+      }));
+    }
   }
 
   /** Lưu 1 sub-row (hoặc toàn bộ sub-rows của Job chứa dòng đó) vào MSSQL bảng FrameWork qua endpoint POST /api/framework/save-jobs */

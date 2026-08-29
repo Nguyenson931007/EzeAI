@@ -12,6 +12,21 @@ export default function FixoutTask({
   const [jambType, setJambType] = useState("Single Rebated Pine Jamb Set");
   const [architraveSpec, setArchitraveSpec] = useState("67x18mm MDF Architrave");
   const [doorQty, setDoorQty] = useState("6");
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+
+  const handleSaveInlineEdit = (id) => {
+    const qtyNum = parseInt(editRowData.qty, 10) || 1;
+
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData,
+      qty: `${qtyNum} sets`
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
+  };
 
   const handleAddFixout = () => {
     const qtyNum = parseInt(doorQty, 10) || 1;
@@ -40,72 +55,70 @@ export default function FixoutTask({
       {/* ── CARD 1: FIXOUT SETUP ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          🚪 1. Internal Doors & Jamb Fixout
+          🚪 1. Internal Fixout & Skirting Setup
         </div>
         <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div>
+            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Door Opening Type</span>
+            <select
+              value={doorType}
+              onChange={(e) => setDoorType(e.target.value)}
+              className="task-field-select"
+            >
+              <option value="Internal Swing Door">Internal Swing Door (Hinged)</option>
+              <option value="Cavity Sliding Door">Cavity Sliding Door</option>
+              <option value="Double Robe Slider">Double Robe Slider</option>
+              <option value="Triple Robe Slider">Triple Robe Slider</option>
+            </select>
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Door Style</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Jamb Set Type</span>
               <select
-                value={doorType}
-                onChange={(e) => setDoorType(e.target.value)}
+                value={jambType}
+                onChange={(e) => setJambType(e.target.value)}
                 className="task-field-select"
               >
-                <option value="Internal Swing Door">Internal Swing Door</option>
-                <option value="Cavity Slider Unit">Cavity Slider Unit</option>
-                <option value="Wardrobe Bi-fold Set">Wardrobe Bi-fold Set</option>
-                <option value="Double Rebated Pair">Double Rebated Pair</option>
+                <option value="Single Rebated Pine Jamb Set">Single Rebated Pine (112x19)</option>
+                <option value="Double Rebated Pine Jamb Set">Double Rebated Pine (112x30)</option>
+                <option value="Split Jamb Set">Split Jamb Set</option>
               </select>
             </div>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Quantity</span>
-              <input
-                type="number"
-                min="1"
-                value={doorQty}
-                onChange={(e) => setDoorQty(e.target.value)}
-                className="task-field-input"
-              />
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Architrave Spec</span>
+              <select
+                value={architraveSpec}
+                onChange={(e) => setArchitraveSpec(e.target.value)}
+                className="task-field-select"
+              >
+                <option value="67x18mm MDF Architrave">67x18mm MDF Single Bevel</option>
+                <option value="67x18mm Pine Architrave">67x18mm FJ Pine Half Splayed</option>
+                <option value="42x18mm MDF Architrave">42x18mm MDF Bullnose</option>
+              </select>
             </div>
           </div>
 
-          <div className="task-field-group">
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Door Jamb Type</span>
-            <select
-              value={jambType}
-              onChange={(e) => setJambType(e.target.value)}
-              className="task-field-select"
-            >
-              <option value="Single Rebated Pine Jamb Set">Single Rebated Pine Jamb Set</option>
-              <option value="Double Rebated Hardwood Jamb">Double Rebated Hardwood Jamb</option>
-              <option value="Knock-Down Steel Jamb">Knock-Down Steel Jamb</option>
-            </select>
-          </div>
-
-          <div className="task-field-group">
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Architrave Spec</span>
-            <select
-              value={architraveSpec}
-              onChange={(e) => setArchitraveSpec(e.target.value)}
-              className="task-field-select"
-            >
-              <option value="67x18mm MDF Architrave">67x18mm MDF Architrave</option>
-              <option value="42x18mm Single Bevel Pine">42x18mm Single Bevel Pine</option>
-              <option value="67x18mm Half Splayed MDF">67x18mm Half Splayed MDF</option>
-              <option value="92x18mm Colonial Architrave">92x18mm Colonial Architrave</option>
-            </select>
+          <div>
+            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Quantity (Sets)</span>
+            <input
+              type="number"
+              value={doorQty}
+              onChange={(e) => setDoorQty(e.target.value)}
+              className="task-field-input"
+            />
           </div>
 
           <button
             type="button"
             onClick={handleAddFixout}
             style={{
-              padding: "7px",
-              background: "#1e3a8a",
+              padding: "4px 8px",
+              background: "#0f2744",
               color: "#ffffff",
               border: "none",
               borderRadius: "5px",
-              fontSize: "11.5px",
+              fontSize: "12px",
               fontWeight: "700",
               cursor: "pointer"
             }}
@@ -115,10 +128,20 @@ export default function FixoutTask({
         </div>
       </div>
 
-      {/* ── CARD 2: ENTERED FIXOUT ITEMS ── */}
+      {/* ── CARD 2: ENTERED FIXOUT ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Fixout Items ({(entries || []).length})
+        <div style={{
+          padding: "9px 12px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          fontWeight: "800",
+          fontSize: "12px",
+          color: "#0f2744",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px"
+        }}>
+          <span>📋 2. Entered Fixout Doors ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
@@ -129,31 +152,129 @@ export default function FixoutTask({
                 <th style={{ padding: "4px" }}>Jamb</th>
                 <th style={{ padding: "4px" }}>Architrave</th>
                 <th style={{ padding: "4px" }}>Qty</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((item, idx) => (
-                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{item.doorType || "-"}</td>
-                  <td style={{ padding: "4px", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.jambType}>{item.jambType || "-"}</td>
-                  <td style={{ padding: "4px", maxWidth: "80px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.architraveSpec}>{item.architraveSpec || "-"}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.qty ? (typeof item.qty === 'number' ? `${item.qty} sets` : item.qty) : "-"}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(entries || []).map((item, idx) => {
+                const isRowEditing = editingRowId === item.id;
+
+                return (
+                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    
+                    {/* Door Style */}
+                    <td style={{ padding: "4px" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.doorType || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, doorType: e.target.value })}
+                          style={{ width: "85px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.doorType || "-"
+                      )}
+                    </td>
+
+                    {/* Jamb */}
+                    <td style={{ padding: "4px", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.jambType}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.jambType || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, jambType: e.target.value })}
+                          style={{ width: "85px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.jambType || "-"
+                      )}
+                    </td>
+
+                    {/* Architrave */}
+                    <td style={{ padding: "4px", maxWidth: "80px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.architraveSpec}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.architraveSpec || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, architraveSpec: e.target.value })}
+                          style={{ width: "80px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.architraveSpec || "-"
+                      )}
+                    </td>
+
+                    {/* Qty */}
+                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          value={editRowData.qty || ""}
+                          onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
+                          style={{ width: "40px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        item.qty ? (typeof item.qty === 'number' ? `${item.qty} sets` : item.qty) : "-"
+                      )}
+                    </td>
+
+                    {/* Actions: Edit on left of X */}
+                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRowId(item.id);
+                              setEditRowData({
+                                ...item,
+                                qty: String(item.qty || "1").replace("sets", "").trim()
+                              });
+                            }}
+                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!entries || entries.length === 0) && (
                 <tr>
                   <td colSpan={6} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No fixout items entered yet. Click '+ Add Fixout Door Entry' or '+ Add data AI'.
+                    No fixout items entered yet. Fill the inputs above and click '+ Add Fixout Door Entry'.
                   </td>
                 </tr>
               )}
@@ -161,7 +282,7 @@ export default function FixoutTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SEND TO TOOL (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
         {entries && entries.length > 0 && (
           <div style={{
             padding: "8px 12px",
@@ -182,12 +303,12 @@ export default function FixoutTask({
                   alert(`Saved fixout doors data (${entries.length} items)`);
                 }}
                 style={{
-                  padding: "6px 14px",
+                  padding: "4px 8px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -204,12 +325,12 @@ export default function FixoutTask({
                   alert(`🚀 Successfully sent ${entries.length} fixout door items to Takeoff Tool & BOQ!`);
                 }}
                 style={{
-                  padding: "6px 16px",
+                  padding: "4px 10px",
                   background: "var(--blue, #2563eb)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "11.5px",
+                  fontSize: "10.5px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
@@ -218,7 +339,7 @@ export default function FixoutTask({
                   boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
                 }}
               >
-                🚀 Send to Tool
+                🚀 Procurement
               </button>
             </div>
           </div>
