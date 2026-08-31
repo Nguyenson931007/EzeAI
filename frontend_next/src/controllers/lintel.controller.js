@@ -530,26 +530,27 @@ export function useLintelController({
         const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
 
         const offset = updatedLintel.lengthOffset !== undefined ? updatedLintel.lengthOffset : (globalLengthOffset || 0);
-        
+
         // Check if user is mid-typing (empty input)
-        const isEditingEmpty = updatedLintel.measuredLength === "" || updatedLintel.measuredLength === null;
+        const isEditingEmpty = updatedLintel.baseLength === "" || updatedLintel.baseLength === null || updatedLintel.measuredLength === "" || updatedLintel.measuredLength === null;
 
         if (isEditingEmpty) {
           return {
             ...l,
             ...updatedLintel,
             description: desc,
+            baseLength: "",
             measuredLength: ""
           };
         }
 
-        const baseLen = updatedLintel.baseLength !== undefined 
-          ? updatedLintel.baseLength 
-          : Math.max(0.01, (typeof updatedLintel.measuredLength === 'number' ? updatedLintel.measuredLength : (l.measuredLength || 0)) - offset);
-        
-        const newMeasured = typeof updatedLintel.measuredLength === 'number' ? updatedLintel.measuredLength : (baseLen + offset);
-        const newFinal = updatedLintel.isRounded 
-          ? roundLintelLength(newMeasured) 
+        const baseLen = updatedLintel.baseLength !== undefined && updatedLintel.baseLength !== ""
+          ? Math.max(0.01, (typeof updatedLintel.baseLength === 'number' ? updatedLintel.baseLength : parseFloat(updatedLintel.baseLength) || 0.01))
+          : (typeof updatedLintel.measuredLength === 'number' ? Math.max(0.01, updatedLintel.measuredLength - offset) : (l.baseLength || 0.01));
+
+        const newMeasured = baseLen + offset;
+        const newFinal = updatedLintel.isRounded
+          ? roundLintelLength(newMeasured)
           : newMeasured;
 
         // Recalculate 2D geometry (startOffset/endOffset or points) based on new base length
