@@ -6,123 +6,226 @@ export default function EavesSoffitTask({
   cadMetrics = {},
   entries = [],
   onSetEntries,
-  onAddDataAI
+  onAddDataAI,
+  onSelectEntry
 }) {
-  const [eaveLevel, setEaveLevel] = useState("Ground Floor");
-  const [eaveWidth, setEaveWidth] = useState("450 mm");
-  const [eaveLength, setEaveLength] = useState("");
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
+
+  const SHEET_BRAND_OPTIONS = [
+    "FC",
+    "BGC"
+  ];
+
+  const SHEET_THICKNESS_OPTIONS = [
+    "4.5mm",
+    "6mm"
+  ];
+
+  const SOFFIT_BATTEN_OPTIONS = [
+    "0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE",
+    "9001800 · 70×35 Pine Batten @6.0m Lengths"
+  ];
+
+  const SOFFIT_BEAD_OPTIONS = [
+    "0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD",
+    "0020733 · PINE PRIMED DAR FJ LOSP H3++31X11MM 5.4M BEAD",
+    "0020736 · PINE PRIMED DAR FJ LOSP H3++42X11MM 5.4M"
+  ];
+
+  // Material Setup State
+  const [sheetBrand, setSheetBrand] = useState("FC");
+  const [sheetThickness, setSheetThickness] = useState("4.5mm");
+  const [soffitBatten, setSoffitBatten] = useState("0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE");
+  const [soffitBead, setSoffitBead] = useState("0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD");
+
+  // Inline editing state for Card 2
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
 
-  const handleSaveInlineEdit = (id) => {
-    const lenM = parseFloat(editRowData.length) || 0;
-    const widthMm = parseInt(editRowData.width, 10) || 450;
-    const areaM2 = Number(((lenM * widthMm) / 1000).toFixed(2));
-
-    const updatedList = (entries || []).map(item => item.id === id ? {
-      ...item,
-      ...editRowData,
-      width: editRowData.width ? (String(editRowData.width).includes("mm") ? editRowData.width : `${widthMm} mm`) : item.width,
-      length: editRowData.length ? (String(editRowData.length).includes("m") ? editRowData.length : `${lenM.toFixed(1)} m`) : item.length,
-      area: `${areaM2} m²`
-    } : item);
-
-    if (onSetEntries) onSetEntries(updatedList);
-    setEditingRowId(null);
+  const handleResetData = () => {
+    setSheetBrand("FC");
+    setSheetThickness("4.5mm");
+    setSoffitBatten("0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE");
+    setSoffitBead("0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD");
   };
 
   const handleAddEave = () => {
-    const lenM = parseFloat(eaveLength) || (cadMetrics.perimeterM || 24.5);
-    const widthMm = parseInt(eaveWidth, 10) || 450;
-    const areaM2 = Number(((lenM * widthMm) / 1000).toFixed(2));
-
     const newEntry = {
       id: "eave-" + Date.now(),
-      level: eaveLevel,
-      width: `${widthMm} mm`,
-      length: `${lenM.toFixed(1)} m`,
-      area: `${areaM2} m²`
+      brand: sheetBrand,
+      thickness: sheetThickness,
+      batten: soffitBatten,
+      bead: soffitBead
     };
 
     if (onSetEntries) {
       onSetEntries(prev => [...(prev || []), newEntry]);
     }
-    setEaveLength("");
   };
 
   const handleRemoveEntry = (id) => {
     if (onSetEntries) {
       onSetEntries(prev => (prev || []).filter(e => e.id !== id));
     }
+    if (selectedEntryId === id) setSelectedEntryId(null);
+  };
+
+  const handleSaveInlineEdit = (id) => {
+    const updatedList = (entries || []).map(item => item.id === id ? {
+      ...item,
+      ...editRowData
+    } : item);
+
+    if (onSetEntries) onSetEntries(updatedList);
+    setEditingRowId(null);
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {/* ── CARD 1: EAVES CONFIGURATION ── */}
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {/* ── CARD 1: MATERIAL SETUP ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          🏠 1. Eaves & Soffit Configuration
+        <div style={{
+          padding: "10px 14px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          fontWeight: "800",
+          fontSize: "13px",
+          color: "#0f2744",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between"
+        }}>
+          <span>▼ 1. Material setup</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={handleResetData}
+              style={{
+                background: "#ffffff",
+                border: "1px solid #fca5a5",
+                color: "#b91c1c",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 8px",
+                borderRadius: "5px",
+                cursor: "pointer"
+              }}
+            >
+              Reset data
+            </button>
+            {onAddDataAI && (
+              <button
+                type="button"
+                onClick={onAddDataAI}
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #93c5fd",
+                  color: "#1d4ed8",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  padding: "3px 8px",
+                  borderRadius: "5px",
+                  cursor: "pointer"
+                }}
+              >
+                + Add data AI
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+
+        <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+          {/* Row 1: Brand & Thickness */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Building Level</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet brand</span>
               <select
-                value={eaveLevel}
-                onChange={(e) => setEaveLevel(e.target.value)}
+                value={sheetBrand}
+                onChange={(e) => {
+                  setSheetBrand(e.target.value);
+                  if (onChange) onChange("eaves", "sheet_brand", e.target.value);
+                }}
                 className="task-field-select"
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                <option value="Ground Floor">Ground Floor</option>
-                <option value="First Floor">First Floor</option>
-                <option value="Garage / Porch">Garage / Porch</option>
+                {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
+
             <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Eave Width</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet thickness</span>
               <select
-                value={eaveWidth}
-                onChange={(e) => setEaveWidth(e.target.value)}
+                value={sheetThickness}
+                onChange={(e) => {
+                  setSheetThickness(e.target.value);
+                  if (onChange) onChange("eaves", "sheet_thickness", e.target.value);
+                }}
                 className="task-field-select"
+                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                <option value="300 mm">300 mm</option>
-                <option value="450 mm">450 mm</option>
-                <option value="600 mm">600 mm</option>
-                <option value="900 mm">900 mm</option>
+                {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
           </div>
 
-          <div className="task-field-group">
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Eaves Perimeter Length (m)</span>
-            <input
-              type="text"
-              placeholder={cadMetrics.perimeterM ? `${cadMetrics.perimeterM.toFixed(1)}` : "24.5"}
-              value={eaveLength}
-              onChange={(e) => setEaveLength(e.target.value)}
-              className="task-field-input"
-            />
+          {/* Row 2: Soffit Batten */}
+          <div>
+            <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit batten</span>
+            <select
+              value={soffitBatten}
+              onChange={(e) => {
+                setSoffitBatten(e.target.value);
+                if (onChange) onChange("eaves", "soffit_batten", e.target.value);
+              }}
+              className="task-field-select"
+              style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+            >
+              {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
           </div>
 
-          <button
-            type="button"
-            onClick={handleAddEave}
-            style={{
-              padding: "4px 8px",
-              background: "#0f2744",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "5px",
-              fontSize: "12px",
-              fontWeight: "700",
-              cursor: "pointer"
-            }}
-          >
-            + Add Eaves Entry
-          </button>
+          {/* Row 3: Soffit Bead */}
+          <div>
+            <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit bead</span>
+            <select
+              value={soffitBead}
+              onChange={(e) => {
+                setSoffitBead(e.target.value);
+                if (onChange) onChange("eaves", "soffit_bead", e.target.value);
+              }}
+              className="task-field-select"
+              style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+            >
+              {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </div>
+
+          {/* Add Button */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
+            <button
+              type="button"
+              onClick={handleAddEave}
+              style={{
+                padding: "7px 16px",
+                background: "#1e3a5f",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "11.5px",
+                fontWeight: "700",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px"
+              }}
+            >
+              + Add Eave
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── CARD 2: ENTERED EAVES ── */}
+      {/* ── CARD 2: ENTERED EAVES TABLE ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{
           padding: "9px 12px",
@@ -141,68 +244,102 @@ export default function EavesSoffitTask({
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                <th style={{ padding: "4px" }}>#</th>
-                <th style={{ padding: "4px" }}>Level</th>
-                <th style={{ padding: "4px" }}>Width</th>
-                <th style={{ padding: "4px" }}>Length</th>
-                <th style={{ padding: "4px" }}>Area</th>
-                <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
+                <th style={{ padding: "5px 6px" }}>#</th>
+                <th style={{ padding: "5px 6px" }}>Brand</th>
+                <th style={{ padding: "5px 6px" }}>Thick</th>
+                <th style={{ padding: "5px 6px" }}>Soffit Batten</th>
+                <th style={{ padding: "5px 6px" }}>Soffit Bead</th>
+                <th style={{ padding: "5px 6px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
               {(entries || []).map((item, idx) => {
+                const isSelected = selectedEntryId === item.id;
                 const isRowEditing = editingRowId === item.id;
 
                 return (
-                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
-                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                    
-                    {/* Level */}
-                    <td style={{ padding: "4px" }}>
+                  <tr
+                    key={item.id || idx}
+                    onClick={() => {
+                      if (!isRowEditing) {
+                        const nextSelected = isSelected ? null : item.id;
+                        setSelectedEntryId(nextSelected);
+                        if (onSelectEntry) onSelectEntry(isSelected ? null : item);
+                      }
+                    }}
+                    style={{
+                      borderBottom: "1px solid #e2e8f0",
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                      cursor: isRowEditing ? "default" : "pointer",
+                      outline: isSelected ? "2px solid #3b82f6" : "none",
+                      outlineOffset: "-1px",
+                      transition: "background 0.15s ease"
+                    }}
+                  >
+                    <td style={{ padding: "5px 6px", fontWeight: 700 }}>{idx + 1}</td>
+
+                    {/* Brand */}
+                    <td style={{ padding: "5px 6px" }}>
                       {isRowEditing ? (
-                        <input
-                          type="text"
-                          value={editRowData.level || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, level: e.target.value })}
-                          style={{ width: "70px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-                        />
+                        <select
+                          value={editRowData.brand || item.brand}
+                          onChange={(e) => setEditRowData({ ...editRowData, brand: e.target.value })}
+                          style={{ padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                        >
+                          {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
                       ) : (
-                        item.level || "-"
+                        item.brand || "FC"
                       )}
                     </td>
 
-                    {/* Width */}
-                    <td style={{ padding: "4px" }}>
+                    {/* Thickness */}
+                    <td style={{ padding: "5px 6px" }}>
                       {isRowEditing ? (
-                        <input
-                          type="text"
-                          value={editRowData.width || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, width: e.target.value })}
-                          style={{ width: "50px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-                        />
+                        <select
+                          value={editRowData.thickness || item.thickness}
+                          onChange={(e) => setEditRowData({ ...editRowData, thickness: e.target.value })}
+                          style={{ padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                        >
+                          {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
                       ) : (
-                        item.width ? (typeof item.width === 'number' ? `${item.width}mm` : item.width) : "-"
+                        item.thickness || "4.5mm"
                       )}
                     </td>
 
-                    {/* Length */}
-                    <td style={{ padding: "4px" }}>
+                    {/* Batten */}
+                    <td style={{ padding: "5px 6px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.batten}>
                       {isRowEditing ? (
-                        <input
-                          type="text"
-                          value={editRowData.length || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, length: e.target.value })}
-                          style={{ width: "50px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-                        />
+                        <select
+                          value={editRowData.batten || item.batten}
+                          onChange={(e) => setEditRowData({ ...editRowData, batten: e.target.value })}
+                          style={{ maxWidth: "120px", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                        >
+                          {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
                       ) : (
-                        item.length ? (typeof item.length === 'number' ? `${item.length}m` : item.length) : "-"
+                        item.batten
                       )}
                     </td>
 
-                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.area ? (typeof item.area === 'number' ? `${item.area} m²` : item.area) : "-"}</td>
+                    {/* Bead */}
+                    <td style={{ padding: "5px 6px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.bead}>
+                      {isRowEditing ? (
+                        <select
+                          value={editRowData.bead || item.bead}
+                          onChange={(e) => setEditRowData({ ...editRowData, bead: e.target.value })}
+                          style={{ maxWidth: "120px", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                        >
+                          {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      ) : (
+                        item.bead
+                      )}
+                    </td>
 
-                    {/* Actions: Edit on left of X */}
-                    <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {/* Actions: Edit & Remove */}
+                    <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap" }}>
                       {isRowEditing ? (
                         <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
                           <button
@@ -229,13 +366,9 @@ export default function EavesSoffitTask({
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingRowId(item.id);
-                              setEditRowData({
-                                ...item,
-                                width: String(item.width || "450").replace("mm", "").trim(),
-                                length: String(item.length || "0").replace("m", "").trim()
-                              });
+                              setEditRowData({ ...item });
                             }}
-                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            style={{ background: "none", border: "none", color: "#f97316", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
                             title="Edit"
                           >
                             ✏️
@@ -256,8 +389,8 @@ export default function EavesSoffitTask({
               })}
               {(!entries || entries.length === 0) && (
                 <tr>
-                  <td colSpan={6} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No eaves entered yet. Fill the inputs above and click '+ Add Eaves Entry'.
+                  <td colSpan={6} style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>
+                    No eaves entered. Select materials above and click <b>+ Add Eave</b>.
                   </td>
                 </tr>
               )}
@@ -265,66 +398,35 @@ export default function EavesSoffitTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
-        {entries && entries.length > 0 && (
+        {/* Action button if results exist */}
+        {(entries || []).length > 0 && (
           <div style={{
             padding: "8px 12px",
             background: "#f8fafc",
             borderTop: "1px solid #e2e8f0",
             display: "flex",
-            alignItems: "center",
             justifyContent: "space-between",
-            gap: "8px"
+            alignItems: "center"
           }}>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {entries.length} {entries.length === 1 ? "entry" : "entries"} calculated
+              {(entries || []).length} eave{(entries || []).length > 1 ? "s" : ""} configured
             </span>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`Saved eaves data (${entries.length} items)`);
-                }}
-                style={{
-                  padding: "4px 8px",
-                  background: "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
-                }}
-              >
-                💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} eaves items to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 3px rgba(37,99,235,0.3)"
-                }}
-              >
-                🚀 Procurement
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => alert("Eaves configurations saved.")}
+              style={{
+                padding: "5px 12px",
+                background: "#1e293b",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "11px",
+                fontWeight: 700,
+                cursor: "pointer"
+              }}
+            >
+              💾 Save
+            </button>
           </div>
         )}
       </div>

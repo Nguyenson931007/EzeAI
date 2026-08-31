@@ -6,8 +6,10 @@ export default function LockupTask({
   cadMetrics = {},
   entries = [],
   onSetEntries,
-  onAddDataAI
+  onAddDataAI,
+  onSelectEntry
 }) {
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
   const DOOR_HEIGHT_OPTIONS = ["2040", "2340", "Spec"];
 
   const DOOR_WIDTH_OPTIONS = [
@@ -736,10 +738,28 @@ export default function LockupTask({
             </thead>
             <tbody>
               {(entries || []).map((item, idx) => {
+                const isSelected = selectedEntryId === item.id;
                 const isRowEditing = editingRowId === item.id;
 
                 return (
-                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                  <tr
+                    key={item.id || idx}
+                    onClick={() => {
+                      if (!isRowEditing) {
+                        const nextSelected = isSelected ? null : item.id;
+                        setSelectedEntryId(nextSelected);
+                        if (onSelectEntry) onSelectEntry(isSelected ? null : item);
+                      }
+                    }}
+                    style={{
+                      borderBottom: "1px solid #e2e8f0",
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                      cursor: isRowEditing ? "default" : "pointer",
+                      outline: isSelected ? "2px solid #3b82f6" : "none",
+                      outlineOffset: "-1px",
+                      transition: "background 0.15s ease"
+                    }}
+                  >
                     <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
                     
                     {/* Category */}
@@ -1020,28 +1040,6 @@ export default function LockupTask({
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} lockup doors to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>

@@ -314,28 +314,6 @@ export default function PowerTrussBracesTask({
               >
                 💾 Save
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} truss schedule items to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
-              </button>
             </div>
           </div>
         )}

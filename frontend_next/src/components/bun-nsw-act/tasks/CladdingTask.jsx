@@ -145,30 +145,6 @@ export default function CladdingTask({
           >
             + Add wall
           </button>
-
-          {/* Total Area */}
-          <div style={{ flex: "1 1 120px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Total Area</span>
-              <span style={{ fontSize: "10px", color: "#94a3b8" }}>m²</span>
-            </div>
-            <input
-              type="text"
-              readOnly
-              value={calcArea()}
-              style={{
-                width: "100%",
-                padding: "6px 8px",
-                fontSize: "10.5px",
-                borderRadius: "5px",
-                border: "1px solid #cbd5e1",
-                background: "#f8fafc",
-                fontWeight: 700,
-                color: "#0f2744",
-                boxSizing: "border-box"
-              }}
-            />
-          </div>
         </div>
       </div>
 
@@ -184,7 +160,6 @@ export default function CladdingTask({
                 <th style={{ padding: "4px" }}>#</th>
                 <th style={{ padding: "4px" }}>Wall Height</th>
                 <th style={{ padding: "4px" }}>Wall Length</th>
-                <th style={{ padding: "4px" }}>Total Area</th>
                 <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
@@ -223,8 +198,6 @@ export default function CladdingTask({
                         w.length
                       )}
                     </td>
-
-                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.area}</td>
 
                     {/* Actions: Edit on left of X */}
                     <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -326,28 +299,6 @@ export default function CladdingTask({
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} cladding wall items to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>

@@ -6,8 +6,10 @@ export default function FlooringDeckingTask({
   cadMetrics = {},
   entries = [],
   onSetEntries,
-  onAddDataAI
+  onAddDataAI,
+  onSelectEntry
 }) {
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [flrLevel, setFlrLevel] = useState("Ground Floor GF");
   const [flrRoom, setFlrRoom] = useState("Living & Dining Room");
   const [flrType, setFlrType] = useState("Hybrid / Vinyl Plank");
@@ -243,17 +245,34 @@ export default function FlooringDeckingTask({
                 <th style={{ padding: "4px" }}>Level</th>
                 <th style={{ padding: "4px" }}>Room</th>
                 <th style={{ padding: "4px" }}>Material</th>
-                <th style={{ padding: "4px" }}>Net</th>
-                <th style={{ padding: "4px" }}>Total</th>
+                <th style={{ padding: "4px", textAlign: "right" }}>Total m²</th>
                 <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
             <tbody>
               {(entries || []).map((item, idx) => {
+                const isSelected = selectedEntryId === item.id;
                 const isRowEditing = editingRowId === item.id;
 
                 return (
-                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                  <tr
+                    key={item.id || idx}
+                    onClick={() => {
+                      if (!isRowEditing) {
+                        const nextSelected = isSelected ? null : item.id;
+                        setSelectedEntryId(nextSelected);
+                        if (onSelectEntry) onSelectEntry(isSelected ? null : item);
+                      }
+                    }}
+                    style={{
+                      borderBottom: "1px solid #e2e8f0",
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                      cursor: isRowEditing ? "default" : "pointer",
+                      outline: isSelected ? "2px solid #3b82f6" : "none",
+                      outlineOffset: "-1px",
+                      transition: "background 0.15s ease"
+                    }}
+                  >
                     <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
                     
                     {/* Level */}
@@ -298,21 +317,19 @@ export default function FlooringDeckingTask({
                       )}
                     </td>
 
-                    {/* Net */}
-                    <td style={{ padding: "4px" }}>
+                    {/* Total m² */}
+                    <td style={{ padding: "4px", textAlign: "right", fontWeight: 700, color: "var(--blue)" }}>
                       {isRowEditing ? (
                         <input
                           type="text"
                           value={editRowData.area || ""}
                           onChange={(e) => setEditRowData({ ...editRowData, area: e.target.value })}
-                          style={{ width: "45px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                          style={{ width: "55px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px", textAlign: "right" }}
                         />
                       ) : (
-                        item.area ? (typeof item.area === 'number' ? `${item.area} m²` : item.area) : "-"
+                        item.area || "-"
                       )}
                     </td>
-
-                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.totalArea ? (typeof item.totalArea === 'number' ? `${item.totalArea} m²` : item.totalArea) : "-"}</td>
 
                     {/* Actions: Edit icon on left of X */}
                     <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -347,7 +364,7 @@ export default function FlooringDeckingTask({
                                 area: String(item.area || "").replace("m²", "").trim()
                               });
                             }}
-                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            style={{ background: "none", border: "none", color: "#f97316", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
                             title="Edit"
                           >
                             ✏️
@@ -356,7 +373,6 @@ export default function FlooringDeckingTask({
                             type="button"
                             onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
                             style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                            title="Delete"
                           >
                             ✕
                           </button>
@@ -368,8 +384,8 @@ export default function FlooringDeckingTask({
               })}
               {(!entries || entries.length === 0) && (
                 <tr>
-                  <td colSpan={7} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No flooring areas entered yet. Fill the form above and click '+ Add Flooring Area'.
+                  <td colSpan={6} style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>
+                    No flooring areas entered. Click <b>+ Add Area</b> above.
                   </td>
                 </tr>
               )}
@@ -377,28 +393,27 @@ export default function FlooringDeckingTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
-        {entries && entries.length > 0 && (
+        {/* ── ACTION BUTTON: SAVE ONLY ── */}
+        {(entries || []).length > 0 && (
           <div style={{
             padding: "8px 12px",
             background: "#f8fafc",
             borderTop: "1px solid #e2e8f0",
             display: "flex",
-            alignItems: "center",
             justifyContent: "space-between",
-            gap: "8px"
+            alignItems: "center"
           }}>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {entries.length} {entries.length === 1 ? "area" : "areas"} calculated
+              {(entries || []).length} flooring area{(entries || []).length > 1 ? "s" : ""} calculated
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="button"
                 onClick={() => {
-                  alert(`Saved flooring areas data (${entries.length} items)`);
+                  alert(`💾 Saved ${(entries || []).length} flooring areas successfully!`);
                 }}
                 style={{
-                  padding: "4px 8px",
+                  padding: "4px 10px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
@@ -408,33 +423,10 @@ export default function FlooringDeckingTask({
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
+                  gap: "5px"
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} flooring areas to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>

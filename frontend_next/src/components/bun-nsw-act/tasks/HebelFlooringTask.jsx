@@ -6,8 +6,10 @@ export default function HebelFlooringTask({
   cadMetrics = {},
   entries = [],
   onSetEntries,
-  onAddDataAI
+  onAddDataAI,
+  onSelectEntry
 }) {
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
   // Dry Section State
   const [dryProduct, setDryProduct] = useState(formData.dryProduct || "Select...");
   const [dryArea, setDryArea] = useState(formData.dryArea || "");
@@ -209,37 +211,38 @@ export default function HebelFlooringTask({
     }
   };
 
+  // Entered rows based on inputs
   const enteredRows = [];
-  if (parseFloat(dryArea) > 0) {
+  if (parseFloat(dryArea) > 0 || dryProduct !== "Select...") {
     enteredRows.push({
       id: "dry",
       typeArea: "Dry",
       product: dryProduct !== "Select..." ? dryProduct : "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-      totalM2: `${parseFloat(dryArea).toFixed(1)} m²`
+      totalM2: parseFloat(dryArea) > 0 ? `${parseFloat(dryArea).toFixed(1)} m²` : "-"
     });
   }
-  if (parseFloat(wetArea) > 0) {
+  if (parseFloat(wetArea) > 0 || wetProduct !== "Select...") {
     enteredRows.push({
       id: "wet",
       typeArea: "Wet",
       product: wetProduct !== "Select..." ? wetProduct : "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-      totalM2: `${parseFloat(wetArea).toFixed(1)} m²`
+      totalM2: parseFloat(wetArea) > 0 ? `${parseFloat(wetArea).toFixed(1)} m²` : "-"
     });
   }
-  if (parseFloat(balconyArea) > 0) {
+  if (parseFloat(balconyArea) > 0 || balconyProduct !== "Select...") {
     enteredRows.push({
       id: "balcony",
       typeArea: "Balcony Tiles",
       product: balconyProduct !== "Select..." ? balconyProduct : "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-      totalM2: `${parseFloat(balconyArea).toFixed(1)} m²`
+      totalM2: parseFloat(balconyArea) > 0 ? `${parseFloat(balconyArea).toFixed(1)} m²` : "-"
     });
   }
-  if (parseFloat(otherArea) > 0) {
+  if (parseFloat(otherArea) > 0 || otherProduct !== "Select...") {
     enteredRows.push({
       id: "other",
       typeArea: otherTypeArea,
       product: otherProduct !== "Select..." ? otherProduct : getOtherProductOptions(otherTypeArea)[1] || "-",
-      totalM2: `${parseFloat(otherArea).toFixed(1)} m²`
+      totalM2: parseFloat(otherArea) > 0 ? `${parseFloat(otherArea).toFixed(1)} m²` : "-"
     });
   }
 
@@ -380,13 +383,13 @@ export default function HebelFlooringTask({
             </div>
           </div>
 
-          {/* SECTION 4: OTHER AREA TYPES (Xuống hàng) */}
+          {/* SECTION 4: OTHER AREA TYPES */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
             <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
               ▼ Other area types
             </div>
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {/* Row 1: Type Area & Product */}
+              {/* Row: Type Area & Product */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "8px" }}>
                 <div>
                   <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Type Area</span>
@@ -472,14 +475,32 @@ export default function HebelFlooringTask({
             </thead>
             <tbody>
               {enteredRows.map((item, idx) => {
+                const isSelected = selectedEntryId === (item.id || item.typeArea);
                 const isRowEditing = editingRowId === item.id;
 
                 return (
-                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: isRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc") }}>
+                  <tr
+                    key={item.id || idx}
+                    onClick={() => {
+                      if (!isRowEditing) {
+                        const nextSelected = isSelected ? null : (item.id || item.typeArea);
+                        setSelectedEntryId(nextSelected);
+                        if (onSelectEntry) onSelectEntry(isSelected ? null : item);
+                      }
+                    }}
+                    style={{
+                      borderBottom: "1px solid #e2e8f0",
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                      cursor: isRowEditing ? "default" : "pointer",
+                      outline: isSelected ? "2px solid #3b82f6" : "none",
+                      outlineOffset: "-1px",
+                      transition: "background 0.15s ease"
+                    }}
+                  >
                     <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
                     <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.typeArea}</td>
                     <td style={{ padding: "6px 8px", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.product}>{item.product}</td>
-                    
+
                     {/* Total m² */}
                     <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "var(--blue)" }}>
                       {isRowEditing ? (
@@ -503,10 +524,10 @@ export default function HebelFlooringTask({
                             onClick={(e) => {
                               e.stopPropagation();
                               const valStr = editRowData.totalM2 ? String(editRowData.totalM2).replace("m²", "").trim() : "0";
-                              if (item.typeArea === "Dry Area") {
+                              if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
                                 setDryArea(valStr);
                                 if (onChange) onChange("hebel_flooring", "dryArea", valStr);
-                              } else if (item.typeArea === "Wet Area") {
+                              } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
                                 setWetArea(valStr);
                                 if (onChange) onChange("hebel_flooring", "wetArea", valStr);
                               } else if (item.typeArea === "Balcony Tiles") {
@@ -539,12 +560,9 @@ export default function HebelFlooringTask({
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingRowId(item.id);
-                              setEditRowData({
-                                ...item,
-                                totalM2: String(item.totalM2 || "").replace("m²", "").trim()
-                              });
+                              setEditRowData({ totalM2: item.totalM2 });
                             }}
-                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            style={{ background: "none", border: "none", color: "#f97316", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
                             title="Edit"
                           >
                             ✏️
@@ -553,10 +571,10 @@ export default function HebelFlooringTask({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (item.typeArea === "Dry Area") {
+                              if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
                                 setDryArea("");
                                 if (onChange) onChange("hebel_flooring", "dryArea", "");
-                              } else if (item.typeArea === "Wet Area") {
+                              } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
                                 setWetArea("");
                                 if (onChange) onChange("hebel_flooring", "wetArea", "");
                               } else if (item.typeArea === "Balcony Tiles") {
@@ -578,10 +596,10 @@ export default function HebelFlooringTask({
                   </tr>
                 );
               })}
-              {enteredRows.length === 0 && (
+              {(!enteredRows || enteredRows.length === 0) && (
                 <tr>
-                  <td colSpan={5} style={{ padding: "14px", textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
-                    No flooring areas entered yet. Enter total m² above to populate the table.
+                  <td colSpan={5} style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>
+                    No flooring areas entered.
                   </td>
                 </tr>
               )}
@@ -589,28 +607,27 @@ export default function HebelFlooringTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
-        {enteredRows && enteredRows.length > 0 && (
+        {/* ── ACTION BUTTON: SAVE ONLY (PROCUREMENT REMOVED) ── */}
+        {enteredRows.length > 0 && (
           <div style={{
             padding: "8px 12px",
             background: "#f8fafc",
             borderTop: "1px solid #e2e8f0",
             display: "flex",
-            alignItems: "center",
             justifyContent: "space-between",
-            gap: "8px"
+            alignItems: "center"
           }}>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {enteredRows.length} {enteredRows.length === 1 ? "area" : "areas"} calculated
+              {enteredRows.length} flooring area{enteredRows.length > 1 ? "s" : ""} calculated
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="button"
                 onClick={() => {
-                  alert(`Saved Hebel flooring data (${enteredRows.length} items)`);
+                  alert(`💾 Saved ${enteredRows.length} Hebel flooring areas successfully!`);
                 }}
                 style={{
-                  padding: "4px 8px",
+                  padding: "4px 10px",
                   background: "#1e293b",
                   color: "#ffffff",
                   border: "none",
@@ -620,33 +637,10 @@ export default function HebelFlooringTask({
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
+                  gap: "5px"
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${enteredRows.length} Hebel flooring areas to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>

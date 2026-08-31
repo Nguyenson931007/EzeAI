@@ -410,7 +410,7 @@ export function getDoorWindowDisplayWidthMm(d, realScale, scaleValue) {
 const EXTRA_MODULE_TABS = [
   {
     id: "frame_hardware",
-    label: "01 Frame HW",
+    label: "01 Frame",
     title: "01 Frame Hardware",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -421,7 +421,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "flooring_decking",
-    label: "02 Floor/Deck",
+    label: "02 Floor",
     title: "02 Flooring & Decking - GF",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -432,7 +432,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "hebel_flooring",
-    label: "03 Hebel Flr",
+    label: "03 Hebel",
     title: "03 Hebel Flooring",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -443,7 +443,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "insulation",
-    label: "04 Insulation",
+    label: "04 Insu",
     title: "04 Insulation",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -454,7 +454,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "eaves_soffit",
-    label: "05 Eaves/Soffit",
+    label: "05 Eaves",
     title: "05 Eaves & Soffit",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -499,7 +499,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "timber_posts",
-    label: "09 Beams/Posts",
+    label: "09 Beams",
     title: "09 Beams & Posts",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -510,7 +510,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "power_truss_braces",
-    label: "10 Truss Braces",
+    label: "10 Truss",
     title: "10 Power Truss Braces",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -556,7 +556,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "final_fit",
-    label: "14 Final Fit",
+    label: "14 Final",
     title: "14 Final Fit & Hardware",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -567,7 +567,7 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "sheet_schedule",
-    label: "15 Sheet Sched",
+    label: "15 Sheet",
     title: "15 Sheet Schedule (Gyprock & FC)",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -1024,13 +1024,134 @@ export default function RightPropertyPaneView({
   // Handler for selecting an entry in task tables — highlights matching objects on canvas
   const handleSelectEntry = (entry) => {
     if (!entry) {
-      // Deselected — clear canvas highlight
-      console.log("[TaskPanel] Entry deselected, clearing canvas highlight");
+      // Deselected — clear canvas highlight & selections
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedId) setSelectedId(null);
+      if (setSelectedType) setSelectedType(null);
       return;
     }
-    console.log("[TaskPanel] Entry selected:", entry);
-    // TODO: Wire to canvas/CAD selection system to highlight matching walls/doors/floors
-    // e.g. selectWallsByType(entry.baseType, entry.height)
+
+    console.log("[TaskPanel] Entry selected for canvas highlight:", entry);
+
+    // 1. TIMBER vs SLAB WALLS (Frame Hardware Task)
+    const wallAboveStr = String(entry.theWallAbove || entry.baseType || "").toLowerCase();
+    if (wallAboveStr.includes("slab") || wallAboveStr.includes("timber")) {
+      const isSlabTarget = wallAboveStr.includes("slab");
+      const isSlabWall = (w) => {
+        const fType = String(w.floor_type || "").toLowerCase();
+        const cName = String(w.class_name || "").toLowerCase();
+        const bType = String(w.base_type || "").toLowerCase();
+        const bConst = String(w.base_construction || "").toLowerCase();
+        const wAbove = String(w.the_wall_above || "").toLowerCase();
+        return fType === "slab" || cName.includes("slab") || bType.includes("slab") || bConst.includes("slab") || wAbove.includes("slab");
+      };
+
+      const matchedWallIds = (walls || [])
+        .filter(w => isSlabTarget ? isSlabWall(w) : !isSlabWall(w))
+        .map(w => w.id);
+
+      if (setSelectedWallIds) setSelectedWallIds(matchedWallIds);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("wall");
+      if (setSelectedId) setSelectedId(matchedWallIds[0] || null);
+      return;
+    }
+
+    // 2. EXTERNAL vs INTERNAL WALLS (Insulation Task)
+    const typeStr = String(entry.type || entry.areaType || entry.category || "").toLowerCase();
+    if (typeStr.includes("ext") || typeStr.includes("int") || typeStr.includes("party")) {
+      const isExtTarget = typeStr.includes("ext");
+      const isExtWall = (w) => {
+        const cName = String(w.class_name || "").toLowerCase();
+        const wType = String(w.wall_type || "").toLowerCase();
+        return Boolean(w.is_ext || wType === "ext" || cName.includes("exterior") || cName.includes("ext_wall"));
+      };
+
+      const matchedWallIds = (walls || [])
+        .filter(w => isExtTarget ? isExtWall(w) : !isExtWall(w))
+        .map(w => w.id);
+
+      if (setSelectedWallIds) setSelectedWallIds(matchedWallIds);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("wall");
+      if (setSelectedId) setSelectedId(matchedWallIds[0] || null);
+      return;
+    }
+
+    // 3. WET vs DRY ROOMS / FLOORING AREAS (Flooring & Decking / Hebel Flooring Task)
+    const areaTypeStr = String(entry.typeArea || entry.location || entry.room || entry.type || "").toLowerCase();
+    if (areaTypeStr.includes("wet") || areaTypeStr.includes("dry") || areaTypeStr.includes("balcony") || areaTypeStr.includes("deck") || areaTypeStr.includes("tile")) {
+      let hlType = "dry";
+      if (areaTypeStr.includes("wet")) {
+        hlType = "wet";
+      } else if (areaTypeStr.includes("timber") && areaTypeStr.includes("deck")) {
+        hlType = "timber_deck";
+      } else if (areaTypeStr.includes("tile") || areaTypeStr.includes("balcony")) {
+        hlType = "tile_deck";
+      } else {
+        hlType = "dry";
+      }
+
+      if (setHighlightType) setHighlightType(hlType);
+
+      const matchedRoomIds = (rooms || []).filter(r => {
+        const rawType = String(r.type || r.wetness || r.zone || "").toLowerCase();
+        const rName = String(r.name || r.room_name || "").toLowerCase();
+        const isWet = rawType === "wet" || /(bath|ens|ensuite|wc|powder|toilet|l'dry|laundry|utility|shower)/i.test(rName);
+        const isTileDeck = rawType === "tile_deck" || /(deck.*tile|tile.*deck|patio|alfresco|porch|verandah)/i.test(rName);
+        const isTimberDeck = rawType === "timber_deck" || (rawType === "deck" && !isTileDeck) || /(deck.*timber|timber.*deck|balcony)/i.test(rName);
+
+        if (hlType === "wet") return isWet;
+        if (hlType === "tile_deck") return isTileDeck;
+        if (hlType === "timber_deck") return isTimberDeck;
+        return !isWet && !isTileDeck && !isTimberDeck;
+      }).map(r => r.id);
+
+      if (setSelectedRoomIds) setSelectedRoomIds(matchedRoomIds);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedType) setSelectedType("room");
+      if (setSelectedId) setSelectedId(matchedRoomIds[0] || null);
+      return;
+    }
+
+    // 4. DOORS (Lockup Task, Fixout Task, Doors & Furniture Task)
+    const doorLocStr = String(entry.location || entry.doorLabel || entry.door || entry.doorType || entry.name || "").toLowerCase().trim();
+    const cleanId = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const matchedDoor = (doors || []).find(d => {
+      if (entry.doorId && d.id === entry.doorId) return true;
+      if (entry.id && (d.id === entry.id || String(entry.id).includes(String(d.id)))) return true;
+      const dLabel = String(d.label || d.name || d.door_name || "").toLowerCase().trim();
+      if (dLabel && doorLocStr && (dLabel === doorLocStr || cleanId(dLabel) === cleanId(doorLocStr))) return true;
+      return false;
+    });
+
+    if (matchedDoor) {
+      if (setSelectedDoorIds) setSelectedDoorIds([matchedDoor.id]);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedId) setSelectedId(matchedDoor.id);
+      if (setSelectedType) setSelectedType("door");
+    } else {
+      const fallbackId = entry.doorId || entry.id;
+      if (fallbackId) {
+        if (setSelectedDoorIds) setSelectedDoorIds([fallbackId]);
+        if (setSelectedWallIds) setSelectedWallIds([]);
+        if (setSelectedRoomIds) setSelectedRoomIds([]);
+        if (setHighlightType) setHighlightType(null);
+        if (setSelectedId) setSelectedId(fallbackId);
+        if (setSelectedType) setSelectedType("door");
+      }
+    }
   };
 
   const handleAddDataAI = (moduleId) => {
@@ -1519,6 +1640,59 @@ export default function RightPropertyPaneView({
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isResizing]);
+
+  // ── AUTO SHOW / HIDE PROPERTIES PANE ON SELECTION CHANGE ──
+  const prevSelectionKeyRef = React.useRef(null);
+  React.useEffect(() => {
+    const hasSelection = Boolean(
+      selectedId ||
+      selectedType ||
+      (selectedWallIds && selectedWallIds.length > 0) ||
+      (selectedDoorIds && selectedDoorIds.length > 0) ||
+      (selectedRoomIds && selectedRoomIds.length > 0) ||
+      (selectedLintelIds && selectedLintelIds.length > 0) ||
+      selectedRoofId ||
+      selectedWall ||
+      selectedDoor ||
+      selectedRoom
+    );
+
+    const currentKey = hasSelection
+      ? `${selectedType || ""}:${selectedId || ""}:${(selectedWallIds || []).join(",")}:${(selectedDoorIds || []).join(",")}:${(selectedRoomIds || []).join(",")}:${selectedRoofId || ""}`
+      : "none";
+
+    // Skip on initial mount to preserve initial view
+    if (prevSelectionKeyRef.current === null) {
+      prevSelectionKeyRef.current = currentKey;
+      return;
+    }
+
+    if (currentKey !== prevSelectionKeyRef.current) {
+      if (hasSelection) {
+        // Element selected (wall, door, room, roof, etc.): open Properties table
+        if (!isTaskModuleActive) {
+          setActivePaneTab("explorer");
+          setExplorerViewMode("properties");
+        }
+      } else {
+        // Deselected: auto hide right panel
+        setActivePaneTab("collapsed");
+      }
+      prevSelectionKeyRef.current = currentKey;
+    }
+  }, [
+    selectedId,
+    selectedType,
+    selectedWall,
+    selectedDoor,
+    selectedRoom,
+    selectedWallIds,
+    selectedDoorIds,
+    selectedRoomIds,
+    selectedLintelIds,
+    selectedRoofId,
+    isTaskModuleActive
+  ]);
 
   const toggleTaskExpanded = () => {
     if (isTaskExpanded) {
@@ -7004,6 +7178,7 @@ export default function RightPropertyPaneView({
                 entries={flooringEntries}
                 onSetEntries={setFlooringEntries}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
@@ -7016,6 +7191,7 @@ export default function RightPropertyPaneView({
                 entries={hebelFlooringEntries}
                 onSetEntries={setHebelFlooringEntries}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
@@ -7040,6 +7216,7 @@ export default function RightPropertyPaneView({
                 entries={fixoutDoorEntries}
                 onSetEntries={setFixoutDoorEntries}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
@@ -7052,6 +7229,7 @@ export default function RightPropertyPaneView({
                 entries={lockupEntries}
                 onSetEntries={setLockupEntries}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
@@ -7072,6 +7250,7 @@ export default function RightPropertyPaneView({
                 onChange={handleModuleFormChange}
                 cadMetrics={cadMetrics}
                 onAddDataAI={handleAddDataAI}
+                onSelectEntry={handleSelectEntry}
               />
             )}
 
@@ -7326,7 +7505,7 @@ export default function RightPropertyPaneView({
                         padding: "1px 6px",
                         borderRadius: "4px"
                       }}>
-                        {isEnabled ? "✓ Đã bật" : "+ Thêm"}
+                        {isEnabled ? "✓ Enabled" : "+ Add"}
                       </span>
                     </div>
                   );
@@ -7361,7 +7540,7 @@ export default function RightPropertyPaneView({
                     cursor: "pointer"
                   }}
                 >
-                  Bật tất cả (10)
+                  Enable all ({EXTRA_MODULE_TABS.length})
                 </button>
                 <button
                   onClick={() => {
@@ -7384,7 +7563,7 @@ export default function RightPropertyPaneView({
                     cursor: "pointer"
                   }}
                 >
-                  Khôi phục gốc
+                  Reset default
                 </button>
               </div>
             </div>

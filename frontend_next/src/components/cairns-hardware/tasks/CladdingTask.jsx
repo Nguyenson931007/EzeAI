@@ -186,7 +186,6 @@ export default function CladdingTask({
                 <th style={{ padding: "4px" }}>L</th>
                 <th style={{ padding: "4px" }}>Openings</th>
                 <th style={{ padding: "4px" }}>Waste</th>
-                <th style={{ padding: "4px" }}>Net Area</th>
                 <th style={{ padding: "4px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
@@ -267,8 +266,6 @@ export default function CladdingTask({
                         w.waste ? (typeof w.waste === 'number' ? `${w.waste}%` : w.waste) : "-"
                       )}
                     </td>
-
-                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.netArea ? (typeof w.netArea === 'number' ? `${w.netArea} m²` : w.netArea) : (w.totalArea ? `${w.totalArea} m²` : "-")}</td>
 
                     {/* Actions: Edit icon on left of X */}
                     <td style={{ padding: "4px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -372,28 +369,6 @@ export default function CladdingTask({
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} cladding wall items to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>

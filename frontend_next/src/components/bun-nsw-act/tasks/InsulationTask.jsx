@@ -8,8 +8,10 @@ export default function InsulationTask({
   onSetWallEntries,
   areaEntries = [],
   onSetAreaEntries,
-  onAddDataAI
+  onAddDataAI,
+  onSelectEntry
 }) {
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
   const R_VALUE_OPTIONS = ["R2.0", "R2.5", "R2.7"];
 
   const PRODUCT_OPTIONS_MAP = {
@@ -480,27 +482,60 @@ export default function InsulationTask({
               </tr>
             </thead>
             <tbody>
-              {(wallEntries || []).map((w, idx) => (
-                <tr key={w.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px" }}>{w.type}</td>
-                  <td style={{ padding: "4px" }}>{w.rValue}</td>
-                  <td style={{ padding: "4px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.product || w.productName}>{w.product || w.productName}</td>
-                  <td style={{ padding: "4px" }}>{w.height}</td>
-                  <td style={{ padding: "4px" }}>{w.length}</td>
-                  <td style={{ padding: "4px" }}>{w.raked || w.rakedArea || "0"}</td>
-                  <td style={{ padding: "4px" }}>{w.door || w.doorArea || "0"}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.insulationArea || w.netArea} m²</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveWall(w.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {(wallEntries || []).map((w, idx) => {
+                const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`);
+                return (
+                  <tr
+                    key={w.id || idx}
+                    onClick={() => {
+                      const nextSelected = isSelected ? null : (w.id || `${w.type}-${idx}`);
+                      setSelectedEntryId(nextSelected);
+                      if (onSelectEntry) onSelectEntry(isSelected ? null : w);
+                    }}
+                    style={{
+                      borderBottom: "1px solid #e2e8f0",
+                      background: isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"),
+                      cursor: "pointer",
+                      outline: isSelected ? "2px solid #3b82f6" : "none",
+                      outlineOffset: "-1px",
+                      transition: "background 0.15s ease"
+                    }}
+                  >
+                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
+                    <td style={{ padding: "4px" }}>
+                      <span style={{
+                        background: (w.type || "").toLowerCase().includes("ext") ? "#fee2e2" : "#fef3c7",
+                        color: (w.type || "").toLowerCase().includes("ext") ? "#991b1b" : "#92400e",
+                        padding: "1px 6px",
+                        borderRadius: "8px",
+                        fontWeight: 700,
+                        fontSize: "9.5px",
+                        display: "inline-block"
+                      }}>
+                        {w.type}
+                      </span>
+                    </td>
+                    <td style={{ padding: "4px" }}>{w.rValue}</td>
+                    <td style={{ padding: "4px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.product || w.productName}>{w.product || w.productName}</td>
+                    <td style={{ padding: "4px" }}>{w.height}</td>
+                    <td style={{ padding: "4px" }}>{w.length}</td>
+                    <td style={{ padding: "4px" }}>{w.raked || w.rakedArea || "0"}</td>
+                    <td style={{ padding: "4px" }}>{w.door || w.doorArea || "0"}</td>
+                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.insulationArea || w.netArea} m²</td>
+                    <td style={{ padding: "4px", textAlign: "right" }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveWall(w.id);
+                        }}
+                        style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {(!wallEntries || wallEntries.length === 0) && (
                 <tr>
                   <td colSpan={10} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
@@ -548,28 +583,6 @@ export default function InsulationTask({
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${wallEntries.length} insulation wall items to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>

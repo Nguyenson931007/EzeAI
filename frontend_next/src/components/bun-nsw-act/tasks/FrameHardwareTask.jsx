@@ -391,8 +391,7 @@ export default function FrameHardwareTask({
                 <th style={{ padding: "6px 8px" }}>Wall Height</th>
                 <th style={{ padding: "6px 8px" }}>Wall Length</th>
                 <th style={{ padding: "6px 8px" }}>Spacing</th>
-                <th style={{ padding: "6px 8px", textAlign: "center" }}>Rod demand</th>
-                <th style={{ padding: "6px 8px" }}>Rod mapping</th>
+                <th style={{ padding: "6px 8px" }}>Rod size</th>
                 <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
               </tr>
             </thead>
@@ -403,8 +402,7 @@ export default function FrameHardwareTask({
                 const rawAbove = w.theWallAbove || "";
                 const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
                 const wallAboveLabel = isTimber ? "Timber" : "Slab";
-                const demandVal = w.rodDemand || (parseFloat(w.length) && parseFloat(w.spacing) ? (parseFloat(w.length) / parseFloat(w.spacing)).toFixed(2) : "0.00");
-                const mappingVal = w.rodMapping || `${w.rodsQty || "1 pcs"} · ${w.rodSize || "M12"}`;
+                const rodSizeVal = w.rodSize || (isTimber ? (formData.timber_rod_size || "M12") : (formData.slab_rod_size || "M12"));
 
                 return (
                   <tr
@@ -483,20 +481,19 @@ export default function FrameHardwareTask({
                       )}
                     </td>
 
-                    <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                      <span style={{
-                        background: "#dcfce7",
-                        color: "#15803d",
-                        padding: "2px 8px",
-                        borderRadius: "10px",
-                        fontWeight: 700,
-                        fontSize: "10px",
-                        display: "inline-block"
-                      }}>
-                        {demandVal}
-                      </span>
+                    {/* Rod Size */}
+                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1e293b" }}>
+                      {isRowEditing ? (
+                        <input
+                          type="text"
+                          value={editRowData.rodSize !== undefined ? editRowData.rodSize : rodSizeVal}
+                          onChange={(e) => setEditRowData({ ...editRowData, rodSize: e.target.value })}
+                          style={{ width: "60px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+                        />
+                      ) : (
+                        rodSizeVal
+                      )}
                     </td>
-                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1e293b" }}>{mappingVal}</td>
 
                     {/* Actions: Edit on left of X */}
                     <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -599,28 +596,6 @@ export default function FrameHardwareTask({
                 }}
               >
                 💾 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`🚀 Successfully sent ${entries.length} framing wall items to Takeoff Tool & BOQ!`);
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "var(--blue, #2563eb)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
-                }}
-              >
-                🚀 Procurement
               </button>
             </div>
           </div>
