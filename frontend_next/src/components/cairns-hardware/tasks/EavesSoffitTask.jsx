@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { ApiService } from "@/models/api.service";
+import { useAppModel } from "@/models/app.context";
 
 export default function EavesSoffitTask({
   formData = {},
@@ -9,7 +11,10 @@ export default function EavesSoffitTask({
   onAddDataAI,
   onSelectEntry
 }) {
+  const appModel = useAppModel ? useAppModel() : {};
   const [selectedEntryId, setSelectedEntryId] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
 
   const SHEET_BRAND_OPTIONS = [
     "FC",
@@ -47,6 +52,62 @@ export default function EavesSoffitTask({
     setSheetThickness("4.5mm");
     setSoffitBatten("0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE");
     setSoffitBead("0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD");
+  };
+
+  const handleSaveToMSSQL = async () => {
+    if (!entries || entries.length === 0) return;
+    setIsSaving(true);
+    setSaveStatus(null);
+    try {
+      let currentUsername = "";
+      if (appModel?.user) {
+        currentUsername = appModel.user.username || appModel.user.name || appModel.user.full_name || appModel.user.email || "";
+      }
+      if (!currentUsername) {
+        try {
+          const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+          if (userStr) {
+            const u = JSON.parse(userStr);
+            currentUsername = u.username || u.name || u.full_name || u.email || "";
+          }
+        } catch (e) {}
+      }
+
+      if (!currentUsername && typeof window !== "undefined") {
+        currentUsername = localStorage.getItem("username") || localStorage.getItem("user_name") || "admin";
+      }
+
+      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" && (localStorage.getItem("currentJobId") || localStorage.getItem("currentProjectName") || localStorage.getItem("current_hw_id"))) || "TestAI";
+
+      const payload = {
+        user_update: currentUsername || "admin",
+        jobs: [
+          {
+            id_job_hw: savedJobId,
+            eaves: entries.map(e => ({
+              sheet_brand: e.brand || e.sheetBrand || "FC",
+              sheet_thickness: e.thickness || e.sheetThickness || "4.5mm",
+              sofit_batten: e.batten || e.soffitBatten || "0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE",
+              sofit_bead: e.bead || e.soffitBead || "0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD",
+              short_name: "CAIRNS"
+            }))
+          }
+        ]
+      };
+
+      const res = await ApiService.saveEavesJobs(payload);
+      if (res && res.success) {
+        setSaveStatus("success");
+        setTimeout(() => setSaveStatus(null), 3500);
+      } else {
+        setSaveStatus("error");
+      }
+    } catch (err) {
+      console.error("Lỗi khi lưu Eaves vào MSSQL:", err);
+      setSaveStatus("error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAddEave = () => {
@@ -411,22 +472,39 @@ export default function EavesSoffitTask({
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
               {(entries || []).length} eave{(entries || []).length > 1 ? "s" : ""} configured
             </span>
-            <button
-              type="button"
-              onClick={() => alert("Eaves configurations saved.")}
-              style={{
-                padding: "5px 12px",
-                background: "#1e293b",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "5px",
-                fontSize: "11px",
-                fontWeight: 700,
-                cursor: "pointer"
-              }}
-            >
-              💾 Save
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {saveStatus === "success" && (
+                <span style={{ color: "#16a34a", fontSize: "11px", fontWeight: 700 }}>
+                  ✓ Saved to MSSQL!
+                </span>
+              )}
+              {saveStatus === "error" && (
+                <span style={{ color: "#dc2626", fontSize: "11px", fontWeight: 700 }}>
+                  ✕ Save failed
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleSaveToMSSQL}
+                style={{
+                  padding: "5px 12px",
+                  background: isSaving ? "#64748b" : "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: isSaving ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px"
+                }}
+              >
+                <span>💾</span>
+                <span>{isSaving ? "Saving..." : "Save"}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

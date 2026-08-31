@@ -32,7 +32,16 @@ export default function InsulationJobsModal({
   // State lưu thông tin sửa đổi tạm thời của người dùng trên UI
   const [editedData, setEditedData] = useState({});
   const [customRows, setCustomRows] = useState([]);
-  const [currentUserUpdate, setCurrentUserUpdate] = useState("EZE0098");
+  const [currentUserUpdate, setCurrentUserUpdate] = useState(() => {
+    try {
+      const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        return u.username || u.name || u.full_name || u.email || "admin";
+      }
+    } catch (e) {}
+    return "admin";
+  });
 
   // State mở xem chi tiết phân tách từng tầng (Floor Breakdown Modal)
   const [viewingBreakdownRow, setViewingBreakdownRow] = useState(null);
@@ -42,7 +51,8 @@ export default function InsulationJobsModal({
       const userStr = localStorage.getItem("user");
       if (userStr) {
         const u = JSON.parse(userStr);
-        if (u.username) setCurrentUserUpdate(u.username);
+        const nameVal = u.username || u.name || u.full_name || u.email;
+        if (nameVal) setCurrentUserUpdate(nameVal);
       }
     } catch (e) {
       console.warn("Could not read username from localStorage:", e);

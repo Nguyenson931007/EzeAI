@@ -1036,6 +1036,53 @@ export default function RightPropertyPaneView({
 
     console.log("[TaskPanel] Entry selected for canvas highlight:", entry);
 
+    // Direct object ID arrays
+    if (entry.wallIds && entry.wallIds.length > 0) {
+      if (setSelectedWallIds) setSelectedWallIds(entry.wallIds);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("wall");
+      if (setSelectedId) setSelectedId(entry.wallIds[0]);
+      return;
+    }
+    if (entry.wallId) {
+      if (setSelectedWallIds) setSelectedWallIds([entry.wallId]);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("wall");
+      if (setSelectedId) setSelectedId(entry.wallId);
+      return;
+    }
+    if (entry.roomIds && entry.roomIds.length > 0) {
+      if (setSelectedRoomIds) setSelectedRoomIds(entry.roomIds);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("room");
+      if (setSelectedId) setSelectedId(entry.roomIds[0]);
+      return;
+    }
+    if (entry.roomId) {
+      if (setSelectedRoomIds) setSelectedRoomIds([entry.roomId]);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("room");
+      if (setSelectedId) setSelectedId(entry.roomId);
+      return;
+    }
+    if (entry.doorId) {
+      if (setSelectedDoorIds) setSelectedDoorIds([entry.doorId]);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setSelectedType) setSelectedType("door");
+      if (setSelectedId) setSelectedId(entry.doorId);
+      return;
+    }
+
     // 1. TIMBER vs SLAB WALLS (Frame Hardware Task)
     const wallAboveStr = String(entry.theWallAbove || entry.baseType || "").toLowerCase();
     if (wallAboveStr.includes("slab") || wallAboveStr.includes("timber")) {
@@ -2354,6 +2401,216 @@ export default function RightPropertyPaneView({
   // ── INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) ──
   const [insulationWallEntries, setInsulationWallEntries] = React.useState([]);
   const [insulationAreaEntries, setInsulationAreaEntries] = React.useState([]);
+  const [customInsWallOverrides, setCustomInsWallOverrides] = React.useState({});
+  const [customInsAreaOverrides, setCustomInsAreaOverrides] = React.useState({});
+
+  const handleSetInsulationWallEntries = React.useCallback((actionOrEntries) => {
+    setInsulationWallEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      setTimeout(() => {
+        if (Array.isArray(next) && next.length > 0) {
+          const newOverrides = {};
+          next.forEach(entry => {
+            const ids = entry.wallIds && entry.wallIds.length > 0
+              ? entry.wallIds
+              : (entry.wallId ? [entry.wallId] : (selectedWallIds && selectedWallIds.length === 1 ? [selectedWallIds[0]] : (selectedWall?.id ? [selectedWall.id] : [])));
+            ids.forEach(wId => {
+              newOverrides[wId] = {
+                type: entry.type,
+                rValue: entry.rValue,
+                product: entry.product || entry.productName,
+                productCode: entry.productCode,
+                height: entry.height,
+                length: entry.length,
+                raked: entry.raked || entry.rakedArea,
+                door: entry.door || entry.doorArea,
+                insulationArea: entry.insulationArea || entry.netArea
+              };
+            });
+          });
+          if (Object.keys(newOverrides).length > 0) {
+            setCustomInsWallOverrides(old => ({ ...old, ...newOverrides }));
+          }
+        }
+      }, 0);
+      return next;
+    });
+  }, [selectedWallIds, selectedWall]);
+
+  const handleSetInsulationAreaEntries = React.useCallback((actionOrEntries) => {
+    setInsulationAreaEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      setTimeout(() => {
+        if (Array.isArray(next) && next.length > 0) {
+          const newOverrides = {};
+          next.forEach(entry => {
+            const ids = entry.roomIds && entry.roomIds.length > 0
+              ? entry.roomIds
+              : (entry.roomId ? [entry.roomId] : (selectedRoomIds && selectedRoomIds.length === 1 ? [selectedRoomIds[0]] : (selectedRoom?.id ? [selectedRoom.id] : [])));
+            ids.forEach(rId => {
+              newOverrides[rId] = {
+                areaType: entry.areaType || entry.type,
+                rValue: entry.rValue,
+                product: entry.product || entry.productName,
+                productCode: entry.productCode,
+                areaM2: entry.areaM2 || entry.area,
+                totalArea: entry.totalArea
+              };
+            });
+          });
+          if (Object.keys(newOverrides).length > 0) {
+            setCustomInsAreaOverrides(old => ({ ...old, ...newOverrides }));
+          }
+        }
+      }, 0);
+      return next;
+    });
+  }, [selectedRoomIds, selectedRoom]);
+
+  // When on Insulation task: dynamic wall & area calculations based on canvas selection
+  React.useEffect(() => {
+    if (activePaneTab === "insulation") {
+      const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
+      const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
+      const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+
+      // 1. Calculate Wall Insulation
+      const targetWalls = (selectedWallIds && selectedWallIds.length > 0)
+        ? curWalls.filter(w => selectedWallIds.includes(w.id))
+        : (selectedWall ? [selectedWall] : curWalls);
+
+      if (targetWalls.length > 0) {
+        const wallGroupsMap = {};
+
+        targetWalls.forEach(w => {
+          const override = customInsWallOverrides[w.id] || {};
+          let lenMm = 0;
+          if (override.length) {
+            lenMm = Math.round(Number(override.length));
+          } else if (w.length_m) {
+            lenMm = Math.round(w.length_m * 1000);
+          } else if (w.centerline && w.centerline.length === 2) {
+            const dx = w.centerline[1][0] - w.centerline[0][0];
+            const dy = w.centerline[1][1] - w.centerline[0][1];
+            const px = Math.hypot(dx, dy);
+            lenMm = effScale < 0.5 ? Math.round(px * effScale * 1000) : Math.round(px * effScale);
+          }
+          if (lenMm <= 0) return;
+
+          const wCls = typeof getWallClass === "function" ? getWallClass(w) : (w.class_name || w.wall_type || "interior_wall");
+          const isExt = wCls === "exterior_wall";
+          const type = override.type || (isExt ? "Ext wall" : "Int wall");
+          const rValue = override.rValue || (isExt ? "R2.5" : "R2.0");
+          const h = Number(override.height || w.height_mm || w.height || 2400);
+          const prodCode = override.productCode || (isExt ? "0810610" : "0810608");
+          const prodName = override.product || override.productName || (isExt
+            ? "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack"
+            : "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack");
+
+          const groupKey = `${type}_${rValue}_${h}_${prodCode}`;
+          if (!wallGroupsMap[groupKey]) {
+            wallGroupsMap[groupKey] = {
+              type,
+              rValue,
+              height: h,
+              productCode: prodCode,
+              product: prodName,
+              totalLenMm: 0,
+              count: 0,
+              wallIds: []
+            };
+          }
+          wallGroupsMap[groupKey].totalLenMm += lenMm;
+          wallGroupsMap[groupKey].count += 1;
+          wallGroupsMap[groupKey].wallIds.push(w.id);
+        });
+
+        const newWallEntries = [];
+        Object.entries(wallGroupsMap).forEach(([key, g]) => {
+          const areaM2 = Number(((g.height / 1000) * (g.totalLenMm / 1000)).toFixed(2));
+          newWallEntries.push({
+            id: g.count === 1 && g.wallIds.length === 1 ? `ins-w-single-${g.wallIds[0]}` : `ins-w-grp-${key}`,
+            wallId: g.count === 1 && g.wallIds.length === 1 ? g.wallIds[0] : undefined,
+            wallIds: g.wallIds,
+            type: g.type,
+            height: g.height,
+            length: g.totalLenMm,
+            rValue: g.rValue,
+            product: g.product,
+            productCode: g.productCode,
+            raked: 0,
+            door: 0,
+            insulationArea: areaM2,
+            netArea: areaM2
+          });
+        });
+
+        if (newWallEntries.length > 0) {
+          setInsulationWallEntries(newWallEntries);
+        }
+      }
+
+      // 2. Calculate Area / Ceiling Insulation
+      const targetRooms = (selectedRoomIds && selectedRoomIds.length > 0)
+        ? curRooms.filter(r => selectedRoomIds.includes(r.id))
+        : (selectedRoom ? [selectedRoom] : curRooms);
+
+      let ceilM2 = 0;
+      const roomIdsList = [];
+      targetRooms.forEach(r => {
+        const override = customInsAreaOverrides[r.id] || {};
+        let aM2 = 0;
+        if (override.areaM2) {
+          aM2 = override.areaM2;
+        } else if (r.areaM2 && !isNaN(r.areaM2)) {
+          aM2 = parseFloat(r.areaM2);
+        } else if (r.area && !isNaN(r.area)) {
+          aM2 = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
+        } else if (r.area_m2 && !isNaN(r.area_m2)) {
+          aM2 = parseFloat(r.area_m2);
+        } else {
+          const pts = r.polygon || r.poly;
+          if (pts && pts.length >= 3) {
+            let pxArea = 0;
+            for (let j = 0; j < pts.length; j++) {
+              const p1 = pts[j];
+              const p2 = pts[(j + 1) % pts.length];
+              const x1 = typeof p1.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
+              const y1 = typeof p1.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
+              const x2 = typeof p2.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
+              const y2 = typeof p2.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
+              pxArea += (x1 * y2 - x2 * y1);
+            }
+            pxArea = Math.abs(pxArea) / 2;
+            const areaMm2 = pxArea * Math.pow(effScale, 2);
+            aM2 = areaMm2 / 1000000;
+          }
+        }
+        if (aM2 > 0) {
+          ceilM2 += aM2;
+          roomIdsList.push(r.id);
+        }
+      });
+
+      if (ceilM2 > 0) {
+        const cVal = Number(ceilM2.toFixed(2));
+        setInsulationAreaEntries([
+          {
+            id: roomIdsList.length === 1 ? `ins-a-single-${roomIdsList[0]}` : `ins-a-ceil-${Date.now()}`,
+            roomId: roomIdsList.length === 1 ? roomIdsList[0] : undefined,
+            roomIds: roomIdsList,
+            location: roomIdsList.length === 1 ? (targetRooms[0]?.name || "Room Ceiling") : "Ceiling / Roof Space",
+            areaType: "Ceiling",
+            rValue: "R4.0",
+            product: "0810620 · INS CEILING BATT R4.0 430MM",
+            areaM2: cVal,
+            area: cVal,
+            totalArea: Number((cVal * 1.05).toFixed(2))
+          }
+        ]);
+      }
+    }
+  }, [selectedWallIds, selectedWall, selectedRoomIds, selectedRoom, activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides]);
 
   const [insWallType, setInsWallType] = React.useState("external");
   const [insWallHeight, setInsWallHeight] = React.useState("2700");
@@ -2757,8 +3014,112 @@ export default function RightPropertyPaneView({
     }]);
   };
 
-  // 7. Lockup Entries
+  // 7. Lockup State & Custom Overrides
   const [lockupEntries, setLockupEntries] = React.useState([]);
+  const [customLockupOverrides, setCustomLockupOverrides] = React.useState({});
+
+  const handleSetLockupEntries = React.useCallback((actionOrEntries) => {
+    setLockupEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      setTimeout(() => {
+        if (Array.isArray(next) && next.length > 0) {
+          const newOverrides = {};
+          next.forEach(entry => {
+            const id = entry.doorId || (selectedDoorIds && selectedDoorIds.length === 1 ? selectedDoorIds[0] : (selectedDoor?.id ? selectedDoor.id : entry.id));
+            if (id) {
+              newOverrides[id] = {
+                category: entry.category,
+                location: entry.location,
+                door: entry.door,
+                doorLabel: entry.doorLabel,
+                product: entry.product,
+                size: entry.size,
+                thicks: entry.thicks,
+                jambWall: entry.jambWall,
+                jambSize: entry.jambSize,
+                hung: entry.hung,
+                type: entry.type,
+                configuration: entry.configuration,
+                frameMaterial: entry.frameMaterial,
+                weatherstrip: entry.weatherstrip,
+                hfHo: entry.hfHo,
+                color: entry.color,
+                stop: entry.stop,
+                qty: entry.qty
+              };
+            }
+          });
+          if (Object.keys(newOverrides).length > 0) {
+            setCustomLockupOverrides(old => ({ ...old, ...newOverrides }));
+          }
+        }
+      }, 0);
+      return next;
+    });
+  }, [selectedDoorIds, selectedDoor]);
+
+  // When on Lockup task: dynamic door calculation based on canvas selection
+  React.useEffect(() => {
+    if (activePaneTab === "lockup" || activePaneTab === "lock_up") {
+      const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
+      const targetDoors = (selectedDoorIds && selectedDoorIds.length > 0)
+        ? curDoors.filter(d => selectedDoorIds.includes(d.id))
+        : (selectedDoor ? [selectedDoor] : curDoors);
+
+      if (targetDoors.length > 0) {
+        const generated = targetDoors.map((d, idx) => {
+          const override = customLockupOverrides[d.id] || {};
+          const dLabel = override.doorLabel || d.label || d.name || d.door_name || `Door D-${idx + 1}`;
+          const rawType = String(d.door_type || d.type || "").toLowerCase();
+          const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
+          const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
+
+          const category = override.category || (isExt ? "Prehung" : "Loose Jamb");
+          const location = override.location || (isExt ? (dLabel.includes("Front") || dLabel.includes("Entry") ? "Front Entry" : "External Patio / Balcony") : (d.room_name || d.room || `Internal Room ${idx + 1}`));
+          const doorName = override.door || dLabel;
+          const prod = override.product || (isExt
+            ? (isSliding ? "ALUMINIUM SLIDING DOOR 2100X1800MM" : "SOLID TIMBER ENTRY DOOR 2040X820X40MM")
+            : "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM");
+          const size = override.size || (d.width && d.height ? `${d.height} × ${d.width}` : (isExt && isSliding ? "2100 × 1800" : "2040 × 820"));
+          const thicks = override.thicks || (d.thickness ? `${d.thickness}mm` : (isExt && !isSliding ? "40mm" : "35mm"));
+          const jambWall = override.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud");
+          const jambSize = override.jambSize || (isExt ? "135mm" : "110mm");
+          const hung = override.hung || (isExt ? (isSliding ? "Sliding Track" : "LH Prehung") : "RH Loose");
+          const doorType = override.type || (isSliding ? "Sliding" : "Hinged");
+          const hfHo = override.hfHo || (isExt ? "HO" : "HF");
+          const color = override.color || "Primed White";
+          const stop = override.stop || "Cushion Rubber Stop";
+          const qty = override.qty || 1;
+
+          return {
+            id: `lck-door-${d.id}`,
+            doorId: d.id,
+            category,
+            location,
+            door: doorName,
+            doorLabel: dLabel,
+            product: prod,
+            size,
+            thicks,
+            jambWall,
+            jambSize,
+            hung,
+            type: doorType,
+            configuration: override.configuration || (isSliding ? "Sliding Door" : "Single Hinged Door"),
+            frameMaterial: override.frameMaterial || (isExt ? "Aluminium / Hardwood" : "Timber (Primed Pine)"),
+            weatherstrip: override.weatherstrip || (isExt ? "Yes - Standard Weatherstrip" : "No"),
+            hfHo,
+            color,
+            stop,
+            qty
+          };
+        });
+
+        setLockupEntries(generated);
+      }
+    }
+  }, [selectedDoorIds, selectedDoor, activePaneTab, currentPage, doors, doorsByPageProp, customLockupOverrides]);
+
   const [trussEntries, setTrussEntries] = React.useState([]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
@@ -7802,9 +8163,9 @@ export default function RightPropertyPaneView({
               onChange={handleModuleFormChange}
               cadMetrics={cadMetrics}
               wallEntries={insulationWallEntries}
-              onSetWallEntries={setInsulationWallEntries}
+              onSetWallEntries={handleSetInsulationWallEntries}
               areaEntries={insulationAreaEntries}
-              onSetAreaEntries={setInsulationAreaEntries}
+              onSetAreaEntries={handleSetInsulationAreaEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
             />
@@ -7868,7 +8229,7 @@ export default function RightPropertyPaneView({
               onChange={handleModuleFormChange}
               cadMetrics={cadMetrics}
               entries={lockupEntries}
-              onSetEntries={setLockupEntries}
+              onSetEntries={handleSetLockupEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
             />

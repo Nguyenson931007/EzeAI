@@ -146,7 +146,7 @@ export const useProjectController = (
             total_area_door: r.total_area_door
           }));
           await ApiService.saveInsulationJobs({
-            user_update: user.username || "EZE0098",
+            user_update: user?.username || user?.name || user?.full_name || "admin",
             jobs: [{ id_job_hw: activeHwId, items }]
           });
         }
@@ -166,7 +166,7 @@ export const useProjectController = (
         const fwWallsList = Object.values(frameworkWallsMap);
         if (fwWallsList.length > 0) {
           await ApiService.saveFrameworkJobs({
-            user_update: user.username || "EZE0098",
+            user_update: user?.username || user?.name || user?.full_name || "admin",
             jobs: [{ id_job_hw: activeHwId, walls: fwWallsList }]
           });
         }

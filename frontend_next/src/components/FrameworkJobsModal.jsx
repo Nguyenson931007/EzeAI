@@ -9,7 +9,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   // Lấy thông tin tài khoản đang đăng nhập và dữ liệu các trang từ AppContext (backend/api/auth.py)
   const { user, pages = [], wallsByPage = {}, scalesByPage = {} } = useAppModel();
   const isAdmin = user?.role === "admin";
-  const currentUserUpdate = user?.username || user?.name || "Katherine";
+  const currentUserUpdate = user?.username || user?.name || user?.full_name || "admin";
 
   // ══════════════════════════════════════════════════════
   // 1. TRẠNG THÁI GIAO DIỆN & DỮ LIỆU (STATE)

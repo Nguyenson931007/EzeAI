@@ -22,14 +22,24 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], sca
   const [customRows, setCustomRows] = useState([]);
   const [savingKey, setSavingKey] = useState(null);
   const [savedKeys, setSavedKeys] = useState(new Set());
-  const [currentUserUpdate, setCurrentUserUpdate] = useState("EZE0098");
+  const [currentUserUpdate, setCurrentUserUpdate] = useState(() => {
+    try {
+      const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        return u.username || u.name || u.full_name || u.email || "admin";
+      }
+    } catch (e) {}
+    return "admin";
+  });
 
   useEffect(() => {
     try {
       const userStr = localStorage.getItem("user");
       if (userStr) {
         const u = JSON.parse(userStr);
-        if (u.username) setCurrentUserUpdate(u.username);
+        const nameVal = u.username || u.name || u.full_name || u.email;
+        if (nameVal) setCurrentUserUpdate(nameVal);
       }
     } catch (e) {
       console.warn("Could not read username from localStorage:", e);

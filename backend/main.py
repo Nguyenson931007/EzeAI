@@ -32,6 +32,8 @@ from api.auth import router as auth_router
 from api.admin import router as admin_router
 from api.jobs import router as jobs_router
 from api.framework_routes import router as framework_router
+from api.eaves_routes import router as eaves_router
+from api.cladding_routes import router as cladding_router
 from api.area_summary_routes import router as area_summary_router
 from api.insulation_routes import router as insulation_router
 from api.lockout_routes import router as lockout_router
@@ -172,6 +174,8 @@ app.include_router(auth_router, tags=["auth"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(jobs_router, tags=["jobs"])
 app.include_router(framework_router, tags=["framework"])
+app.include_router(eaves_router, tags=["Eaves-router"])
+app.include_router(cladding_router, tags=["Cladding-router"])
 app.include_router(area_summary_router, tags=["area_summary"])
 app.include_router(insulation_router, tags=["insulation"])
 app.include_router(lockout_router, tags=["lockout"])

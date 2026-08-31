@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { ApiService } from "@/models/api.service";
+import { useAppModel } from "@/models/app.context";
 
 export default function CladdingTask({
   formData = {},
@@ -8,10 +10,72 @@ export default function CladdingTask({
   onSetEntries,
   onAddDataAI
 }) {
+  const appModel = useAppModel ? useAppModel() : {};
   const [wallHeight, setWallHeight] = useState("2.44");
   const [wallLength, setWallLength] = useState("");
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
+
+  const handleSaveToMSSQL = async () => {
+    if (!entries || entries.length === 0) return;
+    setIsSaving(true);
+    setSaveStatus(null);
+    try {
+      let currentUsername = "";
+      if (appModel?.user) {
+        currentUsername = appModel.user.username || appModel.user.name || appModel.user.full_name || appModel.user.email || "";
+      }
+      if (!currentUsername) {
+        try {
+          const userStr = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+          if (userStr) {
+            const u = JSON.parse(userStr);
+            currentUsername = u.username || u.name || u.full_name || u.email || "";
+          }
+        } catch (e) {}
+      }
+
+      if (!currentUsername && typeof window !== "undefined") {
+        currentUsername = localStorage.getItem("username") || localStorage.getItem("user_name") || "admin";
+      }
+
+      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" && (localStorage.getItem("currentJobId") || localStorage.getItem("currentProjectName") || localStorage.getItem("current_hw_id"))) || "TestAI";
+
+      const payload = {
+        user_update: currentUsername || "admin",
+        jobs: [
+          {
+            id_job_hw: savedJobId,
+            walls: entries.map(e => {
+              const hNum = parseFloat(String(e.height || "2.44").replace(/[^\d.]/g, "")) || 2.44;
+              const lNum = parseFloat(String(e.length || "0").replace(/[^\d.]/g, "")) || 0.0;
+              return {
+                wall_height: hNum,
+                wall_length: lNum,
+                short_name: "BUN-NSW-ACT"
+              };
+            })
+          }
+        ]
+      };
+
+      const res = await ApiService.saveCladdingJobs(payload);
+      if (res && res.success) {
+        setSaveStatus("success");
+        setTimeout(() => setSaveStatus(null), 3500);
+      } else {
+        setSaveStatus("error");
+      }
+    } catch (err) {
+      console.error("Lỗi khi lưu Cladding vào MSSQL:", err);
+      setSaveStatus("error");
+      alert(`Lỗi khi lưu Cladding vào MSSQL: ${err.message || err}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleSaveInlineEdit = (id) => {
     const h = parseFloat(editRowData.height) || 2.44;
@@ -280,25 +344,26 @@ export default function CladdingTask({
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="button"
-                onClick={() => {
-                  alert(`Saved cladding walls data (${entries.length} items)`);
-                }}
+                onClick={handleSaveToMSSQL}
+                disabled={isSaving}
                 style={{
-                  padding: "4px 8px",
-                  background: "#1e293b",
+                  padding: "4px 10px",
+                  background: saveStatus === "success" ? "#15803d" : (saveStatus === "error" ? "#b91c1c" : "#1e293b"),
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
                   fontSize: "10.5px",
                   fontWeight: "700",
-                  cursor: "pointer",
+                  cursor: isSaving ? "not-allowed" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
+                  opacity: isSaving ? 0.7 : 1,
+                  transition: "all 0.2s ease"
                 }}
               >
-                💾 Save
+                {isSaving ? "⏳ Saving..." : (saveStatus === "success" ? "✓ Saved!" : (saveStatus === "error" ? "❌ Error" : "💾 Save"))}
               </button>
             </div>
           </div>

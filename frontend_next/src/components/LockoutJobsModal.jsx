@@ -18,7 +18,7 @@ export default function LockoutJobsModal({
 
   // Active user code for UserUpdate column
   const currentUserUpdate = useMemo(() => {
-    return user?.ma_nv || user?.username || "EZE0098";
+    return user?.username || user?.name || user?.full_name || user?.ma_nv || "admin";
   }, [user]);
 
   // Check admin role

@@ -732,6 +732,82 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  // ── Eaves & Soffit Jobs (MSSQL ProcurementApp.dbo.EavesSoffit) ──
+  async fetchEavesJobs(office = "EZE0098") {
+    const url = office ? `${BASE_URL}/api/eaves/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/eaves/jobs`;
+    const res = await fetch(url, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async checkEavesHealth() {
+    const res = await fetch(`${BASE_URL}/api/eaves/health`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveEavesSingle(payload) {
+    const res = await fetch(`${BASE_URL}/api/eaves/save`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveEavesJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/eaves/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  // ── Cladding Jobs (MSSQL ProcurementApp.dbo.Cladding) ──
+  async fetchCladdingJobs(office = "EZE0098") {
+    const url = office ? `${BASE_URL}/api/cladding/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/cladding/jobs`;
+    const res = await fetch(url, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async checkCladdingHealth() {
+    const res = await fetch(`${BASE_URL}/api/cladding/health`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveCladdingSingle(payload) {
+    const res = await fetch(`${BASE_URL}/api/cladding/save`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveCladdingJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/cladding/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   // ── AreaSummary Jobs (MSSQL emsflow) ──
   async fetchAreaSummaryJobs() {
     const res = await fetch(`${BASE_URL}/api/area-summary/jobs`, {
