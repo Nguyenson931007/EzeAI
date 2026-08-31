@@ -1146,9 +1146,46 @@ export default function RightPropertyPaneView({
         hlType = "dry";
       }
 
-      if (setHighlightType) setHighlightType(hlType);
+      // DO NOT set highlightType (keep null) so other rooms/areas on canvas remain completely visible
+      if (setHighlightType) setHighlightType(null);
 
-      const matchedRoomIds = (rooms || []).filter(r => {
+      // Auto switch canvas page if entry belongs to a specific floor level (e.g. GF, FF, SF, TF)
+      const floorLvlStr = String(entry.floorLevel || entry.level || "").toUpperCase().trim();
+      let targetPageIdx = -1;
+      if (floorLvlStr) {
+        (pages || []).forEach((p, pIdx) => {
+          const pName = (p.floor_name || p.name || "").toUpperCase().trim();
+          if (floorLvlStr === "GF" && (pIdx === 0 || pName.includes("GROUND") || pName.includes("GF") || pName === "LEVEL 1")) {
+            if (targetPageIdx === -1) targetPageIdx = pIdx;
+          } else if (floorLvlStr === "FF" && (pIdx === 1 || pName.includes("FIRST") || pName.includes("FF") || pName === "LEVEL 2")) {
+            targetPageIdx = pIdx;
+          } else if (floorLvlStr === "SF" && (pIdx === 2 || pName.includes("SECOND") || pName.includes("SF") || pName === "LEVEL 3")) {
+            targetPageIdx = pIdx;
+          } else if (floorLvlStr === "TF" && (pIdx === 3 || pName.includes("THIRD") || pName.includes("TF") || pName === "LEVEL 4")) {
+            targetPageIdx = pIdx;
+          }
+        });
+        if (targetPageIdx === -1) {
+          if (floorLvlStr === "GF") targetPageIdx = 0;
+          else if (floorLvlStr === "FF") targetPageIdx = 1;
+          else if (floorLvlStr === "SF") targetPageIdx = 2;
+          else if (floorLvlStr === "TF") targetPageIdx = 3;
+        }
+
+        if (targetPageIdx >= 0 && targetPageIdx < (pages || []).length) {
+          const curP = (currentPageProp !== undefined) ? currentPageProp : (currentPage !== undefined ? currentPage : 0);
+          if (targetPageIdx !== curP) {
+            if (goPage) goPage(targetPageIdx);
+            else if (setCurrentPageProp) setCurrentPageProp(targetPageIdx);
+          }
+        }
+      }
+
+      const activeRoomList = targetPageIdx >= 0 && roomsByPageProp && roomsByPageProp[targetPageIdx]
+        ? roomsByPageProp[targetPageIdx]
+        : (rooms || []);
+
+      const matchedRoomIds = (activeRoomList || []).filter(r => {
         const rawType = String(r.type || r.wetness || r.zone || "").toLowerCase();
         const rName = String(r.name || r.room_name || "").toLowerCase();
         const isWet = rawType === "wet" || /(bath|ens|ensuite|wc|powder|toilet|l'dry|laundry|utility|shower)/i.test(rName);
@@ -2366,6 +2403,10 @@ export default function RightPropertyPaneView({
         });
 
         if (newFlrEntries.length > 0) {
+          // Do NOT overwrite if multi-level flooring entries already exist (e.g. GF, FF generated from Auto Fill AI or loaded from DB)
+          if (flooringEntries && flooringEntries.length > 0 && flooringEntries.some(e => e.floorLevel)) {
+            return;
+          }
           setFlooringEntries(newFlrEntries);
           setHebelFlooringEntries(newFlrEntries.map(e => ({
             ...e,
@@ -3952,7 +3993,9 @@ export default function RightPropertyPaneView({
             width: "20px",
             height: "40px",
             background: isTaskExpanded ? "#eff6ff" : "#ffffff",
-            border: isTaskExpanded ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+            borderTop: isTaskExpanded ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+            borderBottom: isTaskExpanded ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+            borderLeft: isTaskExpanded ? "1px solid #93c5fd" : "1px solid #cbd5e1",
             borderRight: "none",
             borderRadius: "6px 0 0 6px",
             boxShadow: "-3px 2px 8px rgba(0,0,0,0.12)",
@@ -8129,6 +8172,7 @@ export default function RightPropertyPaneView({
               onSetEntries={handleSetFrameWallEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
+              activeJobNumber={currentProjectName || currentJobId}
             />
           )}
 
@@ -8168,6 +8212,7 @@ export default function RightPropertyPaneView({
               onSetAreaEntries={handleSetInsulationAreaEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
+              activeJobNumber={currentProjectName || currentJobId}
             />
           )}
 
@@ -8181,6 +8226,8 @@ export default function RightPropertyPaneView({
               onSetEntries={handleSetFlooringEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
+              activeJobNumber={currentProjectName || currentJobId}
+              goPage={goPage}
             />
           )}
 
@@ -8194,6 +8241,8 @@ export default function RightPropertyPaneView({
               onSetEntries={handleSetHebelFlooringEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
+              activeJobNumber={currentProjectName || currentJobId}
+              goPage={goPage}
             />
           )}
 

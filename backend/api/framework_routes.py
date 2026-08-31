@@ -1,7 +1,7 @@
 """
 api/framework_routes.py – FrameWork API Router
 ================================================
-Cung cấp REST endpoint để truy vấn và lưu bóc tách tường vào [emsflow].[dbo].[FrameWork]
+Cung cấp REST endpoint để truy vấn và lưu bóc tách tường vào [ProcurementApp].[dbo].[FrameWork]
 
 QUẢN LÝ LỊCH SỬ & TRANSACTION (IsOldData Versioning):
 1. Không UPDATE trực tiếp dữ liệu hiện tại làm mất lịch sử.
@@ -12,7 +12,8 @@ QUẢN LÝ LỊCH SỬ & TRANSACTION (IsOldData Versioning):
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Query
+import re
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
@@ -20,6 +21,37 @@ from app.mssql_db import get_mssql_connection
 logger = logging.getLogger("ezefloor.framework")
 
 router = APIRouter(prefix="/api/framework")
+
+
+def _parse_decimal(val: Any, default: Optional[float] = None) -> Optional[float]:
+    """Chuyển đổi an toàn chuỗi (VD: 'M12', '900 mm', 2700) sang số float/decimal cho MSSQL."""
+    if val is None:
+        return default
+    s = str(val).strip()
+    match = re.search(r"[-+]?\d*\.?\d+", s)
+    if match:
+        try:
+            return float(match.group(0))
+        except ValueError:
+            return default
+    return default
+
+
+def _parse_rod_size(val: Any, default: str = "M12") -> str:
+    """Đảm bảo chuỗi RodSize lưu vào database luôn là full text (VD: 'M12', 'M16')."""
+    if val is None:
+        return default
+    s = str(val).strip()
+    if not s:
+        return default
+    s_upper = s.upper()
+    if s_upper.startswith("M"):
+        return s_upper
+    try:
+        num = int(float(s))
+        return f"M{num}"
+    except (ValueError, TypeError):
+        return s_upper
 
 
 # ══════════════════════════════════════════════════════
@@ -30,6 +62,9 @@ class WallItemSchema(BaseModel):
     floor_type: str = Field(..., description="Loại sàn: 'Timber' hoặc 'Slab'")
     wall_height: Optional[Union[float, int]] = Field(None, description="Chiều cao tường mm")
     wall_length: Optional[Union[float, int]] = Field(None, description="Chiều dài tường mm")
+    spacing: Optional[Union[float, int]] = Field(None, description="Khoảng cách bulong mm (VD: 900)")
+    rod_size: Optional[str] = Field(None, description="Kích cỡ bulong (VD: M12, M16)")
+    short_name: Optional[str] = Field(None, description="Mã viết tắt client (VD: BNSW-ACT)")
 
 
 class JobSaveSchema(BaseModel):
@@ -49,7 +84,7 @@ class SaveJobsPayloadSchema(BaseModel):
 @router.get("/jobs")
 async def get_framework_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
-    Truy vấn danh sách FrameWork jobs từ MSSQL [emsflow].
+    Truy vấn danh sách FrameWork jobs từ MSSQL [ProcurementApp].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(fw.IsOldData, 0) = 0.
     """
     conn = None
@@ -65,9 +100,12 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
                 tghw.id_job_ems,
                 tghw.id_assign_ems,
 
-                fw.[Wall Height] AS wall_height,
-                fw.[Wall Length] AS wall_length,
-                fw.[The Wall Above] AS wall_above,
+                fw.WallHeight AS wall_height,
+                fw.WallLength AS wall_length,
+                fw.TheWallAbove AS wall_above,
+                fw.Spacing AS spacing,
+                fw.RodSize AS rod_size,
+                fw.short_name AS short_name,
                 fw.UserUpdate AS user_update,
                 fw.DatetimeUpdate AS datetime_update,
                 fw.IsOldData AS is_old_data,
@@ -76,7 +114,7 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
 
             FROM [emsflow].[dbo].[task_group_hw] tghw
 
-            LEFT JOIN [emsflow].[dbo].[FrameWork] fw
+            LEFT JOIN [ProcurementApp].[dbo].[FrameWork] fw
                 ON tghw.id = fw.IDJob_HW
                AND ISNULL(fw.IsOldData, 0) = 0
 
@@ -92,7 +130,7 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
                 ISNULL(tghw.is_delete, 0) = 0
                 AND aj.MaNV = 'EZE0098'
 
-            ORDER BY tghw.id DESC, fw.ID DESC;
+            ORDER BY tghw.id DESC;
         """
 
         cursor.execute(sql)
@@ -129,7 +167,7 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_framework_jobs(payload: SaveJobsPayloadSchema):
+async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request = None):
     """
     Lưu dữ liệu FrameWork theo đúng chuẩn Versioning & Transaction:
     1. Kiểm tra Validate toàn bộ Payload (id_job_hw, user_update, floor_type hợp lệ, không trùng floor_type cùng 1 Job).
@@ -139,8 +177,10 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema):
     3. Nếu xảy ra bất kỳ lỗi nào -> ROLLBACK toàn bộ transaction!
     """
     user_update = (payload.user_update or "").strip()
+    if not user_update and request:
+        user_update = (request.headers.get("x-username") or "").strip()
     if not user_update:
-        raise HTTPException(status_code=400, detail="user_update là bắt buộc và không được để trống")
+        user_update = "admin"
 
     if not payload.jobs:
         raise HTTPException(status_code=400, detail="Danh sách jobs không được để trống")
@@ -179,11 +219,58 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema):
 
         # ── THỰC THI TRANSACTION CHO TẤT CẢ CÁC JOBS ──
         for job in payload.jobs:
-            job_hw_id = str(job.id_job_hw).strip()
+            input_job_id = str(job.id_job_hw).strip()
+            job_hw_id = input_job_id
+
+            # Ánh xạ input_job_id sang chính xác tghw.id trong task_group_hw
+            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (input_job_id,))
+            found_tghw = cursor.fetchone()
+            if found_tghw:
+                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', input_job_id)
+            else:
+                # Tìm theo JobNumber từ ListJobs (VD: 'TestAI')
+                cursor.execute("""
+                    SELECT TOP 1 tghw.id 
+                    FROM [emsflow].[dbo].[task_group_hw] tghw
+                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
+                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
+                      AND ISNULL(tghw.is_delete, 0) = 0
+                    ORDER BY tghw.created_at DESC
+                """, (input_job_id, input_job_id))
+                found_by_jn = cursor.fetchone()
+                if found_by_jn:
+                    job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', input_job_id)
+                elif input_job_id.isdigit():
+                    # Nếu là local SQLite ID (như 98), tra cứu project_name tương ứng
+                    try:
+                        import sqlite3
+                        import os
+                        db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
+                        if os.path.exists(db_p):
+                            sq_c = sqlite3.connect(db_p)
+                            sq_cur = sq_c.cursor()
+                            sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(input_job_id),))
+                            sq_r = sq_cur.fetchone()
+                            sq_c.close()
+                            if sq_r and sq_r[0]:
+                                p_name = sq_r[0]
+                                cursor.execute("""
+                                    SELECT TOP 1 tghw.id 
+                                    FROM [emsflow].[dbo].[task_group_hw] tghw
+                                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
+                                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
+                                      AND ISNULL(tghw.is_delete, 0) = 0
+                                    ORDER BY tghw.created_at DESC
+                                """, (p_name, p_name))
+                                found_sq_jn = cursor.fetchone()
+                                if found_sq_jn:
+                                    job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', input_job_id)
+                    except Exception as e:
+                        logger.warning(f"Không thể tra cứu local SQLite job ID {input_job_id}: {e}")
 
             # Step 1: Đánh dấu tất cả record hiện tại của Job đó thành dữ liệu lịch sử (IsOldData = 1)
             sql_update_history = """
-                UPDATE [emsflow].[dbo].[FrameWork]
+                UPDATE [ProcurementApp].[dbo].[FrameWork]
                 SET
                     IsOldData = 1,
                     UserUpdate = %s,
@@ -195,20 +282,26 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema):
 
             # Step 2: INSERT dữ liệu mới thành record mới (IsOldData = 0, NEWID())
             sql_insert_new = """
-                INSERT INTO [emsflow].[dbo].[FrameWork]
+                INSERT INTO [ProcurementApp].[dbo].[FrameWork]
                 (
                     ID,
                     IDJob_HW,
-                    [Wall Height],
-                    [Wall Length],
-                    [The Wall Above],
+                    WallHeight,
+                    WallLength,
+                    TheWallAbove,
+                    Spacing,
+                    RodSize,
+                    short_name,
                     UserUpdate,
                     DatetimeUpdate,
                     IsOldData
                 )
                 VALUES
                 (
-                    CONVERT(VARCHAR(50), NEWID()),
+                    NEWID(),
+                    %s,
+                    %s,
+                    %s,
                     %s,
                     %s,
                     %s,
@@ -221,13 +314,21 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema):
 
             inserted_walls_count = 0
             for wall in job.walls:
+                wall_h = _parse_decimal(wall.wall_height, default=2440)
+                wall_l = _parse_decimal(wall.wall_length, default=0)
+                spacing_val = _parse_decimal(wall.spacing, default=900)
+                rod_size_val = _parse_rod_size(wall.rod_size, default="M12")
+                short_name_val = wall.short_name if wall.short_name else "BUN-NSW-ACT"
                 cursor.execute(
                     sql_insert_new,
                     (
                         job_hw_id,
-                        wall.wall_height,
-                        wall.wall_length,
+                        wall_h,
+                        wall_l,
                         wall.floor_type,
+                        spacing_val,
+                        rod_size_val,
+                        short_name_val,
                         user_update
                     )
                 )
@@ -270,7 +371,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema):
 # ══════════════════════════════════════════════════════
 
 @router.put("/save")
-async def save_framework_wall_single(payload: dict):
+async def save_framework_wall_single(payload: dict, request: Request = None):
     """
     Endpoint tương thích ngược với nút lưu đơn lẻ cũ (PUT /api/framework/save).
     Tự động chuyển đổi payload đơn lẻ sang quy trình Transaction & Versioning /api/framework/save-jobs.
@@ -282,7 +383,10 @@ async def save_framework_wall_single(payload: dict):
     floor_type = payload.get("floor_type") or payload.get("wall_above") or "Timber"
     wall_height = payload.get("wall_height")
     wall_length = payload.get("wall_length")
-    user_update = payload.get("user_update") or "Katherine"
+    spacing = payload.get("spacing", 900)
+    rod_size = payload.get("rod_size", "M12")
+    short_name = payload.get("short_name", "BUN-NSW-ACT")
+    user_update = payload.get("user_update") or (request.headers.get("x-username") if request else None) or "admin"
 
     formatted_payload = SaveJobsPayloadSchema(
         user_update=user_update,
@@ -293,7 +397,10 @@ async def save_framework_wall_single(payload: dict):
                     WallItemSchema(
                         floor_type=floor_type,
                         wall_height=wall_height,
-                        wall_length=wall_length
+                        wall_length=wall_length,
+                        spacing=spacing,
+                        rod_size=rod_size,
+                        short_name=short_name
                     )
                 ]
             )

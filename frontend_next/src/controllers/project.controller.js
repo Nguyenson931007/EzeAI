@@ -9,6 +9,7 @@ import { useState } from "react";
 import { ApiService } from "@/models/api.service";
 import { polygonAreaM2 } from "@/utils/geometry";
 import { useDialog } from "@/components/DialogContext";
+import { getActiveClientShortName } from "@/constants/clients";
 
 export const useProjectController = (
   user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
@@ -159,7 +160,7 @@ export const useProjectController = (
           const hMm = Number(w.height_mm || 2400);
           const key = `${floorType}_${hMm}`;
           if (!frameworkWallsMap[key]) {
-            frameworkWallsMap[key] = { floor_type: floorType, wall_height: hMm, wall_length: 0 };
+            frameworkWallsMap[key] = { floor_type: floorType, wall_height: hMm, wall_length: 0, spacing: 900, rod_size: "M12", short_name: getActiveClientShortName() };
           }
           frameworkWallsMap[key].wall_length += Math.round((w.length_m || 0) * 1000);
         });

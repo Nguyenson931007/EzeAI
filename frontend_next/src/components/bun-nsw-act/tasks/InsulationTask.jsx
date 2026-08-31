@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import { useAppModel } from "@/models/app.context";
+import { ApiService } from "@/models/api.service";
 
 export default function InsulationTask({
   formData = {},
@@ -9,9 +11,29 @@ export default function InsulationTask({
   areaEntries = [],
   onSetAreaEntries,
   onAddDataAI,
-  onSelectEntry
+  onSelectEntry,
+  activeJobNumber
 }) {
+  const {
+    user,
+    walls = [],
+    wallsByPage = {},
+    doors = [],
+    doorsByPage = {},
+    pages = [],
+    scalesByPage = {},
+    realScale,
+    scaleValue = 1.0,
+    currentPage = 0,
+    currentJobId,
+    currentProjectName
+  } = useAppModel();
+
   const [selectedEntryId, setSelectedEntryId] = useState(null);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   const R_VALUE_OPTIONS = ["R2.0", "R2.5", "R2.7"];
 
   const PRODUCT_OPTIONS_MAP = {
@@ -31,11 +53,11 @@ export default function InsulationTask({
     ]
   };
 
-  // Ext Wall State
+  // Ext Wall State (Card 1 manual inputs)
   const [extHeight, setExtHeight] = useState("2400");
   const [extLength, setExtLength] = useState("");
-  const [extRValue, setExtRValue] = useState("R2.0");
-  const [extProduct, setExtProduct] = useState("0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack");
+  const [extRValue, setExtRValue] = useState("R2.5");
+  const [extProduct, setExtProduct] = useState("0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack");
   const [extRaked, setExtRaked] = useState("0");
   const [extDoor, setExtDoor] = useState("0");
 
@@ -66,7 +88,8 @@ export default function InsulationTask({
 
   const handleAddWallEntry = (type, h, l, rVal, prod, raked, door, clearLength) => {
     const heightMm = parseFloat(h) || 2400;
-    const lenMm = parseFloat(l) || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 15000);
+    const lenMm = parseFloat(l) || 0;
+    if (lenMm <= 0) return;
     const rakedM2 = parseFloat(raked) || 0;
     const doorM2 = parseFloat(door) || 0;
     const insArea = calcInsulationArea(heightMm, lenMm, rakedM2, doorM2);
@@ -80,7 +103,8 @@ export default function InsulationTask({
       product: prod,
       raked: rakedM2,
       door: doorM2,
-      insulationArea: insArea
+      insulationArea: insArea,
+      totalArea: insArea
     };
 
     if (onSetWallEntries) {
@@ -95,9 +119,235 @@ export default function InsulationTask({
     }
   };
 
+  // ── Auto-Calculate & Fill Insulation trực tiếp từ bản vẽ (tất cả các trang & cửa mở) ──
+  const handleAutoFillAI = async () => {
+    setIsAutoFilling(true);
+    try {
+      const payloadWalls = [];
+      const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+
+      const getBaseId = (id) => {
+        if (!id) return id;
+        const str = String(id);
+        if (str.includes("_p")) return str.split("_p")[0];
+        return str;
+      };
+
+      const processWalls = (pWalls, pDoors, pageName, pScale) => {
+        const effectiveScale = pScale || effScale;
+        (pWalls || []).forEach(w => {
+          let lengthM = 0;
+          if (w.length_m) {
+            lengthM = parseFloat(w.length_m);
+          } else if (w.centerline && w.centerline.length === 2) {
+            const dx = w.centerline[1][0] - w.centerline[0][0];
+            const dy = w.centerline[1][1] - w.centerline[0][1];
+            const px = Math.hypot(dx, dy);
+            lengthM = (effectiveScale < 0.5 ? px * effectiveScale * 1000 : px * effectiveScale) / 1000;
+          }
+          if (lengthM <= 0) return;
+
+          const heightMm = parseFloat(w.height_mm || w.height || 2400);
+          const className = w.class_name || w.wall_type || "interior_wall";
+          const wallBaseId = getBaseId(w.id);
+
+          const wallDoors = (pDoors || []).filter(d => {
+            if (!d.parentWallId) return false;
+            const dBaseId = getBaseId(d.parentWallId);
+            return dBaseId === wallBaseId || d.parentWallId === w.id;
+          }).map(d => ({
+            width_mm: d.width_mm || (d.width_px ? d.width_px * effectiveScale : 820),
+            height_mm: d.height_mm || 2040
+          }));
+
+          payloadWalls.push({
+            id: w.id,
+            class_name: className,
+            length_m: Math.round(lengthM * 10000) / 10000,
+            height_mm: heightMm,
+            page_name: pageName,
+            doors: wallDoors
+          });
+        });
+      };
+
+      if (wallsByPage && Object.keys(wallsByPage).length > 0) {
+        Object.keys(wallsByPage).forEach(pIdxStr => {
+          const pIdx = parseInt(pIdxStr, 10);
+          const pWalls = wallsByPage[pIdx] || [];
+          const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
+          const pageName = pages && pages[pIdx] ? (pages[pIdx].floor_name || pages[pIdx].name || `Page ${pIdx + 1}`) : `Page ${pIdx + 1}`;
+          const pScale = (scalesByPage && scalesByPage[pIdx]) ? scalesByPage[pIdx] : effScale;
+          processWalls(pWalls, pDoors, pageName, pScale);
+        });
+      } else {
+        const pageName = pages && pages[currentPage] ? (pages[currentPage].floor_name || pages[currentPage].name || `Page ${currentPage + 1}`) : `Page ${currentPage + 1}`;
+        processWalls(walls, doors, pageName, effScale);
+      }
+
+      if (payloadWalls.length === 0) {
+        if (onAddDataAI) onAddDataAI("insulation");
+        setIsAutoFilling(false);
+        return;
+      }
+
+      const res = await ApiService.calculateInsulation({ walls: payloadWalls });
+      if (res && res.success && res.rows && res.rows.length > 0) {
+        const mappedRows = res.rows.map((r, idx) => {
+          const isExt = (r.wall_type || "").toLowerCase().includes("ext");
+          const rVal = isExt ? "R2.5" : "R2.0";
+          const prod = isExt
+            ? "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack"
+            : "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack";
+          const grossArea = (parseFloat(r.wall_height) / 1000) * (parseFloat(r.wall_length) / 1000);
+          const rakedArea = parseFloat(r.total_area_raked || 0);
+          const doorArea = parseFloat(r.total_area_door || 0);
+          const netArea = Math.max(0, grossArea + rakedArea - doorArea);
+
+          return {
+            id: `ins-ai-${Date.now()}-${idx}`,
+            type: r.wall_type,
+            height: r.wall_height,
+            length: r.wall_length,
+            raked: rakedArea,
+            door: doorArea,
+            rValue: rVal,
+            product: prod,
+            insulationArea: Number(netArea.toFixed(2)),
+            totalArea: Number(netArea.toFixed(2))
+          };
+        });
+
+        if (onSetWallEntries) {
+          onSetWallEntries(mappedRows);
+        }
+      } else {
+        if (onAddDataAI) onAddDataAI("insulation");
+      }
+    } catch (err) {
+      console.error("Auto fill insulation error:", err);
+      if (onAddDataAI) onAddDataAI("insulation");
+    } finally {
+      setIsAutoFilling(false);
+    }
+  };
+
+  // ── Thay đổi trường dữ liệu từng hàng trong Card 2 ──
+  const handleRowFieldChange = (rowId, field, val) => {
+    if (!onSetWallEntries) return;
+    onSetWallEntries(prev => (prev || []).map(r => {
+      if (r.id !== rowId) return r;
+      const updated = { ...r, [field]: val };
+      if (field === "rValue") {
+        const prods = PRODUCT_OPTIONS_MAP[val] || [];
+        if (prods.length > 0) updated.product = prods[0];
+      }
+      if (field === "height" || field === "length" || field === "raked" || field === "door") {
+        const h = parseFloat(field === "height" ? val : updated.height) || 2400;
+        const l = parseFloat(field === "length" ? val : updated.length) || 0;
+        const rk = parseFloat(field === "raked" ? val : updated.raked) || 0;
+        const dr = parseFloat(field === "door" ? val : updated.door) || 0;
+        const net = Math.max(0, (h / 1000 * l / 1000) + rk - dr);
+        updated.insulationArea = Number(net.toFixed(2));
+        updated.totalArea = Number(net.toFixed(2));
+      }
+      return updated;
+    }));
+  };
+
+  // ── Lưu toàn bộ danh sách Insulation vào [ProcurementApp].[dbo].[Insulation] ──
+  const handleSaveToDatabase = async () => {
+    if (!wallEntries || wallEntries.length === 0) return;
+    setIsSaving(true);
+    setSaveSuccess(false);
+    try {
+      const items = (wallEntries || []).map(w => ({
+        wall_type: w.type || "Ext wall",
+        insulation_type: w.type || "Ext wall",
+        product: w.product || "",
+        wall_height: parseFloat(w.height) || 2400,
+        wall_length: parseFloat(w.length) || 0,
+        total_area_raked: parseFloat(w.raked) || 0,
+        total_area_door: parseFloat(w.door) || 0,
+        total_area: parseFloat(w.insulationArea || w.totalArea || 0),
+        r_value: w.rValue || "R2.0",
+        short_name: "BUN-NSW-ACT"
+      }));
+
+      const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
+      const payload = {
+        user_update: user?.username || "EZE0098",
+        jobs: [{
+          id_job_hw: targetJob,
+          items
+        }]
+      };
+
+      const res = await ApiService.saveInsulationJobs(payload);
+      if (res && res.success) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 4000);
+      } else {
+        alert(res?.detail || "Could not save Insulation records to ProcurementApp.");
+      }
+    } catch (e) {
+      console.error("Error saving insulation to database:", e);
+      alert("Error saving to database: " + e.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ── Tự động tải dữ liệu đã lưu từ [ProcurementApp].[dbo].[Insulation] ──
+  useEffect(() => {
+    async function loadExistingSavedInsulation() {
+      if (wallEntries && wallEntries.length > 0) return;
+      try {
+        const res = await ApiService.fetchInsulationJobs();
+        if (res && res.data) {
+          const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          const validRows = matchedRows.filter(r => r.wall_length && parseFloat(r.wall_length) > 0);
+          if (validRows.length > 0 && onSetWallEntries) {
+            const loaded = validRows.map((r, idx) => ({
+              id: `ins-loaded-${Date.now()}-${idx}`,
+              type: r.insulation_type || r.wall_type || "Ext wall",
+              height: r.wall_height || 2400,
+              length: r.wall_length || 0,
+              rValue: r.r_value || "R2.0",
+              product: r.product || "",
+              raked: 0,
+              door: 0,
+              insulationArea: r.total_area || r.insulation_area || 0,
+              totalArea: r.total_area || r.insulation_area || 0
+            }));
+            onSetWallEntries(loaded);
+          }
+        }
+      } catch (e) {
+        console.error("Auto load existing Insulation error:", e);
+      }
+    }
+    loadExistingSavedInsulation();
+  }, [activeJobNumber, currentProjectName, currentJobId, onSetWallEntries]);
+
+  // Thống kê tổng
+  const totalLengthM = useMemo(() => {
+    const sumMm = (wallEntries || []).reduce((acc, w) => acc + (parseFloat(w.length) || 0), 0);
+    return (sumMm / 1000).toFixed(4);
+  }, [wallEntries]);
+
+  const totalNetAreaM2 = useMemo(() => {
+    return (wallEntries || []).reduce((acc, w) => acc + (parseFloat(w.insulationArea || w.totalArea) || 0), 0).toFixed(2);
+  }, [wallEntries]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {/* ── CARD 1: INSULATION WALL (MATCHING BUN-NSW-ACT) ── */}
+      {/* ── CARD 1: INSULATION WALL (MANUAL INPUTS) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div style={{
           padding: "10px 14px",
@@ -114,7 +364,7 @@ export default function InsulationTask({
         </div>
 
         <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-          
+
           {/* SECTION 1: EXT WALL */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
             <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
@@ -460,8 +710,8 @@ export default function InsulationTask({
         </div>
       </div>
 
-      {/* ── CARD 2: ENTERED INSULATION WALLS ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+      {/* ── CARD 2: ENTERED INSULATION WALLS (MATCHING AUTO-CALCULATE) ── */}
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
         <div style={{
           padding: "9px 12px",
           background: "#f8fafc",
@@ -475,55 +725,58 @@ export default function InsulationTask({
           gap: "6px"
         }}>
           <span>📋 2. Entered Insulation Walls ({(wallEntries || []).length})</span>
-          {onAddDataAI && (
-            <button
-              type="button"
-              onClick={() => onAddDataAI("insulation")}
-              style={{
-                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                border: "1px solid #93c5fd",
-                color: "#1d4ed8",
-                fontSize: "10.5px",
-                fontWeight: 700,
-                padding: "2px 8px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "3px"
-              }}
-            >
-              <span>⚡</span>
-              <span>Auto Fill (AI)</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleAutoFillAI}
+            disabled={isAutoFilling}
+            style={{
+              background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+              border: "1px solid #93c5fd",
+              color: "#1d4ed8",
+              fontSize: "11px",
+              fontWeight: 700,
+              padding: "3px 10px",
+              borderRadius: "5px",
+              cursor: isAutoFilling ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              opacity: isAutoFilling ? 0.7 : 1
+            }}
+          >
+            <span>⚡</span>
+            <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
+          </button>
         </div>
-        <div style={{ padding: "8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+
+        <div style={{ padding: "0px", overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: "720px", borderCollapse: "collapse", fontSize: "11px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                <th style={{ padding: "4px" }}>#</th>
-                <th style={{ padding: "4px" }}>Type</th>
-                <th style={{ padding: "4px" }}>R</th>
-                <th style={{ padding: "4px" }}>Product</th>
-                <th style={{ padding: "4px" }}>H (mm)</th>
-                <th style={{ padding: "4px" }}>L (mm)</th>
-                <th style={{ padding: "4px" }}>Raked</th>
-                <th style={{ padding: "4px" }}>Door</th>
-                <th style={{ padding: "4px" }}>Insulation m²</th>
-                <th style={{ padding: "4px" }}></th>
+                <th style={{ padding: "6px 8px", width: "26px" }}>#</th>
+                <th style={{ padding: "6px 8px", width: "80px" }}>Wall Type*</th>
+                <th style={{ padding: "6px 8px", width: "65px" }}>R-Value</th>
+                <th style={{ padding: "6px 8px", minWidth: "260px" }}>Product</th>
+                <th style={{ padding: "6px 8px", width: "90px" }}>Wall Height (mm)*</th>
+                <th style={{ padding: "6px 8px", width: "105px" }}>Wall Length (mm)*</th>
+                <th style={{ padding: "6px 8px", width: "75px" }}>Raked (m²)*</th>
+                <th style={{ padding: "6px 8px", width: "75px", color: "#34d399" }}>Door (m²)*</th>
+                <th style={{ padding: "6px 8px", width: "30px", textAlign: "center" }}></th>
               </tr>
             </thead>
             <tbody>
               {(wallEntries || []).map((w, idx) => {
                 const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`);
+                const isExt = (w.type || "").toLowerCase().includes("ext");
+                const currentR = w.rValue || (isExt ? "R2.5" : "R2.0");
+                const availableProds = PRODUCT_OPTIONS_MAP[currentR] || PRODUCT_OPTIONS_MAP["R2.0"];
+
                 return (
                   <tr
                     key={w.id || idx}
                     onClick={() => {
-                      const nextSelected = isSelected ? null : (w.id || `${w.type}-${idx}`);
-                      setSelectedEntryId(nextSelected);
-                      if (onSelectEntry) onSelectEntry(isSelected ? null : w);
+                      setSelectedEntryId(w.id || `${w.type}-${idx}`);
+                      if (onSelectEntry) onSelectEntry(w);
                     }}
                     style={{
                       borderBottom: "1px solid #e2e8f0",
@@ -534,34 +787,158 @@ export default function InsulationTask({
                       transition: "background 0.15s ease"
                     }}
                   >
-                    <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                    <td style={{ padding: "4px" }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+
+                    {/* Wall Type */}
+                    <td style={{ padding: "4px 8px" }}>
                       <span style={{
-                        background: (w.type || "").toLowerCase().includes("ext") ? "#fee2e2" : "#fef3c7",
-                        color: (w.type || "").toLowerCase().includes("ext") ? "#991b1b" : "#92400e",
-                        padding: "1px 6px",
-                        borderRadius: "8px",
+                        background: isExt ? "#fee2e2" : "#fef3c7",
+                        color: isExt ? "#991b1b" : "#92400e",
+                        padding: "2px 7px",
+                        borderRadius: "4px",
                         fontWeight: 700,
-                        fontSize: "9.5px",
+                        fontSize: "10.5px",
                         display: "inline-block"
                       }}>
-                        {w.type}
+                        {w.type || "Ext wall"}
                       </span>
                     </td>
-                    <td style={{ padding: "4px" }}>{w.rValue}</td>
-                    <td style={{ padding: "4px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.product || w.productName}>{w.product || w.productName}</td>
-                    <td style={{ padding: "4px" }}>{w.height}</td>
-                    <td style={{ padding: "4px" }}>{w.length}</td>
-                    <td style={{ padding: "4px" }}>{w.raked || w.rakedArea || "0"}</td>
-                    <td style={{ padding: "4px" }}>{w.door || w.doorArea || "0"}</td>
-                    <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{w.insulationArea || w.netArea} m²</td>
-                    <td style={{ padding: "4px", textAlign: "right" }}>
+
+                    {/* R-Value Dropdown */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={currentR}
+                        onChange={(e) => handleRowFieldChange(w.id, "rValue", e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "3px 4px",
+                          fontSize: "10.5px",
+                          fontWeight: 700,
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff"
+                        }}
+                      >
+                        {R_VALUE_OPTIONS.map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    {/* Product Dropdown */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={w.product || availableProds[0]}
+                        onChange={(e) => handleRowFieldChange(w.id, "product", e.target.value)}
+                        style={{
+                          width: "100%",
+                          minWidth: "260px",
+                          padding: "3px 6px",
+                          fontSize: "10.5px",
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff"
+                        }}
+                        title={w.product || availableProds[0]}
+                      >
+                        {availableProds.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    {/* Wall Height (mm) */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number"
+                        value={w.height || 2400}
+                        onChange={(e) => handleRowFieldChange(w.id, "height", e.target.value)}
+                        style={{
+                          width: "75px",
+                          padding: "3px 5px",
+                          fontSize: "10.5px",
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff"
+                        }}
+                      />
+                    </td>
+
+                    {/* Wall Length (mm) */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={w.length || 0}
+                        onChange={(e) => handleRowFieldChange(w.id, "length", e.target.value)}
+                        style={{
+                          width: "90px",
+                          padding: "3px 5px",
+                          fontSize: "10.5px",
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff",
+                          fontWeight: 600
+                        }}
+                      />
+                    </td>
+
+                    {/* Raked Wall Area (m²) */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={w.raked !== undefined ? w.raked : 0}
+                        onChange={(e) => handleRowFieldChange(w.id, "raked", e.target.value)}
+                        style={{
+                          width: "55px",
+                          padding: "3px 5px",
+                          fontSize: "10.5px",
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff"
+                        }}
+                      />
+                    </td>
+
+                    {/* Door Area (m²) */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={w.door !== undefined ? w.door : 0}
+                        onChange={(e) => handleRowFieldChange(w.id, "door", e.target.value)}
+                        style={{
+                          width: "55px",
+                          padding: "3px 5px",
+                          fontSize: "10.5px",
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff",
+                          color: "#059669",
+                          fontWeight: 700
+                        }}
+                      />
+                    </td>
+
+                    {/* Delete */}
+                    <td style={{ padding: "4px 8px", textAlign: "center" }}>
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRemoveWall(w.id);
                         }}
-                        style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#ef4444",
+                          cursor: "pointer",
+                          fontWeight: 800,
+                          fontSize: "12px",
+                          padding: "2px"
+                        }}
+                        title="Delete row"
                       >
                         ✕
                       </button>
@@ -569,10 +946,11 @@ export default function InsulationTask({
                   </tr>
                 );
               })}
+
               {(!wallEntries || wallEntries.length === 0) && (
                 <tr>
-                  <td colSpan={10} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No insulation wall entered.
+                  <td colSpan={9} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                    No insulation walls entered. Click <strong>⚡ Auto Fill (AI)</strong> to calculate from project walls.
                   </td>
                 </tr>
               )}
@@ -580,42 +958,51 @@ export default function InsulationTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
+        {/* ── ACTION BUTTONS: SAVE & SUMMARY (ONLY WHEN RESULTS EXIST) ── */}
         {wallEntries && wallEntries.length > 0 && (
           <div style={{
-            padding: "8px 12px",
+            padding: "8px 14px",
             background: "#f8fafc",
             borderTop: "1px solid #e2e8f0",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "8px"
+            gap: "10px",
+            flexWrap: "wrap"
           }}>
-            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {wallEntries.length} {wallEntries.length === 1 ? "wall" : "walls"} calculated
-            </span>
-            <div style={{ display: "flex", gap: "8px" }}>
+            <div style={{ fontSize: "11px", color: "#475569", display: "flex", gap: "14px" }}>
+              <span>Total Rows: <strong>{wallEntries.length}</strong></span>
+              <span>Total Length: <strong>{totalLengthM} m</strong></span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {saveSuccess && (
+                <span style={{ fontSize: "11px", color: "#059669", fontWeight: 700 }}>
+                  ✓ Saved to ProcurementApp!
+                </span>
+              )}
               <button
                 type="button"
-                onClick={() => {
-                  alert(`Saved insulation data (${wallEntries.length} items)`);
-                }}
+                onClick={handleSaveToDatabase}
+                disabled={isSaving}
                 style={{
-                  padding: "4px 8px",
-                  background: "#1e293b",
+                  padding: "5px 12px",
+                  background: saveSuccess ? "#059669" : "linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)",
                   color: "#ffffff",
                   border: "none",
                   borderRadius: "5px",
-                  fontSize: "10.5px",
+                  fontSize: "11px",
                   fontWeight: "700",
-                  cursor: "pointer",
+                  cursor: isSaving ? "not-allowed" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                  transition: "background 0.2s ease"
                 }}
               >
-                💾 Save
+                <span>{isSaving ? "⏳" : "💾"}</span>
+                <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
               </button>
             </div>
           </div>

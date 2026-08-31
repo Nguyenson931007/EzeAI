@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
+import { getActiveClientShortName } from "@/constants/clients";
 
 /**
  * FrameworkJobsModal – Modal bóc tách khối lượng tường & phân loại sàn theo FrameWork Jobs (MSSQL emsflow)
@@ -9,7 +10,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   // Lấy thông tin tài khoản đang đăng nhập và dữ liệu các trang từ AppContext (backend/api/auth.py)
   const { user, pages = [], wallsByPage = {}, scalesByPage = {} } = useAppModel();
   const isAdmin = user?.role === "admin";
-  const currentUserUpdate = user?.username || user?.name || user?.full_name || "admin";
+  const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
 
   // ══════════════════════════════════════════════════════
   // 1. TRẠNG THÁI GIAO DIỆN & DỮ LIỆU (STATE)
@@ -681,7 +682,10 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           wallsList.push({
             floor_type: floorType,
             wall_height: rowHeight,
-            wall_length: Math.round(lenVal)
+            wall_length: Math.round(lenVal),
+            spacing: 900,
+            rod_size: "M12",
+            short_name: getActiveClientShortName()
           });
         }
       }
@@ -738,7 +742,10 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
             jobsMap[jobIdKey].wallsMap[heightKey] = {
               floor_type: floorType,
               wall_height: rowHeight,
-              wall_length: Math.round(lenVal)
+              wall_length: Math.round(lenVal),
+              spacing: 900,
+              rod_size: "M12",
+              short_name: getActiveClientShortName()
             };
           }
         }

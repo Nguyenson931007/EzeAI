@@ -817,6 +817,16 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  // ── AreaSummary Jobs (MSSQL ProcurementApp) ──
+  async fetchAreaSummaryJobs(office = null) {
+    const url = office ? `${BASE_URL}/api/area-summary/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/area-summary/jobs`;
+    const res = await fetch(url, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   async saveAreaSummaryJobs(payload) {
     const res = await fetch(`${BASE_URL}/api/area-summary/save-jobs`, {
       method: "POST",

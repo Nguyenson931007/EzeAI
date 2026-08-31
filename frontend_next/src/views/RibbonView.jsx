@@ -2135,6 +2135,7 @@ export default function RibbonView({
         visible={showAreaSummaryModal}
         onClose={() => setShowAreaSummaryModal(false)}
         rooms={(roomsByPage && roomsByPage[currentPage]) ? roomsByPage[currentPage] : rooms}
+        roomsByPage={roomsByPage}
         scaleValue={scaleValue}
         realScale={realScale}
         pages={pages}

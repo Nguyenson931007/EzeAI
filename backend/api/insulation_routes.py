@@ -29,10 +29,16 @@ router = APIRouter(prefix="/api/insulation")
 
 class InsulationItemSchema(BaseModel):
     wall_type: Optional[str] = Field("Ext wall", description="Loại tường: Ext wall, Int Wall, Partial wall...")
+    insulation_type: Optional[str] = Field(None, description="Loại cách nhiệt (InsulationType)")
+    product: Optional[str] = Field(None, description="Tên / quy cách sản phẩm (Product)")
     wall_height: Optional[Union[float, int]] = Field(2400.0, description="Chiều cao tường (mm)")
     wall_length: Optional[Union[float, int]] = Field(0.0, description="Chiều dài tường (mm)")
+    total_area: Optional[Union[float, int]] = Field(None, description="Tổng diện tích cách nhiệt net (m²)")
+    insulation_area: Optional[Union[float, int]] = Field(None, description="Diện tích cách nhiệt (m²)")
     total_area_raked: Optional[Union[float, int]] = Field(0.0, description="Tổng diện tích tường vát (m²)")
     total_area_door: Optional[Union[float, int]] = Field(0.0, description="Tổng diện tích cửa (m²)")
+    r_value: Optional[Union[float, int, str]] = Field("R2.0", description="Chỉ số R-Value (vd: R2.5, 2.5)")
+    short_name: Optional[str] = Field("BUN-NSW-ACT", description="Tên viết tắt khách hàng / module")
 
 
 class InsulationJobSaveSchema(BaseModel):
@@ -52,9 +58,9 @@ class SaveInsulationJobsPayloadSchema(BaseModel):
 @router.get("/jobs")
 async def get_insulation_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
-    Truy vấn danh sách Insulation jobs từ MSSQL [emsflow].
+    Truy vấn danh sách Insulation jobs từ MSSQL [ProcurementApp].[dbo].[Insulation].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(ins.IsOldData, 0) = 0.
-    Trả về wall_length theo đơn vị mm.
+    Trả về wall_length theo đơn vị mm, diện tích m².
     """
     conn = None
     try:
@@ -63,17 +69,21 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 
         sql = """
             SELECT
-                ins.id AS insulation_id,
+                ins.ID AS insulation_id,
                 tghw.id AS IdJob_HW,
                 tghw.id AS hw_id,
                 tghw.id_job_ems,
                 tghw.id_assign_ems,
 
-                ins.WallType AS wall_type,
+                ins.InsulationType AS insulation_type,
+                ins.InsulationType AS wall_type,
+                ins.Product AS product,
                 ins.WallHeight AS wall_height,
                 ins.WallLength AS wall_length,
-                ins.TotalAreaRaked AS total_area_raked,
-                ins.TotalAreaDoor AS total_area_door,
+                ins.TotalArea AS total_area,
+                ins.TotalArea AS insulation_area,
+                ins.RValue AS r_value,
+                ins.short_name AS short_name,
                 ins.UserUpdate AS user_update,
                 ins.DatetimeUpdate AS datetime_update,
                 ins.IsOldData AS is_old_data,
@@ -82,7 +92,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 
             FROM [emsflow].[dbo].[task_group_hw] tghw
 
-            LEFT JOIN [emsflow].[dbo].[Insulation] ins
+            LEFT JOIN [ProcurementApp].[dbo].[Insulation] ins
                 ON tghw.id = ins.IdJob_HW
                AND ISNULL(ins.IsOldData, 0) = 0
 
@@ -98,7 +108,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
                 ISNULL(tghw.is_delete, 0) = 0
                 AND aj.MaNV = 'EZE0098'
 
-            ORDER BY tghw.id DESC, ins.id DESC;
+            ORDER BY tghw.id DESC, ins.ID DESC;
         """
 
         cursor.execute(sql)
@@ -107,25 +117,31 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
         formatted_rows = []
         for r in rows:
             raw_len = float(r["wall_length"]) if r.get("wall_length") is not None else 0.0
-            # Tự động chuyển đổi nếu bản ghi cũ lưu theo mét (< 1000m) sang mm
             wall_len_mm = raw_len * 1000.0 if 0 < raw_len < 1000.0 else raw_len
 
+            raw_r = r.get("r_value")
+            r_val_formatted = f"R{float(raw_r):.1f}" if raw_r is not None else "R2.0"
+
             formatted_rows.append({
-                "insulation_id": r.get("insulation_id"),
+                "insulation_id": str(r.get("insulation_id")) if r.get("insulation_id") else None,
                 "IdJob_HW": r.get("IdJob_HW"),
                 "hw_id": r.get("hw_id"),
                 "job_number": r.get("job_number"),
-                "wall_type": r.get("wall_type"),
+                "insulation_type": r.get("insulation_type"),
+                "wall_type": r.get("wall_type") or r.get("insulation_type"),
+                "product": r.get("product"),
                 "wall_height": float(r["wall_height"]) if r.get("wall_height") is not None else 0.0,
                 "wall_length": round(wall_len_mm, 4),
-                "total_area_raked": float(r["total_area_raked"]) if r.get("total_area_raked") is not None else 0.0,
-                "total_area_door": float(r["total_area_door"]) if r.get("total_area_door") is not None else 0.0,
+                "total_area": float(r["total_area"]) if r.get("total_area") is not None else 0.0,
+                "insulation_area": float(r["total_area"]) if r.get("total_area") is not None else 0.0,
+                "r_value": r_val_formatted,
+                "short_name": r.get("short_name") or "BUN-NSW-ACT",
                 "user_update": r.get("user_update"),
                 "datetime_update": r["datetime_update"].isoformat() if r.get("datetime_update") else None,
                 "is_old_data": r.get("is_old_data", 0)
             })
 
-        logger.info(f"Lấy thành công {len(formatted_rows)} bản ghi Insulation cho User 'EZE0098'.")
+        logger.info(f"Lấy thành công {len(formatted_rows)} bản ghi Insulation [ProcurementApp] cho User 'EZE0098'.")
         return {
             "success": True,
             "total": len(formatted_rows),
@@ -147,8 +163,8 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 @router.post("/save-jobs")
 async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
     """
-    Lưu danh sách bóc tách Insulation của nhiều Jobs vào MSSQL CSDL [emsflow].[dbo].[Insulation].
-    Lưu WallLength dưới dạng mm.
+    Lưu danh sách bóc tách Insulation vào [ProcurementApp].[dbo].[Insulation].
+    Lưu WallHeight, WallLength (mm), TotalArea (m²), RValue (decimal).
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
     conn = None
@@ -160,7 +176,7 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
         saved_summary = []
 
         sql_archive_old = """
-            UPDATE [emsflow].[dbo].[Insulation]
+            UPDATE [ProcurementApp].[dbo].[Insulation]
             SET
                 IsOldData = 1,
                 UserUpdate = %s,
@@ -171,20 +187,25 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
         """
 
         sql_insert_new = """
-            INSERT INTO [emsflow].[dbo].[Insulation]
+            INSERT INTO [ProcurementApp].[dbo].[Insulation]
             (
-                IdJob_HW,
-                WallType,
+                ID,
+                InsulationType,
+                Product,
                 WallHeight,
                 WallLength,
-                TotalAreaRaked,
-                TotalAreaDoor,
+                TotalArea,
+                RValue,
+                IdJob_HW,
                 UserUpdate,
                 DatetimeUpdate,
-                IsOldData
+                IsOldData,
+                short_name
             )
             VALUES
             (
+                NEWID(),
+                %s,
                 %s,
                 %s,
                 %s,
@@ -193,12 +214,57 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 %s,
                 %s,
                 GETDATE(),
-                0
+                0,
+                %s
             );
         """
 
         for job in payload.jobs:
-            job_hw_id = job.id_job_hw
+            raw_id = str(job.id_job_hw).strip()
+            job_hw_id = raw_id
+
+            # Ánh xạ input_job_id sang chính xác tghw.id trong task_group_hw (giống FrameWork & AreaSummary)
+            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (raw_id,))
+            found_tghw = cursor.fetchone()
+            if found_tghw:
+                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', raw_id)
+            else:
+                cursor.execute("""
+                    SELECT TOP 1 tghw.id 
+                    FROM [emsflow].[dbo].[task_group_hw] tghw
+                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
+                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
+                      AND ISNULL(tghw.is_delete, 0) = 0
+                    ORDER BY tghw.created_at DESC
+                """, (raw_id, raw_id))
+                found_by_jn = cursor.fetchone()
+                if found_by_jn:
+                    job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', raw_id)
+                elif raw_id.isdigit():
+                    try:
+                        import sqlite3, os
+                        db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
+                        if os.path.exists(db_p):
+                            sq_c = sqlite3.connect(db_p)
+                            sq_cur = sq_c.cursor()
+                            sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(raw_id),))
+                            sq_r = sq_cur.fetchone()
+                            sq_c.close()
+                            if sq_r and sq_r[0]:
+                                p_name = sq_r[0]
+                                cursor.execute("""
+                                    SELECT TOP 1 tghw.id 
+                                    FROM [emsflow].[dbo].[task_group_hw] tghw
+                                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
+                                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
+                                      AND ISNULL(tghw.is_delete, 0) = 0
+                                    ORDER BY tghw.created_at DESC
+                                """, (p_name, p_name))
+                                found_sq_jn = cursor.fetchone()
+                                if found_sq_jn:
+                                    job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', raw_id)
+                    except Exception:
+                        pass
 
             # 1. Chuyển các bản ghi cũ của Job này thành IsOldData = 1
             cursor.execute(sql_archive_old, (user_update, job_hw_id))
@@ -206,16 +272,47 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
             # 2. Thêm mới các mốc insulation hiện tại (IsOldData = 0)
             inserted_count = 0
             for item in job.items:
+                itype = item.insulation_type or item.wall_type or "Ext wall"
+                h = float(item.wall_height or 2400.0)
+                l = float(item.wall_length or 0.0)
+
+                # Tính hoặc lấy TotalArea (m²)
+                if item.total_area is not None and float(item.total_area) > 0:
+                    tot_area = float(item.total_area)
+                elif item.insulation_area is not None and float(item.insulation_area) > 0:
+                    tot_area = float(item.insulation_area)
+                else:
+                    raked = float(item.total_area_raked or 0.0)
+                    door = float(item.total_area_door or 0.0)
+                    gross = (h / 1000.0) * (l / 1000.0)
+                    tot_area = max(0.0, round(gross + raked - door, 2))
+
+                # Parse RValue sang số thập phân (e.g. "R2.5" -> 2.5)
+                r_val_raw = str(item.r_value if item.r_value is not None else "2.0").upper().replace("R", "").strip()
+                try:
+                    r_val = float(r_val_raw)
+                except Exception:
+                    r_val = 2.0
+
+                prod = item.product or (
+                    "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack"
+                    if "ext" in itype.lower() else
+                    "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack"
+                )
+                short_nm = item.short_name or "BUN-NSW-ACT"
+
                 cursor.execute(
                     sql_insert_new,
                     (
+                        itype,
+                        prod,
+                        round(h, 2),
+                        round(l, 2),
+                        round(tot_area, 2),
+                        round(r_val, 2),
                         job_hw_id,
-                        item.wall_type or "Ext wall",
-                        item.wall_height or 0.0,
-                        item.wall_length or 0.0,
-                        item.total_area_raked or 0.0,
-                        item.total_area_door or 0.0,
-                        user_update
+                        user_update,
+                        short_nm
                     )
                 )
                 inserted_count += 1
@@ -227,11 +324,11 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
 
         # Commit Transaction khi tất cả các bước thành công
         conn.commit()
-        logger.info(f"Save Insulation thành công bởi user '{user_update}': {saved_summary}")
+        logger.info(f"Save Insulation vào [ProcurementApp] thành công bởi user '{user_update}': {saved_summary}")
 
         return {
             "success": True,
-            "message": f"Đã lưu thành công {len(payload.jobs)} Job(s) vào MSSQL Insulation.",
+            "message": f"Đã lưu thành công {len(payload.jobs)} Job(s) vào [ProcurementApp].[dbo].[Insulation].",
             "user_update": user_update,
             "jobs_saved": saved_summary
         }
