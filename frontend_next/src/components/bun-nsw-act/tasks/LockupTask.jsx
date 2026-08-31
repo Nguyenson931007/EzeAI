@@ -164,7 +164,7 @@ export default function LockupTask({
           color: "#0f2744",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between"
+          gap: "6px"
         }}>
           <span>▼ 1. Door information</span>
         </div>
@@ -711,9 +711,32 @@ export default function LockupTask({
           color: "#0f2744",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "6px"
         }}>
           <span>▼ 2. Entered doors ({(entries || []).length})</span>
+          {onAddDataAI && (
+            <button
+              type="button"
+              onClick={() => onAddDataAI("lock_up")}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "10.5px",
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px"
+              }}
+            >
+              <span>⚡</span>
+              <span>Auto Fill (AI)</span>
+            </button>
+          )}
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>

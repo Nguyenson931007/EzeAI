@@ -410,8 +410,8 @@ export function getDoorWindowDisplayWidthMm(d, realScale, scaleValue) {
 const EXTRA_MODULE_TABS = [
   {
     id: "frame_hardware",
-    label: "01 Frame",
-    title: "01 Frame Hardware",
+    label: "Frame",
+    title: "Frame Hardware",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <circle cx="12" cy="12" r="3" />
@@ -421,8 +421,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "flooring_decking",
-    label: "02 Floor",
-    title: "02 Flooring & Decking - GF",
+    label: "Floor",
+    title: "Flooring & Decking - GF",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -432,8 +432,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "hebel_flooring",
-    label: "03 Hebel",
-    title: "03 Hebel Flooring",
+    label: "Hebel",
+    title: "Hebel Flooring",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -443,8 +443,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "insulation",
-    label: "04 Insu",
-    title: "04 Insulation",
+    label: "Insu",
+    title: "Insulation",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -454,8 +454,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "eaves_soffit",
-    label: "05 Eaves",
-    title: "05 Eaves & Soffit",
+    label: "Eaves",
+    title: "Eaves & Soffit",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3 9l9-6 9 6" />
@@ -466,8 +466,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "cladding",
-    label: "06 Cladding",
-    title: "06 Cladding",
+    label: "Cladding",
+    title: "Cladding",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <rect x="3" y="3" width="18" height="5" rx="1" />
@@ -478,8 +478,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "lock_up",
-    label: "07 Lockup",
-    title: "07 Lockup",
+    label: "Lockup",
+    title: "Lockup",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -489,8 +489,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "shelving",
-    label: "08 Shelving",
-    title: "08 Shelving",
+    label: "Shelving",
+    title: "Shelving",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M4 4v16M20 4v16M4 7h16M4 12h16M4 17h16" />
@@ -499,8 +499,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "timber_posts",
-    label: "09 Beams",
-    title: "09 Beams & Posts",
+    label: "Beams",
+    title: "Beams & Posts",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <rect x="6" y="3" width="12" height="18" rx="1" />
@@ -510,8 +510,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "power_truss_braces",
-    label: "10 Truss",
-    title: "10 Power Truss Braces",
+    label: "Truss",
+    title: "Power Truss Braces",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3 20h18L12 4z" />
@@ -521,8 +521,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "doors_furniture",
-    label: "11 Furniture",
-    title: "11 Doors & Furniture",
+    label: "Furniture",
+    title: "Doors & Furniture",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3" />
@@ -533,8 +533,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "fow_plumbing",
-    label: "12 Plumbing",
-    title: "12 FOW Plumbing",
+    label: "Plumbing",
+    title: "FOW Plumbing",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M6 3v6a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V3" />
@@ -545,8 +545,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "fixout",
-    label: "13 Fixout",
-    title: "13 Fixout & Trims",
+    label: "Fixout",
+    title: "Fixout & Trims",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
@@ -556,8 +556,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "final_fit",
-    label: "14 Final",
-    title: "14 Final Fit & Hardware",
+    label: "Final",
+    title: "Final Fit & Hardware",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <circle cx="7.5" cy="15.5" r="4.5" />
@@ -567,8 +567,8 @@ const EXTRA_MODULE_TABS = [
   },
   {
     id: "sheet_schedule",
-    label: "15 Sheet",
-    title: "15 Sheet Schedule (Gyprock & FC)",
+    label: "Sheet",
+    title: "Sheet Schedule (Gyprock & FC)",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -1156,79 +1156,436 @@ export default function RightPropertyPaneView({
 
   const handleAddDataAI = (moduleId) => {
     let aiValues = {};
+    const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+    const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
+    const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
+    const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
+
+    let extWallLenM = 0;
+    let intWallLenM = 0;
+    let grandTotLenM = 0;
+    curWalls.forEach(w => {
+      let lM = 0;
+      if (w.length_m) lM = w.length_m;
+      else if (w.centerline && w.centerline.length === 2) {
+        const dx = w.centerline[1][0] - w.centerline[0][0];
+        const dy = w.centerline[1][1] - w.centerline[0][1];
+        const px = Math.hypot(dx, dy);
+        lM = (effScale < 0.5 ? px * effScale * 1000 : px * effScale) / 1000;
+      }
+      grandTotLenM += lM;
+      const wCls = typeof getWallClass === "function" ? getWallClass(w) : (w.class_name || w.wall_type || "interior_wall");
+      if (wCls === "exterior_wall") extWallLenM += lM;
+      else intWallLenM += lM;
+    });
+
+    const externalWallLength = cadMetrics?.externalWallLength || (extWallLenM > 0 ? extWallLenM : 46.8);
+    const internalWallLength = cadMetrics?.internalWallLength || (intWallLenM > 0 ? intWallLenM : 28.5);
+    const grandTotalLength = cadMetrics?.grandTotalLength || (grandTotLenM > 0 ? grandTotLenM : 75.3);
+    const totalRoofArea = cadMetrics?.totalRoofArea || 142.0;
+    const totalRoomArea = cadMetrics?.totalRoomArea || 112.5;
+
     if (moduleId === "frame_hardware") {
+      const groupsMap = {}; // key: `${baseType}_${height}_${spacing}` -> { baseType, height, spacing, totalMm, count, rodSize }
+
+      curWalls.forEach(w => {
+        let lenMm = 0;
+        if (w.length_m) {
+          lenMm = Math.round(w.length_m * 1000);
+        } else if (w.centerline && w.centerline.length === 2) {
+          const dx = w.centerline[1][0] - w.centerline[0][0];
+          const dy = w.centerline[1][1] - w.centerline[0][1];
+          const px = Math.hypot(dx, dy);
+          lenMm = effScale < 0.5 ? Math.round(px * effScale * 1000) : Math.round(px * effScale);
+        }
+        if (lenMm <= 0) return;
+        const h = String(w.height_mm || w.height || 2400);
+        const sp = String(w.spacing || w.stud_spacing || 900);
+        const rodSz = w.rod_size || "M12";
+
+        const rawFloor = String(w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
+        const isSlab = rawFloor === "slab" || rawFloor === "concrete slab" || rawFloor.includes("slab") || rawFloor.includes("concrete");
+        const baseType = isSlab ? "Concrete Slab" : "Timber Floor";
+
+        const groupKey = `${baseType}_${h}_${sp}_${rodSz}`;
+        if (!groupsMap[groupKey]) {
+          groupsMap[groupKey] = {
+            baseType,
+            height: h,
+            spacing: sp,
+            rodSize: rodSz,
+            totalMm: 0,
+            count: 0
+          };
+        }
+        groupsMap[groupKey].totalMm += lenMm;
+        groupsMap[groupKey].count += 1;
+      });
+
+      const newEntries = [];
+      Object.entries(groupsMap).forEach(([key, g]) => {
+        const spacingNum = Number(g.spacing) || 900;
+        const rodCount = Math.ceil(g.totalMm / spacingNum) || 1;
+        const rodLen = Number(g.height) <= 2440 ? 2700 : (Number(g.height) <= 2740 ? 3000 : 3600);
+        newEntries.push({
+          id: `frame-ai-${key}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          baseType: g.baseType,
+          theWallAbove: g.baseType === "Concrete Slab" ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
+          height: `${g.height} mm`,
+          length: `${g.totalMm} mm`,
+          spacing: `${g.spacing} mm`,
+          rodSize: g.rodSize || "M12",
+          rodDemand: (g.totalMm / spacingNum).toFixed(2),
+          rodMapping: `${rodCount} x ${g.rodSize || "M12"} Rod ${rodLen}`,
+          rodsQty: `${rodCount} pcs`
+        });
+      });
+
+      if (newEntries.length === 0) {
+        const totalLen = grandTotalLength ? Math.round(grandTotalLength * 1000) : 42500;
+        const rodCount = Math.ceil(totalLen / 900);
+        newEntries.push({
+          id: `slab-ai-default-${Date.now()}`,
+          baseType: "Concrete Slab",
+          theWallAbove: "ON CONCRETE SLAB FLOOR",
+          height: "2400 mm",
+          length: `${totalLen} mm`,
+          spacing: "900 mm",
+          rodSize: "M12",
+          rodDemand: (totalLen / 900).toFixed(2),
+          rodMapping: `${rodCount} x M12 Rod 2700`,
+          rodsQty: `${rodCount} pcs`
+        });
+      }
+
+      setFrameWallEntries(newEntries);
       aiValues = {
-        wall_height: "2700 mm",
+        wall_height: "2400 mm",
         wall_length: grandTotalLength ? grandTotalLength.toFixed(2) : "42.50",
         wind_class: "N2",
         base_construction: "Concrete Slab"
       };
-    } else if (moduleId === "eaves_soffit") {
+    } else if (moduleId === "flooring_decking" || moduleId === "hebel_flooring") {
+      const groupsMap = {};
+
+      curRooms.forEach(r => {
+        const override = customRoomOverrides[r.id] || {};
+        let areaM2 = 0;
+        if (override.totalM2) {
+          areaM2 = override.totalM2;
+        } else if (r.areaM2 && !isNaN(r.areaM2)) {
+          areaM2 = parseFloat(r.areaM2);
+        } else if (r.area && !isNaN(r.area)) {
+          areaM2 = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
+        } else if (r.area_m2 && !isNaN(r.area_m2)) {
+          areaM2 = parseFloat(r.area_m2);
+        } else {
+          const pts = r.polygon || r.poly;
+          if (pts && pts.length >= 3) {
+            let pxArea = 0;
+            for (let j = 0; j < pts.length; j++) {
+              const p1 = pts[j];
+              const p2 = pts[(j + 1) % pts.length];
+              const x1 = typeof p1.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
+              const y1 = typeof p1.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
+              const x2 = typeof p2.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
+              const y2 = typeof p2.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
+              pxArea += (x1 * y2 - x2 * y1);
+            }
+            pxArea = Math.abs(pxArea) / 2;
+            const effectiveScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+            const areaMm2 = pxArea * Math.pow(effectiveScale, 2);
+            areaM2 = areaMm2 / 1000000;
+          }
+        }
+        if (!areaM2 || areaM2 <= 0) return;
+
+        const rawType = String(r.type || r.wetness || r.classification || r.room_class || r.room_type || "").toLowerCase();
+        const rName = String(r.name || r.room_name || r.label || r.text || "").toLowerCase();
+
+        const isWet = rawType === "wet" || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rName) || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rawType);
+        const isBalcony = rawType === "tile_deck" || /balcony|porch|alfresco|patio|terrace|verand/i.test(rName) || /balcony|porch|alfresco|patio|terrace/i.test(rawType);
+        const isDeck = rawType === "timber_deck" || (!isBalcony && /deck|timber/i.test(rName)) || /deck|timber/i.test(rawType);
+
+        const defaultType = isWet ? "Wet" : (isBalcony ? "Balcony Tiles" : (isDeck ? "Decking Input" : "Dry"));
+        const typeArea = override.typeArea || defaultType;
+
+        let defaultProd = "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
+        if (typeArea === "Wet") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
+        else if (typeArea === "Balcony Tiles") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
+        else if (typeArea === "Decking Input") defaultProd = "HARDWOOD DECKING 90X19MM MERBAU";
+        else if (typeArea === "T+G Flooring Area") defaultProd = "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM";
+
+        const product = override.product || r.product || defaultProd;
+        const groupKey = `${typeArea}___${product}`;
+
+        if (!groupsMap[groupKey]) {
+          groupsMap[groupKey] = {
+            typeArea,
+            product,
+            areaM2: 0,
+            count: 0,
+            roomIds: []
+          };
+        }
+        groupsMap[groupKey].areaM2 += areaM2;
+        groupsMap[groupKey].count += 1;
+        groupsMap[groupKey].roomIds.push(r.id);
+      });
+
+      const newFlrEntries = [];
+      Object.entries(groupsMap).forEach(([key, g]) => {
+        newFlrEntries.push({
+          id: g.count === 1 && g.roomIds.length === 1 ? `flr-single-${g.roomIds[0]}` : `flr-grp-${key}`,
+          roomId: g.count === 1 && g.roomIds.length === 1 ? g.roomIds[0] : undefined,
+          roomIds: g.roomIds,
+          typeArea: g.typeArea,
+          location: g.typeArea,
+          product: g.product,
+          areaM2: Number(g.areaM2.toFixed(2)),
+          wastePercent: 10,
+          totalM2: Number(g.areaM2.toFixed(1)),
+          glueType: "FLOORING ADHESIVE 600ML SAUSAGE",
+          glueQty: Math.ceil((g.areaM2 * 1.1) / 12)
+        });
+      });
+
+      if (newFlrEntries.length === 0) {
+        const rmArea = totalRoomArea > 0 ? Number(totalRoomArea.toFixed(2)) : (totalRaw > 0 ? Number(totalRaw.toFixed(2)) : 112.5);
+        newFlrEntries.push({
+          id: "flr-auto-all-" + Date.now(),
+          typeArea: "Dry",
+          location: "Dry",
+          product: "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+          areaM2: rmArea,
+          wastePercent: 10,
+          totalM2: Number(rmArea.toFixed(1)),
+          glueType: "FLOORING ADHESIVE 600ML SAUSAGE",
+          glueQty: Math.ceil((rmArea * 1.1) / 12)
+        });
+      }
+
+      setFlooringEntries(newFlrEntries);
+      setHebelFlooringEntries(newFlrEntries.map(e => ({
+        ...e,
+        id: e.id.replace("flr-", "hebel-"),
+        product: "HEBEL POWERFLOOR PANEL 1800X600X75MM",
+        hebelQty: Math.ceil((e.totalM2 || e.areaM2) / 1.08)
+      })));
+
       aiValues = {
-        building_level: "Level 1 (Ground)",
-        eave_width: "450",
-        total_eave_length: totalRoofArea > 0 ? (Math.sqrt(totalRoofArea) * 4).toFixed(2) : "38.60",
-        soffit_material: "4.5mm HardieFlex / FC Sheet"
+        dryArea: dry > 0 ? dry.toFixed(2) : "",
+        wetArea: wet > 0 ? wet.toFixed(2) : "",
+        balconyArea: tile > 0 ? tile.toFixed(2) : "",
+        otherArea: timber > 0 ? timber.toFixed(2) : "",
+        totalFloorArea: totalRaw > 0 ? totalRaw.toFixed(2) : String(totalRoomArea || 112.5),
+        location: "Ground Floor",
+        flooring_type: "Hybrid / Vinyl Plank",
+        floor_area: totalRaw > 0 ? totalRaw.toFixed(2) : String(totalRoomArea || 112.5),
+        waste_allowance: "10"
       };
-    } else if (moduleId === "cladding") {
-      const extLen = grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8;
-      setCladdingWallEntries([
-        { id: "clad-ai-1", elevation: "Front & Side A Elevation", height: 2700, length: Math.round(extLen * 600), openings: 4.2, waste: 10, grossArea: Number((extLen * 0.6 * 2.7).toFixed(2)), netArea: Number((extLen * 0.6 * 2.7 - 4.2).toFixed(2)), totalArea: Number(((extLen * 0.6 * 2.7 - 4.2) * 1.1).toFixed(2)) },
-        { id: "clad-ai-2", elevation: "Rear & Side B Elevation", height: 2700, length: Math.round(extLen * 400), openings: 3.1, waste: 10, grossArea: Number((extLen * 0.4 * 2.7).toFixed(2)), netArea: Number((extLen * 0.4 * 2.7 - 3.1).toFixed(2)), totalArea: Number(((extLen * 0.4 * 2.7 - 3.1) * 1.1).toFixed(2)) }
+    } else if (moduleId === "insulation") {
+      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? grandTotalLength * 0.6 : 42.0);
+      const intLen = internalWallLength > 0 ? internalWallLength : (grandTotalLength ? grandTotalLength * 0.4 : 26.0);
+      const extArea = Number((extLen * 2.4).toFixed(2));
+      const intArea = Number((intLen * 2.4).toFixed(2));
+      const ceilArea = Number((totalRoomArea > 0 ? totalRoomArea : (totalRaw > 0 ? totalRaw : 112.5)).toFixed(2));
+
+      setInsulationWallEntries([
+        { id: "ins-ai-ext-" + Date.now(), type: "Ext wall", height: 2400, length: Math.round(extLen * 1000), rValue: "R2.5", product: "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack", raked: 0, door: 0, insulationArea: extArea },
+        { id: "ins-ai-int-" + Date.now(), type: "Int wall", height: 2400, length: Math.round(intLen * 1000), rValue: "R2.0", product: "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack", raked: 0, door: 0, insulationArea: intArea }
       ]);
-      aiValues = { elevation: "External Walls", cladding_type: "HardiePlank Weatherboard", cladding_area: (extLen * 2.7 * 0.9).toFixed(2), waste_allowance: "10" };
+      setInsulationAreaEntries([
+        { id: "ins-ai-ceil-" + Date.now(), location: "Ceiling / Roof Space", areaType: "Ceiling", rValue: "R4.0", areaM2: ceilArea, totalArea: Number((ceilArea * 1.05).toFixed(2)) }
+      ]);
+      aiValues = {
+        ext_wall_area: String(extArea),
+        int_wall_area: String(intArea),
+        ceiling_area: String(ceilArea)
+      };
     } else if (moduleId === "eaves_soffit") {
-      const len = totalRoofArea > 0 ? Number((Math.sqrt(totalRoofArea) * 4).toFixed(2)) : 38.6;
+      const len = totalRoofArea > 0 ? Number((Math.sqrt(totalRoofArea) * 4).toFixed(2)) : (grandTotalLength ? Number((grandTotalLength * 0.55).toFixed(2)) : 38.6);
       setEavesEntries([
-        { id: "eave-ai-1", level: "Ground Floor Perimeter", width: 450, length: len, area: Number((len * 0.45).toFixed(2)) }
+        { id: "eave-ai-1-" + Date.now(), level: "Ground Floor Perimeter", width: 450, length: len, area: Number((len * 0.45).toFixed(2)) }
       ]);
       aiValues = { building_level: "Level 1 (Ground)", eave_width: "450", total_eave_length: String(len), soffit_material: "4.5mm HardieFlex / FC Sheet" };
-    } else if (moduleId === "flooring_decking") {
-      const roomArea = totalRoomArea > 0 ? Number(totalRoomArea.toFixed(2)) : 112.5;
-      setFlooringEntries([
-        { id: "flr-ai-1", level: "Ground Floor GF", room: "Living & Dining Rooms", type: "Hybrid / Vinyl Plank", area: Number((roomArea * 0.65).toFixed(2)), waste: 10, totalArea: Number((roomArea * 0.65 * 1.1).toFixed(2)) },
-        { id: "flr-ai-2", level: "Ground Floor GF", room: "Bedrooms & Hallway", type: "Engineered Timber Flooring", area: Number((roomArea * 0.35).toFixed(2)), waste: 10, totalArea: Number((roomArea * 0.35 * 1.1).toFixed(2)) }
+    } else if (moduleId === "cladding") {
+      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8);
+      setCladdingWallEntries([
+        { id: "clad-ai-1-" + Date.now(), elevation: "Front & Side A Elevation", height: 2700, length: Math.round(extLen * 600), openings: 4.2, waste: 10, grossArea: Number((extLen * 0.6 * 2.7).toFixed(2)), netArea: Number((extLen * 0.6 * 2.7 - 4.2).toFixed(2)), totalArea: Number(((extLen * 0.6 * 2.7 - 4.2) * 1.1).toFixed(2)) },
+        { id: "clad-ai-2-" + Date.now(), elevation: "Rear & Side B Elevation", height: 2700, length: Math.round(extLen * 400), openings: 3.1, waste: 10, grossArea: Number((extLen * 0.4 * 2.7).toFixed(2)), netArea: Number((extLen * 0.4 * 2.7 - 3.1).toFixed(2)), totalArea: Number(((extLen * 0.4 * 2.7 - 3.1) * 1.1).toFixed(2)) }
       ]);
-      aiValues = { location: "Ground Floor", flooring_type: "Hybrid / Vinyl Plank", floor_area: String(roomArea), waste_allowance: "10" };
-    } else if (moduleId === "frame_hardware") {
-      const totalLen = grandTotalLength ? Number(grandTotalLength.toFixed(2)) : 68.4;
-      setFrameWallEntries([
-        { id: "frm-ai-1", height: 2700, length: totalLen, studSpacing: 450, windClass: "N2", platesLm: Number((totalLen * 2).toFixed(1)), studsQty: Math.ceil(totalLen * 1000 / 450) + 6 }
-      ]);
-      aiValues = { wall_height: "2700 mm", wall_length: String(totalLen), wind_class: "N2", base_construction: "Concrete Slab" };
+      aiValues = { elevation: "External Walls", cladding_type: "HardiePlank Weatherboard", cladding_area: (extLen * 2.7 * 0.9).toFixed(2), waste_allowance: "10" };
     } else if (moduleId === "timber_posts") {
       setTimberPostEntries([
-        { id: "pst-ai-1", location: "Alfresco & Porch Support", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 4, supportType: "Hot-Dip Galvanized Stirrup" }
+        { id: "pst-ai-1-" + Date.now(), location: "Alfresco & Porch Support", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 4, supportType: "Hot-Dip Galvanized Stirrup" }
       ]);
       aiValues = { location: "Alfresco & Porch", timber_size: "90x90mm F7 / H3 Treated Pine", height: "2700", quantity: "4" };
     } else if (moduleId === "fixout") {
       const skirtLm = skirtingSummaryMetrics?.totalSkirtingLm ? Number(skirtingSummaryMetrics.totalSkirtingLm.toFixed(2)) : 98.5;
-      const doorCnt = actualDoors.length || 7;
+      const doorCnt = curDoors.length || 7;
       setFixoutDoorEntries([
-        { id: "fix-ai-1", doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: doorCnt }
+        { id: "fix-ai-1-" + Date.now(), doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: doorCnt }
       ]);
       aiValues = { skirting_profile: "67x18mm MDF Single Rebatable / Colonial", architrave_size: "67x18mm MDF Architrave", jamb_type: "Single Rebated Pine Door Jamb Set", total_length: String(skirtLm) };
-    } else if (moduleId === "lock_up") {
-      const extLen = grandTotalLength ? Number(grandTotalLength.toFixed(2)) : 46.8;
-      const extDoorCnt = Math.max(2, Math.floor((actualDoors.length || 6) * 0.3));
-      setLockupEntries([
-        { id: "lck-ai-1", type: "Solid Core Entry Door", spec: "2040x820x40mm Timber Entry", reveal: "100mm Timber Reveal", qty: 1 },
-        { id: "lck-ai-2", type: "Aluminium Sliding Glass Door", spec: "2100x1800mm Double Glazed", reveal: "135mm Brick Veneer Reveal", qty: extDoorCnt }
-      ]);
-      aiValues = { building_level: "All Levels (Ground & Upper)", door_spec: "Solid Core Entry & Aluminium Sliding", weather_seal: "Parfix Sikaflex & Sarking Foil", perimeter_length: String(extLen) };
+    } else if (moduleId === "lock_up" || moduleId === "lockup") {
+      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8);
+      const generatedDoors = [];
+
+      if (curDoors && curDoors.length > 0) {
+        curDoors.forEach((d, idx) => {
+          const dLabel = d.label || d.name || d.door_name || `Door D-${idx + 1}`;
+          const rawType = String(d.door_type || d.type || "").toLowerCase();
+          const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
+          const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
+
+          const category = isExt ? "Prehung" : "Loose Jamb";
+          const location = isExt ? (dLabel.includes("Front") || dLabel.includes("Entry") ? "Front Entry" : "External Patio / Balcony") : (d.room_name || d.room || `Internal Room ${idx + 1}`);
+          const doorName = dLabel;
+          const prod = isExt
+            ? (isSliding ? "ALUMINIUM SLIDING DOOR 2100X1800MM" : "SOLID TIMBER ENTRY DOOR 2040X820X40MM")
+            : "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM";
+          const size = d.width && d.height ? `${d.height} × ${d.width}` : (isExt && isSliding ? "2100 × 1800" : "2040 × 820");
+          const thicks = d.thickness ? `${d.thickness}mm` : (isExt && !isSliding ? "40mm" : "35mm");
+          const jambWall = isExt ? "110mm Brick Veneer" : "90mm Timber Stud";
+          const jambSize = isExt ? "135mm" : "110mm";
+          const hung = isExt ? (isSliding ? "Sliding Track" : "LH Prehung") : "RH Loose";
+          const doorType = isSliding ? "Sliding" : "Hinged";
+          const hfHo = isExt ? "HO" : "HF";
+          const color = "Primed White";
+          const stop = "Cushion Rubber Stop";
+
+          generatedDoors.push({
+            id: `lck-door-${d.id || idx}-${Date.now()}`,
+            doorId: d.id,
+            category,
+            location,
+            door: doorName,
+            doorLabel: dLabel,
+            product: prod,
+            size,
+            thicks,
+            jambWall,
+            jambSize,
+            hung,
+            type: doorType,
+            configuration: isSliding ? "Sliding Door" : "Single Hinged Door",
+            frameMaterial: isExt ? "Aluminium / Hardwood" : "Timber (Primed Pine)",
+            weatherstrip: isExt ? "Yes - Standard Weatherstrip" : "No",
+            hfHo,
+            color,
+            stop,
+            qty: 1
+          });
+        });
+      }
+
+      if (generatedDoors.length === 0) {
+        generatedDoors.push(
+          {
+            id: "lck-ai-1-" + Date.now(),
+            category: "Prehung",
+            location: "Front Entry",
+            door: "Entry Door 01",
+            doorLabel: "D01 - Front Entry",
+            product: "SOLID TIMBER ENTRY DOOR 2040X820X40MM",
+            size: "2040 × 820",
+            thicks: "40mm",
+            jambWall: "110mm Brick",
+            jambSize: "135mm",
+            hung: "LH Prehung",
+            type: "Hinged",
+            configuration: "Single Entry Door",
+            frameMaterial: "Hardwood Timber",
+            weatherstrip: "Yes - Heavy Duty Seal",
+            hfHo: "HO",
+            color: "Clear Pine / Primed",
+            stop: "Cushion Rubber Stop",
+            qty: 1
+          },
+          {
+            id: "lck-ai-2-" + Date.now(),
+            category: "Prehung",
+            location: "Balcony / Patio",
+            door: "Aluminium Slider 01",
+            doorLabel: "D02 - Patio Sliding Door",
+            product: "ALUMINIUM SLIDING DOOR 2100X1800MM",
+            size: "2100 × 1800",
+            thicks: "35mm",
+            jambWall: "110mm Stud",
+            jambSize: "135mm",
+            hung: "Sliding Track",
+            type: "Sliding",
+            configuration: "Double Sliding Door",
+            frameMaterial: "Powder Coated Aluminium",
+            weatherstrip: "Yes - Weather Felt Seal",
+            hfHo: "HO",
+            color: "Monument / Black",
+            stop: "Rubber Bumper",
+            qty: 1
+          },
+          {
+            id: "lck-ai-3-" + Date.now(),
+            category: "Loose Jamb",
+            location: "Internal Bedrooms & Bath",
+            door: "Internal Flush Doors",
+            doorLabel: "D03 - Internal Flush Door",
+            product: "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM",
+            size: "2040 × 820",
+            thicks: "35mm",
+            jambWall: "90mm Stud",
+            jambSize: "110mm",
+            hung: "RH Loose",
+            type: "Hinged",
+            configuration: "Single Internal Door",
+            frameMaterial: "Timber (Primed Pine)",
+            weatherstrip: "No",
+            hfHo: "HF",
+            color: "Primed White",
+            stop: "Baseboard Stop",
+            qty: curDoors?.length ? Math.max(1, curDoors.length - 2) : 5
+          }
+        );
+      }
+
+      setLockupEntries(generatedDoors);
+      aiValues = {
+        building_level: "All Levels (Ground & Upper)",
+        door_spec: "Solid Core Entry & Aluminium Sliding",
+        weather_seal: "Parfix Sikaflex & Sarking Foil",
+        perimeter_length: String(typeof extLen === "number" ? extLen.toFixed(2) : extLen)
+      };
     } else if (moduleId === "power_truss_braces") {
       const spanM = cadMetrics.buildingWidth || (grandTotalLength ? Number((grandTotalLength * 0.25).toFixed(1)) : 8.5);
       const runM = cadMetrics.buildingLength || (grandTotalLength ? Number((grandTotalLength * 0.4).toFixed(1)) : 14.0);
       const qty = Math.floor(runM / 0.6) + 1;
       const totalLm = Number((spanM * 2.8 * qty).toFixed(1));
       setTrussEntries([
-        { id: "truss-ai-1", label: "T01 - Common Standard Truss", trussType: "common", spanM, runLengthM: runM, spacingMm: 600, quantity: qty, totalTimberLm: totalLm, speedbraceRolls: Math.ceil((runM * 2.5) / 50) }
+        { id: "truss-ai-1-" + Date.now(), label: "T01 - Common Standard Truss", trussType: "common", spanM, runLengthM: runM, spacingMm: 600, quantity: qty, totalTimberLm: totalLm, speedbraceRolls: Math.ceil((runM * 2.5) / 50) }
       ]);
       aiValues = { bracing_type: "Pryda Speedbrace Galvanised Strap", truss_span: String(spanM), brace_qty: String(Math.ceil((runM * 2.5) / 50)) };
+    } else if (moduleId === "doors_furniture") {
+      aiValues = {
+        door_type: "Internal Flush Door",
+        handle_style: "Lever on Rose Satin Chrome",
+        hinge_type: "100mm Stainless Steel Butt Hinge"
+      };
+    } else if (moduleId === "shelving") {
+      aiValues = {
+        shelf_material: "16mm White Melamine Board",
+        shelf_depth: "450 mm",
+        total_runs: "4"
+      };
+    } else if (moduleId === "fow_plumbing") {
+      aiValues = {
+        pipe_type: "PEX Flexible Water Pipe",
+        drain_size: "100mm PVC DWV Pipe",
+        fixtures_count: String(curDoors.length ? Math.max(3, Math.floor(curDoors.length * 0.6)) : 5)
+      };
     } else if (moduleId === "final_fit") {
       aiValues = {
         handle_set: "Gainsborough Choice Lever Set",
-        latch_count: String(actualDoors.length || 7),
+        latch_count: String(curDoors.length || 7),
         door_stop_type: "Baseboard Rubber Door Stop & 100mm SS Hinges",
         entrance_lock: "Gainsborough Trilock Keyed Set"
       };
@@ -1668,15 +2025,21 @@ export default function RightPropertyPaneView({
     }
 
     if (currentKey !== prevSelectionKeyRef.current) {
+      const isTaskActive = !!(activePaneTab && activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed");
+
       if (hasSelection) {
-        // Element selected (wall, door, room, roof, etc.): open Properties table
-        if (!isTaskModuleActive) {
+        // Element selected (wall, door, room, roof, etc.):
+        // If user was on a task, keep user on that task!
+        // If user was on properties / explorer or collapsed, open Properties table
+        if (!isTaskActive) {
           setActivePaneTab("explorer");
           setExplorerViewMode("properties");
         }
       } else {
-        // Deselected: auto hide right panel
-        setActivePaneTab("collapsed");
+        // Deselected: auto hide right panel only if in properties/explorer
+        if (!isTaskActive) {
+          setActivePaneTab("collapsed");
+        }
       }
       prevSelectionKeyRef.current = currentKey;
     }
@@ -1691,8 +2054,282 @@ export default function RightPropertyPaneView({
     selectedRoomIds,
     selectedLintelIds,
     selectedRoofId,
-    isTaskModuleActive
+    activePaneTab
   ]);
+
+  // 4. Frame Hardware State & Custom Wall Overrides
+  const [frameWallEntries, setFrameWallEntries] = React.useState([]);
+  const [customWallOverrides, setCustomWallOverrides] = React.useState({});
+
+  const handleSetFrameWallEntries = React.useCallback((actionOrEntries) => {
+    setFrameWallEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+
+      setTimeout(() => {
+        if (Array.isArray(next) && next.length > 0) {
+          const newOverrides = {};
+          next.forEach(entry => {
+            const ids = entry.wallIds && entry.wallIds.length > 0
+              ? entry.wallIds
+              : (entry.wallId ? [entry.wallId] : (selectedWallIds && selectedWallIds.length === 1 ? [selectedWallIds[0]] : (selectedWall?.id ? [selectedWall.id] : [])));
+            
+            ids.forEach(wId => {
+              newOverrides[wId] = {
+                height: entry.height ? parseInt(entry.height, 10) : undefined,
+                length: entry.length ? parseFloat(entry.length) : undefined,
+                spacing: entry.spacing ? parseInt(entry.spacing, 10) : undefined,
+                rodSize: entry.rodSize,
+                baseType: entry.baseType
+              };
+            });
+          });
+
+          if (Object.keys(newOverrides).length > 0) {
+            setCustomWallOverrides(old => ({ ...old, ...newOverrides }));
+            Object.entries(newOverrides).forEach(([wId, vals]) => {
+              if (updateWallsProperty) {
+                if (vals.height) updateWallsProperty([wId], "height_mm", vals.height);
+                if (vals.spacing) updateWallsProperty([wId], "spacing", vals.spacing);
+                if (vals.baseType) updateWallsProperty([wId], "floor_type", vals.baseType === "Concrete Slab" ? "Slab" : "Timber");
+                if (vals.rodSize) updateWallsProperty([wId], "rod_size", vals.rodSize);
+              }
+            });
+          }
+        }
+      }, 0);
+
+      return next;
+    });
+  }, [selectedWallIds, selectedWall, updateWallsProperty]);
+
+  // When on Frame task: if walls are selected -> calculate selected walls; if clicked outside (no selection) -> show full frame
+  React.useEffect(() => {
+    if (activePaneTab === "frame_hardware") {
+      const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
+      const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+      
+      const targetWalls = (selectedWallIds && selectedWallIds.length > 0)
+        ? curWalls.filter(w => selectedWallIds.includes(w.id))
+        : (selectedWall ? [selectedWall] : curWalls);
+
+      if (targetWalls.length > 0) {
+        const groupsMap = {};
+
+        targetWalls.forEach(w => {
+          const override = customWallOverrides[w.id] || {};
+          let lenMm = 0;
+          if (override.length) {
+            lenMm = override.length;
+          } else if (w.length_m) {
+            lenMm = Math.round(w.length_m * 1000);
+          } else if (w.centerline && w.centerline.length === 2) {
+            const dx = w.centerline[1][0] - w.centerline[0][0];
+            const dy = w.centerline[1][1] - w.centerline[0][1];
+            const px = Math.hypot(dx, dy);
+            lenMm = effScale < 0.5 ? Math.round(px * effScale * 1000) : Math.round(px * effScale);
+          }
+          if (lenMm <= 0) return;
+
+          const h = String(override.height || w.height_mm || w.height || 2400);
+          const sp = String(override.spacing || w.spacing || w.stud_spacing || 900);
+          const rodSz = override.rodSize || w.rod_size || "M12";
+          const rawFloor = String(override.baseType || w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
+          const isSlab = rawFloor === "slab" || rawFloor === "concrete slab" || rawFloor.includes("slab") || rawFloor.includes("concrete");
+          const baseType = isSlab ? "Concrete Slab" : "Timber Floor";
+
+          const groupKey = `${baseType}_${h}_${sp}_${rodSz}`;
+          if (!groupsMap[groupKey]) {
+            groupsMap[groupKey] = {
+              baseType,
+              height: h,
+              spacing: sp,
+              rodSize: rodSz,
+              totalMm: 0,
+              count: 0,
+              wallIds: []
+            };
+          }
+          groupsMap[groupKey].totalMm += lenMm;
+          groupsMap[groupKey].count += 1;
+          groupsMap[groupKey].wallIds.push(w.id);
+        });
+
+        const newEntries = [];
+        Object.entries(groupsMap).forEach(([key, g]) => {
+          const spacingNum = Number(g.spacing) || 900;
+          const rodCount = Math.ceil(g.totalMm / spacingNum) || 1;
+          const rodLen = Number(g.height) <= 2440 ? 2700 : (Number(g.height) <= 2740 ? 3000 : 3600);
+          newEntries.push({
+            id: g.count === 1 && g.wallIds.length === 1 ? `wall-single-${g.wallIds[0]}` : `wall-grp-${key}`,
+            wallId: g.count === 1 && g.wallIds.length === 1 ? g.wallIds[0] : undefined,
+            wallIds: g.wallIds,
+            baseType: g.baseType,
+            height: `${g.height} mm`,
+            length: `${g.totalMm} mm`,
+            spacing: `${g.spacing} mm`,
+            rodSize: g.rodSize || "M12",
+            rodDemand: (g.totalMm / spacingNum).toFixed(2),
+            rodMapping: `${rodCount} x ${g.rodSize || "M12"} Rod ${rodLen}`,
+            rodsQty: `${rodCount} pcs`
+          });
+        });
+
+        if (newEntries.length > 0) {
+          setFrameWallEntries(newEntries);
+        }
+      }
+    }
+  }, [selectedWallIds, selectedWall, activePaneTab, currentPage, walls, wallsByPageProp, realScale, scaleValue, customWallOverrides]);
+
+  // 5. Flooring State & Custom Room Overrides
+  const [flooringEntries, setFlooringEntries] = React.useState([]);
+  const [hebelFlooringEntries, setHebelFlooringEntries] = React.useState([]);
+  const [customRoomOverrides, setCustomRoomOverrides] = React.useState({});
+
+  const handleSetFlooringEntries = React.useCallback((actionOrEntries) => {
+    setFlooringEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+
+      setTimeout(() => {
+        if (Array.isArray(next) && next.length > 0) {
+          const newOverrides = {};
+          next.forEach(entry => {
+            const ids = entry.roomIds && entry.roomIds.length > 0
+              ? entry.roomIds
+              : (entry.roomId ? [entry.roomId] : (selectedRoomIds && selectedRoomIds.length === 1 ? [selectedRoomIds[0]] : (selectedRoom?.id ? [selectedRoom.id] : [])));
+            
+            ids.forEach(rId => {
+              newOverrides[rId] = {
+                typeArea: entry.typeArea || entry.location,
+                product: entry.product,
+                totalM2: typeof entry.totalM2 === "number" ? entry.totalM2 : (parseFloat(String(entry.totalM2 || "").replace("m²", "").trim()) || undefined),
+                areaM2: typeof entry.areaM2 === "number" ? entry.areaM2 : (parseFloat(String(entry.areaM2 || "").replace("m²", "").trim()) || undefined)
+              };
+            });
+          });
+
+          if (Object.keys(newOverrides).length > 0) {
+            setCustomRoomOverrides(old => ({ ...old, ...newOverrides }));
+          }
+        }
+      }, 0);
+
+      return next;
+    });
+  }, [selectedRoomIds, selectedRoom]);
+
+  const handleSetHebelFlooringEntries = React.useCallback((actionOrEntries) => {
+    setHebelFlooringEntries(actionOrEntries);
+    handleSetFlooringEntries(actionOrEntries);
+  }, [handleSetFlooringEntries]);
+
+  // When on Flooring or Hebel Flooring task: if rooms are selected -> calculate selected rooms; if clicked outside -> calculate FULL FLOOR
+  React.useEffect(() => {
+    if (activePaneTab === "flooring_decking" || activePaneTab === "hebel_flooring") {
+      const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
+      const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+
+      const targetRooms = (selectedRoomIds && selectedRoomIds.length > 0)
+        ? curRooms.filter(r => selectedRoomIds.includes(r.id))
+        : (selectedRoom ? [selectedRoom] : curRooms);
+
+      if (targetRooms.length > 0) {
+        const groupsMap = {};
+
+        targetRooms.forEach(r => {
+          const override = customRoomOverrides[r.id] || {};
+          let areaM2 = 0;
+          if (override.totalM2) {
+            areaM2 = override.totalM2;
+          } else if (r.areaM2 && !isNaN(r.areaM2)) {
+            areaM2 = parseFloat(r.areaM2);
+          } else if (r.area && !isNaN(r.area)) {
+            areaM2 = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
+          } else if (r.area_m2 && !isNaN(r.area_m2)) {
+            areaM2 = parseFloat(r.area_m2);
+          } else {
+            const pts = r.polygon || r.poly;
+            if (pts && pts.length >= 3) {
+              let pxArea = 0;
+              for (let j = 0; j < pts.length; j++) {
+                const p1 = pts[j];
+                const p2 = pts[(j + 1) % pts.length];
+                const x1 = typeof p1.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
+                const y1 = typeof p1.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
+                const x2 = typeof p2.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
+                const y2 = typeof p2.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
+                pxArea += (x1 * y2 - x2 * y1);
+              }
+              pxArea = Math.abs(pxArea) / 2;
+              const effectiveScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+              const areaMm2 = pxArea * Math.pow(effectiveScale, 2);
+              areaM2 = areaMm2 / 1000000;
+            }
+          }
+          if (!areaM2 || areaM2 <= 0) return;
+
+          const rawType = String(r.type || r.wetness || r.classification || r.room_class || r.room_type || "").toLowerCase();
+          const rName = String(r.name || r.room_name || r.label || r.text || "").toLowerCase();
+
+          const isWet = rawType === "wet" || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rName) || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rawType);
+          const isBalcony = rawType === "tile_deck" || /balcony|porch|alfresco|patio|terrace|verand/i.test(rName) || /balcony|porch|alfresco|patio|terrace/i.test(rawType);
+          const isDeck = rawType === "timber_deck" || (!isBalcony && /deck|timber/i.test(rName)) || /deck|timber/i.test(rawType);
+
+          const defaultType = isWet ? "Wet" : (isBalcony ? "Balcony Tiles" : (isDeck ? "Decking Input" : "Dry"));
+          const typeArea = override.typeArea || defaultType;
+
+          let defaultProd = "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
+          if (typeArea === "Wet") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
+          else if (typeArea === "Balcony Tiles") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
+          else if (typeArea === "Decking Input") defaultProd = "HARDWOOD DECKING 90X19MM MERBAU";
+          else if (typeArea === "T+G Flooring Area") defaultProd = "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM";
+
+          const product = override.product || r.product || defaultProd;
+          const groupKey = `${typeArea}___${product}`;
+
+          if (!groupsMap[groupKey]) {
+            groupsMap[groupKey] = {
+              typeArea,
+              product,
+              areaM2: 0,
+              count: 0,
+              roomIds: []
+            };
+          }
+          groupsMap[groupKey].areaM2 += areaM2;
+          groupsMap[groupKey].count += 1;
+          groupsMap[groupKey].roomIds.push(r.id);
+        });
+
+        const newFlrEntries = [];
+        Object.entries(groupsMap).forEach(([key, g]) => {
+          newFlrEntries.push({
+            id: g.count === 1 && g.roomIds.length === 1 ? `flr-single-${g.roomIds[0]}` : `flr-grp-${key}`,
+            roomId: g.count === 1 && g.roomIds.length === 1 ? g.roomIds[0] : undefined,
+            roomIds: g.roomIds,
+            typeArea: g.typeArea,
+            location: g.typeArea,
+            product: g.product,
+            areaM2: Number(g.areaM2.toFixed(2)),
+            wastePercent: 10,
+            totalM2: Number(g.areaM2.toFixed(1)),
+            glueType: "FLOORING ADHESIVE 600ML SAUSAGE",
+            glueQty: Math.ceil((g.areaM2 * 1.1) / 12)
+          });
+        });
+
+        if (newFlrEntries.length > 0) {
+          setFlooringEntries(newFlrEntries);
+          setHebelFlooringEntries(newFlrEntries.map(e => ({
+            ...e,
+            id: e.id.replace("flr-", "hebel-"),
+            product: "HEBEL POWERFLOOR PANEL 1800X600X75MM",
+            hebelQty: Math.ceil((e.totalM2 || e.areaM2) / 1.08)
+          })));
+        }
+      }
+    }
+  }, [selectedRoomIds, selectedRoom, activePaneTab, currentPage, rooms, roomsByPageProp, realScale, scaleValue, customRoomOverrides]);
 
   const toggleTaskExpanded = () => {
     if (isTaskExpanded) {
@@ -1838,9 +2475,7 @@ export default function RightPropertyPaneView({
     setEaveLength("");
   };
 
-  // 3. Flooring Entries & Hebel Flooring Entries
-  const [flooringEntries, setFlooringEntries] = React.useState([]);
-  const [hebelFlooringEntries, setHebelFlooringEntries] = React.useState([]);
+  // 3. Flooring Quick Form State
   const [flrLevel, setFlrLevel] = React.useState("Ground Floor GF");
   const [flrRoom, setFlrRoom] = React.useState("");
   const [flrType, setFlrType] = React.useState("Hybrid / Vinyl Plank");
@@ -2057,8 +2692,7 @@ export default function RightPropertyPaneView({
     };
   }, []);
 
-  // 4. Frame Hardware Entries
-  const [frameWallEntries, setFrameWallEntries] = React.useState([]);
+  // 4. Frame Hardware Quick Form State
   const [frmHeight, setFrmHeight] = React.useState("2700");
   const [frmLength, setFrmLength] = React.useState("");
   const [frmStudSpacing, setFrmStudSpacing] = React.useState("450");
@@ -7131,7 +7765,7 @@ export default function RightPropertyPaneView({
               onChange={handleModuleFormChange}
               cadMetrics={{ grandTotalLength: cadMetrics.grandTotalLength }}
               entries={frameWallEntries}
-              onSetEntries={setFrameWallEntries}
+              onSetEntries={handleSetFrameWallEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
             />
@@ -7183,7 +7817,7 @@ export default function RightPropertyPaneView({
               onChange={handleModuleFormChange}
               cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
               entries={flooringEntries}
-              onSetEntries={setFlooringEntries}
+              onSetEntries={handleSetFlooringEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
             />
@@ -7196,7 +7830,7 @@ export default function RightPropertyPaneView({
               onChange={handleModuleFormChange}
               cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
               entries={hebelFlooringEntries}
-              onSetEntries={setHebelFlooringEntries}
+              onSetEntries={handleSetHebelFlooringEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
             />

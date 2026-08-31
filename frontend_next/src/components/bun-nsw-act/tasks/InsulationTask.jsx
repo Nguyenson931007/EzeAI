@@ -462,8 +462,41 @@ export default function InsulationTask({
 
       {/* ── CARD 2: ENTERED INSULATION WALLS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Insulation Walls ({(wallEntries || []).length})
+        <div style={{
+          padding: "9px 12px",
+          background: "#f8fafc",
+          borderBottom: "1px solid #e2e8f0",
+          fontWeight: "800",
+          fontSize: "12px",
+          color: "#0f2744",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "6px"
+        }}>
+          <span>📋 2. Entered Insulation Walls ({(wallEntries || []).length})</span>
+          {onAddDataAI && (
+            <button
+              type="button"
+              onClick={() => onAddDataAI("insulation")}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "10.5px",
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px"
+              }}
+            >
+              <span>⚡</span>
+              <span>Auto Fill (AI)</span>
+            </button>
+          )}
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>

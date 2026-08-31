@@ -212,40 +212,53 @@ export default function FlooringDeckingTask({
     }
   };
 
-  // Entered rows based on inputs
-  const enteredRows = [];
-  if (parseFloat(dryArea) > 0 || dryProduct !== "Select...") {
-    enteredRows.push({
-      id: "dry",
-      typeArea: "Dry",
-      product: dryProduct !== "Select..." ? dryProduct : "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-      totalM2: parseFloat(dryArea) > 0 ? `${parseFloat(dryArea).toFixed(1)} m²` : "-"
-    });
-  }
-  if (parseFloat(wetArea) > 0 || wetProduct !== "Select...") {
-    enteredRows.push({
-      id: "wet",
-      typeArea: "Wet",
-      product: wetProduct !== "Select..." ? wetProduct : "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-      totalM2: parseFloat(wetArea) > 0 ? `${parseFloat(wetArea).toFixed(1)} m²` : "-"
-    });
-  }
-  if (parseFloat(balconyArea) > 0 || balconyProduct !== "Select...") {
-    enteredRows.push({
-      id: "balcony",
-      typeArea: "Balcony Tiles",
-      product: balconyProduct !== "Select..." ? balconyProduct : "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-      totalM2: parseFloat(balconyArea) > 0 ? `${parseFloat(balconyArea).toFixed(1)} m²` : "-"
-    });
-  }
-  if (parseFloat(otherArea) > 0 || otherProduct !== "Select...") {
-    enteredRows.push({
-      id: "other",
-      typeArea: otherTypeArea,
-      product: otherProduct !== "Select..." ? otherProduct : getOtherProductOptions(otherTypeArea)[1] || "-",
-      totalM2: parseFloat(otherArea) > 0 ? `${parseFloat(otherArea).toFixed(1)} m²` : "-"
-    });
-  }
+  // Entered rows based on entries prop (multi-product / grouped) or fallback to inputs
+  const enteredRows = React.useMemo(() => {
+    if (entries && entries.length > 0) {
+      return entries.map((item, idx) => ({
+        ...item,
+        id: item.id || `flr-row-${idx}`,
+        typeArea: item.typeArea || item.location || (String(item.id).includes("dry") ? "Dry" : (String(item.id).includes("wet") ? "Wet" : (String(item.id).includes("balc") ? "Balcony Tiles" : "Other"))),
+        product: item.product || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+        totalM2: typeof item.totalM2 === "number" ? `${item.totalM2.toFixed(1)} m²` : (typeof item.areaM2 === "number" ? `${item.areaM2.toFixed(1)} m²` : (item.totalM2 || item.areaM2 || "-"))
+      }));
+    }
+
+    const fallback = [];
+    if (parseFloat(dryArea) > 0 || (dryProduct && dryProduct !== "Select...")) {
+      fallback.push({
+        id: "dry",
+        typeArea: "Dry",
+        product: dryProduct && dryProduct !== "Select..." ? dryProduct : "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+        totalM2: parseFloat(dryArea) > 0 ? `${parseFloat(dryArea).toFixed(1)} m²` : "-"
+      });
+    }
+    if (parseFloat(wetArea) > 0 || (wetProduct && wetProduct !== "Select...")) {
+      fallback.push({
+        id: "wet",
+        typeArea: "Wet",
+        product: wetProduct && wetProduct !== "Select..." ? wetProduct : "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
+        totalM2: parseFloat(wetArea) > 0 ? `${parseFloat(wetArea).toFixed(1)} m²` : "-"
+      });
+    }
+    if (parseFloat(balconyArea) > 0 || (balconyProduct && balconyProduct !== "Select...")) {
+      fallback.push({
+        id: "balcony",
+        typeArea: "Balcony Tiles",
+        product: balconyProduct && balconyProduct !== "Select..." ? balconyProduct : "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
+        totalM2: parseFloat(balconyArea) > 0 ? `${parseFloat(balconyArea).toFixed(1)} m²` : "-"
+      });
+    }
+    if (parseFloat(otherArea) > 0 || (otherProduct && otherProduct !== "Select...")) {
+      fallback.push({
+        id: "other",
+        typeArea: otherTypeArea,
+        product: otherProduct && otherProduct !== "Select..." ? otherProduct : getOtherProductOptions(otherTypeArea)[1] || "-",
+        totalM2: parseFloat(otherArea) > 0 ? `${parseFloat(otherArea).toFixed(1)} m²` : "-"
+      });
+    }
+    return fallback;
+  }, [entries, dryArea, dryProduct, wetArea, wetProduct, balconyArea, balconyProduct, otherArea, otherProduct, otherTypeArea]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -451,9 +464,32 @@ export default function FlooringDeckingTask({
           color: "#0f2744",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "6px"
         }}>
           <span>▼ 2. Entered flooring areas ({enteredRows.length})</span>
+          {onAddDataAI && (
+            <button
+              type="button"
+              onClick={() => onAddDataAI("flooring_decking")}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "10.5px",
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px"
+              }}
+            >
+              <span>⚡</span>
+              <span>Auto Fill (AI)</span>
+            </button>
+          )}
         </div>
         <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
