@@ -81,4 +81,5 @@ SESSION_COOKIE_MAX_AGE = 1800  # 30 minutes in seconds
 # ── Security ──
 PASSWORD_SALT = "ezefloor_salt_123"
 MAX_FAILED_ATTEMPTS = 5
+TOOL_AI_SSO_SECRET = os.getenv("TOOL_AI_SSO_SECRET", "DM6qyxmexfqAbBM43rfhVjN8PmYxokVM/OsGtdFOY4hVn9gIp1aRvzfes/1CEtQ9")
 

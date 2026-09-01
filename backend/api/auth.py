@@ -1,4 +1,4 @@
-﻿"""
+"""
 backend/api/auth.py
 ===================
 Module xử lý xác thực người dùng (Authentication), quản lý phiên làm việc (Session Management),
@@ -652,3 +652,51 @@ async def tasklist_sso(payload: dict, response: Response):
         "session_token": new_token,
         "data": user_data
     }
+
+
+def generate_procurement_sso_token(ma_nv: str, expires_in_seconds: int = 300) -> str:
+    """Tạo HS256 JWT Token cho Procurement SSO"""
+    import base64
+    import hmac
+    import hashlib
+    import json
+    import time
+    from app.config import TOOL_AI_SSO_SECRET
+
+    clean_ma_nv = str(ma_nv or "EZE0090").strip() or "EZE0090"
+    now = int(time.time())
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {
+        "ma_nv": clean_ma_nv,
+        "iat": now,
+        "exp": now + expires_in_seconds
+    }
+
+    def b64url(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode("utf-8").rstrip("=")
+
+    header_b64 = b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_b64 = b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+
+    signature = hmac.new(TOOL_AI_SSO_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    signature_b64 = b64url(signature)
+
+    return f"{header_b64}.{payload_b64}.{signature_b64}"
+
+
+@router.post("/api/auth/procurement-sso-token")
+@router.post("/procurement-sso-token")
+async def get_procurement_sso_token(payload: dict):
+    """
+    Sinh JWT token xác thực SSO cho hệ thống Procurement.
+    Payload: { "ma_nv": "<mã nhân viên>" }
+    """
+    ma_nv = payload.get("ma_nv") or payload.get("manv") or "EZE0090"
+    token = generate_procurement_sso_token(str(ma_nv))
+    return {
+        "status": "success",
+        "token": token,
+        "ma_nv": ma_nv
+    }
+
