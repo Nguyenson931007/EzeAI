@@ -52,6 +52,7 @@ export default function FlooringDeckingTask({
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
   const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   // Helper to format 4 decimal digits
   const formatM2_4Digits = (val) => {
@@ -80,6 +81,91 @@ export default function FlooringDeckingTask({
     }
     const labels = ["GF", "FF", "SF", "TF"];
     return idx < labels.length ? labels[idx] : `${idx}F`;
+  };
+
+  // Manual Add Handlers for each section
+  const handleAddDry = () => {
+    const num = parseFloat(dryArea);
+    if (!dryArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Dry area.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = dryProduct !== "Select..." ? dryProduct : (DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP");
+    const newEntry = {
+      id: `flr-dry-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: "Dry",
+      location: `${currentLevel} Dry Area`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setDryArea("");
+  };
+
+  const handleAddWet = () => {
+    const num = parseFloat(wetArea);
+    if (!wetArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Wet area.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = wetProduct !== "Select..." ? wetProduct : (WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592");
+    const newEntry = {
+      id: `flr-wet-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: "Wet",
+      location: `${currentLevel} Wet Area`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setWetArea("");
+  };
+
+  const handleAddBalcony = () => {
+    const num = parseFloat(balconyArea);
+    if (!balconyArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Balcony Tiles.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = balconyProduct !== "Select..." ? balconyProduct : (BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592");
+    const newEntry = {
+      id: `flr-balc-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: "Balcony Tiles",
+      location: `${currentLevel} Balcony / Porch Area`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setBalconyArea("");
+  };
+
+  const handleAddOtherArea = () => {
+    const num = parseFloat(otherArea);
+    if (!otherArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Other area types.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = otherProduct !== "Select..." ? otherProduct : (getOtherProductOptions(otherTypeArea)[1] || otherTypeArea);
+    const newEntry = {
+      id: `flr-other-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: otherTypeArea,
+      location: `${currentLevel} ${otherTypeArea}`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setOtherArea("");
   };
 
   // Handler to auto fill multi-level rooms across all pages directly from canvas/model
@@ -515,10 +601,23 @@ export default function FlooringDeckingTask({
             justifyContent: "space-between",
             userSelect: "none"
           }}
+          title="Click to collapse / expand Flooring area input"
         >
-          <span>{isSection1Open ? "▼" : "▶"} 1. Flooring area input</span>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-            {isSection1Open ? "▲ Collapse" : "▼ Expand"}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#0f172a", transition: "transform 0.2s ease" }}>
+              {isSection1Open ? "▼" : "►"}
+            </span>
+            <span>1. Flooring area input</span>
+          </div>
+          <span style={{
+            fontSize: "10.5px",
+            color: "#64748b",
+            fontWeight: 600,
+            background: "#e2e8f0",
+            padding: "2px 8px",
+            borderRadius: "4px"
+          }}>
+            {isSection1Open ? "Click to collapse" : "Click to expand"}
           </span>
         </div>
 
@@ -560,6 +659,24 @@ export default function FlooringDeckingTask({
                   }}
                 />
               </div>
+              <button
+                type="button"
+                onClick={handleAddDry}
+                style={{
+                  padding: "6px 12px",
+                  height: "31px",
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                + Add
+              </button>
             </div>
           </div>
 
@@ -598,6 +715,24 @@ export default function FlooringDeckingTask({
                   }}
                 />
               </div>
+              <button
+                type="button"
+                onClick={handleAddWet}
+                style={{
+                  padding: "6px 12px",
+                  height: "31px",
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                + Add
+              </button>
             </div>
           </div>
 
@@ -636,6 +771,24 @@ export default function FlooringDeckingTask({
                   }}
                 />
               </div>
+              <button
+                type="button"
+                onClick={handleAddBalcony}
+                style={{
+                  padding: "6px 12px",
+                  height: "31px",
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                + Add
+              </button>
             </div>
           </div>
 
@@ -676,24 +829,47 @@ export default function FlooringDeckingTask({
                 </div>
               </div>
 
-              {/* Row 2: Total m² */}
-              <div style={{ maxWidth: "160px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
-                <input
-                  type="number"
-                  placeholder="Enter total area..."
-                  value={otherArea}
-                  onChange={(e) => setOtherArea(e.target.value)}
+              {/* Row 2: Total m² & + Add button */}
+              <div style={{ display: "flex", alignItems: "flex-end", gap: "10px" }}>
+                <div style={{ maxWidth: "160px", flex: "1 1 160px" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
+                  <input
+                    type="number"
+                    placeholder="Enter total area..."
+                    value={otherArea}
+                    onChange={(e) => setOtherArea(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: "10.5px",
+                      borderRadius: "5px",
+                      border: "1px solid #fde047",
+                      background: "#fffbeb",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddOtherArea}
                   style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
+                    padding: "6px 14px",
+                    height: "31px",
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    border: "none",
                     borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    whiteSpace: "nowrap"
                   }}
-                />
+                >
+                  + Add
+                </button>
               </div>
             </div>
           </div>
@@ -704,41 +880,67 @@ export default function FlooringDeckingTask({
 
       {/* ── CARD 2: ENTERED FLOORING AREAS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>▼ 2. Entered flooring areas ({enteredRows.length})</span>
-          <button
-            type="button"
-            onClick={handleAutoFillAI}
-            style={{
-              background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-              border: "1px solid #93c5fd",
-              color: "#1d4ed8",
+        <div
+          onClick={() => setIsSection2Open(!isSection2Open)}
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: isSection2Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none",
+            gap: "6px"
+          }}
+          title="Click to collapse / expand Entered flooring areas"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#0f172a", transition: "transform 0.2s ease" }}>
+              {isSection2Open ? "▼" : "►"}
+            </span>
+            <span>2. Entered flooring areas ({enteredRows.length})</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={handleAutoFillAI}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "10.5px",
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px"
+              }}
+            >
+              <span>⚡</span>
+              <span>Auto Fill (AI)</span>
+            </button>
+            <span style={{
               fontSize: "10.5px",
-              fontWeight: 700,
+              color: "#64748b",
+              fontWeight: 600,
+              background: "#e2e8f0",
               padding: "2px 8px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "3px"
-            }}
-          >
-            <span>⚡</span>
-            <span>Auto Fill (AI)</span>
-          </button>
+              borderRadius: "4px"
+            }}>
+              {isSection2Open ? "Click to collapse" : "Click to expand"}
+            </span>
+          </div>
         </div>
-        <div style={{ padding: "0px", overflowX: "auto" }}>
+
+        {isSection2Open && (
+          <>
+            <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -1061,6 +1263,8 @@ export default function FlooringDeckingTask({
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

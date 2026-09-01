@@ -32,6 +32,7 @@ export default function FrameHardwareTask({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   // Slab Floor State
   const [slabWallHeight, setSlabWallHeight] = useState("Select...");
@@ -475,10 +476,23 @@ export default function FrameHardwareTask({
             justifyContent: "space-between",
             userSelect: "none"
           }}
+          title="Click to collapse / expand Wall information"
         >
-          <span>{isSection1Open ? "▼" : "▶"} 1. Wall information</span>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-            {isSection1Open ? "▲ Collapse" : "▼ Expand"}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#0f172a", transition: "transform 0.2s ease" }}>
+              {isSection1Open ? "▼" : "►"}
+            </span>
+            <span>1. Wall information</span>
+          </div>
+          <span style={{
+            fontSize: "10.5px",
+            color: "#64748b",
+            fontWeight: 600,
+            background: "#e2e8f0",
+            padding: "2px 8px",
+            borderRadius: "4px"
+          }}>
+            {isSection1Open ? "Click to collapse" : "Click to expand"}
           </span>
         </div>
 
@@ -707,23 +721,34 @@ export default function FrameHardwareTask({
 
       {/* ── CARD 2: ENTERED WALLS ── */}
       <div ref={tableRef} style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>▼ 2. Entered walls ({(entries || []).length})</span>
-          {onAddDataAI && (
+        <div
+          onClick={() => setIsSection2Open(!isSection2Open)}
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: isSection2Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none",
+            gap: "6px"
+          }}
+          title="Click to collapse / expand Entered walls"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#0f172a", transition: "transform 0.2s ease" }}>
+              {isSection2Open ? "▼" : "►"}
+            </span>
+            <span>2. Entered walls ({(entries || []).length})</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => onAddDataAI("frame_hardware")}
+              onClick={handleAutoFillAI}
               style={{
                 background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
                 border: "1px solid #93c5fd",
@@ -741,9 +766,22 @@ export default function FrameHardwareTask({
               <span>⚡</span>
               <span>Auto Fill (AI)</span>
             </button>
-          )}
+            <span style={{
+              fontSize: "10.5px",
+              color: "#64748b",
+              fontWeight: 600,
+              background: "#e2e8f0",
+              padding: "2px 8px",
+              borderRadius: "4px"
+            }}>
+              {isSection2Open ? "Click to collapse" : "Click to expand"}
+            </span>
+          </div>
         </div>
-        <div style={{ padding: "8px", overflowX: "auto" }}>
+
+        {isSection2Open && (
+          <>
+            <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
@@ -995,6 +1033,8 @@ export default function FrameHardwareTask({
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

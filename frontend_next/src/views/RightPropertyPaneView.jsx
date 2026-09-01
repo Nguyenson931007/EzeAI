@@ -2186,15 +2186,17 @@ export default function RightPropertyPaneView({
     });
   }, [selectedWallIds, selectedWall, updateWallsProperty]);
 
-  // When on Frame task: if walls are selected -> calculate selected walls; if clicked outside (no selection) -> show full frame
+  // When on Frame task: dynamic wall calculation based on canvas walls
+  // Skip auto-generation if frameWallEntries already has entries (don't overwrite AI-filled, DB-loaded, or entered data)
   React.useEffect(() => {
     if (activePaneTab === "frame_hardware") {
+      // Do NOT overwrite if frameWallEntries already exist (preserves all entered/calculated walls)
+      if (frameWallEntries && frameWallEntries.length > 0) return;
+
       const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
       
-      const targetWalls = (selectedWallIds && selectedWallIds.length > 0)
-        ? curWalls.filter(w => selectedWallIds.includes(w.id))
-        : (selectedWall ? [selectedWall] : curWalls);
+      const targetWalls = curWalls;
 
       if (targetWalls.length > 0) {
         const groupsMap = {};
@@ -2263,7 +2265,7 @@ export default function RightPropertyPaneView({
         }
       }
     }
-  }, [selectedWallIds, selectedWall, activePaneTab, currentPage, walls, wallsByPageProp, realScale, scaleValue, customWallOverrides]);
+  }, [activePaneTab, currentPage, walls, wallsByPageProp, realScale, scaleValue]);
 
   // 5. Flooring State & Custom Room Overrides
   const [flooringEntries, setFlooringEntries] = React.useState([]);
@@ -3062,46 +3064,17 @@ export default function RightPropertyPaneView({
   const handleSetLockupEntries = React.useCallback((actionOrEntries) => {
     setLockupEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
-      setTimeout(() => {
-        if (Array.isArray(next) && next.length > 0) {
-          const newOverrides = {};
-          next.forEach(entry => {
-            const id = entry.doorId || (selectedDoorIds && selectedDoorIds.length === 1 ? selectedDoorIds[0] : (selectedDoor?.id ? selectedDoor.id : entry.id));
-            if (id) {
-              newOverrides[id] = {
-                category: entry.category,
-                location: entry.location,
-                door: entry.door,
-                doorLabel: entry.doorLabel,
-                product: entry.product,
-                size: entry.size,
-                thicks: entry.thicks,
-                jambWall: entry.jambWall,
-                jambSize: entry.jambSize,
-                hung: entry.hung,
-                type: entry.type,
-                configuration: entry.configuration,
-                frameMaterial: entry.frameMaterial,
-                weatherstrip: entry.weatherstrip,
-                hfHo: entry.hfHo,
-                color: entry.color,
-                stop: entry.stop,
-                qty: entry.qty
-              };
-            }
-          });
-          if (Object.keys(newOverrides).length > 0) {
-            setCustomLockupOverrides(old => ({ ...old, ...newOverrides }));
-          }
-        }
-      }, 0);
       return next;
     });
-  }, [selectedDoorIds, selectedDoor]);
+  }, []);
 
   // When on Lockup task: dynamic door calculation based on canvas selection
+  // Only auto-generate if lockupEntries is empty (don't overwrite AI-filled or DB-loaded data)
   React.useEffect(() => {
     if (activePaneTab === "lockup" || activePaneTab === "lock_up") {
+      // Skip auto-generation if entries already exist (from Auto Fill AI, DB load, or manual add)
+      if (lockupEntries && lockupEntries.length > 0) return;
+
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
       const targetDoors = (selectedDoorIds && selectedDoorIds.length > 0)
         ? curDoors.filter(d => selectedDoorIds.includes(d.id))
@@ -3110,56 +3083,39 @@ export default function RightPropertyPaneView({
       if (targetDoors.length > 0) {
         const generated = targetDoors.map((d, idx) => {
           const override = customLockupOverrides[d.id] || {};
-          const dLabel = override.doorLabel || d.label || d.name || d.door_name || `Door D-${idx + 1}`;
+          const dLabel = override.doorLabel || d.label || d.name || d.door_name || `D-${idx + 1}`;
           const rawType = String(d.door_type || d.type || "").toLowerCase();
           const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
-          const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
 
-          const category = override.category || (isExt ? "Prehung" : "Loose Jamb");
-          const location = override.location || (isExt ? (dLabel.includes("Front") || dLabel.includes("Entry") ? "Front Entry" : "External Patio / Balcony") : (d.room_name || d.room || `Internal Room ${idx + 1}`));
-          const doorName = override.door || dLabel;
-          const prod = override.product || (isExt
-            ? (isSliding ? "ALUMINIUM SLIDING DOOR 2100X1800MM" : "SOLID TIMBER ENTRY DOOR 2040X820X40MM")
-            : "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM");
-          const size = override.size || (d.width && d.height ? `${d.height} × ${d.width}` : (isExt && isSliding ? "2100 × 1800" : "2040 × 820"));
-          const thicks = override.thicks || (d.thickness ? `${d.thickness}mm` : (isExt && !isSliding ? "40mm" : "35mm"));
-          const jambWall = override.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud");
-          const jambSize = override.jambSize || (isExt ? "135mm" : "110mm");
-          const hung = override.hung || (isExt ? (isSliding ? "Sliding Track" : "LH Prehung") : "RH Loose");
-          const doorType = override.type || (isSliding ? "Sliding" : "Hinged");
-          const hfHo = override.hfHo || (isExt ? "HO" : "HF");
-          const color = override.color || "Primed White";
-          const stop = override.stop || "Cushion Rubber Stop";
-          const qty = override.qty || 1;
+          const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
+          const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+          const wallThick = d.wall_thickness || d.thickness_mm || 90;
 
           return {
-            id: `lck-door-${d.id}`,
+            id: `lck-door-${d.id || Date.now()}-${idx}`,
             doorId: d.id,
-            category,
-            location,
-            door: doorName,
-            doorLabel: dLabel,
-            product: prod,
-            size,
-            thicks,
-            jambWall,
-            jambSize,
-            hung,
-            type: doorType,
-            configuration: override.configuration || (isSliding ? "Sliding Door" : "Single Hinged Door"),
-            frameMaterial: override.frameMaterial || (isExt ? "Aluminium / Hardwood" : "Timber (Primed Pine)"),
-            weatherstrip: override.weatherstrip || (isExt ? "Yes - Standard Weatherstrip" : "No"),
-            hfHo,
-            color,
-            stop,
-            qty
+            mode: override.category || null,
+            scope: isExt ? "external" : "internal",
+            label: dLabel,
+            door_name: dLabel,
+            height: dHeight,
+            width: dWidth,
+            thickness: isExt ? 40 : 35,
+            jamb_or_wall: `${wallThick}mm Wall`,
+            jamb_size: override.jambSize || "112×19mm 5.4m",
+            hung: override.hung || "Hung A",
+            door_type: override.type || (isExt ? "Type CG" : "Type A"),
+            door_stop: override.stop || (isExt ? "DS2 with Riser" : "Cushion"),
+            internal_type: override.hfHo || (isExt ? null : "HF"),
+            color: override.color || (isExt ? null : "CHR"),
+            default_qty: override.qty || 1
           };
         });
 
         setLockupEntries(generated);
       }
     }
-  }, [selectedDoorIds, selectedDoor, activePaneTab, currentPage, doors, doorsByPageProp, customLockupOverrides]);
+  }, [activePaneTab, currentPage, doors, doorsByPageProp]);
 
   const [trussEntries, setTrussEntries] = React.useState([]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
@@ -8281,6 +8237,7 @@ export default function RightPropertyPaneView({
               onSetEntries={handleSetLockupEntries}
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
+              activeJobNumber={currentProjectName || currentJobId}
             />
           )}
 

@@ -33,6 +33,8 @@ export default function InsulationTask({
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isCard1Collapsed, setIsCard1Collapsed] = useState(false);
+  const [isCard2Collapsed, setIsCard2Collapsed] = useState(false);
 
   const R_VALUE_OPTIONS = ["R2.0", "R2.5", "R2.7"];
 
@@ -320,8 +322,8 @@ export default function InsulationTask({
               length: r.wall_length || 0,
               rValue: r.r_value || "R2.0",
               product: r.product || "",
-              raked: 0,
-              door: 0,
+              raked: r.total_area_raked !== undefined && r.total_area_raked !== null ? r.total_area_raked : 0,
+              door: r.total_area_door !== undefined && r.total_area_door !== null ? r.total_area_door : 0,
               insulationArea: r.total_area || r.insulation_area || 0,
               totalArea: r.total_area || r.insulation_area || 0
             }));
@@ -348,22 +350,44 @@ export default function InsulationTask({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: INSULATION WALL (MANUAL INPUTS) ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "10px 14px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "13px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
-          <span>▼ 1. Insulation Wall</span>
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", transition: "all 0.2s ease" }}>
+        <div
+          onClick={() => setIsCard1Collapsed(!isCard1Collapsed)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isCard1Collapsed ? "none" : "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+          title="Click to collapse / expand Insulation Wall"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#0f172a", transition: "transform 0.2s ease" }}>
+              {isCard1Collapsed ? "►" : "▼"}
+            </span>
+            <span>1. Insulation Wall</span>
+          </div>
+          <span style={{
+            fontSize: "10.5px",
+            color: "#64748b",
+            fontWeight: 600,
+            background: "#e2e8f0",
+            padding: "2px 8px",
+            borderRadius: "4px"
+          }}>
+            {isCard1Collapsed ? "Click to expand" : "Click to collapse"}
+          </span>
         </div>
 
-        <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+        {!isCard1Collapsed && (
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
 
           {/* SECTION 1: EXT WALL */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
@@ -708,48 +732,75 @@ export default function InsulationTask({
           </div>
 
         </div>
+        )}
       </div>
 
       {/* ── CARD 2: ENTERED INSULATION WALLS (MATCHING AUTO-CALCULATE) ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>📋 2. Entered Insulation Walls ({(wallEntries || []).length})</span>
-          <button
-            type="button"
-            onClick={handleAutoFillAI}
-            disabled={isAutoFilling}
-            style={{
-              background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-              border: "1px solid #93c5fd",
-              color: "#1d4ed8",
-              fontSize: "11px",
-              fontWeight: 700,
-              padding: "3px 10px",
-              borderRadius: "5px",
-              cursor: isAutoFilling ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              opacity: isAutoFilling ? 0.7 : 1
-            }}
-          >
-            <span>⚡</span>
-            <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
-          </button>
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", transition: "all 0.2s ease" }}>
+        <div
+          onClick={() => setIsCard2Collapsed(!isCard2Collapsed)}
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: isCard2Collapsed ? "none" : "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none",
+            gap: "6px"
+          }}
+          title="Click to collapse / expand Entered Insulation Walls"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#0f172a", transition: "transform 0.2s ease" }}>
+              {isCard2Collapsed ? "►" : "▼"}
+            </span>
+            <span>2. Entered Insulation Walls ({(wallEntries || []).length})</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={handleAutoFillAI}
+              disabled={isAutoFilling}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 10px",
+                borderRadius: "5px",
+                cursor: isAutoFilling ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                opacity: isAutoFilling ? 0.7 : 1
+              }}
+            >
+              <span>⚡</span>
+              <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
+            </button>
+            <span style={{
+              fontSize: "10.5px",
+              color: "#64748b",
+              fontWeight: 600,
+              background: "#e2e8f0",
+              padding: "2px 8px",
+              borderRadius: "4px"
+            }}>
+              {isCard2Collapsed ? "Click to expand" : "Click to collapse"}
+            </span>
+          </div>
         </div>
 
-        <div style={{ padding: "0px", overflowX: "auto" }}>
+        {!isCard2Collapsed && (
+          <>
+            <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "720px", borderCollapse: "collapse", fontSize: "11px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -1006,6 +1057,8 @@ export default function InsulationTask({
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

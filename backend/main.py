@@ -36,7 +36,7 @@ from api.eaves_routes import router as eaves_router
 from api.cladding_routes import router as cladding_router
 from api.area_summary_routes import router as area_summary_router
 from api.insulation_routes import router as insulation_router
-from api.lockout_routes import router as lockout_router
+from api.lockup_routes import router as lockout_router
 from services.roof_v3 import router as roof_v3_router
 from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
 from app.limiter import limiter

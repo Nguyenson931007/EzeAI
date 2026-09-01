@@ -1,7 +1,7 @@
 """
-api/lockout_routes.py – LockOut API Router
+api/lockup_routes.py – LockUp API Router
 ============================================
-Cung cấp REST endpoint để truy vấn và lưu thông số cửa bóc tách LockOut vào [emsflow].[dbo].[LockOut]
+Cung cấp REST endpoint để truy vấn và lưu thông số cửa bóc tách LockUp vào [ProcurementApp].[dbo].[LockUp]
 
 QUẢN LÝ LỊCH SỬ & TRANSACTION (IsOldData Versioning):
 1. Với mỗi Job được Save:
@@ -16,7 +16,7 @@ from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
 
-logger = logging.getLogger("ezefloor.lockout")
+logger = logging.getLogger("ezefloor.lockup")
 
 router = APIRouter(prefix="/api/lockout")
 
@@ -26,26 +26,27 @@ router = APIRouter(prefix="/api/lockout")
 # ══════════════════════════════════════════════════════
 
 class LockoutItemSchema(BaseModel):
-    mode: Optional[str] = Field(None, description="Mode (e.g. prehung, loose-jamb...)")
+    mode: Optional[str] = Field(None, description="Mode (e.g. Prehung, Loose...)")
     scope: Optional[str] = Field(None, description="Scope (e.g. external, internal...)")
     label: Optional[str] = Field(None, description="Nhãn cửa (e.g. Entry Door, Bedroom Door...)")
-    door_name: Optional[str] = Field(None, description="Tên cửa (e.g. H1 PCM, H2 HCF, LJ-01...)")
+    door_name: Optional[str] = Field(None, description="Tên cửa (e.g. D-101, D-201...)")
     height: Optional[Union[float, int]] = Field(None, description="Chiều cao cửa (mm)")
     width: Optional[Union[float, int]] = Field(None, description="Chiều rộng cửa (mm)")
     thickness: Optional[Union[float, int]] = Field(None, description="Độ dày cửa (mm)")
-    jamb_or_wall: Optional[str] = Field(None, description="Jamb or Wall (e.g. 90mm Wall, 110mm Wall...)")
-    jamb_size: Optional[str] = Field(None, description="Kích thước Jamb (e.g. 110 x 18, NULL...)")
-    hung: Optional[str] = Field(None, description="Hướng mở hung (LH, RH, NULL...)")
-    door_type: Optional[str] = Field(None, description="Loại cửa (Solid Core, Hollow Core, NULL...)")
-    door_stop: Optional[str] = Field(None, description="Chặn cửa door_stop (Cushion, Standard...)")
-    internal_type: Optional[str] = Field(None, description="Internal type (HF, HO, NULL...)")
-    color: Optional[str] = Field(None, description="Màu sắc color (CHR, SCH, NULL...)")
+    jamb_or_wall: Optional[str] = Field(None, description="Jamb or Wall (e.g. 90mm Wall, Steel Frame...)")
+    jamb_size: Optional[str] = Field(None, description="Kích thước Jamb (e.g. 112x19mm...)")
+    hung: Optional[str] = Field(None, description="Hướng mở hung (Hung A, Hung B...)")
+    door_type: Optional[str] = Field(None, description="Loại cửa (Type A, Type CG...)")
+    door_stop: Optional[str] = Field(None, description="Chặn cửa door_stop (Cushion, DS2 with Riser...)")
+    internal_type: Optional[str] = Field(None, description="Internal type (HF, HO...)")
+    color: Optional[str] = Field(None, description="Màu sắc color (CHR, SCH...)")
     default_qty: Optional[Union[float, int]] = Field(1.0, description="Số lượng default_qty")
+    short_name: Optional[str] = Field("BUN-NSW-ACT", description="Tên viết tắt khách hàng / module")
 
 
 class LockoutJobSaveSchema(BaseModel):
     id_job_hw: Any = Field(..., description="ID / Mã HW Job (tghw.id)")
-    items: List[LockoutItemSchema] = Field(default_factory=list, description="Danh sách các mục LockOut")
+    items: List[LockoutItemSchema] = Field(default_factory=list, description="Danh sách các mục LockUp")
 
 
 class SaveLockoutJobsPayloadSchema(BaseModel):
@@ -54,13 +55,13 @@ class SaveLockoutJobsPayloadSchema(BaseModel):
 
 
 # ══════════════════════════════════════════════════════
-# 1. TRUY VẤN CÁC JOB LOCKOUT HIỆN TẠI (GET /api/lockout/jobs)
+# 1. TRUY VẤN CÁC JOB LOCKUP HIỆN TẠI (GET /api/lockout/jobs)
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
 async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
-    Truy vấn danh sách LockOut jobs từ MSSQL [emsflow].
+    Truy vấn danh sách LockUp jobs từ MSSQL [ProcurementApp].[dbo].[LockUp].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(lock.IsOldData, 0) = 0.
     """
     conn = None
@@ -91,6 +92,7 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
                 lock.internal_type,
                 lock.color,
                 lock.default_qty,
+                lock.short_name,
                 lock.UserUpdate AS user_update,
                 lock.DatetimeUpdate AS datetime_update,
                 lock.IsOldData AS is_old_data,
@@ -99,7 +101,7 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
 
             FROM [emsflow].[dbo].[task_group_hw] tghw
 
-            LEFT JOIN [emsflow].[dbo].[LockOut] lock
+            LEFT JOIN [ProcurementApp].[dbo].[LockUp] lock
                 ON tghw.id = lock.IdJob_HW
                AND ISNULL(lock.IsOldData, 0) = 0
 
@@ -124,7 +126,7 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
         formatted_rows = []
         for r in rows:
             formatted_rows.append({
-                "lockout_id": r.get("lockout_id"),
+                "lockout_id": str(r.get("lockout_id")) if r.get("lockout_id") else None,
                 "IdJob_HW": r.get("IdJob_HW"),
                 "hw_id": r.get("hw_id"),
                 "job_number": r.get("job_number"),
@@ -143,6 +145,7 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
                 "internal_type": r.get("internal_type"),
                 "color": r.get("color"),
                 "default_qty": float(r["default_qty"]) if r.get("default_qty") is not None else 1.0,
+                "short_name": r.get("short_name") or "BUN-NSW-ACT",
                 "user_update": r.get("user_update"),
                 "datetime_update": str(r.get("datetime_update")) if r.get("datetime_update") else None,
                 "is_old_data": bool(r.get("is_old_data", 0))
@@ -155,21 +158,21 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
         }
 
     except Exception as e:
-        logger.error(f"Error fetching LockOut jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống khi tải LockOut Jobs: {str(e)}")
+        logger.error(f"Error fetching LockUp jobs: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống khi tải LockUp Jobs: {str(e)}")
     finally:
         if conn:
             conn.close()
 
 
 # ══════════════════════════════════════════════════════
-# 2. LƯU BÓC TÁCH LOCKOUT VÀO MSSQL (POST /api/lockout/save-jobs)
+# 2. LƯU BÓC TÁCH LOCKUP VÀO MSSQL (POST /api/lockout/save-jobs)
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
 async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
     """
-    Lưu danh sách bóc tách LockOut của nhiều Jobs vào MSSQL CSDL [emsflow].[dbo].[LockOut].
+    Lưu danh sách bóc tách LockUp của nhiều Jobs vào MSSQL CSDL [ProcurementApp].[dbo].[LockUp].
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
     conn = None
@@ -181,7 +184,7 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
         saved_summary = []
 
         sql_archive_old = """
-            UPDATE [emsflow].[dbo].[LockOut]
+            UPDATE [ProcurementApp].[dbo].[LockUp]
             SET
                 IsOldData = 1,
                 UserUpdate = %s,
@@ -192,8 +195,9 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
         """
 
         sql_insert_new = """
-            INSERT INTO [emsflow].[dbo].[LockOut]
+            INSERT INTO [ProcurementApp].[dbo].[LockUp]
             (
+                ID,
                 [mode],
                 [scope],
                 label,
@@ -212,23 +216,70 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                 IdJob_HW,
                 UserUpdate,
                 DatetimeUpdate,
-                IsOldData
+                IsOldData,
+                short_name
             )
             VALUES
             (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0
+                NEWID(),
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
             );
         """
 
         for job in payload.jobs:
-            job_hw_id = job.id_job_hw
+            raw_id = str(job.id_job_hw).strip()
+            job_hw_id = raw_id
+
+            # Ánh xạ input_job_id sang chính xác tghw.id trong task_group_hw (giống FrameWork & AreaSummary & Insulation)
+            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (raw_id,))
+            found_tghw = cursor.fetchone()
+            if found_tghw:
+                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', raw_id)
+            else:
+                cursor.execute("""
+                    SELECT TOP 1 tghw.id 
+                    FROM [emsflow].[dbo].[task_group_hw] tghw
+                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
+                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
+                      AND ISNULL(tghw.is_delete, 0) = 0
+                    ORDER BY tghw.created_at DESC
+                """, (raw_id, raw_id))
+                found_by_jn = cursor.fetchone()
+                if found_by_jn:
+                    job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', raw_id)
+                elif raw_id.isdigit():
+                    try:
+                        import sqlite3, os
+                        db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
+                        if os.path.exists(db_p):
+                            sq_c = sqlite3.connect(db_p)
+                            sq_cur = sq_c.cursor()
+                            sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(raw_id),))
+                            sq_r = sq_cur.fetchone()
+                            sq_c.close()
+                            if sq_r and sq_r[0]:
+                                p_name = sq_r[0]
+                                cursor.execute("""
+                                    SELECT TOP 1 tghw.id 
+                                    FROM [emsflow].[dbo].[task_group_hw] tghw
+                                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
+                                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
+                                      AND ISNULL(tghw.is_delete, 0) = 0
+                                    ORDER BY tghw.created_at DESC
+                                """, (p_name, p_name))
+                                found_sq_jn = cursor.fetchone()
+                                if found_sq_jn:
+                                    job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', raw_id)
+                    except Exception:
+                        pass
 
             # 1. Chuyển các bản ghi cũ của Job này thành IsOldData = 1
             cursor.execute(sql_archive_old, (user_update, job_hw_id))
 
-            # 2. Thêm mới các mốc LockOut hiện tại (IsOldData = 0)
+            # 2. Thêm mới các mốc LockUp hiện tại (IsOldData = 0)
             inserted_count = 0
             for item in job.items:
+                short_nm = item.short_name or "BUN-NSW-ACT"
                 cursor.execute(
                     sql_insert_new,
                     (
@@ -248,7 +299,8 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                         item.color,
                         item.default_qty or 1.0,
                         job_hw_id,
-                        user_update
+                        user_update,
+                        short_nm
                     )
                 )
                 inserted_count += 1
@@ -260,11 +312,11 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
 
         # Commit Transaction khi tất cả các bước thành công
         conn.commit()
-        logger.info(f"Save LockOut thành công bởi user '{user_update}': {saved_summary}")
+        logger.info(f"Save LockUp thành công bởi user '{user_update}': {saved_summary}")
 
         return {
             "success": True,
-            "message": f"Đã lưu thành công {len(payload.jobs)} Job(s) vào MSSQL LockOut.",
+            "message": f"Đã lưu thành công {len(payload.jobs)} Job(s) vào MSSQL [ProcurementApp].[dbo].[LockUp].",
             "user_update": user_update,
             "jobs_saved": saved_summary
         }
@@ -272,8 +324,8 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
     except Exception as e:
         if conn:
             conn.rollback()
-        logger.error(f"Error saving LockOut jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi khi lưu dữ liệu LockOut: {str(e)}")
+        logger.error(f"Error saving LockUp jobs: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lưu dữ liệu LockUp: {str(e)}")
     finally:
         if conn:
             conn.close()
@@ -372,23 +424,26 @@ async def calculate_lockout(payload: DoorCalcPayload):
         else:
             hung_val = None
 
+        d_label = str(d.get("label") or d.get("name") or d_name).strip()
+        is_ext = scope_val == "external"
+
         key = f"{d_name}_{d_width}_{d_height}_{scope_val}_{jamb_or_wall_val}_{hung_val}"
         if key not in grouped:
             grouped[key] = {
                 "mode": None,
                 "scope": scope_val,
-                "label": None,
+                "label": d_label,
                 "door_name": d_name,
                 "height": d_height,
                 "width": d_width,
-                "thickness": None,
+                "thickness": float(d.get("thickness") or d.get("thickness_mm") or (40.0 if is_ext else 35.0)),
                 "jamb_or_wall": jamb_or_wall_val,
-                "jamb_size": None,
-                "hung": hung_val,
-                "door_type": None,
-                "door_stop": None,
-                "internal_type": None,
-                "color": None,
+                "jamb_size": d.get("jamb_size") or "112×19mm 5.4m",
+                "hung": hung_val or "Hung A",
+                "door_type": d.get("door_type") or ("Type CG" if is_ext else "Type A"),
+                "door_stop": d.get("door_stop") or ("DS2 with Riser" if is_ext else "Cushion"),
+                "internal_type": d.get("internal_type") or (None if is_ext else "HF"),
+                "color": d.get("color") or (None if is_ext else "CHR"),
                 "default_qty": 1
             }
         else:
