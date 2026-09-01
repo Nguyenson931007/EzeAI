@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, mapFloorName, convertNameToClass } from "@/utils/geometry";
+import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, mapFloorName, convertNameToClass, classifyWallsTouchingExtEndpoints } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { ApiService, BASE_URL } from "@/models/api.service";
@@ -3775,7 +3775,8 @@ export default function RightPropertyPaneView({
     let totalLenM = 0;
     let extLenM = 0;
     if (Array.isArray(walls)) {
-      walls.forEach(w => {
+      const classifiedWalls = typeof classifyWallsTouchingExtEndpoints === "function" ? classifyWallsTouchingExtEndpoints(walls) : walls;
+      classifiedWalls.forEach(w => {
         let lenM = 0;
         if (typeof w.length_m === "number") lenM = w.length_m;
         else if (typeof w.length === "number") lenM = w.length;

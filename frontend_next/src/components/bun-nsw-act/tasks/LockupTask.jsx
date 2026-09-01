@@ -363,25 +363,26 @@ export default function LockupTask({
 
       // Map rows to entries (same mapping as LockoutJobsModal)
       const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
-        const isExt = r.scope === "external" || r.isExternal;
+        const origDoor = enrichedDoors[idx] || targetDoors[idx] || {};
+        const isExt = r.scope === "external" || r.isExternal || origDoor.isExternal;
         return {
           id: `door-ai-${Date.now()}-${idx}`,
-          doorId: r.doorId || r.id,
+          doorId: r.doorId || r.id || origDoor.doorId || origDoor.id,
           mode: r.mode || (isExt ? "Prehung" : "Loose"),
           scope: r.scope || (isExt ? "external" : "internal"),
-          label: r.label || r.door_name || `D${idx + 1}`,
-          door_name: r.door_name || r.label || `D${idx + 1}`,
-          height: r.height || 2040,
-          width: r.width || 820,
-          thickness: r.thickness || (isExt ? 40 : 35),
-          jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-          jamb_size: r.jamb_size || (isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m"),
-          hung: r.hung || (isExt ? "LH Prehung" : "RH Loose"),
-          door_type: r.door_type || (isExt ? "Type CG" : "Type A"),
-          door_stop: r.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
-          internal_type: r.internal_type !== undefined ? r.internal_type : (isExt ? null : "HF"),
-          color: r.color !== undefined ? r.color : (isExt ? null : "CHR"),
-          default_qty: r.default_qty || 1
+          label: r.label || origDoor.label || r.door_name || `D${idx + 1}`,
+          door_name: r.door_name || origDoor.door_name || r.label || `D${idx + 1}`,
+          height: r.height || origDoor.height || 2040,
+          width: r.width || origDoor.width || 820,
+          thickness: r.thickness || origDoor.thickness || (isExt ? 40 : 35),
+          jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || "90mm Wall",
+          jamb_size: r.jamb_size || origDoor.jamb_size || (isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m"),
+          hung: r.hung || origDoor.hung || (isExt ? "LH Prehung" : "RH Loose"),
+          door_type: r.door_type || origDoor.door_type || (isExt ? "Type CG" : "Type A"),
+          door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
+          internal_type: r.internal_type !== undefined ? r.internal_type : (origDoor.internal_type !== undefined ? origDoor.internal_type : (isExt ? null : "HF")),
+          color: r.color !== undefined ? r.color : (origDoor.color !== undefined ? origDoor.color : (isExt ? null : "CHR")),
+          default_qty: r.default_qty || origDoor.default_qty || 1
         };
       });
 
@@ -1413,14 +1414,14 @@ export default function LockupTask({
                     const effType = selectedTypeProp || selectedType;
                     const effHovered = hoveredDoorId;
 
-                    const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+                    const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1).trim() === String(id2).trim();
                     const hasDoorMatch = (targetId) => {
                       if (!targetId) return false;
-                      return matchId(row.doorId, targetId) || matchId(row.id, targetId);
+                      return matchId(row.doorId, targetId) || matchId(row.id, targetId) || matchId(row.door_id, targetId);
                     };
 
                     const isSelected = selectedEntryId === row.id ||
-                      (effDoor && hasDoorMatch(effDoor.id)) ||
+                      (effDoor && (hasDoorMatch(effDoor.id) || hasDoorMatch(effDoor.doorId))) ||
                       (effDoorIds.length > 0 && effDoorIds.some(sId => hasDoorMatch(sId))) ||
                       (effType === "door" && hasDoorMatch(effId));
                     const isHovered = effHovered && hasDoorMatch(effHovered);
@@ -1446,6 +1447,11 @@ export default function LockupTask({
                     return (
                       <tr
                         key={row.id || idx}
+                        ref={(el) => {
+                          if (isSelected && el) {
+                            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                          }
+                        }}
                         onClick={() => {
                           if (!isRowEditing) {
                             setSelectedEntryId(row.id);
@@ -1455,8 +1461,9 @@ export default function LockupTask({
                         style={{
                           background: rowBg,
                           cursor: isRowEditing ? "default" : "pointer",
-                          outline: isSelected ? "2px solid #3b82f6" : "none",
+                          outline: isSelected ? "2px solid #2563eb" : "none",
                           outlineOffset: "-1px",
+                          boxShadow: isSelected ? "inset 0 0 0 1px #3b82f6" : "none",
                           transition: "background 0.15s ease"
                         }}
                       >
@@ -1465,15 +1472,16 @@ export default function LockupTask({
                           position: "sticky",
                           left: 0,
                           zIndex: 2,
-                          background: rowBg,
+                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "6px 8px",
-                          fontWeight: 700,
+                          fontWeight: isSelected ? 800 : 700,
                           textAlign: "center",
-                          color: "#64748b",
+                          color: isSelected ? "#1e40af" : "#64748b",
                           width: "32px",
                           minWidth: "32px",
                           maxWidth: "32px",
-                          borderBottom: "1px solid #e2e8f0"
+                          borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                          borderLeft: isSelected ? "4px solid #2563eb" : "4px solid transparent"
                         }}>{idx + 1}</td>
 
                         {/* Sticky Label column (Primary Identifier) */}
@@ -1481,14 +1489,14 @@ export default function LockupTask({
                           position: "sticky",
                           left: "32px",
                           zIndex: 2,
-                          background: rowBg,
+                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "6px 8px",
                           fontWeight: 800,
-                          color: "#1e40af",
+                          color: isSelected ? "#1e3a8a" : "#1e40af",
                           width: "95px",
                           minWidth: "95px",
-                          borderBottom: "1px solid #e2e8f0",
-                          borderRight: "2px solid #cbd5e1",
+                          borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                          borderRight: isSelected ? "2px solid #60a5fa" : "2px solid #cbd5e1",
                           boxShadow: "3px 0 5px -2px rgba(0,0,0,0.12)"
                         }}>
                           {isRowEditing ? (
@@ -1500,13 +1508,14 @@ export default function LockupTask({
                             />
                           ) : (
                             <span style={{
-                              background: "#eff6ff",
-                              color: "#1d4ed8",
-                              padding: "2px 6px",
+                              background: isSelected ? "#2563eb" : "#eff6ff",
+                              color: isSelected ? "#ffffff" : "#1d4ed8",
+                              padding: "2px 7px",
                               borderRadius: "4px",
-                              border: "1px solid #bfdbfe",
+                              border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
                               display: "inline-block",
-                              fontWeight: 700
+                              fontWeight: 800,
+                              boxShadow: isSelected ? "0 1px 3px rgba(37,99,235,0.3)" : "none"
                             }}>
                               {labelDisplay}
                             </span>
@@ -1650,20 +1659,20 @@ export default function LockupTask({
                           </>
                         ) : (
                           <>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{categoryDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{locationDisplay}</td>
-                            <td style={{ padding: "6px 8px", color: "#334155", borderBottom: "1px solid #e2e8f0" }}>{doorDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{sizeDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{thicksDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{jambWallDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{jambSizeDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{hungDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{typeDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{hfHoDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{colorDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{stopDisplay}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>{qtyDisplay}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{categoryDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{locationDisplay}</td>
+                            <td style={{ padding: "6px 8px", color: isSelected ? "#1e3a8a" : "#334155", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{doorDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{sizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{thicksDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambWallDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambSizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hungDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{typeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hfHoDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{colorDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{stopDisplay}</td>
+                            <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{qtyDisplay}</td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
                               <button
                                 type="button"
                                 onClick={(e) => {

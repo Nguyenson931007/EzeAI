@@ -32,6 +32,7 @@ import {
   getWallClass,
   getWallType,
   getWallSideOffsets,
+  classifyWallsTouchingExtEndpoints,
   ADD_POINT_SNAP_DISTANCE,
   findBestRoomInsertionPoint,
   mirrorPolygonAcrossLine,
@@ -701,7 +702,8 @@ const WallLayer = React.memo(({
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
   const chains = [];
-  const validWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
+  const rawValidWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
+  const validWalls = classifyWallsTouchingExtEndpoints(rawValidWalls);
   const visited = new Set();
 
   // Calculate junctions where int_wall or part_wall touches ext_wall centerline
@@ -1311,9 +1313,13 @@ const WallHandlesLayer = React.memo(({
     return strId;
   }
 
+  const handleWalls = React.useMemo(() => {
+    return typeof classifyWallsTouchingExtEndpoints === 'function' ? classifyWallsTouchingExtEndpoints(walls || []) : (walls || []);
+  }, [walls]);
+
   return (
     <g id="WallHandlesLayer">
-      {(walls || []).map((w, idx) => {
+      {handleWalls.map((w, idx) => {
         if (!w.centerline || w.centerline.length !== 2) return null;
         const isSelected = selectedWallIds.includes(w.id) || selectedId === w.id;
         const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));

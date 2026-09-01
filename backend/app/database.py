@@ -140,8 +140,37 @@ def get_db_connection():
         conn.row_factory = sqlite3.Row
         # Bật WAL Mode (Write-Ahead Logging) cho SQLite để tối ưu hóa hiệu năng đọc/ghi đồng thời
         conn.execute("PRAGMA temp_store = 2")
-        conn.execute("PRAGMA journal_mode = WAL")
         return DBConnection(conn, "sqlite")
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def get_db_session(auto_commit: bool = True):
+    """
+    Context manager tự động:
+    1. Mở kết nối Database (SQLite/MySQL)
+    2. Thao tác dữ liệu
+    3. Tự động commit / rollback
+    4. Luôn luôn đóng kết nối (conn.close()) giải phóng tài nguyên
+    """
+    conn = get_db_connection()
+    try:
+        yield conn
+        if auto_commit:
+            conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise e
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def init_db():

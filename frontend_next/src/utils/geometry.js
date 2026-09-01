@@ -33,6 +33,147 @@ export function getWallType(w) {
 }
 
 /**
+ * Kiểm tra và gán class exterior_wall cho tường nếu 2 đầu mút (hoặc 2 điểm tiếp xúc) chạm vào điểm cuối của các tường exterior.
+ * Quy tắc: Khi một tường tiếp xúc với các tường ext (ở điểm cuối hoặc cắt qua điểm cuối của tường ext), 
+ * đoạn tường nằm giữa 2 điểm tiếp xúc của 2 tường ext sẽ được tách ra và thuộc external wall.
+ */
+export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
+  if (!Array.isArray(walls) || walls.length === 0) return walls;
+
+  // 1. Thu thập tất cả các điểm cuối của tường exterior_wall
+  const extEndpoints = [];
+  walls.forEach(w => {
+    const cls = getWallClass(w);
+    if (cls === "exterior_wall" && w.centerline && w.centerline.length === 2) {
+      extEndpoints.push({ x: w.centerline[0][0], y: w.centerline[0][1], wallId: w.id });
+      extEndpoints.push({ x: w.centerline[1][0], y: w.centerline[1][1], wallId: w.id });
+    }
+  });
+
+  if (extEndpoints.length === 0) return walls;
+
+  const resultWalls = [];
+
+  walls.forEach(w => {
+    const cls = getWallClass(w);
+    if (cls === "exterior_wall" || !w.centerline || w.centerline.length !== 2) {
+      resultWalls.push(w);
+      return;
+    }
+
+    const x1 = w.centerline[0][0];
+    const y1 = w.centerline[0][1];
+    const x2 = w.centerline[1][0];
+    const y2 = w.centerline[1][1];
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) {
+      resultWalls.push(w);
+      return;
+    }
+
+    // Tìm tất cả các điểm tiếp xúc của tường ext lên centerline của tường này
+    const touchPoints = [];
+
+    extEndpoints.forEach(ep => {
+      const t = ((ep.x - x1) * dx + (ep.y - y1) * dy) / (len * len);
+      if (t >= -0.05 && t <= 1.05) {
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+        const dist = Math.hypot(ep.x - projX, ep.y - projY);
+        if (dist <= snapThresh) {
+          const clampedT = Math.max(0, Math.min(1, t));
+          touchPoints.push(clampedT);
+        }
+      }
+    });
+
+    if (touchPoints.length < 2) {
+      resultWalls.push(w);
+      return;
+    }
+
+    // Sắp xếp và loại bỏ các điểm trùng lặp
+    touchPoints.sort((a, b) => a - b);
+    const uniqueT = [];
+    touchPoints.forEach(t => {
+      if (uniqueT.length === 0 || (t - uniqueT[uniqueT.length - 1]) * len > 15) {
+        uniqueT.push(t);
+      }
+    });
+
+    if (uniqueT.length < 2) {
+      resultWalls.push(w);
+      return;
+    }
+
+    const tMin = uniqueT[0];
+    const tMax = uniqueT[uniqueT.length - 1];
+
+    const thickPx = w.thickness_px || 20;
+
+    const makePoly = (pStart, pEnd) => {
+      const segDx = pEnd[0] - pStart[0];
+      const segDy = pEnd[1] - pStart[1];
+      const segLen = Math.hypot(segDx, segDy) || 1;
+      const nx = -segDy / segLen;
+      const ny = segDx / segLen;
+      const half = thickPx / 2;
+      return [
+        [pStart[0] + nx * half, pStart[1] + ny * half],
+        [pEnd[0] + nx * half, pEnd[1] + ny * half],
+        [pEnd[0] - nx * half, pEnd[1] - ny * half],
+        [pStart[0] - nx * half, pStart[1] - ny * half]
+      ];
+    };
+
+    // Đoạn 1: từ đầu tường (0) tới điểm tiếp xúc ext đầu tiên (tMin)
+    if (tMin * len >= 15) {
+      const pStart = [x1, y1];
+      const pEnd = [x1 + tMin * dx, y1 + tMin * dy];
+      resultWalls.push({
+        ...w,
+        id: `${w.id}_int1`,
+        centerline: [pStart, pEnd],
+        polygon: makePoly(pStart, pEnd)
+      });
+    }
+
+    // Đoạn 2: NỐI GIỮA 2 ĐIỂM TIẾP XÚC EXT (ĐOẠN TƯỜNG EXTERNAL MỚI!)
+    if ((tMax - tMin) * len >= 15) {
+      const pStart = [x1 + tMin * dx, y1 + tMin * dy];
+      const pEnd = [x1 + tMax * dx, y1 + tMax * dy];
+      resultWalls.push({
+        ...w,
+        id: (tMin * len < 15 && (1 - tMax) * len < 15) ? w.id : `${w.id}_ext`,
+        class_name: "exterior_wall",
+        wall_type: "ext",
+        is_ext: true,
+        is_exterior: true,
+        centerline: [pStart, pEnd],
+        polygon: makePoly(pStart, pEnd)
+      });
+    }
+
+    // Đoạn 3: từ điểm tiếp xúc ext cuối (tMax) tới hết tường (1)
+    if ((1 - tMax) * len >= 15) {
+      const pStart = [x1 + tMax * dx, y1 + tMax * dy];
+      const pEnd = [x2, y2];
+      resultWalls.push({
+        ...w,
+        id: `${w.id}_int2`,
+        centerline: [pStart, pEnd],
+        polygon: makePoly(pStart, pEnd)
+      });
+    }
+  });
+
+  return resultWalls;
+}
+
+/**
  * Computes natural segment unit normal and side offset signs for wall endpoints p1 -> p2.
  * Guarantees Side A is always BOTTOM/LEFT and Side B is always TOP/RIGHT,
  * while maintaining 100% geometric alignment with P1/P2 endpoints and end caps.
@@ -759,13 +900,15 @@ export function cutWallsByDoors(walls, doors, realScale = null, forceCut = false
 export function recalculateAllWallsPolygons(walls) {
   if (!walls || walls.length === 0) return walls;
 
-  return walls.map(w => {
+  const preProcessed = classifyWallsTouchingExtEndpoints(walls);
+
+  return preProcessed.map(w => {
     const c = w.centerline;
     if (!c || c.length !== 2) return w;
     const pts = [{ x: c[0][0], y: c[0][1] }, { x: c[1][0], y: c[1][1] }];
     const thicknessPx = w.thickness_px || 20;
 
-    const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, walls);
+    const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, preProcessed);
     if (newPoly) {
       return {
         ...w,

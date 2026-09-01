@@ -42,14 +42,44 @@ def get_mssql_connection():
         raise
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def get_mssql_session(auto_commit: bool = True):
+    """
+    Context manager quản lý vòng đời kết nối MSSQL tự động:
+    1. Mở kết nối: conn = get_mssql_connection()
+    2. Thao tác dữ liệu an toàn
+    3. Tự động commit nếu thành công, rollback nếu có lỗi
+    4. Luôn luôn đóng kết nối (conn.close()) khi hoàn thành hoặc có lỗi
+    """
+    conn = get_mssql_connection()
+    try:
+        yield conn
+        if auto_commit:
+            conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.error(f"MSSQL Session lỗi trong quá trình thao tác dữ liệu: {e}")
+        raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def test_mssql_connection():
     """Kiểm tra kết nối MSSQL có hoạt động không (dùng cho health-check)."""
     try:
-        conn = get_mssql_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        conn.close()
+        with get_mssql_session(auto_commit=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
         return True
     except Exception as e:
         logger.error(f"MSSQL health-check thất bại: {e}")
