@@ -348,7 +348,8 @@ export default function LockoutJobsModal({
           door_stop: parseStr(getFieldValue(row, "door_stop")),
           internal_type: parseStr(getFieldValue(row, "internal_type")),
           color: parseStr(getFieldValue(row, "color")),
-          default_qty: parseNum(getFieldValue(row, "default_qty")) || 1.0
+          default_qty: parseNum(getFieldValue(row, "default_qty")) || 1.0,
+          short_name: "BUN-NSW-ACT"
         });
       });
 

@@ -41,7 +41,19 @@ const handleResponse = async (res) => {
     const contentType = res.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
       const errData = await res.json();
-      throw new Error(errData.detail || `Server returned error ${res.status}`);
+      let errorMsg = "";
+      if (typeof errData.detail === "string") {
+        errorMsg = errData.detail;
+      } else if (Array.isArray(errData.detail)) {
+        errorMsg = errData.detail.map(d => (d.loc ? `${d.loc.join('.')}: ` : '') + (d.msg || JSON.stringify(d))).join("; ");
+      } else if (errData.detail && typeof errData.detail === "object") {
+        errorMsg = JSON.stringify(errData.detail);
+      } else if (errData.message) {
+        errorMsg = errData.message;
+      } else {
+        errorMsg = JSON.stringify(errData);
+      }
+      throw new Error(errorMsg || `Server returned error ${res.status}`);
     } else {
       const text = await res.text();
       throw new Error(`Server returned ${res.status}: ${text}`);

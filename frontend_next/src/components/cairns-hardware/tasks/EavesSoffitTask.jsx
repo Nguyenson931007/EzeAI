@@ -121,9 +121,9 @@ export default function EavesSoffitTask({
             eaves: entries.map(e => ({
               sheet_brand: e.brand || e.sheetBrand || sheetBrand || "FC",
               sheet_thickness: e.thickness || e.sheetThickness || sheetThickness || "4.5mm",
-              sofit_batten: e.batten || e.soffitBatten || soffitBatten,
-              sofit_bead: e.bead || e.soffitBead || soffitBead,
-              short_name: activeCustomerShortName
+              sofit_batten: e.batten || e.soffitBatten || soffitBatten || "",
+              sofit_bead: e.bead || e.soffitBead || soffitBead || "",
+              short_name: activeCustomerShortName || "CAIRNS-HARDWARE"
             }))
           }
         ]

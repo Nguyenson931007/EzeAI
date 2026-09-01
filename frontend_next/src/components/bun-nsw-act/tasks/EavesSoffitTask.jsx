@@ -101,17 +101,19 @@ export default function EavesSoffitTask({
 
       const savedJobId = appModel?.currentJobId || appModel?.current_hw_id || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
       if (!savedJobId) {
-        console.warn("Chưa chọn Job để lưu Eaves Soffit");
+        console.error("Missing IdJob_HW. Eaves data was not saved.");
+        setSaveStatus("error");
+        return;
       }
 
       const payload = {
         user_update: currentUsername || "admin",
         jobs: [
           {
-            id_job_hw: savedJobId || appModel?.currentProjectName || "default",
+            id_job_hw: savedJobId,
             eaves: entries.map(e => ({
-              sheet_brand: e.brand || e.sheetBrand || sheetBrand || "FC",
-              sheet_thickness: e.thickness || e.sheetThickness || sheetThickness || "4.5mm",
+              sheet_brand: e.brand || e.sheetBrand || sheetBrand,
+              sheet_thickness: e.thickness || e.sheetThickness || sheetThickness,
               sofit_batten: e.batten || e.soffitBatten || soffitBatten,
               sofit_bead: e.bead || e.soffitBead || soffitBead,
               short_name: activeCustomerShortName

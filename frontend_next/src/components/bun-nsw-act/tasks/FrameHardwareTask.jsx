@@ -479,6 +479,7 @@ export default function FrameHardwareTask({
             justifyContent: "space-between",
             userSelect: "none"
           }}
+          title="Click to collapse / expand Wall information"
         >
           <span>1. Wall information</span>
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
@@ -780,7 +781,10 @@ export default function FrameHardwareTask({
             )}
           </div>
         </div>
-        <div style={{ padding: "8px", overflowX: "auto" }}>
+
+        {isSection2Open && (
+          <>
+            <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
@@ -1032,6 +1036,8 @@ export default function FrameHardwareTask({
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

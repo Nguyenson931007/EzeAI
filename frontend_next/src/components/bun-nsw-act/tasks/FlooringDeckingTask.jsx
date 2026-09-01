@@ -92,6 +92,91 @@ export default function FlooringDeckingTask({
     return idx < labels.length ? labels[idx] : `${idx}F`;
   };
 
+  // Manual Add Handlers for each section
+  const handleAddDry = () => {
+    const num = parseFloat(dryArea);
+    if (!dryArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Dry area.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = dryProduct !== "Select..." ? dryProduct : (DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP");
+    const newEntry = {
+      id: `flr-dry-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: "Dry",
+      location: `${currentLevel} Dry Area`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setDryArea("");
+  };
+
+  const handleAddWet = () => {
+    const num = parseFloat(wetArea);
+    if (!wetArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Wet area.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = wetProduct !== "Select..." ? wetProduct : (WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592");
+    const newEntry = {
+      id: `flr-wet-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: "Wet",
+      location: `${currentLevel} Wet Area`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setWetArea("");
+  };
+
+  const handleAddBalcony = () => {
+    const num = parseFloat(balconyArea);
+    if (!balconyArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Balcony Tiles.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = balconyProduct !== "Select..." ? balconyProduct : (BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592");
+    const newEntry = {
+      id: `flr-balc-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: "Balcony Tiles",
+      location: `${currentLevel} Balcony / Porch Area`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setBalconyArea("");
+  };
+
+  const handleAddOtherArea = () => {
+    const num = parseFloat(otherArea);
+    if (!otherArea || isNaN(num) || num <= 0) {
+      alert("Please enter a valid Total m² for Other area types.");
+      return;
+    }
+    const currentLevel = getLevelCode(currentPage) || "GF";
+    const prod = otherProduct !== "Select..." ? otherProduct : (getOtherProductOptions(otherTypeArea)[1] || otherTypeArea);
+    const newEntry = {
+      id: `flr-other-${Date.now()}`,
+      floorLevel: currentLevel,
+      typeArea: otherTypeArea,
+      location: `${currentLevel} ${otherTypeArea}`,
+      product: prod,
+      areaM2: num,
+      totalM2: formatM2_4Digits(num)
+    };
+    if (onSetEntries) onSetEntries(prev => [...(prev || []), newEntry]);
+    setOtherArea("");
+  };
+
   // Handler to auto fill multi-level rooms across all pages directly from canvas/model
   const handleAutoFillAI = () => {
     if (onAddDataAI) onAddDataAI("flooring_decking");
@@ -684,6 +769,7 @@ export default function FlooringDeckingTask({
             justifyContent: "space-between",
             userSelect: "none"
           }}
+          title="Click to collapse / expand Flooring area input"
         >
           <span>1. Flooring area input</span>
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
@@ -748,6 +834,24 @@ export default function FlooringDeckingTask({
                     }}
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleAddDry}
+                  style={{
+                    padding: "6px 12px",
+                    height: "31px",
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "5px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  + Add
+                </button>
               </div>
             )}
           </div>
@@ -806,6 +910,24 @@ export default function FlooringDeckingTask({
                     }}
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleAddWet}
+                  style={{
+                    padding: "6px 12px",
+                    height: "31px",
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "5px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  + Add
+                </button>
               </div>
             )}
           </div>
@@ -864,6 +986,24 @@ export default function FlooringDeckingTask({
                     }}
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleAddBalcony}
+                  style={{
+                    padding: "6px 12px",
+                    height: "31px",
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "5px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  + Add
+                </button>
               </div>
             )}
           </div>
@@ -924,24 +1064,47 @@ export default function FlooringDeckingTask({
                   </div>
                 </div>
 
-                {/* Row 2: Total m² */}
-                <div style={{ maxWidth: "160px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
-                  <input
-                    type="number"
-                    placeholder="Enter total area..."
-                    value={otherArea}
-                    onChange={(e) => setOtherArea(e.target.value)}
+                {/* Row 2: Total m² & + Add button */}
+                <div style={{ display: "flex", alignItems: "flex-end", gap: "10px" }}>
+                  <div style={{ maxWidth: "160px", flex: "1 1 160px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
+                    <input
+                      type="number"
+                      placeholder="Enter total area..."
+                      value={otherArea}
+                      onChange={(e) => setOtherArea(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddOtherArea}
                     style={{
-                      width: "100%",
-                      padding: "6px 8px",
-                      fontSize: "10.5px",
+                      padding: "6px 14px",
+                      height: "31px",
+                      background: "#1e293b",
+                      color: "#ffffff",
+                      border: "none",
                       borderRadius: "5px",
-                      border: "1px solid #fde047",
-                      background: "#fffbeb",
-                      boxSizing: "border-box"
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      whiteSpace: "nowrap"
                     }}
-                  />
+                  >
+                    + Add
+                  </button>
                 </div>
               </div>
             )}
@@ -991,7 +1154,10 @@ export default function FlooringDeckingTask({
             </button>
           </div>
         </div>
-        <div style={{ padding: "0px", overflowX: "auto" }}>
+
+        {isSection2Open && (
+          <>
+            <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -1342,6 +1508,8 @@ export default function FlooringDeckingTask({
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

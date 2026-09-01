@@ -80,8 +80,8 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
                 ins.Product AS product,
                 ins.WallHeight AS wall_height,
                 ins.WallLength AS wall_length,
-                ins.TotalArea AS total_area,
-                ins.TotalArea AS insulation_area,
+                ins.TotalAreaRaked AS total_area_raked,
+                ins.TotalAreaDoor AS total_area_door,
                 ins.RValue AS r_value,
                 ins.short_name AS short_name,
                 ins.UserUpdate AS user_update,
@@ -132,8 +132,8 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
                 "product": r.get("product"),
                 "wall_height": float(r["wall_height"]) if r.get("wall_height") is not None else 0.0,
                 "wall_length": round(wall_len_mm, 4),
-                "total_area": float(r["total_area"]) if r.get("total_area") is not None else 0.0,
-                "insulation_area": float(r["total_area"]) if r.get("total_area") is not None else 0.0,
+                "total_area_raked": float(r["total_area_raked"]) if r.get("total_area_raked") is not None else 0.0,
+                "total_area_door": float(r["total_area_door"]) if r.get("total_area_door") is not None else 0.0,
                 "r_value": r_val_formatted,
                 "short_name": r.get("short_name") or "BUN-NSW-ACT",
                 "user_update": r.get("user_update"),
@@ -164,7 +164,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
     """
     Lưu danh sách bóc tách Insulation vào [ProcurementApp].[dbo].[Insulation].
-    Lưu WallHeight, WallLength (mm), TotalArea (m²), RValue (decimal).
+    Lưu WallHeight, WallLength (mm), RValue (decimal).
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
     conn = None
@@ -194,13 +194,14 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 Product,
                 WallHeight,
                 WallLength,
-                TotalArea,
                 RValue,
                 IdJob_HW,
                 UserUpdate,
                 DatetimeUpdate,
                 IsOldData,
-                short_name
+                short_name,
+                TotalAreaRaked,
+                TotalAreaDoor
             )
             VALUES
             (
@@ -212,9 +213,10 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 %s,
                 %s,
                 %s,
-                %s,
                 GETDATE(),
                 0,
+                %s,
+                %s,
                 %s
             );
         """
@@ -275,17 +277,10 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 itype = item.insulation_type or item.wall_type or "Ext wall"
                 h = float(item.wall_height or 2400.0)
                 l = float(item.wall_length or 0.0)
+                raked = float(item.total_area_raked or 0.0)
+                door = float(item.total_area_door or 0.0)
 
-                # Tính hoặc lấy TotalArea (m²)
-                if item.total_area is not None and float(item.total_area) > 0:
-                    tot_area = float(item.total_area)
-                elif item.insulation_area is not None and float(item.insulation_area) > 0:
-                    tot_area = float(item.insulation_area)
-                else:
-                    raked = float(item.total_area_raked or 0.0)
-                    door = float(item.total_area_door or 0.0)
-                    gross = (h / 1000.0) * (l / 1000.0)
-                    tot_area = max(0.0, round(gross + raked - door, 2))
+
 
                 # Parse RValue sang số thập phân (e.g. "R2.5" -> 2.5)
                 r_val_raw = str(item.r_value if item.r_value is not None else "2.0").upper().replace("R", "").strip()
@@ -294,12 +289,8 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 except Exception:
                     r_val = 2.0
 
-                prod = item.product or (
-                    "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack"
-                    if "ext" in itype.lower() else
-                    "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack"
-                )
-                short_nm = item.short_name or "BUN-NSW-ACT"
+                prod = (item.product or "").strip()
+                short_nm = (item.short_name or "BUN-NSW-ACT").strip()
 
                 cursor.execute(
                     sql_insert_new,
@@ -308,11 +299,12 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                         prod,
                         round(h, 2),
                         round(l, 2),
-                        round(tot_area, 2),
                         round(r_val, 2),
                         job_hw_id,
                         user_update,
-                        short_nm
+                        short_nm,
+                        round(raked, 2),
+                        round(door, 2)
                     )
                 )
                 inserted_count += 1

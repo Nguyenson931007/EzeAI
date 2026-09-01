@@ -35,8 +35,8 @@ from api.framework_routes import router as framework_router
 from api.eaves_routes import router as eaves_router
 from api.cladding_routes import router as cladding_router
 from api.area_summary_routes import router as area_summary_router
+from api.lockup_routes import router as lockout_router
 from api.insulation_routes import router as insulation_router
-from api.lockout_routes import router as lockout_router
 from api.timber_posts_routes import router as timber_posts_router
 from api.catalog_routes import router as catalog_router
 from services.roof_v3 import router as roof_v3_router

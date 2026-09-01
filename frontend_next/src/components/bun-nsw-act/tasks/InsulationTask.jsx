@@ -229,9 +229,9 @@ export default function InsulationTask({
         const mappedRows = res.rows.map((r, idx) => {
           const isExt = (r.wall_type || "").toLowerCase().includes("ext");
           const rVal = isExt ? "R2.5" : "R2.0";
-          const prod = isExt
-            ? "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack"
-            : "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack";
+          const isParty = (r.wall_type || "").toLowerCase().includes("party");
+          const prodList = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
+          const prod = (prodList && prodList[0]) || "";
           const grossArea = (parseFloat(r.wall_height) / 1000) * (parseFloat(r.wall_length) / 1000);
           const rakedArea = parseFloat(r.total_area_raked || 0);
           const doorArea = parseFloat(r.total_area_door || 0);
@@ -273,7 +273,8 @@ export default function InsulationTask({
       const updated = { ...r, [field]: val };
       if (field === "rValue") {
         const isExt = (updated.type || "").toLowerCase().includes("ext");
-        const prods = isExt ? extProductOptions : (updated.type === "Party wall" ? partyProductOptions : intProductOptions);
+        const isParty = (updated.type || "").toLowerCase().includes("party");
+        const prods = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
         if (prods.length > 0) updated.product = prods[0];
       }
       if (field === "height" || field === "length" || field === "raked" || field === "door") {
@@ -295,18 +296,23 @@ export default function InsulationTask({
     setIsSaving(true);
     setSaveSuccess(false);
     try {
-      const items = (wallEntries || []).map(w => ({
-        wall_type: w.type || "Ext wall",
-        insulation_type: w.type || "Ext wall",
-        product: w.product || "",
-        wall_height: parseFloat(w.height) || 2400,
-        wall_length: parseFloat(w.length) || 0,
-        total_area_raked: parseFloat(w.raked) || 0,
-        total_area_door: parseFloat(w.door) || 0,
-        total_area: parseFloat(w.insulationArea || w.totalArea || 0),
-        r_value: w.rValue || "R2.0",
-        short_name: activeCustomerShortName
-      }));
+      const items = (wallEntries || []).map(w => {
+        const isExt = (w.type || "").toLowerCase().includes("ext");
+        const isParty = (w.type || "").toLowerCase().includes("party");
+        const availableProds = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
+        const resolvedProduct = w.product || (availableProds && availableProds[0]) || "";
+        return {
+          wall_type: w.type || "Ext wall",
+          insulation_type: w.type || "Ext wall",
+          product: resolvedProduct,
+          wall_height: parseFloat(w.height) || 2400,
+          wall_length: parseFloat(w.length) || 0,
+          total_area_raked: parseFloat(w.raked) || 0,
+          total_area_door: parseFloat(w.door) || 0,
+          r_value: w.rValue || (isExt ? "R2.5" : "R2.0"),
+          short_name: activeCustomerShortName || "BUN-NSW-ACT"
+        };
+      });
 
       const targetJob = activeJobNumber || currentProjectName || currentJobId || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
       if (!targetJob) {
@@ -357,8 +363,8 @@ export default function InsulationTask({
               length: r.wall_length || 0,
               rValue: r.r_value || "R2.0",
               product: r.product || "",
-              raked: 0,
-              door: 0,
+              raked: r.total_area_raked !== undefined && r.total_area_raked !== null ? r.total_area_raked : 0,
+              door: r.total_area_door !== undefined && r.total_area_door !== null ? r.total_area_door : 0,
               insulationArea: r.total_area || r.insulation_area || 0,
               totalArea: r.total_area || r.insulation_area || 0
             }));
@@ -518,18 +524,6 @@ export default function InsulationTask({
                 />
               </div>
 
-              <div style={{ flex: "1 1 80px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Insulation</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="text"
-                  readOnly
-                  value={calcInsulationArea(extHeight, extLength, extRaked, extDoor)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f8fafc", fontWeight: 700, boxSizing: "border-box" }}
-                />
-              </div>
 
               <button
                 type="button"
@@ -649,18 +643,6 @@ export default function InsulationTask({
                 />
               </div>
 
-              <div style={{ flex: "1 1 80px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Insulation</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="text"
-                  readOnly
-                  value={calcInsulationArea(intHeight, intLength, intRaked, intDoor)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f8fafc", fontWeight: 700, boxSizing: "border-box" }}
-                />
-              </div>
 
               <button
                 type="button"
@@ -780,18 +762,6 @@ export default function InsulationTask({
                 />
               </div>
 
-              <div style={{ flex: "1 1 80px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Insulation</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="text"
-                  readOnly
-                  value={calcInsulationArea(partyHeight, partyLength, partyRaked, partyDoor)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f8fafc", fontWeight: 700, boxSizing: "border-box" }}
-                />
-              </div>
 
               <button
                 type="button"
@@ -857,8 +827,8 @@ export default function InsulationTask({
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                 <th style={{ padding: "6px 8px", width: "26px" }}>#</th>
                 <th style={{ padding: "6px 8px", width: "80px" }}>Wall Type*</th>
-                <th style={{ padding: "6px 8px", width: "65px" }}>R-Value</th>
-                <th style={{ padding: "6px 8px", minWidth: "260px" }}>Product</th>
+                <th style={{ padding: "6px 8px", width: "90px" }}>R-Value</th>
+                <th style={{ padding: "6px 8px", minWidth: "200px" }}>Product</th>
                 <th style={{ padding: "6px 8px", width: "90px" }}>Wall Height (mm)*</th>
                 <th style={{ padding: "6px 8px", width: "105px" }}>Wall Length (mm)*</th>
                 <th style={{ padding: "6px 8px", width: "75px" }}>Raked (m²)*</th>
