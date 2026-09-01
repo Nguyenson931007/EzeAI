@@ -2489,8 +2489,11 @@ export default function RightPropertyPaneView({
   }, [selectedRoomIds, selectedRoom]);
 
   // When on Insulation task: dynamic wall & area calculations based on canvas selection
+  // Skip auto-generation if insulationWallEntries already has entries (preserves AI-filled, entered, or calculated rows)
   React.useEffect(() => {
     if (activePaneTab === "insulation") {
+      if (insulationWallEntries && insulationWallEntries.length > 0) return;
+
       const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
       const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
@@ -2565,14 +2568,7 @@ export default function RightPropertyPaneView({
         });
 
         if (newWallEntries.length > 0) {
-          setInsulationWallEntries(prev => {
-            // Preserve manually added rows (from Card 1 "+ Add wall" button)
-            // and AI-filled rows — only replace auto-generated canvas entries
-            const manualRows = (prev || []).filter(e =>
-              (e.id && e.id.startsWith("ins-") && !e.id.startsWith("ins-w-"))
-            );
-            return [...newWallEntries, ...manualRows];
-          });
+          setInsulationWallEntries(newWallEntries);
         }
       }
 
