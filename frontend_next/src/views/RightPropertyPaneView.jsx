@@ -1524,42 +1524,29 @@ export default function RightPropertyPaneView({
           const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
 
           const category = isExt ? "Prehung" : "Loose Jamb";
-          const location = isExt ? (dLabel.includes("Front") || dLabel.includes("Entry") ? "Front Entry" : "External Patio / Balcony") : (d.room_name || d.room || `Internal Room ${idx + 1}`);
-          const doorName = dLabel;
-          const prod = isExt
-            ? (isSliding ? "ALUMINIUM SLIDING DOOR 2100X1800MM" : "SOLID TIMBER ENTRY DOOR 2040X820X40MM")
-            : "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM";
-          const size = d.width && d.height ? `${d.height} × ${d.width}` : (isExt && isSliding ? "2100 × 1800" : "2040 × 820");
-          const thicks = d.thickness ? `${d.thickness}mm` : (isExt && !isSliding ? "40mm" : "35mm");
-          const jambWall = isExt ? "110mm Brick Veneer" : "90mm Timber Stud";
-          const jambSize = isExt ? "135mm" : "110mm";
+          const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
+          const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+          const wallThick = d.wall_thickness || d.thickness_mm || 90;
           const hung = isExt ? (isSliding ? "Sliding Track" : "LH Prehung") : "RH Loose";
-          const doorType = isSliding ? "Sliding" : "Hinged";
-          const hfHo = isExt ? "HO" : "HF";
-          const color = "Primed White";
-          const stop = "Cushion Rubber Stop";
 
           generatedDoors.push({
             id: `lck-door-${d.id || idx}-${Date.now()}`,
             doorId: d.id,
-            category,
-            location,
-            door: doorName,
-            doorLabel: dLabel,
-            product: prod,
-            size,
-            thicks,
-            jambWall,
-            jambSize,
-            hung,
-            type: doorType,
-            configuration: isSliding ? "Sliding Door" : "Single Hinged Door",
-            frameMaterial: isExt ? "Aluminium / Hardwood" : "Timber (Primed Pine)",
-            weatherstrip: isExt ? "Yes - Standard Weatherstrip" : "No",
-            hfHo,
-            color,
-            stop,
-            qty: 1
+            mode: category === "Loose Jamb" ? "Loose" : "Prehung",
+            scope: isExt ? "external" : "internal",
+            label: dLabel,
+            door_name: dLabel,
+            height: dHeight,
+            width: dWidth,
+            thickness: isExt && !isSliding ? 40 : 35,
+            jamb_or_wall: `${wallThick}mm Wall`,
+            jamb_size: category === "Loose Jamb" ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m",
+            hung: hung || "RH Loose",
+            door_type: isExt ? "Type CG" : "Type A",
+            door_stop: isExt ? "DS2 with Riser" : "Cushion",
+            internal_type: isExt ? null : "HF",
+            color: isExt ? null : "CHR",
+            default_qty: 1
           });
         });
       }
@@ -1568,66 +1555,57 @@ export default function RightPropertyPaneView({
         generatedDoors.push(
           {
             id: "lck-ai-1-" + Date.now(),
-            category: "Prehung",
-            location: "Front Entry",
-            door: "Entry Door 01",
-            doorLabel: "D01 - Front Entry",
-            product: "SOLID TIMBER ENTRY DOOR 2040X820X40MM",
-            size: "2040 × 820",
-            thicks: "40mm",
-            jambWall: "110mm Brick",
-            jambSize: "135mm",
+            mode: "Prehung",
+            scope: "external",
+            label: "D01 - Front Entry",
+            door_name: "SOLID TIMBER ENTRY DOOR 2040X820X40MM",
+            height: 2040,
+            width: 820,
+            thickness: 40,
+            jamb_or_wall: "110mm Brick",
+            jamb_size: "135mm",
             hung: "LH Prehung",
-            type: "Hinged",
-            configuration: "Single Entry Door",
-            frameMaterial: "Hardwood Timber",
-            weatherstrip: "Yes - Heavy Duty Seal",
-            hfHo: "HO",
-            color: "Clear Pine / Primed",
-            stop: "Cushion Rubber Stop",
-            qty: 1
+            door_type: "Type CG",
+            door_stop: "DS2 with Riser",
+            internal_type: null,
+            color: "CHR",
+            default_qty: 1
           },
           {
             id: "lck-ai-2-" + Date.now(),
-            category: "Prehung",
-            location: "Balcony / Patio",
-            door: "Aluminium Slider 01",
-            doorLabel: "D02 - Patio Sliding Door",
-            product: "ALUMINIUM SLIDING DOOR 2100X1800MM",
-            size: "2100 × 1800",
-            thicks: "35mm",
-            jambWall: "110mm Stud",
-            jambSize: "135mm",
+            mode: "Prehung",
+            scope: "external",
+            label: "D02 - Patio Sliding Door",
+            door_name: "ALUMINIUM SLIDING DOOR 2100X1800MM",
+            height: 2100,
+            width: 1800,
+            thickness: 35,
+            jamb_or_wall: "110mm Stud",
+            jamb_size: "135mm",
             hung: "Sliding Track",
-            type: "Sliding",
-            configuration: "Double Sliding Door",
-            frameMaterial: "Powder Coated Aluminium",
-            weatherstrip: "Yes - Weather Felt Seal",
-            hfHo: "HO",
-            color: "Monument / Black",
-            stop: "Rubber Bumper",
-            qty: 1
+            door_type: "Type CG",
+            door_stop: "Rubber Bumper",
+            internal_type: null,
+            color: "CHR",
+            default_qty: 1
           },
           {
             id: "lck-ai-3-" + Date.now(),
-            category: "Loose Jamb",
-            location: "Internal Bedrooms & Bath",
-            door: "Internal Flush Doors",
-            doorLabel: "D03 - Internal Flush Door",
-            product: "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM",
-            size: "2040 × 820",
-            thicks: "35mm",
-            jambWall: "90mm Stud",
-            jambSize: "110mm",
+            mode: "Loose",
+            scope: "internal",
+            label: "D03 - Internal Flush Door",
+            door_name: "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM",
+            height: 2040,
+            width: 820,
+            thickness: 35,
+            jamb_or_wall: "90mm Stud",
+            jamb_size: "112×19mm 5.4m Loose Jamb",
             hung: "RH Loose",
-            type: "Hinged",
-            configuration: "Single Internal Door",
-            frameMaterial: "Timber (Primed Pine)",
-            weatherstrip: "No",
-            hfHo: "HF",
-            color: "Primed White",
-            stop: "Baseboard Stop",
-            qty: curDoors?.length ? Math.max(1, curDoors.length - 2) : 5
+            door_type: "Type A",
+            door_stop: "Cushion",
+            internal_type: "HF",
+            color: "CHR",
+            default_qty: curDoors?.length ? Math.max(1, curDoors.length - 2) : 5
           }
         );
       }
@@ -2517,10 +2495,8 @@ export default function RightPropertyPaneView({
       const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
 
-      // 1. Calculate Wall Insulation
-      const targetWalls = (selectedWallIds && selectedWallIds.length > 0)
-        ? curWalls.filter(w => selectedWallIds.includes(w.id))
-        : (selectedWall ? [selectedWall] : curWalls);
+      // 1. Calculate Wall Insulation on ALL walls
+      const targetWalls = curWalls;
 
       if (targetWalls.length > 0) {
         const wallGroupsMap = {};
@@ -2600,10 +2576,8 @@ export default function RightPropertyPaneView({
         }
       }
 
-      // 2. Calculate Area / Ceiling Insulation
-      const targetRooms = (selectedRoomIds && selectedRoomIds.length > 0)
-        ? curRooms.filter(r => selectedRoomIds.includes(r.id))
-        : (selectedRoom ? [selectedRoom] : curRooms);
+      // 2. Calculate Area / Ceiling Insulation on ALL rooms
+      const targetRooms = curRooms;
 
       let ceilM2 = 0;
       const roomIdsList = [];
@@ -2660,7 +2634,7 @@ export default function RightPropertyPaneView({
         ]);
       }
     }
-  }, [selectedWallIds, selectedWall, selectedRoomIds, selectedRoom, activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides]);
+  }, [activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides]);
 
   const [insWallType, setInsWallType] = React.useState("external");
   const [insWallHeight, setInsWallHeight] = React.useState("2700");
@@ -3083,9 +3057,7 @@ export default function RightPropertyPaneView({
       if (lockupEntries && lockupEntries.length > 0) return;
 
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-      const targetDoors = (selectedDoorIds && selectedDoorIds.length > 0)
-        ? curDoors.filter(d => selectedDoorIds.includes(d.id))
-        : (selectedDoor ? [selectedDoor] : curDoors);
+      const targetDoors = curDoors;
 
       if (targetDoors.length > 0) {
         const generated = targetDoors.map((d, idx) => {
@@ -8136,6 +8108,10 @@ export default function RightPropertyPaneView({
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
               activeJobNumber={currentProjectName || currentJobId}
+              selectedWall={selectedWall}
+              selectedWallIds={selectedWallIds}
+              selectedId={selectedId}
+              selectedType={selectedType}
             />
           )}
 
@@ -8176,6 +8152,10 @@ export default function RightPropertyPaneView({
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
               activeJobNumber={currentProjectName || currentJobId}
+              selectedWall={selectedWall}
+              selectedWallIds={selectedWallIds}
+              selectedId={selectedId}
+              selectedType={selectedType}
             />
           )}
 
@@ -8254,6 +8234,10 @@ export default function RightPropertyPaneView({
               onAddDataAI={handleAddDataAI}
               onSelectEntry={handleSelectEntry}
               activeJobNumber={currentProjectName || currentJobId}
+              selectedDoor={selectedDoor}
+              selectedDoorIds={selectedDoorIds}
+              selectedId={selectedId}
+              selectedType={selectedType}
             />
           )}
 

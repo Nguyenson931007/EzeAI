@@ -14,7 +14,11 @@ export default function InsulationTask({
   onSetAreaEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber
+  activeJobNumber,
+  selectedWall: selectedWallProp,
+  selectedWallIds: selectedWallIdsProp,
+  selectedId: selectedIdProp,
+  selectedType: selectedTypeProp
 }) {
   const {
     user,
@@ -28,7 +32,12 @@ export default function InsulationTask({
     scaleValue = 1.0,
     currentPage = 0,
     currentJobId,
-    currentProjectName
+    currentProjectName,
+    selectedWall,
+    selectedWallIds,
+    selectedId,
+    selectedType,
+    hoveredWallId
   } = useAppModel();
 
   const activeCustomerShortName = getActiveClientShortName();
@@ -45,28 +54,93 @@ export default function InsulationTask({
   const [isSection2Open, setIsSection2Open] = useState(true);
   const [isSection3Open, setIsSection3Open] = useState(true);
 
-  const R_VALUE_OPTIONS = ["R2.0", "R2.5", "R2.7", "R4.0"];
+  const normalizeRValue = (value) => {
+    const raw = String(value ?? "").trim().toUpperCase();
+    if (!raw) return "";
+    const numeric = raw.replace(/^R/, "");
+    const parsed = Number.parseFloat(numeric);
+    return Number.isFinite(parsed) ? `R${parsed.toFixed(1)}` : "";
+  };
 
-  const extCatalogItems = useMemo(() => catalogByGroup(catalogItems, "external"), [catalogItems]);
-  const intCatalogItems = useMemo(() => catalogByGroup(catalogItems, "internal"), [catalogItems]);
-  const partyCatalogItems = useMemo(() => catalogByGroup(catalogItems, "partiwall"), [catalogItems]);
-  const ceilingCatalogItems = useMemo(() => catalogByGroup(catalogItems, "ceiling"), [catalogItems]);
-  const floorCatalogItems = useMemo(() => catalogByGroup(catalogItems, "floor"), [catalogItems]);
+  const parseCatalogParameters = (item) => {
+    const raw = item?.parametersJson ?? item?.parameters_json ?? {};
+    if (!raw) return {};
+    if (typeof raw === "object") return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  };
 
-  const extProductOptions = useMemo(() => {
-    const list = extCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
-    return list.length > 0 ? list : (catalogItems || []).map(i => canonicalProductValue(i)).filter(Boolean);
-  }, [extCatalogItems, catalogItems]);
+  const getCatalogRValue = (item) => {
+    const params = parseCatalogParameters(item);
+    return normalizeRValue(params.r_value ?? params.rValue);
+  };
 
-  const intProductOptions = useMemo(() => {
-    const list = intCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
-    return list.length > 0 ? list : (catalogItems || []).map(i => canonicalProductValue(i)).filter(Boolean);
-  }, [intCatalogItems, catalogItems]);
+  const uniqueCanonicalProducts = (items) => {
+    const seen = new Set();
+    const result = [];
+    for (const item of items || []) {
+      const value = canonicalProductValue(item);
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      result.push(value);
+    }
+    return result;
+  };
 
-  const partyProductOptions = useMemo(() => {
-    const list = partyCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
-    return list.length > 0 ? list : (catalogItems || []).map(i => canonicalProductValue(i)).filter(Boolean);
-  }, [partyCatalogItems, catalogItems]);
+  const filterCatalogByRValue = (items, rValue) => {
+    const wanted = normalizeRValue(rValue);
+    if (!wanted) return [];
+    return (items || []).filter(item => getCatalogRValue(item) === wanted);
+  };
+
+  const getRValueOptions = (items) => {
+    const values = Array.from(
+      new Set((items || []).map(getCatalogRValue).filter(Boolean))
+    );
+
+    return values.sort((a, b) => {
+      const av = Number.parseFloat(a.replace("R", "")) || 0;
+      const bv = Number.parseFloat(b.replace("R", "")) || 0;
+      return av - bv;
+    });
+  };
+
+  const extCatalogItems = useMemo(
+    () => catalogByGroup(catalogItems, "external"),
+    [catalogItems]
+  );
+  const intCatalogItems = useMemo(
+    () => catalogByGroup(catalogItems, "internal"),
+    [catalogItems]
+  );
+  const partyCatalogItems = useMemo(
+    () => catalogByGroup(catalogItems, "partiwall"),
+    [catalogItems]
+  );
+  const ceilingCatalogItems = useMemo(
+    () => catalogByGroup(catalogItems, "ceiling"),
+    [catalogItems]
+  );
+  const floorCatalogItems = useMemo(
+    () => catalogByGroup(catalogItems, "floor"),
+    [catalogItems]
+  );
+
+  const extRValueOptions = useMemo(
+    () => getRValueOptions(extCatalogItems),
+    [extCatalogItems]
+  );
+  const intRValueOptions = useMemo(
+    () => getRValueOptions(intCatalogItems),
+    [intCatalogItems]
+  );
+  const partyRValueOptions = useMemo(
+    () => getRValueOptions(partyCatalogItems),
+    [partyCatalogItems]
+  );
 
   // Ext Wall State (Card 1 manual inputs)
   const [extHeight, setExtHeight] = useState("2400");
@@ -92,23 +166,83 @@ export default function InsulationTask({
   const [partyRaked, setPartyRaked] = useState("0");
   const [partyDoor, setPartyDoor] = useState("0");
 
+  const extProductOptions = useMemo(
+    () => uniqueCanonicalProducts(filterCatalogByRValue(extCatalogItems, extRValue)),
+    [extCatalogItems, extRValue]
+  );
+
+  const intProductOptions = useMemo(
+    () => uniqueCanonicalProducts(filterCatalogByRValue(intCatalogItems, intRValue)),
+    [intCatalogItems, intRValue]
+  );
+
+  const partyProductOptions = useMemo(
+    () => uniqueCanonicalProducts(filterCatalogByRValue(partyCatalogItems, partyRValue)),
+    [partyCatalogItems, partyRValue]
+  );
+
+  const getCatalogItemsForWallType = (type) => {
+    const normalized = String(type || "").toLowerCase();
+    if (normalized.includes("ext")) return extCatalogItems;
+    if (normalized.includes("party") || normalized.includes("partial")) return partyCatalogItems;
+    return intCatalogItems;
+  };
+
+  const getRValueOptionsForWallType = (type) =>
+    getRValueOptions(getCatalogItemsForWallType(type));
+
+  const getProductOptionsForWallTypeAndR = (type, rValue) =>
+    uniqueCanonicalProducts(
+      filterCatalogByRValue(getCatalogItemsForWallType(type), rValue)
+    );
+
   useEffect(() => {
-    if (extProductOptions.length > 0 && (!extProduct || !extProductOptions.includes(extProduct))) {
+    if (extRValueOptions.length > 0 && !extRValueOptions.includes(normalizeRValue(extRValue))) {
+      setExtRValue(extRValueOptions[0]);
+    }
+  }, [extRValueOptions, extRValue]);
+
+  useEffect(() => {
+    if (intRValueOptions.length > 0 && !intRValueOptions.includes(normalizeRValue(intRValue))) {
+      setIntRValue(intRValueOptions[0]);
+    }
+  }, [intRValueOptions, intRValue]);
+
+  useEffect(() => {
+    if (partyRValueOptions.length > 0 && !partyRValueOptions.includes(normalizeRValue(partyRValue))) {
+      setPartyRValue(partyRValueOptions[0]);
+    }
+  }, [partyRValueOptions, partyRValue]);
+
+  useEffect(() => {
+    if (extProductOptions.length === 0) {
+      if (extProduct) setExtProduct("");
+      return;
+    }
+    if (!extProduct || !extProductOptions.includes(extProduct)) {
       setExtProduct(extProductOptions[0]);
     }
-  }, [extProductOptions]);
+  }, [extProductOptions, extProduct]);
 
   useEffect(() => {
-    if (intProductOptions.length > 0 && (!intProduct || !intProductOptions.includes(intProduct))) {
+    if (intProductOptions.length === 0) {
+      if (intProduct) setIntProduct("");
+      return;
+    }
+    if (!intProduct || !intProductOptions.includes(intProduct)) {
       setIntProduct(intProductOptions[0]);
     }
-  }, [intProductOptions]);
+  }, [intProductOptions, intProduct]);
 
   useEffect(() => {
-    if (partyProductOptions.length > 0 && (!partyProduct || !partyProductOptions.includes(partyProduct))) {
+    if (partyProductOptions.length === 0) {
+      if (partyProduct) setPartyProduct("");
+      return;
+    }
+    if (!partyProduct || !partyProductOptions.includes(partyProduct)) {
       setPartyProduct(partyProductOptions[0]);
     }
-  }, [partyProductOptions]);
+  }, [partyProductOptions, partyProduct]);
 
   const calcInsulationArea = (h, l, raked, door) => {
     const heightM = (parseFloat(h) || 2400) / 1000;
@@ -228,10 +362,12 @@ export default function InsulationTask({
       if (res && res.success && res.rows && res.rows.length > 0) {
         const mappedRows = res.rows.map((r, idx) => {
           const isExt = (r.wall_type || "").toLowerCase().includes("ext");
-          const rVal = isExt ? "R2.5" : "R2.0";
           const isParty = (r.wall_type || "").toLowerCase().includes("party");
-          const prodList = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
-          const prod = (prodList && prodList[0]) || "";
+          const rOptions = getRValueOptionsForWallType(r.wall_type);
+          const preferredR = isExt ? "R2.5" : "R2.0";
+          const rVal = rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR);
+          const prodList = getProductOptionsForWallTypeAndR(r.wall_type, rVal);
+          const prod = prodList[0] || "";
           const grossArea = (parseFloat(r.wall_height) / 1000) * (parseFloat(r.wall_length) / 1000);
           const rakedArea = parseFloat(r.total_area_raked || 0);
           const doorArea = parseFloat(r.total_area_door || 0);
@@ -272,10 +408,10 @@ export default function InsulationTask({
       if (r.id !== rowId) return r;
       const updated = { ...r, [field]: val };
       if (field === "rValue") {
-        const isExt = (updated.type || "").toLowerCase().includes("ext");
-        const isParty = (updated.type || "").toLowerCase().includes("party");
-        const prods = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
-        if (prods.length > 0) updated.product = prods[0];
+        const normalizedR = normalizeRValue(val);
+        updated.rValue = normalizedR || val;
+        const prods = getProductOptionsForWallTypeAndR(updated.type, updated.rValue);
+        updated.product = prods[0] || "";
       }
       if (field === "height" || field === "length" || field === "raked" || field === "door") {
         const h = parseFloat(field === "height" ? val : updated.height) || 2400;
@@ -297,10 +433,24 @@ export default function InsulationTask({
     setSaveSuccess(false);
     try {
       const items = (wallEntries || []).map(w => {
-        const isExt = (w.type || "").toLowerCase().includes("ext");
-        const isParty = (w.type || "").toLowerCase().includes("party");
-        const availableProds = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
-        const resolvedProduct = w.product || (availableProds && availableProds[0]) || "";
+        const rOptions = getRValueOptionsForWallType(w.type);
+        const preferredR = String(w.type || "").toLowerCase().includes("ext") ? "R2.5" : "R2.0";
+        const requestedR = normalizeRValue(w.rValue);
+        const resolvedR = rOptions.includes(requestedR)
+          ? requestedR
+          : (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || requestedR));
+
+        const availableProds = getProductOptionsForWallTypeAndR(w.type, resolvedR);
+        const resolvedProduct = availableProds.includes(w.product)
+          ? w.product
+          : (availableProds[0] || "");
+
+        if (!resolvedR || !resolvedProduct) {
+          throw new Error(
+            `No configured Insulation product for ${w.type || "wall"} / ${resolvedR || w.rValue || "R Value"}`
+          );
+        }
+
         return {
           wall_type: w.type || "Ext wall",
           insulation_type: w.type || "Ext wall",
@@ -309,8 +459,8 @@ export default function InsulationTask({
           wall_length: parseFloat(w.length) || 0,
           total_area_raked: parseFloat(w.raked) || 0,
           total_area_door: parseFloat(w.door) || 0,
-          r_value: w.rValue || (isExt ? "R2.5" : "R2.0"),
-          short_name: activeCustomerShortName || "BUN-NSW-ACT"
+          r_value: resolvedR,
+          short_name: activeCustomerShortName
         };
       });
 
@@ -479,7 +629,7 @@ export default function InsulationTask({
                   }}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
-                  {R_VALUE_OPTIONS.map(r => (
+                  {extRValueOptions.map(r => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
@@ -492,6 +642,9 @@ export default function InsulationTask({
                   onChange={(e) => setExtProduct(e.target.value)}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
+                  {extProductOptions.length === 0 && (
+                    <option value="">No product configured for selected R Value</option>
+                  )}
                   {extProductOptions.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
@@ -598,7 +751,7 @@ export default function InsulationTask({
                   }}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
-                  {R_VALUE_OPTIONS.map(r => (
+                  {intRValueOptions.map(r => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
@@ -611,6 +764,9 @@ export default function InsulationTask({
                   onChange={(e) => setIntProduct(e.target.value)}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
+                  {intProductOptions.length === 0 && (
+                    <option value="">No product configured for selected R Value</option>
+                  )}
                   {intProductOptions.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
@@ -717,7 +873,7 @@ export default function InsulationTask({
                   }}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
-                  {R_VALUE_OPTIONS.map(r => (
+                  {partyRValueOptions.map(r => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
@@ -730,6 +886,9 @@ export default function InsulationTask({
                   onChange={(e) => setPartyProduct(e.target.value)}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
+                  {partyProductOptions.length === 0 && (
+                    <option value="">No product configured for selected R Value</option>
+                  )}
                   {partyProductOptions.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
@@ -838,11 +997,34 @@ export default function InsulationTask({
             </thead>
             <tbody>
               {(wallEntries || []).map((w, idx) => {
-                const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`);
+                const effWall = selectedWallProp || selectedWall;
+                const effWallIds = selectedWallIdsProp || selectedWallIds || [];
+                const effId = selectedIdProp || selectedId;
+                const effType = selectedTypeProp || selectedType;
+                const effHovered = hoveredWallId;
+
+                const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+                const hasMatch = (targetId) => {
+                  if (!targetId) return false;
+                  if (matchId(w.wallId, targetId)) return true;
+                  if (Array.isArray(w.wallIds) && w.wallIds.some(id => matchId(id, targetId))) return true;
+                  return false;
+                };
+
+                const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`) ||
+                  (effWall && hasMatch(effWall.id)) ||
+                  (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
+                  (effType === "wall" && hasMatch(effId));
+                const isHovered = effHovered && hasMatch(effHovered);
                 const isExt = (w.type || "").toLowerCase().includes("ext");
                 const isParty = (w.type || "").toLowerCase().includes("party");
-                const currentR = w.rValue || (isExt ? "R2.5" : "R2.0");
-                const availableProds = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
+                const rowRValueOptions = getRValueOptionsForWallType(w.type);
+                const preferredR = isExt ? "R2.5" : "R2.0";
+                const currentRRaw = normalizeRValue(w.rValue);
+                const currentR = rowRValueOptions.includes(currentRRaw)
+                  ? currentRRaw
+                  : (rowRValueOptions.includes(preferredR) ? preferredR : (rowRValueOptions[0] || currentRRaw || preferredR));
+                const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
 
                 return (
                   <tr
@@ -853,7 +1035,7 @@ export default function InsulationTask({
                     }}
                     style={{
                       borderBottom: "1px solid #e2e8f0",
-                      background: isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"),
+                      background: isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
                       cursor: "pointer",
                       outline: isSelected ? "2px solid #3b82f6" : "none",
                       outlineOffset: "-1px",
@@ -892,7 +1074,7 @@ export default function InsulationTask({
                           background: "#ffffff"
                         }}
                       >
-                        {R_VALUE_OPTIONS.map(r => (
+                        {rowRValueOptions.map(r => (
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
@@ -901,7 +1083,7 @@ export default function InsulationTask({
                     {/* Product Dropdown */}
                     <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
                       <select
-                        value={w.product || availableProds[0]}
+                        value={availableProds.includes(w.product) ? w.product : (availableProds[0] || "")}
                         onChange={(e) => handleRowFieldChange(w.id, "product", e.target.value)}
                         style={{
                           width: "100%",
@@ -912,8 +1094,11 @@ export default function InsulationTask({
                           border: "1px solid #cbd5e1",
                           background: "#ffffff"
                         }}
-                        title={w.product || availableProds[0]}
+                        title={availableProds.includes(w.product) ? w.product : (availableProds[0] || "")}
                       >
+                        {availableProds.length === 0 && (
+                          <option value="">No product configured for {currentR}</option>
+                        )}
                         {availableProds.map(p => (
                           <option key={p} value={p}>{p}</option>
                         ))}

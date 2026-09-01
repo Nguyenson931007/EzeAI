@@ -11,7 +11,11 @@ export default function FrameHardwareTask({
   onSetEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber
+  activeJobNumber,
+  selectedWall: selectedWallProp,
+  selectedWallIds: selectedWallIdsProp,
+  selectedId: selectedIdProp,
+  selectedType: selectedTypeProp
 }) {
   const tableRef = useRef(null);
   const {
@@ -21,7 +25,12 @@ export default function FrameHardwareTask({
     scalesByPage = {},
     realScale,
     currentJobId,
-    currentProjectName
+    currentProjectName,
+    selectedWall,
+    selectedWallIds,
+    selectedId,
+    selectedType,
+    hoveredWallId
   } = useAppModel();
 
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
@@ -799,7 +808,25 @@ export default function FrameHardwareTask({
             </thead>
             <tbody>
               {(entries || []).map((w, idx) => {
-                const isSelected = selectedEntryId === w.id;
+                const effWall = selectedWallProp || selectedWall;
+                const effWallIds = selectedWallIdsProp || selectedWallIds || [];
+                const effId = selectedIdProp || selectedId;
+                const effType = selectedTypeProp || selectedType;
+                const effHovered = hoveredWallId;
+
+                const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+                const hasMatch = (targetId) => {
+                  if (!targetId) return false;
+                  if (matchId(w.wallId, targetId) || matchId(w.id, targetId)) return true;
+                  if (Array.isArray(w.wallIds) && w.wallIds.some(id => matchId(id, targetId))) return true;
+                  return false;
+                };
+
+                const isSelected = selectedEntryId === w.id ||
+                  (effWall && hasMatch(effWall.id)) ||
+                  (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
+                  (effType === "wall" && hasMatch(effId));
+                const isHovered = effHovered && hasMatch(effHovered);
                 const isRowEditing = editingRowId === w.id;
                 const rawAbove = w.theWallAbove || "";
                 const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
@@ -817,7 +844,7 @@ export default function FrameHardwareTask({
                     }}
                     style={{
                       borderBottom: "1px solid #e2e8f0",
-                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
                       cursor: isRowEditing ? "default" : "pointer",
                       outline: isSelected ? "2px solid #3b82f6" : "none",
                       outlineOffset: "-1px",

@@ -10,7 +10,11 @@ export default function LockupTask({
   onSetEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber
+  activeJobNumber,
+  selectedDoor: selectedDoorProp,
+  selectedDoorIds: selectedDoorIdsProp,
+  selectedId: selectedIdProp,
+  selectedType: selectedTypeProp
 }) {
   const {
     user,
@@ -24,7 +28,12 @@ export default function LockupTask({
     scaleValue = 1.0,
     currentPage = 0,
     currentJobId,
-    currentProjectName
+    currentProjectName,
+    selectedDoor,
+    selectedDoorIds,
+    selectedId,
+    selectedType,
+    hoveredDoorId
   } = useAppModel();
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
@@ -286,14 +295,25 @@ export default function LockupTask({
         const dName = (d.label || d.name || d.door_name || `D${idx + 1}`).trim();
         const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
         const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+        const isExt = Boolean(d.isExternal || /entry|front|sliding|patio|balcony|garage|external/i.test(dName));
         return {
           ...d,
+          mode: isExt ? "Prehung" : "Loose",
+          scope: isExt ? "external" : "internal",
           label: dName,
           door_name: dName,
           width: dWidth,
           height: dHeight,
+          thickness: isExt ? 40 : 35,
           wall_thickness: `${wallThick}mm Wall`,
-          jamb_or_wall: `${wallThick}mm Wall`
+          jamb_or_wall: `${wallThick}mm Wall`,
+          jamb_size: isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m",
+          hung: isExt ? "LH Prehung" : "RH Loose",
+          door_type: isExt ? "Type CG" : "Type A",
+          door_stop: isExt ? "DS2 with Riser" : "Cushion",
+          internal_type: isExt ? null : "HF",
+          color: isExt ? null : "CHR",
+          default_qty: 1
         };
       });
 
@@ -307,24 +327,28 @@ export default function LockupTask({
       } catch (_) {}
 
       // Map rows to entries (same mapping as LockoutJobsModal)
-      const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => ({
-        id: `door-ai-${Date.now()}-${idx}`,
-        mode: r.mode !== undefined ? r.mode : null,
-        scope: r.scope !== undefined ? r.scope : (r.isExternal ? "external" : "internal"),
-        label: r.label || r.door_name || `D${idx + 1}`,
-        door_name: r.door_name || r.label || `D${idx + 1}`,
-        height: r.height || 2040,
-        width: r.width || 820,
-        thickness: r.thickness || 35,
-        jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-        jamb_size: r.jamb_size || "112×19mm 5.4m",
-        hung: r.hung || "Hung A",
-        door_type: r.door_type || "Type A",
-        door_stop: r.door_stop || "Cushion",
-        internal_type: r.internal_type || "HF",
-        color: r.color || "CHR",
-        default_qty: r.default_qty || 1
-      }));
+      const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
+        const isExt = r.scope === "external" || r.isExternal;
+        return {
+          id: `door-ai-${Date.now()}-${idx}`,
+          doorId: r.doorId || r.id,
+          mode: r.mode || (isExt ? "Prehung" : "Loose"),
+          scope: r.scope || (isExt ? "external" : "internal"),
+          label: r.label || r.door_name || `D${idx + 1}`,
+          door_name: r.door_name || r.label || `D${idx + 1}`,
+          height: r.height || 2040,
+          width: r.width || 820,
+          thickness: r.thickness || (isExt ? 40 : 35),
+          jamb_or_wall: r.jamb_or_wall || "90mm Wall",
+          jamb_size: r.jamb_size || (isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m"),
+          hung: r.hung || (isExt ? "LH Prehung" : "RH Loose"),
+          door_type: r.door_type || (isExt ? "Type CG" : "Type A"),
+          door_stop: r.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
+          internal_type: r.internal_type !== undefined ? r.internal_type : (isExt ? null : "HF"),
+          color: r.color !== undefined ? r.color : (isExt ? null : "CHR"),
+          default_qty: r.default_qty || 1
+        };
+      });
 
       if (onSetEntries) {
         onSetEntries(finalRows);
@@ -430,14 +454,36 @@ export default function LockupTask({
     }
   };
 
-  // ── Tự động tải dữ liệu đã lưu từ [ProcurementApp].[dbo].[LockUp] ──
+  // ── Tự động tính toán & điền cửa của Job hiện tại từ bản vẽ 2D / Tải từ DB nếu khớp chính xác ──
   useEffect(() => {
-    async function loadExistingSavedLockout() {
+    let isCancelled = false;
+
+    async function initLockoutEntries() {
       if (entries && entries.length > 0) return;
+
+      // 1. First priority: If canvas has doors for current plan/job, auto-fill from 2D canvas!
+      let hasCanvasDoors = false;
+      if (doors && doors.length > 0) {
+        hasCanvasDoors = true;
+      } else if (doorsByPage && Object.values(doorsByPage).some(list => Array.isArray(list) && list.length > 0)) {
+        hasCanvasDoors = true;
+      }
+
+      if (hasCanvasDoors) {
+        handleAutoFillAI();
+        return;
+      }
+
+      // 2. Secondary: If no canvas doors, check if specific non-empty activeJobNumber has saved records in DB
+      const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
+      if (!target || target === "default" || target === "testai") {
+        return;
+      }
+
       try {
         const res = await ApiService.fetchLockoutJobs();
+        if (isCancelled) return;
         if (res && res.data) {
-          const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
           const matchedRows = res.data.filter(j => {
             const jn = String(j.job_number || "").trim().toLowerCase();
             const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
@@ -470,9 +516,14 @@ export default function LockupTask({
         console.error("Auto load existing LockUp error:", e);
       }
     }
-    loadExistingSavedLockout();
+
+    initLockoutEntries();
+
+    return () => {
+      isCancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeJobNumber, currentProjectName, currentJobId]);
+  }, [activeJobNumber, currentProjectName, currentJobId, doors, doorsByPage]);
 
   // Render input matching Image 1
   const renderCellInput = (row, field, width = 80, isNumber = false, options = null) => {
@@ -1291,7 +1342,23 @@ export default function LockupTask({
                 </thead>
                 <tbody>
                   {(entries || []).map((row, idx) => {
-                    const isSelected = selectedEntryId === row.id;
+                    const effDoor = selectedDoorProp || selectedDoor;
+                    const effDoorIds = selectedDoorIdsProp || selectedDoorIds || [];
+                    const effId = selectedIdProp || selectedId;
+                    const effType = selectedTypeProp || selectedType;
+                    const effHovered = hoveredDoorId;
+
+                    const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+                    const hasDoorMatch = (targetId) => {
+                      if (!targetId) return false;
+                      return matchId(row.doorId, targetId) || matchId(row.id, targetId);
+                    };
+
+                    const isSelected = selectedEntryId === row.id ||
+                      (effDoor && hasDoorMatch(effDoor.id)) ||
+                      (effDoorIds.length > 0 && effDoorIds.some(sId => hasDoorMatch(sId))) ||
+                      (effType === "door" && hasDoorMatch(effId));
+                    const isHovered = effHovered && hasDoorMatch(effHovered);
                     const isLooseMode = row.mode === "Loose";
                     const rowJambOptions = [
                       "112×19mm 5.4m Loose Jamb",
@@ -1312,7 +1379,7 @@ export default function LockupTask({
                         }}
                         style={{
                           borderBottom: "1px solid #e2e8f0",
-                          background: isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"),
+                          background: isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
                           cursor: "pointer",
                           outline: isSelected ? "2px solid #3b82f6" : "none",
                           outlineOffset: "-1px",

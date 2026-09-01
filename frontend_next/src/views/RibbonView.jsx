@@ -319,7 +319,7 @@ export default function RibbonView({
   workspaceMode = "split", setWorkspaceMode,
   layerVisibility, setLayerVisibility,
   // Handlers from App.jsx
-  
+
   handleSaveJob,
   undo, redo,
   deleteItem, deleteAllRooms,
@@ -1196,6 +1196,17 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={() => setActiveTab("Saved Jobs")} title="View saved projects library">
                   <span className="icon"><CAD_ICONS.Projects /></span> <span className="label">Projects</span>
                 </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => {
+                    if (generateRoofFromWalls) {
+                      generateRoofFromWalls();
+                    }
+                  }}
+                  title="Auto-generate 3D Roof from wall footprint & thickness"
+                >
+                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Wall → Roof</span>
+                </button>
               </div>
               <span className="ribbon-group-title">PROJECT</span>
             </div>
@@ -1255,21 +1266,6 @@ export default function RibbonView({
                 <button
                   className="ribbon-btn accent"
                   onClick={() => {
-                    setActiveAiTask("roof");
-                    detectRoof && detectRoof();
-                  }}
-                  disabled={isDetecting || isSmartDetecting}
-                  style={isDetecting && activeAiTask !== "roof" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
-                  title="Run Roof AI detection"
-                >
-                  <span className="icon" style={activeAiTask === "roof" && isDetecting ? { color: "#2563eb" } : {}}>
-                    {activeAiTask === "roof" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Roof />}
-                  </span>
-                  <span className="label">Roof AI</span>
-                </button>
-                <button
-                  className="ribbon-btn accent"
-                  onClick={() => {
                     setActiveAiTask("room");
                     generateRoomsFromWalls();
                   }}
@@ -1281,16 +1277,6 @@ export default function RibbonView({
                     {activeAiTask === "room" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Sparkles />}
                   </span>
                   <span className="label">Wall &rarr; Room</span>
-                </button>
-                <button
-                  className="ribbon-btn accent"
-                  onClick={() => {
-                    handleGenerateTruss();
-                  }}
-                  title="Auto-generate Roof Trusses from Roof/Walls"
-                >
-                  <span className="icon" style={{ fontSize: "16px" }}>⚡</span>
-                  <span className="label">Roof &rarr; Truss</span>
                 </button>
               </div>
             </div>
@@ -1401,14 +1387,6 @@ export default function RibbonView({
                   <span className="icon" style={{ fontSize: "21px" }}>⌂</span><span className="label">Roof</span>
                 </button>
                 <button
-                  className={`ribbon-btn ${layerVisibility?.truss !== false ? "active" : ""}`}
-                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, truss: prev?.truss === false ? true : false }))}
-                  title="Toggle Roof Trusses Layer"
-                >
-                  <span className="icon" style={{ fontSize: "16px" }}>⚡</span>
-                  <span className="label">Trusses</span>
-                </button>
-                <button
                   className="ribbon-btn"
                   onClick={() => setLayerVisibility && setLayerVisibility({ floor: true, wall: true, door: true, ocr: true, labels: true, lintel: true, roof: true, truss: true })}
                   title="Show all drawing layers"
@@ -1504,17 +1482,6 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('open-takeoff-modal'))} title="Export Excel takeoff spreadsheet">
                   <span className="icon"><CAD_ICONS.Excel /></span><span className="label">Takeoff</span>
                 </button>
-                <button className="ribbon-btn" onClick={() => window.dispatchEvent(new CustomEvent('export-wall-excel'))} title="Xuất bảng tính Excel khối lượng và kích thước tường">
-                  <span className="icon"><CAD_ICONS.Wall /></span><span className="label">Wall Excel</span>
-                </button>
-                {/* Debug raw export buttons */}
-                <button className="ribbon-btn accent" onClick={exportWallLabels} title="Export wall frame schema JS">
-                  <span className="icon"><CAD_ICONS.Bolt /></span><span className="label">Export JS</span>
-                </button>
-                <button className="ribbon-btn" onClick={handleExportRoofInput} title="Export roof input JSON (V3 format)">
-                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Roof JSON</span>
-                </button>
-
               </div>
               <span className="ribbon-group-title">EXPORT</span>
             </div>
@@ -1601,17 +1568,6 @@ export default function RibbonView({
                 >
                   <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Roof</span>
                 </button>
-                <button
-                  className="ribbon-btn"
-                  onClick={() => {
-                    if (generateRoofFromWalls) {
-                      generateRoofFromWalls();
-                    }
-                  }}
-                  title="Auto-generate 3D Roof from wall footprint & thickness"
-                >
-                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Wall → Roof</span>
-                </button>
               </div>
               <span className="ribbon-group-title">STRUCTURE</span>
             </div>
@@ -1695,7 +1651,7 @@ export default function RibbonView({
                   }}
                   title="Draw structural lintel over wall"
                 >
-                  <span className="icon"><CAD_ICONS.Lintel /></span><span className="label">Lintel</span>
+                  <span className="icon"><CAD_ICONS.Lintel /></span><span className="label">Beam</span>
                 </button>
               </div>
               <span className="ribbon-group-title">PENETRATIONS</span>

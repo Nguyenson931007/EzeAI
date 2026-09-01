@@ -1020,7 +1020,10 @@ export default function HebelFlooringTask({
                 </tr>
               ) : (
                 enteredRows.map((item, idx) => {
-                const isSelected = selectedEntryId === (item.id || item.typeArea);
+                const isSelected = selectedEntryId === (item.id || item.typeArea) ||
+                  (selectedRoom && (item.roomId === selectedRoom.id || (item.roomIds && item.roomIds.includes(selectedRoom.id)))) ||
+                  (selectedRoomIds && selectedRoomIds.some(rId => item.roomId === rId || (item.roomIds && item.roomIds.includes(rId)))) ||
+                  (selectedType === "room" && (item.roomId === selectedId || (item.roomIds && item.roomIds.includes(selectedId))));
                 const isRowEditing = editingRowId === item.id;
                 const lvl = item.floorLevel || "GF";
 
