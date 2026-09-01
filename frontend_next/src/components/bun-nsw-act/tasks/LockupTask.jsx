@@ -40,6 +40,8 @@ export default function LockupTask({
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
 
   // Collapsible States
   const [isCard1Collapsed, setIsCard1Collapsed] = useState(false);
@@ -50,6 +52,51 @@ export default function LockupTask({
   const [isLooseExtCollapsed, setIsLooseExtCollapsed] = useState(false);
   const [isLooseIntCollapsed, setIsLooseIntCollapsed] = useState(false);
   const [isCard2Collapsed, setIsCard2Collapsed] = useState(false);
+
+  const handleStartEdit = (row) => {
+    setEditingRowId(row.id);
+    const isExt = row.scope === "external" || row.isExternal;
+    setEditRowData({
+      mode: row.mode || (isExt ? "Prehung" : "Loose"),
+      scope: row.scope || (isExt ? "external" : "internal"),
+      location: row.location || (isExt ? "External Patio / Balcony" : "Internal Room"),
+      label: row.label || row.door_name || row.door || "D-1",
+      height: row.height || 2040,
+      width: row.width || 820,
+      size: row.size || `${row.height || 2040} × ${row.width || 820}`,
+      thickness: row.thickness || (isExt ? 40 : 35),
+      thicks: row.thicks || `${row.thickness || (isExt ? 40 : 35)}mm`,
+      jamb_or_wall: row.jamb_or_wall || row.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
+      jamb_size: row.jamb_size || row.jambSize || (isExt ? "135mm" : "110mm"),
+      hung: row.hung || (isExt ? "LH Prehung" : "RH Loose"),
+      door_type: row.door_type || row.type || "Hinged",
+      internal_type: row.internal_type || row.hfHo || (isExt ? "HO" : "HF"),
+      color: row.color || "Primed White",
+      door_stop: row.door_stop || row.stop || "Cushion Rubber Stop",
+      default_qty: row.default_qty || row.qty || 1
+    });
+  };
+
+  const handleSaveInlineEdit = (id) => {
+    if (!onSetEntries) return;
+    onSetEntries(prev => (prev || []).map(item => {
+      if (item.id !== id) return item;
+      return {
+        ...item,
+        ...editRowData,
+        door_name: editRowData.label || editRowData.door_name || item.door_name,
+        door: editRowData.label || editRowData.door || item.door,
+        category: editRowData.mode === "Prehung" ? "Prehung" : "Loose Jamb",
+        jambWall: editRowData.jamb_or_wall,
+        jambSize: editRowData.jamb_size,
+        type: editRowData.door_type,
+        hfHo: editRowData.internal_type,
+        stop: editRowData.door_stop,
+        qty: editRowData.default_qty
+      };
+    }));
+    setEditingRowId(null);
+  };
 
   const DOOR_HEIGHT_OPTIONS = ["2040", "2340", "2600", "2650", "Spec"];
 
@@ -171,8 +218,6 @@ export default function LockupTask({
   const [looseIntInternalType, setLooseIntInternalType] = useState("HF");
   const [looseIntColor, setLooseIntColor] = useState("CHR");
 
-  const [editingRowId, setEditingRowId] = useState(null);
-  const [editRowData, setEditRowData] = useState({});
   const [isSection1Open, setIsSection1Open] = useState(false);
   const [isPrehungOpen, setIsPrehungOpen] = useState(true);
   const [isPreExtOpen, setIsPreExtOpen] = useState(true);
@@ -181,16 +226,6 @@ export default function LockupTask({
   const [isLooseExtOpen, setIsLooseExtOpen] = useState(true);
   const [isLooseIntOpen, setIsLooseIntOpen] = useState(true);
   const [isSection2Open, setIsSection2Open] = useState(true);
-
-  const handleSaveInlineEdit = (id) => {
-    const updatedList = (entries || []).map(item => item.id === id ? {
-      ...item,
-      ...editRowData
-    } : item);
-
-    if (onSetEntries) onSetEntries(updatedList);
-    setEditingRowId(null);
-  };
   const handleAddDoor = (item) => {
     const newEntry = {
       id: "door-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
@@ -283,7 +318,7 @@ export default function LockupTask({
       const targetDoors = timberDoors.length > 0 ? timberDoors : allDoors;
 
       if (targetDoors.length === 0) {
-        if (onAddDataAI) onAddDataAI("lock_up");
+        if (onSetEntries) onSetEntries([]);
         setIsAutoFilling(false);
         return;
       }
@@ -1271,11 +1306,12 @@ export default function LockupTask({
         )}
       </div>
 
-      {/* ── CARD 2: ENTERED DOORS ── */}
+      {/* ── CARD 2: ENTERED DOORS (Matching Image 2) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div
+          onClick={() => setIsCard2Collapsed(!isCard2Collapsed)}
           style={{
-            padding: "9px 12px",
+            padding: "9px 14px",
             background: "#f8fafc",
             borderBottom: "1px solid #e2e8f0",
             fontWeight: "800",
@@ -1284,10 +1320,14 @@ export default function LockupTask({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "6px"
+            cursor: "pointer",
+            userSelect: "none"
           }}
         >
-          <span>2. Entered doors ({(entries || []).length})</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "10px", color: "#64748b" }}>{isCard2Collapsed ? "▶" : "▼"}</span>
+            <span>2. Entered doors ({(entries || []).length})</span>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {onAddDataAI && (
               <button
@@ -1296,48 +1336,73 @@ export default function LockupTask({
                   e.stopPropagation();
                   onAddDataAI("lock_up");
                 }}
+                disabled={isAutoFilling}
                 style={{
                   background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
                   border: "1px solid #93c5fd",
                   color: "#1d4ed8",
-                  fontSize: "10.5px",
+                  fontSize: "11px",
                   fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: "4px",
-                  cursor: "pointer",
+                  padding: "3px 10px",
+                  borderRadius: "5px",
+                  cursor: isAutoFilling ? "not-allowed" : "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "3px"
+                  gap: "4px",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
                 }}
               >
                 <span>⚡</span>
-                <span>Auto Fill (AI)</span>
+                <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
               </button>
             )}
           </div>
         </div>
 
-        <div style={{ padding: "0px", overflowX: "auto" }}>
-              <table style={{ width: "100%", minWidth: "1250px", borderCollapse: "collapse", fontSize: "11px", whiteSpace: "nowrap" }}>
+        {!isCard2Collapsed && (
+          <>
+            <div style={{ padding: "0px", overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "11px", whiteSpace: "nowrap" }}>
                 <thead>
-                  <tr style={{ background: "#f1f5f9", color: "#334155", borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
-                    <th style={{ padding: "8px 6px", width: "24px" }}>#</th>
-                    <th style={{ padding: "8px 6px", width: "95px" }}>mode</th>
-                    <th style={{ padding: "8px 6px", width: "80px" }}>scope</th>
-                    <th style={{ padding: "8px 6px", minWidth: "110px" }}>label</th>
-                    <th style={{ padding: "8px 6px", minWidth: "170px" }}>door_name</th>
-                    <th style={{ padding: "8px 6px", width: "65px", textAlign: "right" }}>height</th>
-                    <th style={{ padding: "8px 6px", width: "65px", textAlign: "right" }}>width</th>
-                    <th style={{ padding: "8px 6px", width: "55px", textAlign: "right" }}>thickness</th>
-                    <th style={{ padding: "8px 6px", minWidth: "100px" }}>jamb_or_wall</th>
-                    <th style={{ padding: "8px 6px", minWidth: "130px" }}>jamb_size</th>
-                    <th style={{ padding: "8px 6px", width: "110px" }}>hung</th>
-                    <th style={{ padding: "8px 6px", width: "90px" }}>door_type</th>
-                    <th style={{ padding: "8px 6px", width: "85px" }}>door_stop</th>
-                    <th style={{ padding: "8px 6px", width: "65px" }}>internal_type</th>
-                    <th style={{ padding: "8px 6px", width: "60px" }}>color</th>
-                    <th style={{ padding: "8px 6px", width: "50px", textAlign: "right" }}>default_qty</th>
-                    <th style={{ padding: "8px 6px", width: "30px", textAlign: "center" }}></th>
+                  <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
+                    <th style={{
+                      position: "sticky",
+                      left: 0,
+                      zIndex: 10,
+                      background: "#1e3a5f",
+                      padding: "8px 6px",
+                      width: "32px",
+                      minWidth: "32px",
+                      maxWidth: "32px",
+                      textAlign: "center",
+                      borderBottom: "2px solid #334155"
+                    }}>#</th>
+                    <th style={{
+                      position: "sticky",
+                      left: "32px",
+                      zIndex: 10,
+                      background: "#1e3a5f",
+                      padding: "8px 8px",
+                      width: "95px",
+                      minWidth: "95px",
+                      borderBottom: "2px solid #334155",
+                      borderRight: "2px solid #475569",
+                      boxShadow: "3px 0 5px -2px rgba(0,0,0,0.25)"
+                    }}>Label</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Category</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Location</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Door</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Size</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Thicks</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Jamb / wall</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Jamb Size</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Hung</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Type</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>HF/HO</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Color</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Stop</th>
+                    <th style={{ padding: "8px 8px", textAlign: "center", borderBottom: "2px solid #334155" }}>Qty</th>
+                    <th style={{ padding: "8px 8px", width: "50px", textAlign: "right", borderBottom: "2px solid #334155" }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1359,81 +1424,294 @@ export default function LockupTask({
                       (effDoorIds.length > 0 && effDoorIds.some(sId => hasDoorMatch(sId))) ||
                       (effType === "door" && hasDoorMatch(effId));
                     const isHovered = effHovered && hasDoorMatch(effHovered);
-                    const isLooseMode = row.mode === "Loose";
-                    const rowJambOptions = [
-                      "112×19mm 5.4m Loose Jamb",
-                      "Steel Frame",
-                      "112×19mm 5.4m",
-                      "112x19mm",
-                      "92x18mm",
-                      "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
-                    ];
-                    const doorProductOptions = DOOR_PRODUCT_OPTIONS.filter(p => p !== "Select or search...");
+                    const isRowEditing = editingRowId === row.id;
+                    const rowBg = isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")));
+
+                    const isExt = row.scope === "external" || row.isExternal;
+                    const categoryDisplay = row.mode === "Prehung" ? "Prehung" : (row.mode === "Loose" ? "Loose Jamb" : (row.category || (isExt ? "Prehung" : "Loose Jamb")));
+                    const locationDisplay = row.location || (isExt ? "External Patio / Balcony" : (row.scope ? (row.scope.toLowerCase().includes("ext") ? "External Door" : `Internal Room ${idx + 1}`) : `Internal Room ${idx + 1}`));
+                    const labelDisplay = row.label || row.door_name || row.door || `D-${idx + 1}`;
+                    const doorDisplay = row.door_name || row.door || row.label || `D-${idx + 1}`;
+                    const sizeDisplay = row.size || `${row.height || 2040} × ${row.width || 820}`;
+                    const thicksDisplay = row.thicks || (row.thickness ? `${String(row.thickness).replace("mm", "")}mm` : (isExt ? "40mm" : "35mm"));
+                    const jambWallDisplay = row.jambWall || row.jamb_or_wall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud");
+                    const jambSizeDisplay = row.jambSize || (row.jamb_size ? String(row.jamb_size).replace("5.4m Loose Jamb", "110mm").replace("5.4m", "110mm").trim() : (isExt ? "135mm" : "110mm"));
+                    const hungDisplay = row.hung || (isExt ? "LH Prehung" : "RH Loose");
+                    const typeDisplay = row.type || (row.door_type === "Type A" || !row.door_type ? "Hinged" : row.door_type);
+                    const hfHoDisplay = row.hfHo || row.internal_type || (isExt ? "HO" : "HF");
+                    const colorDisplay = row.color === "CHR" || !row.color ? "Primed White" : row.color;
+                    const stopDisplay = row.stop || row.door_stop || "Cushion Rubber Stop";
+                    const qtyDisplay = row.qty || row.default_qty || 1;
 
                     return (
                       <tr
                         key={row.id || idx}
                         onClick={() => {
-                          setSelectedEntryId(row.id);
-                          if (onSelectEntry) onSelectEntry(row);
+                          if (!isRowEditing) {
+                            setSelectedEntryId(row.id);
+                            if (onSelectEntry) onSelectEntry(row);
+                          }
                         }}
                         style={{
-                          borderBottom: "1px solid #e2e8f0",
-                          background: isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
-                          cursor: "pointer",
+                          background: rowBg,
+                          cursor: isRowEditing ? "default" : "pointer",
                           outline: isSelected ? "2px solid #3b82f6" : "none",
                           outlineOffset: "-1px",
                           transition: "background 0.15s ease"
                         }}
                       >
-                        <td style={{ padding: "6px 8px", fontWeight: 700, color: "#64748b" }}>{idx + 1}</td>
+                        {/* Sticky # column */}
+                        <td style={{
+                          position: "sticky",
+                          left: 0,
+                          zIndex: 2,
+                          background: rowBg,
+                          padding: "6px 8px",
+                          fontWeight: 700,
+                          textAlign: "center",
+                          color: "#64748b",
+                          width: "32px",
+                          minWidth: "32px",
+                          maxWidth: "32px",
+                          borderBottom: "1px solid #e2e8f0"
+                        }}>{idx + 1}</td>
 
-                        {/* Columns in exact order matching Image 1 - with dropdowns */}
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "mode", 95, false, DOOR_MODE_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "scope", 80, false, ["internal", "external"])}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "label", 110)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_name", 170, false, doorProductOptions)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "height", 65, false, DOOR_HEIGHT_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "width", 65, false, DOOR_WIDTH_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "thickness", 55, false, DOOR_THICK_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "jamb_or_wall", 100)}</td>
-                        <td style={{ padding: "4px 6px" }}>{isLooseMode ? renderCellInput(row, "jamb_size", 130, false, rowJambOptions) : null}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "hung", 110, false, DOOR_HUNG_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_type", 90, false, DOOR_TYPE_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_stop", 100, false, DOOR_STOP_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "internal_type", 65, false, INTERNAL_TYPE_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "color", 60, false, COLOR_OPTIONS)}</td>
-                        <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "default_qty", 50, true)}</td>
-
-                        {/* Delete Action */}
-                        <td style={{ padding: "4px 6px", textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveEntry(row.id);
-                            }}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#ef4444",
-                              cursor: "pointer",
-                              fontWeight: 800,
-                              fontSize: "12px",
-                              padding: "2px"
-                            }}
-                            title="Delete row"
-                          >
-                            ✕
-                          </button>
+                        {/* Sticky Label column (Primary Identifier) */}
+                        <td style={{
+                          position: "sticky",
+                          left: "32px",
+                          zIndex: 2,
+                          background: rowBg,
+                          padding: "6px 8px",
+                          fontWeight: 800,
+                          color: "#1e40af",
+                          width: "95px",
+                          minWidth: "95px",
+                          borderBottom: "1px solid #e2e8f0",
+                          borderRight: "2px solid #cbd5e1",
+                          boxShadow: "3px 0 5px -2px rgba(0,0,0,0.12)"
+                        }}>
+                          {isRowEditing ? (
+                            <input
+                              type="text"
+                              value={editRowData.label || ""}
+                              onChange={(e) => setEditRowData({ ...editRowData, label: e.target.value })}
+                              style={{ padding: "2px 4px", fontSize: "11px", width: "80px", fontWeight: 700 }}
+                            />
+                          ) : (
+                            <span style={{
+                              background: "#eff6ff",
+                              color: "#1d4ed8",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              border: "1px solid #bfdbfe",
+                              display: "inline-block",
+                              fontWeight: 700
+                            }}>
+                              {labelDisplay}
+                            </span>
+                          )}
                         </td>
+
+                        {isRowEditing ? (
+                          <>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <select
+                                value={editRowData.mode || "Loose"}
+                                onChange={(e) => setEditRowData({ ...editRowData, mode: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px" }}
+                              >
+                                <option value="Loose">Loose Jamb</option>
+                                <option value="Prehung">Prehung</option>
+                              </select>
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.location || ""}
+                                onChange={(e) => setEditRowData({ ...editRowData, location: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "120px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.door_name || editRowData.label || ""}
+                                onChange={(e) => setEditRowData({ ...editRowData, door_name: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "80px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.size || `${editRowData.height || 2040} × ${editRowData.width || 820}`}
+                                onChange={(e) => setEditRowData({ ...editRowData, size: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "80px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <select
+                                value={editRowData.thickness || 35}
+                                onChange={(e) => setEditRowData({ ...editRowData, thickness: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px" }}
+                              >
+                                <option value="35">35mm</option>
+                                <option value="38">38mm</option>
+                                <option value="40">40mm</option>
+                              </select>
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.jamb_or_wall || ""}
+                                onChange={(e) => setEditRowData({ ...editRowData, jamb_or_wall: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "100px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.jamb_size || ""}
+                                onChange={(e) => setEditRowData({ ...editRowData, jamb_size: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "70px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <select
+                                value={editRowData.hung || "RH Loose"}
+                                onChange={(e) => setEditRowData({ ...editRowData, hung: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px" }}
+                              >
+                                {DOOR_HUNG_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <select
+                                value={editRowData.door_type || "Hinged"}
+                                onChange={(e) => setEditRowData({ ...editRowData, door_type: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px" }}
+                              >
+                                <option value="Hinged">Hinged</option>
+                                {DOOR_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <select
+                                value={editRowData.internal_type || "HF"}
+                                onChange={(e) => setEditRowData({ ...editRowData, internal_type: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px" }}
+                              >
+                                <option value="HF">HF</option>
+                                <option value="HO">HO</option>
+                              </select>
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.color || "Primed White"}
+                                onChange={(e) => setEditRowData({ ...editRowData, color: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "80px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="text"
+                                value={editRowData.door_stop || "Cushion Rubber Stop"}
+                                onChange={(e) => setEditRowData({ ...editRowData, door_stop: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "110px" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
+                              <input
+                                type="number"
+                                value={editRowData.default_qty || 1}
+                                onChange={(e) => setEditRowData({ ...editRowData, default_qty: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "35px", textAlign: "center" }}
+                              />
+                            </td>
+                            <td style={{ padding: "4px 6px", textAlign: "right", borderBottom: "1px solid #e2e8f0" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveInlineEdit(row.id)}
+                                style={{ background: "none", border: "none", color: "#059669", cursor: "pointer", fontSize: "13px", fontWeight: 700, marginRight: "4px" }}
+                                title="Save"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingRowId(null)}
+                                style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "12px" }}
+                                title="Cancel"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{categoryDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{locationDisplay}</td>
+                            <td style={{ padding: "6px 8px", color: "#334155", borderBottom: "1px solid #e2e8f0" }}>{doorDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{sizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{thicksDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{jambWallDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{jambSizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{hungDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{typeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{hfHoDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{colorDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{stopDisplay}</td>
+                            <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>{qtyDisplay}</td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartEdit(row);
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "#ea580c",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  padding: "2px 4px",
+                                  marginRight: "2px"
+                                }}
+                                title="Edit door"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveEntry(row.id);
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "#ef4444",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  padding: "2px 4px",
+                                  fontWeight: 700
+                                }}
+                                title="Delete door"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
 
                   {(!entries || entries.length === 0) && (
                     <tr>
-                      <td colSpan={17} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                      <td colSpan={16} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
                         No doors entered. Click <strong>⚡ Auto Fill (AI)</strong> to calculate timber doors from project.
                       </td>
                     </tr>
@@ -1442,38 +1720,19 @@ export default function LockupTask({
               </table>
             </div>
 
-            {/* ── ACTION BUTTONS: SAVE & SUMMARY ── */}
+            {/* ── ACTION BUTTONS: SAVE & SUMMARY (Image 2 style) ── */}
             <div style={{
-              padding: "8px 14px",
-              background: "#f8fafc",
+              padding: "10px 14px",
+              background: "#ffffff",
               borderTop: "1px solid #e2e8f0",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              gap: "10px",
-              flexWrap: "wrap"
+              gap: "10px"
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <button
-                  type="button"
-                  onClick={handleAddBlankRow}
-                  style={{
-                    padding: "4px 10px",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    background: "#ffffff",
-                    border: "1px dashed #cbd5e1",
-                    color: "#334155",
-                    borderRadius: "5px",
-                    cursor: "pointer"
-                  }}
-                >
-                  ➕ Add Custom Row
-                </button>
-                <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                  Total LockUp Rows: <strong>{(entries || []).length}</strong>
-                </span>
-              </div>
+              <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
+                {(entries || []).length} doors calculated
+              </span>
 
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 {saveSuccess && (
@@ -1486,17 +1745,17 @@ export default function LockupTask({
                   onClick={handleSaveToDatabase}
                   disabled={isSaving || !entries || entries.length === 0}
                   style={{
-                    padding: "5px 14px",
-                    background: saveSuccess ? "#059669" : "linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)",
+                    padding: "6px 18px",
+                    background: saveSuccess ? "#059669" : "#1e3a5f",
                     color: "#ffffff",
                     border: "none",
                     borderRadius: "5px",
-                    fontSize: "11px",
+                    fontSize: "11.5px",
                     fontWeight: "700",
                     cursor: (isSaving || !entries || entries.length === 0) ? "not-allowed" : "pointer",
                     display: "flex",
                     alignItems: "center",
-                    gap: "5px",
+                    gap: "6px",
                     boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
                     opacity: (!entries || entries.length === 0) ? 0.6 : 1,
                     transition: "background 0.2s ease"
@@ -1507,6 +1766,8 @@ export default function LockupTask({
                 </button>
               </div>
             </div>
+          </>
+        )}
       </div>
     </div>
   );

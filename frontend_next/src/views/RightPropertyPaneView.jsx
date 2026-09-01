@@ -1263,11 +1263,11 @@ export default function RightPropertyPaneView({
       else intWallLenM += lM;
     });
 
-    const externalWallLength = cadMetrics?.externalWallLength || (extWallLenM > 0 ? extWallLenM : 46.8);
-    const internalWallLength = cadMetrics?.internalWallLength || (intWallLenM > 0 ? intWallLenM : 28.5);
-    const grandTotalLength = cadMetrics?.grandTotalLength || (grandTotLenM > 0 ? grandTotLenM : 75.3);
-    const totalRoofArea = cadMetrics?.totalRoofArea || 142.0;
-    const totalRoomArea = cadMetrics?.totalRoomArea || 112.5;
+    const externalWallLength = cadMetrics?.externalWallLength || (extWallLenM > 0 ? extWallLenM : 0);
+    const internalWallLength = cadMetrics?.internalWallLength || (intWallLenM > 0 ? intWallLenM : 0);
+    const grandTotalLength = cadMetrics?.grandTotalLength || (grandTotLenM > 0 ? grandTotLenM : 0);
+    const totalRoofArea = cadMetrics?.totalRoofArea || 0;
+    const totalRoomArea = cadMetrics?.totalRoomArea || 0;
 
     if (moduleId === "frame_hardware") {
       const groupsMap = {}; // key: `${baseType}_${height}_${spacing}` -> { baseType, height, spacing, totalMm, count, rodSize }
@@ -1325,29 +1325,12 @@ export default function RightPropertyPaneView({
         });
       });
 
-      if (newEntries.length === 0) {
-        const totalLen = grandTotalLength ? Math.round(grandTotalLength * 1000) : 42500;
-        const rodCount = Math.ceil(totalLen / 900);
-        newEntries.push({
-          id: `slab-ai-default-${Date.now()}`,
-          baseType: "Concrete Slab",
-          theWallAbove: "ON CONCRETE SLAB FLOOR",
-          height: "2400 mm",
-          length: `${totalLen} mm`,
-          spacing: "900 mm",
-          rodSize: "M12",
-          rodDemand: (totalLen / 900).toFixed(2),
-          rodMapping: `${rodCount} x M12 Rod 2700`,
-          rodsQty: `${rodCount} pcs`
-        });
-      }
-
       setFrameWallEntries(newEntries);
       aiValues = {
-        wall_height: "2400 mm",
-        wall_length: grandTotalLength ? grandTotalLength.toFixed(2) : "42.50",
+        wall_height: newEntries[0]?.height || "2400 mm",
+        wall_length: grandTotalLength ? grandTotalLength.toFixed(2) : "0",
         wind_class: "N2",
-        base_construction: "Concrete Slab"
+        base_construction: newEntries[0]?.baseType || "Concrete Slab"
       };
     } else if (moduleId === "flooring_decking" || moduleId === "hebel_flooring") {
       const groupsMap = {};
@@ -1434,21 +1417,6 @@ export default function RightPropertyPaneView({
         });
       });
 
-      if (newFlrEntries.length === 0) {
-        const rmArea = totalRoomArea > 0 ? Number(totalRoomArea.toFixed(2)) : (totalRaw > 0 ? Number(totalRaw.toFixed(2)) : 112.5);
-        newFlrEntries.push({
-          id: "flr-auto-all-" + Date.now(),
-          typeArea: "Dry",
-          location: "Dry",
-          product: "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-          areaM2: rmArea,
-          wastePercent: 10,
-          totalM2: Number(rmArea.toFixed(1)),
-          glueType: "FLOORING ADHESIVE 600ML SAUSAGE",
-          glueQty: Math.ceil((rmArea * 1.1) / 12)
-        });
-      }
-
       setFlooringEntries(newFlrEntries);
       setHebelFlooringEntries(newFlrEntries.map(e => ({
         ...e,
@@ -1462,55 +1430,80 @@ export default function RightPropertyPaneView({
         wetArea: wet > 0 ? wet.toFixed(2) : "",
         balconyArea: tile > 0 ? tile.toFixed(2) : "",
         otherArea: timber > 0 ? timber.toFixed(2) : "",
-        totalFloorArea: totalRaw > 0 ? totalRaw.toFixed(2) : String(totalRoomArea || 112.5),
+        totalFloorArea: totalRaw > 0 ? totalRaw.toFixed(2) : (totalRoomArea > 0 ? String(totalRoomArea) : "0"),
         location: "Ground Floor",
         flooring_type: "Hybrid / Vinyl Plank",
-        floor_area: totalRaw > 0 ? totalRaw.toFixed(2) : String(totalRoomArea || 112.5),
+        floor_area: totalRaw > 0 ? totalRaw.toFixed(2) : (totalRoomArea > 0 ? String(totalRoomArea) : "0"),
         waste_allowance: "10"
       };
     } else if (moduleId === "insulation") {
-      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? grandTotalLength * 0.6 : 42.0);
-      const intLen = internalWallLength > 0 ? internalWallLength : (grandTotalLength ? grandTotalLength * 0.4 : 26.0);
+      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? grandTotalLength * 0.6 : 0);
+      const intLen = internalWallLength > 0 ? internalWallLength : (grandTotalLength ? grandTotalLength * 0.4 : 0);
       const extArea = Number((extLen * 2.4).toFixed(2));
       const intArea = Number((intLen * 2.4).toFixed(2));
-      const ceilArea = Number((totalRoomArea > 0 ? totalRoomArea : (totalRaw > 0 ? totalRaw : 112.5)).toFixed(2));
+      const ceilArea = Number((totalRoomArea > 0 ? totalRoomArea : (totalRaw > 0 ? totalRaw : 0)).toFixed(2));
 
-      setInsulationWallEntries([
-        { id: "ins-ai-ext-" + Date.now(), type: "Ext wall", height: 2400, length: Math.round(extLen * 1000), rValue: "R2.5", product: "0810602 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12", raked: 0, door: 0, insulationArea: extArea },
-        { id: "ins-ai-int-" + Date.now(), type: "Int wall", height: 2400, length: Math.round(intLen * 1000), rValue: "R2.0", product: "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20", raked: 0, door: 0, insulationArea: intArea }
-      ]);
-      setInsulationAreaEntries([
-        { id: "ins-ai-ceil-" + Date.now(), location: "Ceiling / Roof Space", areaType: "Ceiling", rValue: "R4.0", areaM2: ceilArea, totalArea: Number((ceilArea * 1.05).toFixed(2)) }
-      ]);
+      const newInsWalls = [];
+      if (extLen > 0) {
+        newInsWalls.push({ id: "ins-ai-ext-" + Date.now(), type: "Ext wall", height: 2400, length: Math.round(extLen * 1000), rValue: "R2.5", product: "0810602 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12", raked: 0, door: 0, insulationArea: extArea });
+      }
+      if (intLen > 0) {
+        newInsWalls.push({ id: "ins-ai-int-" + Date.now(), type: "Int wall", height: 2400, length: Math.round(intLen * 1000), rValue: "R2.0", product: "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20", raked: 0, door: 0, insulationArea: intArea });
+      }
+      setInsulationWallEntries(newInsWalls);
+
+      if (ceilArea > 0) {
+        setInsulationAreaEntries([
+          { id: "ins-ai-ceil-" + Date.now(), location: "Ceiling / Roof Space", areaType: "Ceiling", rValue: "R4.0", areaM2: ceilArea, totalArea: Number((ceilArea * 1.05).toFixed(2)) }
+        ]);
+      } else {
+        setInsulationAreaEntries([]);
+      }
       aiValues = {
         ext_wall_area: String(extArea),
         int_wall_area: String(intArea),
         ceiling_area: String(ceilArea)
       };
     } else if (moduleId === "eaves_soffit") {
-      const len = totalRoofArea > 0 ? Number((Math.sqrt(totalRoofArea) * 4).toFixed(2)) : (grandTotalLength ? Number((grandTotalLength * 0.55).toFixed(2)) : 38.6);
-      setEavesEntries([
-        { id: "eave-ai-1-" + Date.now(), level: "Ground Floor Perimeter", width: 450, length: len, area: Number((len * 0.45).toFixed(2)) }
-      ]);
+      const len = totalRoofArea > 0 ? Number((Math.sqrt(totalRoofArea) * 4).toFixed(2)) : (cadMetrics?.perimeterM || (grandTotalLength ? Number((grandTotalLength * 0.55).toFixed(2)) : 0));
+      if (len > 0) {
+        setEavesEntries([
+          { id: "eave-ai-1-" + Date.now(), level: "Ground Floor Perimeter", width: 450, length: len, area: Number((len * 0.45).toFixed(2)) }
+        ]);
+      } else {
+        setEavesEntries([]);
+      }
       aiValues = { building_level: "Level 1 (Ground)", eave_width: "450", total_eave_length: String(len), soffit_material: "4.5mm HardieFlex / FC Sheet" };
     } else if (moduleId === "cladding") {
-      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8);
-      setCladdingWallEntries([
-        { id: "clad-ai-1-" + Date.now(), elevation: "Front & Side A Elevation", height: 2700, length: Math.round(extLen * 600), openings: 4.2, waste: 10, grossArea: Number((extLen * 0.6 * 2.7).toFixed(2)), netArea: Number((extLen * 0.6 * 2.7 - 4.2).toFixed(2)), totalArea: Number(((extLen * 0.6 * 2.7 - 4.2) * 1.1).toFixed(2)) },
-        { id: "clad-ai-2-" + Date.now(), elevation: "Rear & Side B Elevation", height: 2700, length: Math.round(extLen * 400), openings: 3.1, waste: 10, grossArea: Number((extLen * 0.4 * 2.7).toFixed(2)), netArea: Number((extLen * 0.4 * 2.7 - 3.1).toFixed(2)), totalArea: Number(((extLen * 0.4 * 2.7 - 3.1) * 1.1).toFixed(2)) }
-      ]);
+      const extLen = externalWallLength > 0 ? externalWallLength : 0;
+      if (extLen > 0) {
+        setCladdingWallEntries([
+          { id: "clad-ai-1-" + Date.now(), elevation: "Front & Side A Elevation", height: 2700, length: Math.round(extLen * 600), openings: 4.2, waste: 10, grossArea: Number((extLen * 0.6 * 2.7).toFixed(2)), netArea: Number((extLen * 0.6 * 2.7 - 4.2).toFixed(2)), totalArea: Number(((extLen * 0.6 * 2.7 - 4.2) * 1.1).toFixed(2)) },
+          { id: "clad-ai-2-" + Date.now(), elevation: "Rear & Side B Elevation", height: 2700, length: Math.round(extLen * 400), openings: 3.1, waste: 10, grossArea: Number((extLen * 0.4 * 2.7).toFixed(2)), netArea: Number((extLen * 0.4 * 2.7 - 3.1).toFixed(2)), totalArea: Number(((extLen * 0.4 * 2.7 - 3.1) * 1.1).toFixed(2)) }
+        ]);
+      } else {
+        setCladdingWallEntries([]);
+      }
       aiValues = { elevation: "External Walls", cladding_type: "HardiePlank Weatherboard", cladding_area: (extLen * 2.7 * 0.9).toFixed(2), waste_allowance: "10" };
     } else if (moduleId === "timber_posts") {
-      setTimberPostEntries([
-        { id: "pst-ai-1-" + Date.now(), location: "Alfresco & Porch Support", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 4, supportType: "Hot-Dip Galvanized Stirrup" }
-      ]);
-      aiValues = { location: "Alfresco & Porch", timber_size: "90x90mm F7 / H3 Treated Pine", height: "2700", quantity: "4" };
+      if (grandTotalLength > 0 || (curWalls && curWalls.length > 0)) {
+        setTimberPostEntries([
+          { id: "pst-ai-1-" + Date.now(), location: "Alfresco & Porch Support", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 4, supportType: "Hot-Dip Galvanized Stirrup" }
+        ]);
+        aiValues = { location: "Alfresco & Porch", timber_size: "90x90mm F7 / H3 Treated Pine", height: "2700", quantity: "4" };
+      } else {
+        setTimberPostEntries([]);
+      }
     } else if (moduleId === "fixout") {
-      const skirtLm = skirtingSummaryMetrics?.totalSkirtingLm ? Number(skirtingSummaryMetrics.totalSkirtingLm.toFixed(2)) : 98.5;
-      const doorCnt = curDoors.length || 7;
-      setFixoutDoorEntries([
-        { id: "fix-ai-1-" + Date.now(), doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: doorCnt }
-      ]);
+      const skirtLm = skirtingSummaryMetrics?.totalSkirtingLm ? Number(skirtingSummaryMetrics.totalSkirtingLm.toFixed(2)) : (internalWallLength ? Number((internalWallLength * 2).toFixed(2)) : 0);
+      const doorCnt = curDoors.length || 0;
+      if (doorCnt > 0) {
+        setFixoutDoorEntries([
+          { id: "fix-ai-1-" + Date.now(), doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: doorCnt }
+        ]);
+      } else {
+        setFixoutDoorEntries([]);
+      }
       aiValues = { skirting_profile: "67x18mm MDF Single Rebatable / Colonial", architrave_size: "67x18mm MDF Architrave", jamb_type: "Single Rebated Pine Door Jamb Set", total_length: String(skirtLm) };
     } else if (moduleId === "lock_up" || moduleId === "lockup") {
       const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8);
@@ -1549,65 +1542,6 @@ export default function RightPropertyPaneView({
             default_qty: 1
           });
         });
-      }
-
-      if (generatedDoors.length === 0) {
-        generatedDoors.push(
-          {
-            id: "lck-ai-1-" + Date.now(),
-            mode: "Prehung",
-            scope: "external",
-            label: "D01 - Front Entry",
-            door_name: "SOLID TIMBER ENTRY DOOR 2040X820X40MM",
-            height: 2040,
-            width: 820,
-            thickness: 40,
-            jamb_or_wall: "110mm Brick",
-            jamb_size: "135mm",
-            hung: "LH Prehung",
-            door_type: "Type CG",
-            door_stop: "DS2 with Riser",
-            internal_type: null,
-            color: "CHR",
-            default_qty: 1
-          },
-          {
-            id: "lck-ai-2-" + Date.now(),
-            mode: "Prehung",
-            scope: "external",
-            label: "D02 - Patio Sliding Door",
-            door_name: "ALUMINIUM SLIDING DOOR 2100X1800MM",
-            height: 2100,
-            width: 1800,
-            thickness: 35,
-            jamb_or_wall: "110mm Stud",
-            jamb_size: "135mm",
-            hung: "Sliding Track",
-            door_type: "Type CG",
-            door_stop: "Rubber Bumper",
-            internal_type: null,
-            color: "CHR",
-            default_qty: 1
-          },
-          {
-            id: "lck-ai-3-" + Date.now(),
-            mode: "Loose",
-            scope: "internal",
-            label: "D03 - Internal Flush Door",
-            door_name: "HUME FLUSH DOOR HONEYCOMB CORE 2040X820X35MM",
-            height: 2040,
-            width: 820,
-            thickness: 35,
-            jamb_or_wall: "90mm Stud",
-            jamb_size: "112×19mm 5.4m Loose Jamb",
-            hung: "RH Loose",
-            door_type: "Type A",
-            door_stop: "Cushion",
-            internal_type: "HF",
-            color: "CHR",
-            default_qty: curDoors?.length ? Math.max(1, curDoors.length - 2) : 5
-          }
-        );
       }
 
       setLockupEntries(generatedDoors);
@@ -3885,14 +3819,14 @@ export default function RightPropertyPaneView({
     const perim = rfArea > 0 ? Number((Math.sqrt(rfArea) * 4).toFixed(2)) : grandLen;
 
     return {
-      grandTotalLength: grandLen || 42.5,
-      grandTotalArea: flrArea || 112.5,
-      externalWallLength: extLen || 28.4,
-      totalFloorArea: flrArea || 112.5,
-      totalRoofArea: rfArea || 145.0,
-      perimeterM: perim || 45.0,
-      doorCount: Array.isArray(doors) ? doors.length : 8,
-      skirtingLm: Number((grandLen * 0.9).toFixed(1)) || 38.0
+      grandTotalLength: grandLen || 0,
+      grandTotalArea: flrArea || 0,
+      externalWallLength: extLen || 0,
+      totalFloorArea: flrArea || 0,
+      totalRoofArea: rfArea || 0,
+      perimeterM: perim || 0,
+      doorCount: Array.isArray(doors) ? doors.length : 0,
+      skirtingLm: Number((grandLen * 0.9).toFixed(1)) || 0
     };
   }, [walls, doors, rooms, realScale, roofsByPage, currentPage]);
 

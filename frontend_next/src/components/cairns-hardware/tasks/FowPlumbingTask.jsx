@@ -85,8 +85,8 @@ export default function FowPlumbingTask({
                   <input
                     type="number"
                     min="1"
-                    placeholder="8"
-                    value={formData.fixture_count || "8"}
+                    placeholder="0"
+                    value={formData.fixture_count || ""}
                     onChange={(e) => onChange && onChange("fow_plumbing", "fixture_count", e.target.value)}
                     className="task-field-input"
                   />
@@ -95,8 +95,8 @@ export default function FowPlumbingTask({
                   <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Total Run Length (m)</span>
                   <input
                     type="text"
-                    placeholder="42.5"
-                    value={formData.total_length || "42.5"}
+                    placeholder="0"
+                    value={formData.total_length || ""}
                     onChange={(e) => onChange && onChange("fow_plumbing", "total_length", e.target.value)}
                     className="task-field-input"
                   />
@@ -115,7 +115,7 @@ export default function FowPlumbingTask({
               gap: "8px"
             }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                {formData.fixture_count || 8} Fixtures · {formData.total_length || "42.5"}m
+                {formData.fixture_count ? `${formData.fixture_count} Fixtures` : "0 Fixtures"} · {formData.total_length ? `${formData.total_length}m` : "0m"}
               </span>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
