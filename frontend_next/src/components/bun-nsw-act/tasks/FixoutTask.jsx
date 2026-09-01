@@ -16,6 +16,8 @@ export default function FixoutTask({
   const [doorQty, setDoorQty] = useState("6");
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   const handleSaveInlineEdit = (id) => {
     const qtyNum = parseInt(editRowData.qty, 10) || 1;
@@ -56,93 +58,115 @@ export default function FixoutTask({
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: FIXOUT SETUP ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          🚪 1. Internal Fixout & Skirting Setup
+        <div
+          onClick={() => setIsSection1Open(!isSection1Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <span>🚪 1. Internal Fixout & Skirting Setup</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
+          </span>
         </div>
-        <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          <div>
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Door Opening Type</span>
-            <select
-              value={doorType}
-              onChange={(e) => setDoorType(e.target.value)}
-              className="task-field-select"
+        {isSection1Open && (
+          <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Door Opening Type</span>
+              <select
+                value={doorType}
+                onChange={(e) => setDoorType(e.target.value)}
+                className="task-field-select"
+              >
+                <option value="Internal Swing Door">Internal Swing Door (Hinged)</option>
+                <option value="Cavity Sliding Door">Cavity Sliding Door</option>
+                <option value="Double Robe Slider">Double Robe Slider</option>
+                <option value="Triple Robe Slider">Triple Robe Slider</option>
+              </select>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Jamb Set Type</span>
+                <select
+                  value={jambType}
+                  onChange={(e) => setJambType(e.target.value)}
+                  className="task-field-select"
+                >
+                  <option value="Single Rebated Pine Jamb Set">Single Rebated Pine (112x19)</option>
+                  <option value="Double Rebated Pine Jamb Set">Double Rebated Pine (112x30)</option>
+                  <option value="Split Jamb Set">Split Jamb Set</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Architrave Spec</span>
+                <select
+                  value={architraveSpec}
+                  onChange={(e) => setArchitraveSpec(e.target.value)}
+                  className="task-field-select"
+                >
+                  <option value="67x18mm MDF Architrave">67x18mm MDF Single Bevel</option>
+                  <option value="67x18mm Pine Architrave">67x18mm FJ Pine Half Splayed</option>
+                  <option value="42x18mm MDF Architrave">42x18mm MDF Bullnose</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Quantity (Sets)</span>
+              <input
+                type="number"
+                value={doorQty}
+                onChange={(e) => setDoorQty(e.target.value)}
+                className="task-field-input"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddFixout}
+              style={{
+                padding: "4px 8px",
+                background: "#0f2744",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
             >
-              <option value="Internal Swing Door">Internal Swing Door (Hinged)</option>
-              <option value="Cavity Sliding Door">Cavity Sliding Door</option>
-              <option value="Double Robe Slider">Double Robe Slider</option>
-              <option value="Triple Robe Slider">Triple Robe Slider</option>
-            </select>
+              + Add Fixout Door Entry
+            </button>
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Jamb Set Type</span>
-              <select
-                value={jambType}
-                onChange={(e) => setJambType(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="Single Rebated Pine Jamb Set">Single Rebated Pine (112x19)</option>
-                <option value="Double Rebated Pine Jamb Set">Double Rebated Pine (112x30)</option>
-                <option value="Split Jamb Set">Split Jamb Set</option>
-              </select>
-            </div>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Architrave Spec</span>
-              <select
-                value={architraveSpec}
-                onChange={(e) => setArchitraveSpec(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="67x18mm MDF Architrave">67x18mm MDF Single Bevel</option>
-                <option value="67x18mm Pine Architrave">67x18mm FJ Pine Half Splayed</option>
-                <option value="42x18mm MDF Architrave">42x18mm MDF Bullnose</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Quantity (Sets)</span>
-            <input
-              type="number"
-              value={doorQty}
-              onChange={(e) => setDoorQty(e.target.value)}
-              className="task-field-input"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleAddFixout}
-            style={{
-              padding: "4px 8px",
-              background: "#0f2744",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "5px",
-              fontSize: "12px",
-              fontWeight: "700",
-              cursor: "pointer"
-            }}
-          >
-            + Add Fixout Door Entry
-          </button>
-        </div>
+        )}
       </div>
 
       {/* ── CARD 2: ENTERED FIXOUT ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}
+        >
           <span>📋 2. Entered Fixout Doors ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>

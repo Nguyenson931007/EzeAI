@@ -123,6 +123,14 @@ export default function LockupTask({
 
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isPrehungOpen, setIsPrehungOpen] = useState(true);
+  const [isPreExtOpen, setIsPreExtOpen] = useState(true);
+  const [isPreIntOpen, setIsPreIntOpen] = useState(true);
+  const [isLooseOpen, setIsLooseOpen] = useState(true);
+  const [isLooseExtOpen, setIsLooseExtOpen] = useState(true);
+  const [isLooseIntOpen, setIsLooseIntOpen] = useState(true);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   const handleSaveInlineEdit = (id) => {
     const updatedList = (entries || []).map(item => item.id === id ? {
@@ -153,40 +161,86 @@ export default function LockupTask({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {/* ── CARD 1: DOOR INFORMATION ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "10px 14px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "13px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
-          <span>▼ 1. Door information</span>
+        <div
+          onClick={() => setIsSection1Open(!isSection1Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <span>1. Door information</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
+          </span>
         </div>
 
+        {isSection1Open && (
         <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
           {/* GROUP 1: PREHUNG */}
           <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "7px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#1e293b" }}>
-              ▼ Prehung
+            <div
+              onClick={() => setIsPrehungOpen(!isPrehungOpen)}
+              style={{
+                padding: "7px 10px",
+                background: "#f1f5f9",
+                borderBottom: isPrehungOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#1e293b",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isPrehungOpen ? "▼" : "▶"} Prehung</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isPrehungOpen ? "▲" : "▼"}
+              </span>
             </div>
 
+            {isPrehungOpen && (
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
               {/* SUBSECTION: Prehung - External Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>▼ External Door</span>
-                  <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                    {preExtHeight} × {preExtWidth}
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+                <div
+                  onClick={() => setIsPreExtOpen(!isPreExtOpen)}
+                  style={{
+                    padding: "7px 10px",
+                    background: "#fafafa",
+                    borderBottom: isPreExtOpen ? "1px solid #e2e8f0" : "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    userSelect: "none"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isPreExtOpen ? "▼" : "▶"} External Door</span>
+                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                      {preExtHeight} × {preExtWidth}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                    {isPreExtOpen ? "▲" : "▼"}
                   </span>
                 </div>
 
+                {isPreExtOpen && (
+                <div style={{ padding: "8px" }}>
                 <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
                   <div style={{ flex: "1.2 1 110px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Prehung Doors</span>
@@ -300,17 +354,38 @@ export default function LockupTask({
                   </button>
                 </div>
                 <div style={{ fontSize: "9.5px", color: "#94a3b8", marginTop: "3px" }}>Door name options loaded from List_Prehung.</div>
+                </div>
+                )}
               </div>
 
               {/* SUBSECTION: Prehung - Internal Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>▼ Internal Door</span>
-                  <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                    {preIntHeight} × {preIntWidth}
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+                <div
+                  onClick={() => setIsPreIntOpen(!isPreIntOpen)}
+                  style={{
+                    padding: "7px 10px",
+                    background: "#fafafa",
+                    borderBottom: isPreIntOpen ? "1px solid #e2e8f0" : "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    userSelect: "none"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isPreIntOpen ? "▼" : "▶"} Internal Door</span>
+                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                      {preIntHeight} × {preIntWidth}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                    {isPreIntOpen ? "▲" : "▼"}
                   </span>
                 </div>
 
+                {isPreIntOpen && (
+                <div style={{ padding: "8px" }}>
                 <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
                   <div style={{ flex: "1.2 1 110px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Prehung Doors</span>
@@ -437,26 +512,67 @@ export default function LockupTask({
                     + Add door
                   </button>
                 </div>
+                </div>
+                )}
               </div>
             </div>
+            )}
           </div>
 
           {/* GROUP 2: LOOSE JAMB */}
           <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "7px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#1e293b" }}>
-              ▼ Loose Jamb
+            <div
+              onClick={() => setIsLooseOpen(!isLooseOpen)}
+              style={{
+                padding: "7px 10px",
+                background: "#f1f5f9",
+                borderBottom: isLooseOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#1e293b",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isLooseOpen ? "▼" : "▶"} Loose Jamb</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isLooseOpen ? "▲" : "▼"}
+              </span>
             </div>
 
+            {isLooseOpen && (
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
               {/* SUBSECTION: Loose Jamb - External Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>▼ External Door</span>
-                  <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                    {looseExtHeight} × {looseExtWidth}
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+                <div
+                  onClick={() => setIsLooseExtOpen(!isLooseExtOpen)}
+                  style={{
+                    padding: "7px 10px",
+                    background: "#fafafa",
+                    borderBottom: isLooseExtOpen ? "1px solid #e2e8f0" : "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    userSelect: "none"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isLooseExtOpen ? "▼" : "▶"} External Door</span>
+                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                      {looseExtHeight} × {looseExtWidth}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                    {isLooseExtOpen ? "▲" : "▼"}
                   </span>
                 </div>
 
+                {isLooseExtOpen && (
+                <div style={{ padding: "8px" }}>
                 <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
                   <div style={{ flex: "1.2 1 110px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Loose Jamb Doors</span>
@@ -563,17 +679,38 @@ export default function LockupTask({
                   </button>
                 </div>
                 <div style={{ fontSize: "9.5px", color: "#94a3b8", marginTop: "3px" }}>Door name options loaded from List_LooseJamb.</div>
+                </div>
+                )}
               </div>
 
               {/* SUBSECTION: Loose Jamb - Internal Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>▼ Internal Door</span>
-                  <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                    {looseIntHeight} × {looseIntWidth}
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+                <div
+                  onClick={() => setIsLooseIntOpen(!isLooseIntOpen)}
+                  style={{
+                    padding: "7px 10px",
+                    background: "#fafafa",
+                    borderBottom: isLooseIntOpen ? "1px solid #e2e8f0" : "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    userSelect: "none"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isLooseIntOpen ? "▼" : "▶"} Internal Door</span>
+                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                      {looseIntHeight} × {looseIntWidth}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                    {isLooseIntOpen ? "▲" : "▼"}
                   </span>
                 </div>
 
+                {isLooseIntOpen && (
+                <div style={{ padding: "8px" }}>
                 <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
                   <div style={{ flex: "1.2 1 110px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Loose Jamb Doors</span>
@@ -693,50 +830,61 @@ export default function LockupTask({
                     + Add door
                   </button>
                 </div>
+                </div>
+                )}
               </div>
             </div>
+            )}
           </div>
 
         </div>
+        )}
       </div>
 
       {/* ── CARD 2: ENTERED DOORS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>▼ 2. Entered doors ({(entries || []).length})</span>
-          {onAddDataAI && (
-            <button
-              type="button"
-              onClick={() => onAddDataAI("lock_up")}
-              style={{
-                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                border: "1px solid #93c5fd",
-                color: "#1d4ed8",
-                fontSize: "10.5px",
-                fontWeight: 700,
-                padding: "2px 8px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "3px"
-              }}
-            >
-              <span>⚡</span>
-              <span>Auto Fill (AI)</span>
-            </button>
-          )}
+        <div
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "6px"
+          }}
+        >
+          <span>2. Entered doors ({(entries || []).length})</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {onAddDataAI && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddDataAI("lock_up");
+                }}
+                style={{
+                  background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                  border: "1px solid #93c5fd",
+                  color: "#1d4ed8",
+                  fontSize: "10.5px",
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "3px"
+                }}
+              >
+                <span>⚡</span>
+                <span>Auto Fill (AI)</span>
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>

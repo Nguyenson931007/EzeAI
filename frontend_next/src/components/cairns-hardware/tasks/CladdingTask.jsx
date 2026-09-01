@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
+import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function CladdingTask({
   formData = {},
@@ -11,6 +13,9 @@ export default function CladdingTask({
   onAddDataAI
 }) {
   const appModel = useAppModel ? useAppModel() : {};
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "cladding");
+
   const [elevation, setElevation] = useState("North Elevation");
   const [wallHeight, setWallHeight] = useState("2700 mm");
   const [wallLength, setWallLength] = useState("");
@@ -20,6 +25,8 @@ export default function CladdingTask({
   const [editRowData, setEditRowData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   const handleSaveToMSSQL = async () => {
     if (!entries || entries.length === 0) return;
@@ -44,20 +51,23 @@ export default function CladdingTask({
         currentUsername = localStorage.getItem("username") || localStorage.getItem("user_name") || "admin";
       }
 
-      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" && (localStorage.getItem("currentJobId") || localStorage.getItem("currentProjectName") || localStorage.getItem("current_hw_id"))) || "TestAI";
+      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      if (!savedJobId) {
+        console.warn("Chưa chọn Job để lưu Cladding");
+      }
 
       const payload = {
         user_update: currentUsername || "admin",
         jobs: [
           {
-            id_job_hw: savedJobId,
+            id_job_hw: savedJobId || "default",
             walls: entries.map(e => {
               const hNum = parseFloat(String(e.height || "2700").replace(/[^\d.]/g, "")) || 2700;
               const lNum = parseFloat(String(e.length || "0").replace(/[^\d.]/g, "")) || 0.0;
               return {
                 wall_height: hNum,
                 wall_length: lNum,
-                short_name: "CAIRNS"
+                short_name: activeCustomerShortName
               };
             })
           }
@@ -137,107 +147,157 @@ export default function CladdingTask({
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: CLADDING SETUP ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          🏠 1. External Wall Cladding Setup
+        <div
+          onClick={() => setIsSection1Open(!isSection1Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <span>🏠 1. External Wall Cladding Setup</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
+          </span>
         </div>
-        <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Elevation</span>
-              <select
-                value={elevation}
-                onChange={(e) => setElevation(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="North Elevation">North Elevation</option>
-                <option value="South Elevation">South Elevation</option>
-                <option value="East Elevation">East Elevation</option>
-                <option value="West Elevation">West Elevation</option>
-                <option value="All Elevations">All External Elevations</option>
-              </select>
+        {isSection1Open && (
+          <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Elevation</span>
+                <select
+                  value={elevation}
+                  onChange={(e) => setElevation(e.target.value)}
+                  className="task-field-select"
+                >
+                  <option value="North Elevation">North Elevation</option>
+                  <option value="South Elevation">South Elevation</option>
+                  <option value="East Elevation">East Elevation</option>
+                  <option value="West Elevation">West Elevation</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Cladding Profile</span>
+                <select
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                  className="task-field-select"
+                >
+                  <option value="Weathertex Classic Smooth (200mm)">Weathertex Classic Smooth (200mm)</option>
+                  <option value="Weathertex Primelok Woodsman (200mm)">Weathertex Primelok Woodsman (200mm)</option>
+                  <option value="James Hardie Linea Weatherboard (180mm)">JH Linea Weatherboard (180mm)</option>
+                  <option value="James Hardie Axon Cladding Smooth (133mm)">JH Axon Cladding (133mm)</option>
+                  <option value="James Hardie Matrix Cladding Panels">JH Matrix Cladding Panels</option>
+                  <option value="James Hardie Stria Cladding (325mm)">JH Stria Cladding (325mm)</option>
+                  <option value="Colorbond Corrugated Iron (Custom Orb)">Colorbond Corrugated Iron (Wall)</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Height</span>
-              <select
-                value={wallHeight}
-                onChange={(e) => setWallHeight(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="2400 mm">2400 mm</option>
-                <option value="2700 mm">2700 mm</option>
-                <option value="3000 mm">3000 mm</option>
-                <option value="3600 mm">3600 mm</option>
-              </select>
-            </div>
-          </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr", gap: "6px" }}>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Length (m)</span>
-              <input
-                type="text"
-                placeholder={cadMetrics.externalWallLength ? `${cadMetrics.externalWallLength.toFixed(1)}` : "14.5"}
-                value={wallLength}
-                onChange={(e) => setWallLength(e.target.value)}
-                className="task-field-input"
-              />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Height (m)</span>
+                <input
+                  type="text"
+                  placeholder="2.7"
+                  value={wallHeight}
+                  onChange={(e) => setWallHeight(e.target.value)}
+                  className="task-field-input"
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Wall Length (m)</span>
+                <input
+                  type="text"
+                  placeholder="12.0"
+                  value={wallLength}
+                  onChange={(e) => setWallLength(e.target.value)}
+                  className="task-field-input"
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Openings (m²)</span>
+                <input
+                  type="text"
+                  placeholder="0.0"
+                  value={deductions}
+                  onChange={(e) => setDeductions(e.target.value)}
+                  className="task-field-input"
+                />
+              </div>
             </div>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Openings (m²)</span>
-              <input
-                type="text"
-                placeholder="0"
-                value={openingsArea}
-                onChange={(e) => setOpeningsArea(e.target.value)}
-                className="task-field-input"
-              />
-            </div>
-            <div>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Waste %</span>
-              <select
-                value={wastePercent}
-                onChange={(e) => setWastePercent(e.target.value)}
-                className="task-field-select"
-              >
-                <option value="5%">5%</option>
-                <option value="10%">10%</option>
-                <option value="15%">15%</option>
-              </select>
-            </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={handleAddCladdingWall}
-            style={{
-              padding: "4px 8px",
-              background: "#0f2744",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "5px",
-              fontSize: "12px",
-              fontWeight: "700",
-              cursor: "pointer"
-            }}
-          >
-            + Add Wall Cladding
-          </button>
-        </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Waste Factor</span>
+                <select
+                  value={wasteFactor}
+                  onChange={(e) => setWasteFactor(Number(e.target.value))}
+                  className="task-field-select"
+                >
+                  <option value={1.05}>5% Waste</option>
+                  <option value={1.10}>10% Waste (Standard)</option>
+                  <option value={1.15}>15% Waste (Cut-offs)</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Cavity Batten / Vapour</span>
+                <select
+                  value={battenType}
+                  onChange={(e) => setBattenType(e.target.value)}
+                  className="task-field-select"
+                >
+                  <option value="42x19 Pine Cavity Batten + Wrap">42x19 Pine Batten + Wrap</option>
+                  <option value="Thermal Break + Wrap Only">Thermal Break + Wrap Only</option>
+                  <option value="None / Direct Fix">None / Direct Fix</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddCladding}
+              style={{
+                padding: "4px 8px",
+                background: "#0f2744",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: "pointer",
+                marginTop: "4px"
+              }}
+            >
+              + Add Cladding Elevation
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── CARD 2: ENTERED CLADDING WALLS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}
+        >
           <span>📋 2. Entered Cladding Walls ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>

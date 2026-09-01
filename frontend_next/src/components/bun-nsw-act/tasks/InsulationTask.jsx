@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function InsulationTask({
   formData = {},
@@ -29,35 +31,48 @@ export default function InsulationTask({
     currentProjectName
   } = useAppModel();
 
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "insulation");
+
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isExtOpen, setIsExtOpen] = useState(true);
+  const [isIntOpen, setIsIntOpen] = useState(true);
+  const [isPartyOpen, setIsPartyOpen] = useState(true);
+  const [isSection2Open, setIsSection2Open] = useState(true);
+  const [isSection3Open, setIsSection3Open] = useState(true);
 
-  const R_VALUE_OPTIONS = ["R2.0", "R2.5", "R2.7"];
+  const R_VALUE_OPTIONS = ["R2.0", "R2.5", "R2.7", "R4.0"];
 
-  const PRODUCT_OPTIONS_MAP = {
-    "R2.0": [
-      "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack",
-      "0810593 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X580 PK20 · 13.5 m²/pack",
-      "0810324 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.0 90X430 PK 32 · 16 m²/pack",
-      "0810325 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.0 90X580 PK 32 · 21.5 m²/pack"
-    ],
-    "R2.5": [
-      "0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack",
-      "0810611 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X580 PK16 · 10.8 m²/pack"
-    ],
-    "R2.7": [
-      "0810612 · INS BATTS HIGH DENSITY GWOOL KNAUF++EARTHWOOL R2.7 90X430 PK12 · 6 m²/pack",
-      "0810613 · INS BATTS HIGH DENSITY GWOOL KNAUF++EARTHWOOL R2.7 90X580 PK12 · 8.1 m²/pack"
-    ]
-  };
+  const extCatalogItems = useMemo(() => catalogByGroup(catalogItems, "external"), [catalogItems]);
+  const intCatalogItems = useMemo(() => catalogByGroup(catalogItems, "internal"), [catalogItems]);
+  const partyCatalogItems = useMemo(() => catalogByGroup(catalogItems, "partiwall"), [catalogItems]);
+  const ceilingCatalogItems = useMemo(() => catalogByGroup(catalogItems, "ceiling"), [catalogItems]);
+  const floorCatalogItems = useMemo(() => catalogByGroup(catalogItems, "floor"), [catalogItems]);
+
+  const extProductOptions = useMemo(() => {
+    const list = extCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    return list.length > 0 ? list : (catalogItems || []).map(i => canonicalProductValue(i)).filter(Boolean);
+  }, [extCatalogItems, catalogItems]);
+
+  const intProductOptions = useMemo(() => {
+    const list = intCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    return list.length > 0 ? list : (catalogItems || []).map(i => canonicalProductValue(i)).filter(Boolean);
+  }, [intCatalogItems, catalogItems]);
+
+  const partyProductOptions = useMemo(() => {
+    const list = partyCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    return list.length > 0 ? list : (catalogItems || []).map(i => canonicalProductValue(i)).filter(Boolean);
+  }, [partyCatalogItems, catalogItems]);
 
   // Ext Wall State (Card 1 manual inputs)
   const [extHeight, setExtHeight] = useState("2400");
   const [extLength, setExtLength] = useState("");
   const [extRValue, setExtRValue] = useState("R2.5");
-  const [extProduct, setExtProduct] = useState("0810610 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5 90X430 PK16 · 8 m²/pack");
+  const [extProduct, setExtProduct] = useState("");
   const [extRaked, setExtRaked] = useState("0");
   const [extDoor, setExtDoor] = useState("0");
 
@@ -65,7 +80,7 @@ export default function InsulationTask({
   const [intHeight, setIntHeight] = useState("2400");
   const [intLength, setIntLength] = useState("");
   const [intRValue, setIntRValue] = useState("R2.0");
-  const [intProduct, setIntProduct] = useState("0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack");
+  const [intProduct, setIntProduct] = useState("");
   const [intRaked, setIntRaked] = useState("0");
   const [intDoor, setIntDoor] = useState("0");
 
@@ -73,9 +88,27 @@ export default function InsulationTask({
   const [partyHeight, setPartyHeight] = useState("2400");
   const [partyLength, setPartyLength] = useState("");
   const [partyRValue, setPartyRValue] = useState("R2.0");
-  const [partyProduct, setPartyProduct] = useState("0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 · 10 m²/pack");
+  const [partyProduct, setPartyProduct] = useState("");
   const [partyRaked, setPartyRaked] = useState("0");
   const [partyDoor, setPartyDoor] = useState("0");
+
+  useEffect(() => {
+    if (extProductOptions.length > 0 && (!extProduct || !extProductOptions.includes(extProduct))) {
+      setExtProduct(extProductOptions[0]);
+    }
+  }, [extProductOptions]);
+
+  useEffect(() => {
+    if (intProductOptions.length > 0 && (!intProduct || !intProductOptions.includes(intProduct))) {
+      setIntProduct(intProductOptions[0]);
+    }
+  }, [intProductOptions]);
+
+  useEffect(() => {
+    if (partyProductOptions.length > 0 && (!partyProduct || !partyProductOptions.includes(partyProduct))) {
+      setPartyProduct(partyProductOptions[0]);
+    }
+  }, [partyProductOptions]);
 
   const calcInsulationArea = (h, l, raked, door) => {
     const heightM = (parseFloat(h) || 2400) / 1000;
@@ -239,7 +272,8 @@ export default function InsulationTask({
       if (r.id !== rowId) return r;
       const updated = { ...r, [field]: val };
       if (field === "rValue") {
-        const prods = PRODUCT_OPTIONS_MAP[val] || [];
+        const isExt = (updated.type || "").toLowerCase().includes("ext");
+        const prods = isExt ? extProductOptions : (updated.type === "Party wall" ? partyProductOptions : intProductOptions);
         if (prods.length > 0) updated.product = prods[0];
       }
       if (field === "height" || field === "length" || field === "raked" || field === "door") {
@@ -271,14 +305,17 @@ export default function InsulationTask({
         total_area_door: parseFloat(w.door) || 0,
         total_area: parseFloat(w.insulationArea || w.totalArea || 0),
         r_value: w.rValue || "R2.0",
-        short_name: "BUN-NSW-ACT"
+        short_name: activeCustomerShortName
       }));
 
-      const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
+      const targetJob = activeJobNumber || currentProjectName || currentJobId || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      if (!targetJob) {
+        console.warn("Chưa chọn Job để lưu Insulation");
+      }
       const payload = {
-        user_update: user?.username || "EZE0098",
+        user_update: user?.username || "admin",
         jobs: [{
-          id_job_hw: targetJob,
+          id_job_hw: targetJob || "default",
           items
         }]
       };
@@ -349,27 +386,55 @@ export default function InsulationTask({
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: INSULATION WALL (MANUAL INPUTS) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "10px 14px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "13px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
-          <span>▼ 1. Insulation Wall</span>
+        <div
+          onClick={() => setIsSection1Open(!isSection1Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <span>1. Insulation Wall</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
+          </span>
         </div>
 
+        {isSection1Open && (
         <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
 
           {/* SECTION 1: EXT WALL */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Ext wall
+            <div
+              onClick={() => setIsExtOpen(!isExtOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f1f5f9",
+                borderBottom: isExtOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isExtOpen ? "▼" : "▶"} Ext wall</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isExtOpen ? "▲" : "▼"}
+              </span>
             </div>
+            {isExtOpen && (
             <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 85px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
@@ -404,10 +469,7 @@ export default function InsulationTask({
                 <select
                   value={extRValue}
                   onChange={(e) => {
-                    const r = e.target.value;
-                    setExtRValue(r);
-                    const prods = PRODUCT_OPTIONS_MAP[r] || [];
-                    if (prods.length > 0) setExtProduct(prods[0]);
+                    setExtRValue(e.target.value);
                   }}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
@@ -424,7 +486,7 @@ export default function InsulationTask({
                   onChange={(e) => setExtProduct(e.target.value)}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
-                  {(PRODUCT_OPTIONS_MAP[extRValue] || PRODUCT_OPTIONS_MAP["R2.0"]).map(p => (
+                  {extProductOptions.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
@@ -477,13 +539,33 @@ export default function InsulationTask({
                 + Add wall
               </button>
             </div>
+            )}
           </div>
 
           {/* SECTION 2: INT WALL */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Int Wall
+            <div
+              onClick={() => setIsIntOpen(!isIntOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f1f5f9",
+                borderBottom: isIntOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isIntOpen ? "▼" : "▶"} Int Wall</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isIntOpen ? "▲" : "▼"}
+              </span>
             </div>
+            {isIntOpen && (
             <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 85px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
@@ -518,10 +600,7 @@ export default function InsulationTask({
                 <select
                   value={intRValue}
                   onChange={(e) => {
-                    const r = e.target.value;
-                    setIntRValue(r);
-                    const prods = PRODUCT_OPTIONS_MAP[r] || [];
-                    if (prods.length > 0) setIntProduct(prods[0]);
+                    setIntRValue(e.target.value);
                   }}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
@@ -538,7 +617,7 @@ export default function InsulationTask({
                   onChange={(e) => setIntProduct(e.target.value)}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
-                  {(PRODUCT_OPTIONS_MAP[intRValue] || PRODUCT_OPTIONS_MAP["R2.0"]).map(p => (
+                  {intProductOptions.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
@@ -591,13 +670,33 @@ export default function InsulationTask({
                 + Add wall
               </button>
             </div>
+            )}
           </div>
 
           {/* SECTION 3: PARTYWALL */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Partywall
+            <div
+              onClick={() => setIsPartyOpen(!isPartyOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f1f5f9",
+                borderBottom: isPartyOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isPartyOpen ? "▼" : "▶"} Partywall</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isPartyOpen ? "▲" : "▼"}
+              </span>
             </div>
+            {isPartyOpen && (
             <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 85px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
@@ -632,10 +731,7 @@ export default function InsulationTask({
                 <select
                   value={partyRValue}
                   onChange={(e) => {
-                    const r = e.target.value;
-                    setPartyRValue(r);
-                    const prods = PRODUCT_OPTIONS_MAP[r] || [];
-                    if (prods.length > 0) setPartyProduct(prods[0]);
+                    setPartyRValue(e.target.value);
                   }}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
@@ -652,7 +748,7 @@ export default function InsulationTask({
                   onChange={(e) => setPartyProduct(e.target.value)}
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
                 >
-                  {(PRODUCT_OPTIONS_MAP[partyRValue] || PRODUCT_OPTIONS_MAP["R2.0"]).map(p => (
+                  {partyProductOptions.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
@@ -705,48 +801,54 @@ export default function InsulationTask({
                 + Add wall
               </button>
             </div>
+            )}
           </div>
 
         </div>
+        )}
       </div>
 
       {/* ── CARD 2: ENTERED INSULATION WALLS (MATCHING AUTO-CALCULATE) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>📋 2. Entered Insulation Walls ({(wallEntries || []).length})</span>
-          <button
-            type="button"
-            onClick={handleAutoFillAI}
-            disabled={isAutoFilling}
-            style={{
-              background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-              border: "1px solid #93c5fd",
-              color: "#1d4ed8",
-              fontSize: "11px",
-              fontWeight: 700,
-              padding: "3px 10px",
-              borderRadius: "5px",
-              cursor: isAutoFilling ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              opacity: isAutoFilling ? 0.7 : 1
-            }}
-          >
-            <span>⚡</span>
-            <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
-          </button>
+        <div
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "6px"
+          }}
+        >
+          <span>2. Entered Insulation Walls ({(wallEntries || []).length})</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={handleAutoFillAI}
+              disabled={isAutoFilling}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 10px",
+                borderRadius: "5px",
+                cursor: isAutoFilling ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                opacity: isAutoFilling ? 0.7 : 1
+              }}
+            >
+              <span>⚡</span>
+              <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
+            </button>
+          </div>
         </div>
 
         <div style={{ padding: "0px", overflowX: "auto" }}>
@@ -768,8 +870,9 @@ export default function InsulationTask({
               {(wallEntries || []).map((w, idx) => {
                 const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`);
                 const isExt = (w.type || "").toLowerCase().includes("ext");
+                const isParty = (w.type || "").toLowerCase().includes("party");
                 const currentR = w.rValue || (isExt ? "R2.5" : "R2.0");
-                const availableProds = PRODUCT_OPTIONS_MAP[currentR] || PRODUCT_OPTIONS_MAP["R2.0"];
+                const availableProds = isExt ? extProductOptions : (isParty ? partyProductOptions : intProductOptions);
 
                 return (
                   <tr

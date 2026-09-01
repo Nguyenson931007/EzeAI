@@ -8228,6 +8228,10 @@ export default function RightPropertyPaneView({
               onSelectEntry={handleSelectEntry}
               activeJobNumber={currentProjectName || currentJobId}
               goPage={goPage}
+              selectedRoom={selectedRoom}
+              selectedRoomIds={selectedRoomIds}
+              selectedId={selectedId}
+              selectedType={selectedType}
             />
           )}
 
@@ -8243,6 +8247,10 @@ export default function RightPropertyPaneView({
               onSelectEntry={handleSelectEntry}
               activeJobNumber={currentProjectName || currentJobId}
               goPage={goPage}
+              selectedRoom={selectedRoom}
+              selectedRoomIds={selectedRoomIds}
+              selectedId={selectedId}
+              selectedType={selectedType}
             />
           )}
 
@@ -8255,6 +8263,7 @@ export default function RightPropertyPaneView({
               entries={timberPostEntries}
               onSetEntries={setTimberPostEntries}
               onAddDataAI={handleAddDataAI}
+              activeJobNumber={currentProjectName || currentJobId}
             />
           )}
 

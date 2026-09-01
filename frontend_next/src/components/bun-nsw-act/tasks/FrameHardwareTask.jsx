@@ -31,7 +31,10 @@ export default function FrameHardwareTask({
   const [editRowData, setEditRowData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSlabOpen, setIsSlabOpen] = useState(true);
+  const [isTimberOpen, setIsTimberOpen] = useState(true);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   // Slab Floor State
   const [slabWallHeight, setSlabWallHeight] = useState("Select...");
@@ -407,14 +410,15 @@ export default function FrameHardwareTask({
 
       wallsList.push(...Object.values(seenHeights));
 
-      if (wallsList.length === 0) return;
-
-      const jobId = currentProjectName || activeJobNumber || "TestAI";
+      const jobId = currentProjectName || activeJobNumber || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      if (!jobId) {
+        console.warn("Chưa chọn Job để lưu FrameWork");
+      }
 
       const payload = {
         user_update: currentUserUpdate,
         jobs: [{
-          id_job_hw: jobId,
+          id_job_hw: jobId || "default",
           walls: wallsList
         }]
       };
@@ -476,9 +480,9 @@ export default function FrameHardwareTask({
             userSelect: "none"
           }}
         >
-          <span>{isSection1Open ? "▼" : "▶"} 1. Wall information</span>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-            {isSection1Open ? "▲ Collapse" : "▼ Expand"}
+          <span>1. Wall information</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
           </span>
         </div>
 
@@ -487,16 +491,28 @@ export default function FrameHardwareTask({
           
           {/* SECTION: ON CONCRETE SLAB FLOOR */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{
-              padding: "7px 10px",
-              background: "#f1f5f9",
-              borderBottom: "1px solid #e2e8f0",
-              fontSize: "11px",
-              fontWeight: 800,
-              color: "#334155"
-            }}>
-              ▼ ON CONCRETE SLAB FLOOR
+            <div
+              onClick={() => setIsSlabOpen(!isSlabOpen)}
+              style={{
+                padding: "7px 10px",
+                background: "#f1f5f9",
+                borderBottom: isSlabOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isSlabOpen ? "▼" : "▶"} ON CONCRETE SLAB FLOOR</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isSlabOpen ? "▲" : "▼"}
+              </span>
             </div>
+            {isSlabOpen && (
             <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
               {/* Wall Height */}
               <div style={{ flex: "1 1 120px" }}>
@@ -591,20 +607,33 @@ export default function FrameHardwareTask({
                 + Add wall
               </button>
             </div>
+            )}
           </div>
 
           {/* SECTION: ON TIMBER FLOOR */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{
-              padding: "7px 10px",
-              background: "#f1f5f9",
-              borderBottom: "1px solid #e2e8f0",
-              fontSize: "11px",
-              fontWeight: 800,
-              color: "#334155"
-            }}>
-              ▼ ON TIMBER FLOOR
+            <div
+              onClick={() => setIsTimberOpen(!isTimberOpen)}
+              style={{
+                padding: "7px 10px",
+                background: "#f1f5f9",
+                borderBottom: isTimberOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isTimberOpen ? "▼" : "▶"} ON TIMBER FLOOR</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isTimberOpen ? "▲" : "▼"}
+              </span>
             </div>
+            {isTimberOpen && (
             <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
               {/* Wall Height */}
               <div style={{ flex: "1 1 120px" }}>
@@ -699,6 +728,7 @@ export default function FrameHardwareTask({
                 + Add wall
               </button>
             </div>
+            )}
           </div>
 
         </div>
@@ -706,42 +736,49 @@ export default function FrameHardwareTask({
       </div>
 
       {/* ── CARD 2: ENTERED WALLS ── */}
-      <div ref={tableRef} style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>▼ 2. Entered walls ({(entries || []).length})</span>
-          {onAddDataAI && (
-            <button
-              type="button"
-              onClick={() => onAddDataAI("frame_hardware")}
-              style={{
-                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                border: "1px solid #93c5fd",
-                color: "#1d4ed8",
-                fontSize: "10.5px",
-                fontWeight: 700,
-                padding: "2px 8px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "3px"
-              }}
-            >
-              <span>⚡</span>
-              <span>Auto Fill (AI)</span>
-            </button>
-          )}
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+        <div
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "6px"
+          }}
+        >
+          <span>2. Entered walls ({(entries || []).length})</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {onAddDataAI && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddDataAI("frame_hardware");
+                }}
+                style={{
+                  background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                  border: "1px solid #93c5fd",
+                  color: "#1d4ed8",
+                  fontSize: "10.5px",
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "3px"
+                }}
+              >
+                <span>⚡</span>
+                <span>Auto Fill (AI)</span>
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>

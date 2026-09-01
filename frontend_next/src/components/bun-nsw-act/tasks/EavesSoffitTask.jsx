@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
+import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function EavesSoffitTask({
   formData = {},
@@ -12,46 +14,66 @@ export default function EavesSoffitTask({
   onSelectEntry
 }) {
   const appModel = useAppModel ? useAppModel() : {};
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "eaves-soffits");
+
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
 
-  const SHEET_BRAND_OPTIONS = [
-    "FC",
-    "BGC"
-  ];
+  const SHEET_BRAND_OPTIONS = ["FC", "BGC"];
+  const SHEET_THICKNESS_OPTIONS = ["4.5mm", "6mm"];
 
-  const SHEET_THICKNESS_OPTIONS = [
-    "4.5mm",
-    "6mm"
-  ];
+  const battenCatalogItems = useMemo(() => catalogByGroup(catalogItems, "soffit_batten"), [catalogItems]);
+  const beadCatalogItems = useMemo(() => catalogByGroup(catalogItems, "soffit_bead"), [catalogItems]);
 
-  const SOFFIT_BATTEN_OPTIONS = [
-    "0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE",
-    "9001800 · 70×35 Pine Batten @6.0m Lengths"
-  ];
+  const SOFFIT_BATTEN_OPTIONS = useMemo(() => {
+    if (battenCatalogItems.length > 0) {
+      return battenCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    }
+    return [];
+  }, [battenCatalogItems]);
 
-  const SOFFIT_BEAD_OPTIONS = [
-    "0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD",
-    "0020733 · PINE PRIMED DAR FJ LOSP H3++31X11MM 5.4M BEAD",
-    "0020736 · PINE PRIMED DAR FJ LOSP H3++42X11MM 5.4M"
-  ];
+  const SOFFIT_BEAD_OPTIONS = useMemo(() => {
+    if (beadCatalogItems.length > 0) {
+      return beadCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    }
+    return [];
+  }, [beadCatalogItems]);
 
   // Material Setup State
   const [sheetBrand, setSheetBrand] = useState("FC");
   const [sheetThickness, setSheetThickness] = useState("4.5mm");
-  const [soffitBatten, setSoffitBatten] = useState("0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE");
-  const [soffitBead, setSoffitBead] = useState("0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD");
+  const [soffitBatten, setSoffitBatten] = useState("");
+  const [soffitBead, setSoffitBead] = useState("");
+
+  useEffect(() => {
+    if (SOFFIT_BATTEN_OPTIONS.length > 0 && (!soffitBatten || !SOFFIT_BATTEN_OPTIONS.includes(soffitBatten))) {
+      const initial = SOFFIT_BATTEN_OPTIONS[0];
+      setSoffitBatten(initial);
+      if (onChange) onChange("eaves", "soffit_batten", initial);
+    }
+  }, [SOFFIT_BATTEN_OPTIONS]);
+
+  useEffect(() => {
+    if (SOFFIT_BEAD_OPTIONS.length > 0 && (!soffitBead || !SOFFIT_BEAD_OPTIONS.includes(soffitBead))) {
+      const initial = SOFFIT_BEAD_OPTIONS[0];
+      setSoffitBead(initial);
+      if (onChange) onChange("eaves", "soffit_bead", initial);
+    }
+  }, [SOFFIT_BEAD_OPTIONS]);
 
   // Inline editing state for Card 2
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   const handleResetData = () => {
     setSheetBrand("FC");
     setSheetThickness("4.5mm");
-    setSoffitBatten("0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE");
-    setSoffitBead("0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD");
+    if (SOFFIT_BATTEN_OPTIONS.length > 0) setSoffitBatten(SOFFIT_BATTEN_OPTIONS[0]);
+    if (SOFFIT_BEAD_OPTIONS.length > 0) setSoffitBead(SOFFIT_BEAD_OPTIONS[0]);
   };
 
   const handleSaveToMSSQL = async () => {
@@ -77,19 +99,22 @@ export default function EavesSoffitTask({
         currentUsername = localStorage.getItem("username") || localStorage.getItem("user_name") || "admin";
       }
 
-      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" && (localStorage.getItem("currentJobId") || localStorage.getItem("currentProjectName") || localStorage.getItem("current_hw_id"))) || "TestAI";
+      const savedJobId = appModel?.currentJobId || appModel?.current_hw_id || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      if (!savedJobId) {
+        console.warn("Chưa chọn Job để lưu Eaves Soffit");
+      }
 
       const payload = {
         user_update: currentUsername || "admin",
         jobs: [
           {
-            id_job_hw: savedJobId,
+            id_job_hw: savedJobId || appModel?.currentProjectName || "default",
             eaves: entries.map(e => ({
-              sheet_brand: e.brand || e.sheetBrand || "FC",
-              sheet_thickness: e.thickness || e.sheetThickness || "4.5mm",
-              sofit_batten: e.batten || e.soffitBatten || "0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE",
-              sofit_bead: e.bead || e.soffitBead || "0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD",
-              short_name: "BUN-NSW-ACT"
+              sheet_brand: e.brand || e.sheetBrand || sheetBrand || "FC",
+              sheet_thickness: e.thickness || e.sheetThickness || sheetThickness || "4.5mm",
+              sofit_batten: e.batten || e.soffitBatten || soffitBatten,
+              sofit_bead: e.bead || e.soffitBead || soffitBead,
+              short_name: activeCustomerShortName
             }))
           }
         ]
@@ -145,22 +170,29 @@ export default function EavesSoffitTask({
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {/* ── CARD 1: MATERIAL SETUP ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "10px 14px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "13px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between"
-        }}>
-          <span>▼ 1. Material setup</span>
+        <div
+          onClick={() => setIsSection1Open(!isSection1Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span>1. Material setup</span>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <button
               type="button"
-              onClick={handleResetData}
+              onClick={(e) => { e.stopPropagation(); handleResetData(); }}
               style={{
                 background: "#ffffff",
                 border: "1px solid #fca5a5",
@@ -177,7 +209,7 @@ export default function EavesSoffitTask({
             {onAddDataAI && (
               <button
                 type="button"
-                onClick={onAddDataAI}
+                onClick={(e) => { e.stopPropagation(); onAddDataAI("eaves"); }}
                 style={{
                   background: "#ffffff",
                   border: "1px solid #93c5fd",
@@ -192,114 +224,121 @@ export default function EavesSoffitTask({
                 + Add data AI
               </button>
             )}
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+              {isSection1Open ? "▲" : "▼"}
+            </span>
           </div>
         </div>
 
-        <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-          {/* Row 1: Brand & Thickness */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        {isSection1Open && (
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {/* Row 1: Brand & Thickness */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet brand</span>
+                <select
+                  value={sheetBrand}
+                  onChange={(e) => {
+                    setSheetBrand(e.target.value);
+                    if (onChange) onChange("eaves", "sheet_brand", e.target.value);
+                  }}
+                  className="task-field-select"
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                >
+                  {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet thickness</span>
+                <select
+                  value={sheetThickness}
+                  onChange={(e) => {
+                    setSheetThickness(e.target.value);
+                    if (onChange) onChange("eaves", "sheet_thickness", e.target.value);
+                  }}
+                  className="task-field-select"
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                >
+                  {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Row 2: Soffit Batten */}
             <div>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet brand</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit batten</span>
               <select
-                value={sheetBrand}
+                value={soffitBatten}
                 onChange={(e) => {
-                  setSheetBrand(e.target.value);
-                  if (onChange) onChange("eaves", "sheet_brand", e.target.value);
+                  setSoffitBatten(e.target.value);
+                  if (onChange) onChange("eaves", "soffit_batten", e.target.value);
                 }}
                 className="task-field-select"
                 style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
 
+            {/* Row 3: Soffit Bead */}
             <div>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet thickness</span>
+              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit bead</span>
               <select
-                value={sheetThickness}
+                value={soffitBead}
                 onChange={(e) => {
-                  setSheetThickness(e.target.value);
-                  if (onChange) onChange("eaves", "sheet_thickness", e.target.value);
+                  setSoffitBead(e.target.value);
+                  if (onChange) onChange("eaves", "soffit_bead", e.target.value);
                 }}
                 className="task-field-select"
                 style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
-          </div>
 
-          {/* Row 2: Soffit Batten */}
-          <div>
-            <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit batten</span>
-            <select
-              value={soffitBatten}
-              onChange={(e) => {
-                setSoffitBatten(e.target.value);
-                if (onChange) onChange("eaves", "soffit_batten", e.target.value);
-              }}
-              className="task-field-select"
-              style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-            >
-              {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-            </select>
+            {/* Add Button */}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
+              <button
+                type="button"
+                onClick={handleAddEave}
+                style={{
+                  padding: "7px 16px",
+                  background: "#1e3a5f",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11.5px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px"
+                }}
+              >
+                + Add Eave
+              </button>
+            </div>
           </div>
-
-          {/* Row 3: Soffit Bead */}
-          <div>
-            <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit bead</span>
-            <select
-              value={soffitBead}
-              onChange={(e) => {
-                setSoffitBead(e.target.value);
-                if (onChange) onChange("eaves", "soffit_bead", e.target.value);
-              }}
-              className="task-field-select"
-              style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-            >
-              {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-            </select>
-          </div>
-
-          {/* Add Button */}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
-            <button
-              type="button"
-              onClick={handleAddEave}
-              style={{
-                padding: "7px 16px",
-                background: "#1e3a5f",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "5px",
-                fontSize: "11.5px",
-                fontWeight: "700",
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px"
-              }}
-            >
-              + Add Eave
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* ── CARD 2: ENTERED EAVES TABLE ── */}
+      {/* ── CARD 2: ENTERED EAVES ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
-          <span>📋 2. Entered Eaves ({(entries || []).length})</span>
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}
+        >
+          <span>2. Entered Eaves ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>

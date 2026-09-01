@@ -37,6 +37,8 @@ from api.cladding_routes import router as cladding_router
 from api.area_summary_routes import router as area_summary_router
 from api.insulation_routes import router as insulation_router
 from api.lockout_routes import router as lockout_router
+from api.timber_posts_routes import router as timber_posts_router
+from api.catalog_routes import router as catalog_router
 from services.roof_v3 import router as roof_v3_router
 from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
 from app.limiter import limiter
@@ -179,6 +181,8 @@ app.include_router(cladding_router, tags=["Cladding-router"])
 app.include_router(area_summary_router, tags=["area_summary"])
 app.include_router(insulation_router, tags=["insulation"])
 app.include_router(lockout_router, tags=["lockout"])
+app.include_router(timber_posts_router, tags=["TimberPosts-router"])
+app.include_router(catalog_router, tags=["Catalog-router"])
 app.include_router(roof_v3_router)
 
 

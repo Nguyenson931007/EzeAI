@@ -895,6 +895,26 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  // ── TimberPosts Jobs (MSSQL ProcurementApp) ──
+  async fetchTimberPostsJobs(office = null) {
+    const qs = office ? `?office=${encodeURIComponent(office)}` : "";
+    const res = await fetch(`${BASE_URL}/api/timber-posts/jobs${qs}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveTimberPostsJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/timber-posts/jobs/save`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   // ── Roof V3 Engine API Endpoints ──
   async computeRoof2D(payload) {
     const res = await fetch(`${BASE_URL}/api/v3/compute-roof`, {
@@ -931,6 +951,14 @@ export const ApiService = {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async getCatalog(customerId, taskKey) {
+    const res = await fetch(`${BASE_URL}/api/catalog?customer_id=${encodeURIComponent(customerId)}&task_key=${encodeURIComponent(taskKey)}`, {
+      headers: getHeaders(),
       credentials: "include"
     });
     return handleResponse(res);

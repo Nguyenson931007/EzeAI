@@ -1,4 +1,6 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function InsulationTask({
   formData = {},
@@ -12,22 +14,50 @@ export default function InsulationTask({
   onSelectEntry
 }) {
   const tableRef = useRef(null);
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "insulation");
+
   const [selectedEntryId, setSelectedEntryId] = useState(null);
+
+  const wallCatalogItems = useMemo(() => {
+    const items = catalogByGroup(catalogItems, ["external", "internal", "partiwall"]);
+    return items.length > 0 ? items : catalogItems || [];
+  }, [catalogItems]);
+
+  const areaCatalogItems = useMemo(() => {
+    const items = catalogByGroup(catalogItems, ["ceiling", "floor"]);
+    return items.length > 0 ? items : catalogItems || [];
+  }, [catalogItems]);
+
+  const wallProductOptions = useMemo(() => wallCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean), [wallCatalogItems]);
+  const areaProductOptions = useMemo(() => areaCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean), [areaCatalogItems]);
 
   // Insulation Wall Form State
   const [insWallType, setInsWallType] = useState("external");
   const [insWallHeight, setInsWallHeight] = useState("2700");
   const [insWallLength, setInsWallLength] = useState("");
   const [insWallRValue, setInsWallRValue] = useState("R2.0");
-  const [insWallProduct, setInsWallProduct] = useState("0810608 - INS BATT R2.0 430MM");
+  const [insWallProduct, setInsWallProduct] = useState("");
   const [insWallRaked, setInsWallRaked] = useState("0");
   const [insWallDoor, setInsWallDoor] = useState("0");
 
   // Insulation Floor & Ceiling Form State
   const [insAreaType, setInsAreaType] = useState("ceiling");
   const [insAreaRValue, setInsAreaRValue] = useState("R4.0");
-  const [insAreaProduct, setInsAreaProduct] = useState("0810620 - INS CEILING BATT R4.0 430MM");
+  const [insAreaProduct, setInsAreaProduct] = useState("");
   const [insAreaValue, setInsAreaValue] = useState("");
+
+  useEffect(() => {
+    if (wallProductOptions.length > 0 && (!insWallProduct || !wallProductOptions.includes(insWallProduct))) {
+      setInsWallProduct(wallProductOptions[0]);
+    }
+  }, [wallProductOptions]);
+
+  useEffect(() => {
+    if (areaProductOptions.length > 0 && (!insAreaProduct || !areaProductOptions.includes(insAreaProduct))) {
+      setInsAreaProduct(areaProductOptions[0]);
+    }
+  }, [areaProductOptions]);
 
   const handleAddInsulationWall = (subType) => {
     const height = parseFloat(insWallHeight) || 2700;
@@ -189,14 +219,11 @@ export default function InsulationTask({
                   <div>
                     <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Product</span>
                     <select
-                      value={insWallType === sub.key ? insWallProduct : sub.defaultProd}
+                      value={insWallType === sub.key ? insWallProduct : (wallProductOptions[0] || "")}
                       onChange={(e) => { setInsWallType(sub.key); setInsWallProduct(e.target.value); }}
                       className="task-field-select"
                     >
-                      <option value="0810608 - INS BATT R2.0 430MM">0810608 - INS BATT R2.0 430MM</option>
-                      <option value="0810609 - INS BATT R2.5 430MM">0810609 - INS BATT R2.5 430MM</option>
-                      <option value="0810611 - INS SOUNDBATT R1.5">0810611 - INS SOUNDBATT R1.5</option>
-                      <option value="0810612 - INS SOUNDBATT R2.0">0810612 - INS SOUNDBATT R2.0</option>
+                      {wallProductOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
                 </div>
@@ -288,13 +315,11 @@ export default function InsulationTask({
             <div>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Product</span>
               <select
-                value={insAreaProduct}
+                value={insAreaProduct || (areaProductOptions[0] || "")}
                 onChange={(e) => setInsAreaProduct(e.target.value)}
                 className="task-field-select"
               >
-                <option value="0810620 - INS CEILING BATT R4.0 430MM">0810620 - INS CEILING BATT R4.0 430MM</option>
-                <option value="0810621 - INS CEILING BATT R5.0 430MM">0810621 - INS CEILING BATT R5.0 430MM</option>
-                <option value="0810625 - INS UNDERFLOOR BATT R2.5">0810625 - INS UNDERFLOOR BATT R2.5</option>
+                {areaProductOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             <div>

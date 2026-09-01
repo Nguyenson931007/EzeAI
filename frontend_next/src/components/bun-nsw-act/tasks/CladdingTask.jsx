@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
+import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function CladdingTask({
   formData = {},
@@ -11,12 +13,17 @@ export default function CladdingTask({
   onAddDataAI
 }) {
   const appModel = useAppModel ? useAppModel() : {};
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "cladding");
+
   const [wallHeight, setWallHeight] = useState("2.44");
   const [wallLength, setWallLength] = useState("");
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSection2Open, setIsSection2Open] = useState(true);
 
   const handleSaveToMSSQL = async () => {
     if (!entries || entries.length === 0) return;
@@ -41,20 +48,23 @@ export default function CladdingTask({
         currentUsername = localStorage.getItem("username") || localStorage.getItem("user_name") || "admin";
       }
 
-      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" && (localStorage.getItem("currentJobId") || localStorage.getItem("currentProjectName") || localStorage.getItem("current_hw_id"))) || "TestAI";
+      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      if (!savedJobId) {
+        console.warn("Chưa chọn Job để lưu Cladding");
+      }
 
       const payload = {
         user_update: currentUsername || "admin",
         jobs: [
           {
-            id_job_hw: savedJobId,
+            id_job_hw: savedJobId || "default",
             walls: entries.map(e => {
               const hNum = parseFloat(String(e.height || "2.44").replace(/[^\d.]/g, "")) || 2.44;
               const lNum = parseFloat(String(e.length || "0").replace(/[^\d.]/g, "")) || 0.0;
               return {
                 wall_height: hNum,
                 wall_length: lNum,
-                short_name: "BUN-NSW-ACT"
+                short_name: activeCustomerShortName
               };
             })
           }
@@ -128,94 +138,112 @@ export default function CladdingTask({
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: EXTERNAL WALL MEASUREMENTS (MATCHING BUN-NSW-ACT) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "10px 14px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "13px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px"
-        }}>
-          <span>▼ 1. External wall measurements</span>
+        <div
+          onClick={() => setIsSection1Open(!isSection1Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <span>1. External wall measurements</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
+          </span>
         </div>
 
-        <div style={{ padding: "12px", display: "flex", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
-          {/* Wall Height */}
-          <div style={{ flex: "1 1 120px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
-              <span style={{ fontSize: "10px", color: "#94a3b8" }}>m</span>
+        {isSection1Open && (
+          <div style={{ padding: "12px", display: "flex", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 120px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                <span style={{ fontSize: "10px", color: "#94a3b8" }}>m</span>
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="e.g. 2.44"
+                value={wallHeight}
+                onChange={(e) => setWallHeight(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  fontSize: "10.5px",
+                  borderRadius: "5px",
+                  border: "1px solid #fde047",
+                  background: "#fffbeb",
+                  boxSizing: "border-box"
+                }}
+              />
             </div>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 2.44"
-              value={wallHeight}
-              onChange={(e) => setWallHeight(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "6px 8px",
-                fontSize: "10.5px",
-                borderRadius: "5px",
-                border: "1px solid #fde047",
-                background: "#fffbeb",
-                boxSizing: "border-box"
-              }}
-            />
-          </div>
 
-          {/* Wall Length */}
-          <div style={{ flex: "2.5 1 200px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-              <span style={{ fontSize: "10px", color: "#94a3b8" }}>m</span>
+            <div style={{ flex: "2.5 1 200px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                <span style={{ fontSize: "10px", color: "#94a3b8" }}>m</span>
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Enter lineal metres"
+                value={wallLength}
+                onChange={(e) => setWallLength(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  fontSize: "10.5px",
+                  borderRadius: "5px",
+                  border: "1px solid #fde047",
+                  background: "#fffbeb",
+                  boxSizing: "border-box"
+                }}
+              />
             </div>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="Enter lineal metres"
-              value={wallLength}
-              onChange={(e) => setWallLength(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "6px 8px",
-                fontSize: "10.5px",
-                borderRadius: "5px",
-                border: "1px solid #fde047",
-                background: "#fffbeb",
-                boxSizing: "border-box"
-              }}
-            />
-          </div>
 
-          {/* Add Button */}
-          <button
-            type="button"
-            onClick={handleAddCladdingWall}
-            style={{
-              padding: "7px 16px",
-              background: "#64748b",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "5px",
-              fontSize: "12px",
-              fontWeight: "700",
-              cursor: "pointer",
-              whiteSpace: "nowrap"
-            }}
-          >
-            + Add wall
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={handleAddCladdingWall}
+              style={{
+                padding: "8px 12px",
+                background: "#0f2744",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "5px",
+                fontSize: "11px",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
+            >
+              + Add Cladding Wall
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── CARD 2: ENTERED CLADDING WALLS ── */}
+      {/* ── CARD 2: ENTERED WALL MEASUREMENTS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: "800", fontSize: "12px", color: "#0f2744" }}>
-          📋 2. Entered Cladding Walls ({(entries || []).length})
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}
+        >
+          <span>2. Entered Cladding Walls ({(entries || []).length})</span>
         </div>
         <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function FlooringDeckingTask({
   formData = {},
@@ -12,7 +13,11 @@ export default function FlooringDeckingTask({
   onAddDataAI,
   onSelectEntry,
   activeJobNumber,
-  goPage
+  goPage,
+  selectedRoom,
+  selectedRoomIds = [],
+  selectedId,
+  selectedType
 }) {
   const {
     user,
@@ -51,7 +56,12 @@ export default function FlooringDeckingTask({
   const [otherArea, setOtherArea] = useState(formData.otherArea || "");
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
-  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSection2Open, setIsSection2Open] = useState(true);
+  const [isDryOpen, setIsDryOpen] = useState(true);
+  const [isWetOpen, setIsWetOpen] = useState(true);
+  const [isBalconyOpen, setIsBalconyOpen] = useState(true);
+  const [isOtherOpen, setIsOtherOpen] = useState(true);
 
   // Helper to format 4 decimal digits
   const formatM2_4Digits = (val) => {
@@ -98,8 +108,7 @@ export default function FlooringDeckingTask({
       const levelCode = getLevelCode(pIdx);
       const effectiveScale = (scalesByPage && scalesByPage[pIdx]) || realScale || scaleValue || 1.0;
 
-      let dry = 0, wet = 0, timber = 0, tile = 0;
-      pRooms.forEach(r => {
+      pRooms.forEach((r, rIdx) => {
         let areaM2 = 0;
         if (r.areaM2 && !isNaN(r.areaM2)) {
           areaM2 = parseFloat(r.areaM2);
@@ -122,62 +131,35 @@ export default function FlooringDeckingTask({
         if (!areaM2 || areaM2 <= 0) return;
 
         const t = (r.type || r.wetness || r.classification || r.room_class || "dry").toLowerCase();
-        const name = (r.room_name || r.name || "").toLowerCase();
-        let cat = "dry";
-        if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) cat = "wet";
-        else if (t === "timber_deck" || /deck|timber/i.test(name)) cat = "timber_deck";
-        else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) cat = "tile_deck";
+        const rawName = (r.room_name || r.name || `Room ${rIdx + 1}`).trim();
+        const name = rawName.toLowerCase();
+        let typeArea = "Dry";
+        let defaultProduct = DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
 
-        if (cat === "wet") wet += areaM2;
-        else if (cat === "timber_deck") timber += areaM2;
-        else if (cat === "tile_deck") tile += areaM2;
-        else dry += areaM2;
+        if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) {
+          typeArea = "Wet";
+          defaultProduct = WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
+        } else if (t === "timber_deck" || /deck|timber/i.test(name)) {
+          typeArea = "Decking Input";
+          defaultProduct = "HARDWOOD DECKING 90X19MM MERBAU";
+        } else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) {
+          typeArea = "Balcony Tiles";
+          defaultProduct = BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
+        }
+
+        newRows.push({
+          id: `flr-${levelCode}-${r.id || rIdx}-${Date.now()}`,
+          roomId: r.id,
+          roomName: rawName,
+          floorLevel: levelCode,
+          typeArea: typeArea,
+          location: `${levelCode} ${rawName}`,
+          product: defaultProduct,
+          areaM2: areaM2,
+          totalM2: formatM2_4Digits(areaM2),
+          roomIds: [r.id]
+        });
       });
-
-      if (dry > 0) {
-        newRows.push({
-          id: `flr-${levelCode}-dry-${Date.now()}-${pIdx}`,
-          floorLevel: levelCode,
-          typeArea: "Dry",
-          location: `${levelCode} Dry Area`,
-          product: DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-          areaM2: dry,
-          totalM2: formatM2_4Digits(dry)
-        });
-      }
-      if (tile > 0) {
-        newRows.push({
-          id: `flr-${levelCode}-tile-${Date.now()}-${pIdx}`,
-          floorLevel: levelCode,
-          typeArea: "Balcony Tiles",
-          location: `${levelCode} Balcony / Porch Area`,
-          product: BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-          areaM2: tile,
-          totalM2: formatM2_4Digits(tile)
-        });
-      }
-      if (wet > 0) {
-        newRows.push({
-          id: `flr-${levelCode}-wet-${Date.now()}-${pIdx}`,
-          floorLevel: levelCode,
-          typeArea: "Wet",
-          location: `${levelCode} Wet Area`,
-          product: WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-          areaM2: wet,
-          totalM2: formatM2_4Digits(wet)
-        });
-      }
-      if (timber > 0) {
-        newRows.push({
-          id: `flr-${levelCode}-tmb-${Date.now()}-${pIdx}`,
-          floorLevel: levelCode,
-          typeArea: "Decking Input",
-          location: `${levelCode} Timber Deck`,
-          product: "HARDWOOD DECKING 90X19MM MERBAU",
-          areaM2: timber,
-          totalM2: formatM2_4Digits(timber)
-        });
-      }
     });
 
     if (newRows.length > 0 && onSetEntries) {
@@ -330,6 +312,14 @@ export default function FlooringDeckingTask({
     loadExistingSavedAreas();
   }, [currentProjectName, currentJobId, activeJobNumber, onSetEntries]);
 
+  const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "flooring");
+
+  const dryCatalogItems = useMemo(() => catalogByGroup(catalogItems, "dry_flooring"), [catalogItems]);
+  const wetCatalogItems = useMemo(() => catalogByGroup(catalogItems, "wet_flooring"), [catalogItems]);
+  const deckingCatalogItems = useMemo(() => catalogByGroup(catalogItems, "decking"), [catalogItems]);
+  const tgCatalogItems = useMemo(() => catalogByGroup(catalogItems, "tg_flooring"), [catalogItems]);
+
   // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {
     if (!enteredRows || enteredRows.length === 0) return;
@@ -338,8 +328,11 @@ export default function FlooringDeckingTask({
     setSaveSuccess(false);
 
     try {
-      const jobId = currentProjectName || currentJobId || activeJobNumber || "TestAI";
-      const shortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
+      const jobId = currentProjectName || currentJobId || activeJobNumber || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      if (!jobId) {
+        console.warn("Chưa chọn Job để lưu Flooring AreaSummary");
+      }
+      const shortName = activeCustomerShortName;
 
       const areasList = enteredRows.map(r => {
         const netNum = parseFloat(String(r.totalM2 !== undefined ? r.totalM2 : (r.areaM2 || 0)).replace(/m²/gi, "").trim()) || 0;
@@ -355,7 +348,7 @@ export default function FlooringDeckingTask({
       const payload = {
         user_update: currentUserUpdate,
         jobs: [{
-          id_job_hw: jobId,
+          id_job_hw: jobId || "default",
           areas: areasList
         }]
       };
@@ -383,30 +376,34 @@ export default function FlooringDeckingTask({
     if (formData.otherArea !== undefined && formData.otherArea !== "" && formData.otherArea !== otherArea) setOtherArea(formData.otherArea);
   }, [formData]);
 
-  const DRY_OPTIONS = [
-    "Select...",
-    "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-    "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-    "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
-    "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
-    "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
-  ];
+  const DRY_OPTIONS = useMemo(() => {
+    const list = dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    return ["Select...", ...(list.length > 0 ? list : [
+      "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+      "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+      "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
+      "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
+      "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
+    ])];
+  }, [dryCatalogItems]);
 
-  const WET_OPTIONS = [
-    "Select...",
-    "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
-    "FC FLOORING SECURA JH++2400X600X22MM INTERNAL 405593"
-  ];
+  const WET_OPTIONS = useMemo(() => {
+    const list = wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    return ["Select...", ...(list.length > 0 ? list : [
+      "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
+      "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
+      "FC FLOORING SECURA JH++2400X600X22MM INTERNAL 405593"
+    ])];
+  }, [wetCatalogItems]);
 
-  const BALCONY_OPTIONS = [
-    "Select...",
-    "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-    "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276",
-    "FC FLOORING SECURA JH++2400X600X22MM EXTERNAL 405593",
-    "FC LGHTWGHT FLOORING++2400X600X22MM 1.44SQM DF22246"
-  ];
+  const BALCONY_OPTIONS = useMemo(() => {
+    const list = [...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean);
+    return ["Select...", ...(list.length > 0 ? list : [
+      "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
+      "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
+      "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276"
+    ])];
+  }, [deckingCatalogItems, wetCatalogItems]);
 
   const OTHER_TYPE_OPTIONS = [
     "T+G Flooring Area",
@@ -496,6 +493,178 @@ export default function FlooringDeckingTask({
     return [];
   }, [entries]);
 
+  const handleProductChange = (item, newProduct) => {
+    if (onSetEntries && entries) {
+      const updated = entries.map(e => {
+        if ((e.id && e.id === item.id) || (!e.id && e.typeArea === item.typeArea && e.floorLevel === item.floorLevel)) {
+          return { ...e, product: newProduct };
+        }
+        return e;
+      });
+      onSetEntries(updated);
+    }
+    // Also sync with top card form states
+    if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
+      setDryProduct(newProduct);
+      if (onChange) onChange("flooring_decking", "dryProduct", newProduct);
+    } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
+      setWetProduct(newProduct);
+      if (onChange) onChange("flooring_decking", "wetProduct", newProduct);
+    } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
+      setBalconyProduct(newProduct);
+      if (onChange) onChange("flooring_decking", "balconyProduct", newProduct);
+    } else if (item.typeArea === "Other" || item.typeArea === "Decking Input" || item.typeArea === "T+G Flooring Area") {
+      setOtherProduct(newProduct);
+      if (onChange) onChange("flooring_decking", "otherProduct", newProduct);
+    }
+  };
+
+  const lastHandledRoomIdRef = useRef(null);
+
+  // Synchronize canvas room selection with Entered table row
+  useEffect(() => {
+    const targetRoomId = selectedRoom?.id || (selectedRoomIds && selectedRoomIds[0]) || (selectedType === "room" ? selectedId : null);
+    if (!targetRoomId) {
+      lastHandledRoomIdRef.current = null;
+      return;
+    }
+
+    if (lastHandledRoomIdRef.current === targetRoomId) {
+      return;
+    }
+    lastHandledRoomIdRef.current = targetRoomId;
+
+    // Find full room object across all pages or current page
+    let targetRoom = selectedRoom;
+    let targetPageIdx = currentPage;
+
+    if (!targetRoom || targetRoom.id !== targetRoomId) {
+      if (roomsByPage) {
+        for (const [pIdx, rList] of Object.entries(roomsByPage)) {
+          if (Array.isArray(rList)) {
+            const found = rList.find(r => r.id === targetRoomId);
+            if (found) {
+              targetRoom = found;
+              targetPageIdx = parseInt(pIdx, 10);
+              break;
+            }
+          }
+        }
+      }
+      if (!targetRoom && Array.isArray(rooms)) {
+        targetRoom = rooms.find(r => r.id === targetRoomId);
+      }
+    } else {
+      if (roomsByPage) {
+        for (const [pIdx, rList] of Object.entries(roomsByPage)) {
+          if (Array.isArray(rList) && rList.some(r => r.id === targetRoomId)) {
+            targetPageIdx = parseInt(pIdx, 10);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!targetRoom) return;
+
+    const targetLevelCode = getLevelCode(targetPageIdx);
+    const rawType = String(targetRoom.type || targetRoom.wetness || targetRoom.classification || targetRoom.room_class || "").toLowerCase();
+    const rName = String(targetRoom.room_name || targetRoom.name || targetRoom.label || "").toLowerCase();
+
+    let targetTypeArea = "Dry";
+    if (rawType === "wet" || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rName)) {
+      targetTypeArea = "Wet";
+    } else if (rawType === "tile_deck" || /balcony|porch|alfresco|patio|terrace|verand/i.test(rName)) {
+      targetTypeArea = "Balcony Tiles";
+    } else if (rawType === "timber_deck" || /deck|timber/i.test(rName)) {
+      targetTypeArea = "Decking Input";
+    }
+
+    // Calculate room's individual area
+    let areaM2 = 0;
+    const effectiveScale = (scalesByPage && scalesByPage[targetPageIdx]) || realScale || scaleValue || 1.0;
+    if (targetRoom.areaM2 && !isNaN(targetRoom.areaM2)) {
+      areaM2 = parseFloat(targetRoom.areaM2);
+    } else if (targetRoom.area && !isNaN(targetRoom.area)) {
+      areaM2 = targetRoom.area > 10000 ? targetRoom.area / 1000000 : parseFloat(targetRoom.area);
+    } else {
+      const pts = targetRoom.polygon || targetRoom.poly;
+      if (pts && pts.length >= 3) {
+        let pxArea = 0;
+        for (let j = 0; j < pts.length; j++) {
+          const p1 = pts[j];
+          const p2 = pts[(j + 1) % pts.length];
+          pxArea += (p1.x * p2.y - p2.x * p1.y);
+        }
+        pxArea = Math.abs(pxArea) / 2;
+        const areaMm2 = pxArea * Math.pow(effectiveScale, 2);
+        areaM2 = areaMm2 / 1000000;
+      }
+    }
+
+    if (areaM2 > 0) {
+      const areaStr = areaM2.toFixed(4);
+      if (targetTypeArea === "Dry") {
+        setDryArea(areaStr);
+        setIsDryOpen(true);
+        if (onChange) onChange("flooring_decking", "dryArea", areaStr);
+      } else if (targetTypeArea === "Wet") {
+        setWetArea(areaStr);
+        setIsWetOpen(true);
+        if (onChange) onChange("flooring_decking", "wetArea", areaStr);
+      } else if (targetTypeArea === "Balcony Tiles") {
+        setBalconyArea(areaStr);
+        setIsBalconyOpen(true);
+        if (onChange) onChange("flooring_decking", "balconyArea", areaStr);
+      } else if (targetTypeArea === "Decking Input") {
+        setOtherArea(areaStr);
+        setOtherTypeArea("Decking Input");
+        setIsOtherOpen(true);
+        if (onChange) {
+          onChange("flooring_decking", "otherArea", areaStr);
+          onChange("flooring_decking", "otherTypeArea", "Decking Input");
+        }
+      }
+    }
+
+    // Match in enteredRows
+    // 1. Direct roomId / roomIds match
+    let matched = (enteredRows || []).find(r => (r.roomIds && r.roomIds.includes(targetRoomId)) || r.roomId === targetRoomId);
+
+    // 2. Match by floorLevel and typeArea
+    if (!matched) {
+      matched = (enteredRows || []).find(r => {
+        const rLvl = String(r.floorLevel || "GF").toUpperCase().trim();
+        const rType = String(r.typeArea || "").toLowerCase().trim();
+        return rLvl === targetLevelCode.toUpperCase().trim() && (
+          rType === targetTypeArea.toLowerCase().trim() ||
+          (targetTypeArea === "Balcony Tiles" && (rType.includes("balcony") || rType.includes("tile"))) ||
+          (targetTypeArea === "Decking Input" && (rType.includes("deck") || rType.includes("timber")))
+        );
+      });
+    }
+
+    // 3. Fallback match by typeArea
+    if (!matched) {
+      matched = (enteredRows || []).find(r => {
+        const rType = String(r.typeArea || "").toLowerCase().trim();
+        return rType === targetTypeArea.toLowerCase().trim();
+      });
+    }
+
+    if (matched) {
+      setSelectedEntryId(matched.id || matched.typeArea);
+      if (typeof document !== "undefined") {
+        setTimeout(() => {
+          const rowEl = document.querySelector(`[data-entry-id="${matched.id || matched.typeArea}"]`);
+          if (rowEl) {
+            rowEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }, 50);
+      }
+    }
+  }, [selectedRoom, selectedRoomIds, selectedId, selectedType, currentPage, roomsByPage, rooms, scalesByPage, realScale, scaleValue]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {/* ── CARD 1: FLOORING AREA INPUT ── */}
@@ -516,9 +685,9 @@ export default function FlooringDeckingTask({
             userSelect: "none"
           }}
         >
-          <span>{isSection1Open ? "▼" : "▶"} 1. Flooring area input</span>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-            {isSection1Open ? "▲ Collapse" : "▼ Expand"}
+          <span>1. Flooring area input</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection1Open ? "▲" : "▼"}
           </span>
         </div>
 
@@ -527,175 +696,255 @@ export default function FlooringDeckingTask({
           
           {/* 1. DRY */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Dry
+            <div
+              onClick={() => setIsDryOpen(!isDryOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f8fafc",
+                borderBottom: isDryOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isDryOpen ? "▼" : "▶"} Dry</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isDryOpen ? "▲" : "▼"}
+              </span>
             </div>
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "10px" }}>
-              <div style={{ flex: "2.5 1 0" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
-                <select
-                  value={dryProduct}
-                  onChange={(e) => setDryProduct(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {DRY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
+            {isDryOpen && (
+              <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "10px" }}>
+                <div style={{ flex: "2.5 1 0" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
+                  <select
+                    value={dryProduct}
+                    onChange={(e) => setDryProduct(e.target.value)}
+                    className="task-field-select"
+                    style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  >
+                    {DRY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: "1.2 1 0" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
+                  <input
+                    type="number"
+                    placeholder="Enter total area..."
+                    value={dryArea}
+                    onChange={(e) => setDryArea(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: "10.5px",
+                      borderRadius: "5px",
+                      border: "1px solid #fde047",
+                      background: "#fffbeb",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
               </div>
-              <div style={{ flex: "1.2 1 0" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
-                <input
-                  type="number"
-                  placeholder="Enter total area..."
-                  value={dryArea}
-                  onChange={(e) => setDryArea(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* 2. WET */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Wet
+            <div
+              onClick={() => setIsWetOpen(!isWetOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f8fafc",
+                borderBottom: isWetOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isWetOpen ? "▼" : "▶"} Wet</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isWetOpen ? "▲" : "▼"}
+              </span>
             </div>
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "10px" }}>
-              <div style={{ flex: "2.5 1 0" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
-                <select
-                  value={wetProduct}
-                  onChange={(e) => setWetProduct(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {WET_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
+            {isWetOpen && (
+              <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "10px" }}>
+                <div style={{ flex: "2.5 1 0" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
+                  <select
+                    value={wetProduct}
+                    onChange={(e) => setWetProduct(e.target.value)}
+                    className="task-field-select"
+                    style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  >
+                    {WET_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: "1.2 1 0" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
+                  <input
+                    type="number"
+                    placeholder="Enter total area..."
+                    value={wetArea}
+                    onChange={(e) => setWetArea(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: "10.5px",
+                      borderRadius: "5px",
+                      border: "1px solid #fde047",
+                      background: "#fffbeb",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
               </div>
-              <div style={{ flex: "1.2 1 0" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
-                <input
-                  type="number"
-                  placeholder="Enter total area..."
-                  value={wetArea}
-                  onChange={(e) => setWetArea(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* 3. BALCONY TILES */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Balcony Tiles
+            <div
+              onClick={() => setIsBalconyOpen(!isBalconyOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f8fafc",
+                borderBottom: isBalconyOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isBalconyOpen ? "▼" : "▶"} Balcony Tiles</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isBalconyOpen ? "▲" : "▼"}
+              </span>
             </div>
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "10px" }}>
-              <div style={{ flex: "2.5 1 0" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
-                <select
-                  value={balconyProduct}
-                  onChange={(e) => setBalconyProduct(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {BALCONY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
+            {isBalconyOpen && (
+              <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "10px" }}>
+                <div style={{ flex: "2.5 1 0" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
+                  <select
+                    value={balconyProduct}
+                    onChange={(e) => setBalconyProduct(e.target.value)}
+                    className="task-field-select"
+                    style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                  >
+                    {BALCONY_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: "1.2 1 0" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
+                  <input
+                    type="number"
+                    placeholder="Enter total area..."
+                    value={balconyArea}
+                    onChange={(e) => setBalconyArea(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: "10.5px",
+                      borderRadius: "5px",
+                      border: "1px solid #fde047",
+                      background: "#fffbeb",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
               </div>
-              <div style={{ flex: "1.2 1 0" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
-                <input
-                  type="number"
-                  placeholder="Enter total area..."
-                  value={balconyArea}
-                  onChange={(e) => setBalconyArea(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* 4. OTHER AREA TYPES */}
           <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-              ▼ Other area types
+            <div
+              onClick={() => setIsOtherOpen(!isOtherOpen)}
+              style={{
+                padding: "6px 10px",
+                background: "#f8fafc",
+                borderBottom: isOtherOpen ? "1px solid #e2e8f0" : "none",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#334155",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                userSelect: "none"
+              }}
+            >
+              <span>{isOtherOpen ? "▼" : "▶"} Other area types</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                {isOtherOpen ? "▲" : "▼"}
+              </span>
             </div>
-            <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {/* Row: Type Area & Product */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "8px" }}>
-                <div>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Type Area</span>
-                  <select
-                    value={otherTypeArea}
-                    onChange={(e) => {
-                      setOtherTypeArea(e.target.value);
-                      setOtherProduct("Select...");
-                    }}
-                    className="task-field-select"
-                    style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                  >
-                    {OTHER_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
+            {isOtherOpen && (
+              <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                {/* Row: Type Area & Product */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "8px" }}>
+                  <div>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Type Area</span>
+                    <select
+                      value={otherTypeArea}
+                      onChange={(e) => {
+                        setOtherTypeArea(e.target.value);
+                        setOtherProduct("Select...");
+                      }}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {OTHER_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
+                    <select
+                      value={otherProduct}
+                      onChange={(e) => setOtherProduct(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {getOtherProductOptions(otherTypeArea).map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
-                  <select
-                    value={otherProduct}
-                    onChange={(e) => setOtherProduct(e.target.value)}
-                    className="task-field-select"
-                    style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                  >
-                    {getOtherProductOptions(otherTypeArea).map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              {/* Row 2: Total m² */}
-              <div style={{ maxWidth: "160px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
-                <input
-                  type="number"
-                  placeholder="Enter total area..."
-                  value={otherArea}
-                  onChange={(e) => setOtherArea(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
+                {/* Row 2: Total m² */}
+                <div style={{ maxWidth: "160px" }}>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Total m²</span>
+                  <input
+                    type="number"
+                    placeholder="Enter total area..."
+                    value={otherArea}
+                    onChange={(e) => setOtherArea(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      fontSize: "10.5px",
+                      borderRadius: "5px",
+                      border: "1px solid #fde047",
+                      background: "#fffbeb",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
         </div>
@@ -704,39 +953,43 @@ export default function FlooringDeckingTask({
 
       {/* ── CARD 2: ENTERED FLOORING AREAS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{
-          padding: "9px 12px",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
-          fontWeight: "800",
-          fontSize: "12px",
-          color: "#0f2744",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px"
-        }}>
-          <span>▼ 2. Entered flooring areas ({enteredRows.length})</span>
-          <button
-            type="button"
-            onClick={handleAutoFillAI}
-            style={{
-              background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-              border: "1px solid #93c5fd",
-              color: "#1d4ed8",
-              fontSize: "10.5px",
-              fontWeight: 700,
-              padding: "2px 8px",
-              borderRadius: "4px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "3px"
-            }}
-          >
-            <span>⚡</span>
-            <span>Auto Fill (AI)</span>
-          </button>
+        <div
+          style={{
+            padding: "9px 12px",
+            background: "#f8fafc",
+            borderBottom: "1px solid #e2e8f0",
+            fontWeight: "800",
+            fontSize: "12px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "6px"
+          }}
+        >
+          <span>2. Entered flooring areas ({enteredRows.length})</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={handleAutoFillAI}
+              style={{
+                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
+                border: "1px solid #93c5fd",
+                color: "#1d4ed8",
+                fontSize: "10.5px",
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: "4px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px"
+              }}
+            >
+              <span>⚡</span>
+              <span>Auto Fill (AI)</span>
+            </button>
+          </div>
         </div>
         <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "10.5px" }}>
@@ -766,6 +1019,7 @@ export default function FlooringDeckingTask({
                 return (
                   <tr
                     key={item.id || idx}
+                    data-entry-id={item.id || item.typeArea}
                     onClick={() => {
                       if (!isRowEditing) {
                         setSelectedEntryId(item.id || item.typeArea);
@@ -801,6 +1055,28 @@ export default function FlooringDeckingTask({
                               setCurrentPage(targetIdx);
                             }
                           }
+                        }
+                        if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
+                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                          setDryArea(val);
+                          if (item.product) setDryProduct(item.product);
+                          setIsDryOpen(true);
+                        } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
+                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                          setWetArea(val);
+                          if (item.product) setWetProduct(item.product);
+                          setIsWetOpen(true);
+                        } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
+                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                          setBalconyArea(val);
+                          if (item.product) setBalconyProduct(item.product);
+                          setIsBalconyOpen(true);
+                        } else {
+                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                          setOtherArea(val);
+                          setOtherTypeArea(item.typeArea || "Decking Input");
+                          if (item.product) setOtherProduct(item.product);
+                          setIsOtherOpen(true);
                         }
 
                         if (onSelectEntry) onSelectEntry(item);
@@ -853,36 +1129,41 @@ export default function FlooringDeckingTask({
                       )}
                     </td>
 
-                    <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.typeArea}</td>
+                    <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.roomName ? `${item.typeArea} (${item.roomName})` : item.typeArea}</td>
 
                     {/* Product */}
                     <td style={{ padding: "4px 8px", minWidth: "290px" }}>
-                      {isRowEditing ? (
-                        <select
-                          value={editRowData.product || item.product || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, product: e.target.value })}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            width: "100%",
-                            minWidth: "280px",
-                            padding: "3px 6px",
-                            fontSize: "10px",
-                            fontWeight: 600,
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff",
-                            color: "#0f172a"
-                          }}
-                        >
-                          {getProductOptionsForType(item.typeArea).map((opt, oIdx) => (
-                            <option key={oIdx} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div style={{ minWidth: "280px", whiteSpace: "normal", wordBreak: "break-word", lineHeight: "1.3", fontSize: "10px", color: "#1e293b" }} title={item.product}>
-                          {item.product}
-                        </div>
-                      )}
+                      <select
+                        value={isRowEditing ? (editRowData.product || item.product || "") : (item.product || "")}
+                        onChange={(e) => {
+                          const newProd = e.target.value;
+                          if (isRowEditing) {
+                            setEditRowData({ ...editRowData, product: newProd });
+                          } else {
+                            handleProductChange(item, newProd);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: "100%",
+                          minWidth: "280px",
+                          padding: "4px 8px",
+                          fontSize: "10.5px",
+                          fontWeight: 600,
+                          borderRadius: "4px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff",
+                          color: "#0f172a",
+                          cursor: "pointer"
+                        }}
+                      >
+                        {getProductOptionsForType(item.typeArea).map((opt, oIdx) => (
+                          <option key={oIdx} value={opt}>{opt}</option>
+                        ))}
+                        {item.product && !getProductOptionsForType(item.typeArea).includes(item.product) && (
+                          <option value={item.product}>{item.product}</option>
+                        )}
+                      </select>
                     </td>
 
                     {/* Total m² */}
