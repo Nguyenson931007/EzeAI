@@ -23,15 +23,40 @@ import * as CairnsHardwareTasks from "@/components/cairns-hardware/tasks";
 import * as BunNswActTasks from "@/components/bun-nsw-act/tasks";
 import * as AtsFtTasks from "@/components/ats-ft/tasks";
 import * as BunSaTasks from "@/components/bun-sa/tasks";
-import { hasHwAccess } from "@/utils/permissions";
 import * as BunSeqldTasks from "@/components/bun-seqld/tasks";
 import * as BunTasTasks from "@/components/bun-tas/tasks";
 import * as BunVicTasks from "@/components/bun-vic/tasks";
 import * as BunningsQldTasks from "@/components/bunnings-qld/tasks";
+import { hasHwAccess, isFullAdmin, getDisplayRoleName } from "@/utils/permissions";
 
 export const CUSTOMER_TASK_PACKS = {
-  "bun-nsw-act": { name: "Bunnings NSW / ACT", short: "NSW / ACT", tasks: BunNswActTasks },
-  "cairns-hardware": { name: "Cairns Hardware", short: "Cairns HW", tasks: CairnsHardwareTasks },
+  "bun-nsw-act": {
+    name: "Bunnings NSW / ACT",
+    short: "NSW / ACT",
+    aliases: ["BUN-NSW-ACT", "BUN NSW ACT", "BUNNINGS NSW / ACT"],
+    // Canonical BUN NSW/ACT TaskList contract: 12 tasks.
+    moduleIds: [
+      "cladding",
+      "eaves_soffit",
+      "flooring_decking",
+      "frame_hardware",
+      "insulation",
+      "lock_up",
+      "fixout",
+      "final_fit",
+      "shelving",
+      "timber_posts",
+      "fow_plumbing",
+      "power_truss_braces"
+    ],
+    tasks: BunNswActTasks
+  },
+  "cairns-hardware": {
+    name: "Cairns Hardware",
+    short: "Cairns HW",
+    aliases: ["CAIRNS-WOH", "CAIRNS HARDWARE"],
+    tasks: CairnsHardwareTasks
+  },
   "bunnings-qld": { name: "Bunnings QLD", short: "BUN QLD", tasks: BunningsQldTasks },
   "bun-vic": { name: "Bunnings VIC", short: "BUN VIC", tasks: BunVicTasks },
   "bun-seqld": { name: "Bunnings SEQLD", short: "BUN SEQLD", tasks: BunSeqldTasks },
@@ -584,6 +609,39 @@ const EXTRA_MODULE_TABS = [
 
 const ALL_MODULE_IDS = EXTRA_MODULE_TABS.map(m => m.id);
 
+function normalizeCustomerKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function resolveCustomerPackKey(value) {
+  const normalized = normalizeCustomerKey(value);
+  if (!normalized) return null;
+  if (CUSTOMER_TASK_PACKS[normalized]) return normalized;
+
+  for (const [key, pack] of Object.entries(CUSTOMER_TASK_PACKS)) {
+    const aliases = [pack.name, pack.short, ...(pack.aliases || [])];
+    if (aliases.some(alias => normalizeCustomerKey(alias) === normalized)) return key;
+  }
+  return null;
+}
+
+function getCustomerModuleIds(customerKey) {
+  const pack = CUSTOMER_TASK_PACKS[customerKey];
+  return Array.isArray(pack?.moduleIds) && pack.moduleIds.length > 0
+    ? pack.moduleIds.filter(id => ALL_MODULE_IDS.includes(id))
+    : ALL_MODULE_IDS;
+}
+
+function sanitizeModuleIds(moduleIds, customerKey) {
+  const allowed = getCustomerModuleIds(customerKey);
+  const input = Array.isArray(moduleIds) ? moduleIds : [];
+  return Array.from(new Set(input.filter(id => allowed.includes(id))));
+}
+
 const MODULE_KEY_MAP = {
   "frame_hardware": "frame_hardware",
   "frame hardware": "frame_hardware",
@@ -753,40 +811,67 @@ function resolveTaskModules(taskContext) {
   return null;
 }
 
-function getInitialEnabledModules() {
-  if (typeof window === "undefined") return ALL_MODULE_IDS;
+function getInitialEnabledModules(customerKey = null) {
+  const resolvedCustomer = customerKey || (() => {
+    if (typeof window === "undefined") return "bun-nsw-act";
+    const storedCustomer =
+      sessionStorage.getItem("selectedCustomerClient") ||
+      localStorage.getItem("selectedCustomerClient");
+    return resolveCustomerPackKey(storedCustomer) || "bun-nsw-act";
+  })();
 
-  // 1. URL Query Search Params
+  const allowed = getCustomerModuleIds(resolvedCustomer);
+  if (typeof window === "undefined") return allowed;
+
+  const resolveAndLimit = (value) => {
+    const parsed = resolveTaskModules(value);
+    const limited = sanitizeModuleIds(parsed, resolvedCustomer);
+    return limited.length > 0 ? limited : null;
+  };
+
+  // 1. URL task/module context
   try {
     const urlParams = new URLSearchParams(window.location.search);
     const qModules = urlParams.get("modules") || urlParams.get("selectedModules") || urlParams.get("tasks") || urlParams.get("task_modules");
-    if (qModules) {
-      const parsed = resolveTaskModules(qModules);
-      if (parsed && parsed.length > 0) return parsed;
-    }
+    const resolved = qModules ? resolveAndLimit(qModules) : null;
+    if (resolved) return resolved;
   } catch (_) { }
 
-  // 2. Local/Session Storage explicit selectedModules
+  // 2. Explicit local/session override, always intersected with customer contract
   try {
     const stored = sessionStorage.getItem("selectedModules") || localStorage.getItem("selectedModules");
-    if (stored) {
-      const parsed = resolveTaskModules(stored);
-      if (parsed && parsed.length > 0) return parsed;
-    }
+    const resolved = stored ? resolveAndLimit(stored) : null;
+    if (resolved) return resolved;
   } catch (_) { }
 
-  // 3. Pending EMS Job Task
+  // 3. Pending EMS job task context
   try {
     const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
-    if (pendingJobStr) {
-      const parsed = resolveTaskModules(JSON.parse(pendingJobStr));
-      if (parsed && parsed.length > 0) return parsed;
-    }
+    const resolved = pendingJobStr ? resolveAndLimit(JSON.parse(pendingJobStr)) : null;
+    if (resolved) return resolved;
   } catch (_) { }
 
-  // 4. Safe fallback: All modules enabled
-  return ALL_MODULE_IDS;
+  // 4. Customer contract is the authoritative fallback.
+  return allowed;
 }
+
+function getCustomerFromPendingEmsJob() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+    if (!raw) return null;
+    const job = JSON.parse(raw);
+    return resolveCustomerPackKey(
+      job?.customer_short_name ||
+      job?.client_short_name ||
+      job?.short_name ||
+      job?.client
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
 
 /* ================================================================
    MAIN PANEL
@@ -884,18 +969,36 @@ export default function RightPropertyPaneView({
     "floor_0"
   ]));
 
-  // ── DYNAMIC MODULE TABS STATE (DRIVEN BY WEB3 TASK CONTEXT) ──
-  const [enabledModuleIds, setEnabledModuleIds] = React.useState(() => getInitialEnabledModules());
-  const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
-  const addModulePopupRef = React.useRef(null);
-
   // ── CUSTOMER / CLIENT TASK FORM SELECTION ──
   const [selectedCustomerClient, setSelectedCustomerClient] = React.useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("selectedCustomerClient") || sessionStorage.getItem("selectedCustomerClient") || "bun-nsw-act";
-    }
-    return "bun-nsw-act";
+    if (typeof window === "undefined") return "bun-nsw-act";
+    return (
+      getCustomerFromPendingEmsJob() ||
+      resolveCustomerPackKey(sessionStorage.getItem("selectedCustomerClient")) ||
+      resolveCustomerPackKey(localStorage.getItem("selectedCustomerClient")) ||
+      "bun-nsw-act"
+    );
   });
+
+  const customerModuleIds = React.useMemo(
+    () => getCustomerModuleIds(selectedCustomerClient),
+    [selectedCustomerClient]
+  );
+  const customerModuleTabs = React.useMemo(
+    () => EXTRA_MODULE_TABS.filter(mod => customerModuleIds.includes(mod.id)),
+    [customerModuleIds]
+  );
+
+  // ── DYNAMIC MODULE TABS STATE (DRIVEN BY CUSTOMER + TASK CONTEXT) ──
+  const [enabledModuleIds, setEnabledModuleIds] = React.useState(() =>
+    getInitialEnabledModules(
+      typeof window === "undefined"
+        ? "bun-nsw-act"
+        : (getCustomerFromPendingEmsJob() || resolveCustomerPackKey(sessionStorage.getItem("selectedCustomerClient")) || resolveCustomerPackKey(localStorage.getItem("selectedCustomerClient")) || "bun-nsw-act")
+    )
+  );
+  const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
+  const addModulePopupRef = React.useRef(null);
 
   const activeCustomerTasks = React.useMemo(() => {
     const pack = CUSTOMER_TASK_PACKS[selectedCustomerClient]?.tasks || BunNswActTasks;
@@ -938,29 +1041,33 @@ export default function RightPropertyPaneView({
     SheetScheduleTask
   } = activeCustomerTasks;
 
-  // Dynamic sync task context when pendingEmsJob / selectedModules / selectedCustomerClient update
+  // Dynamic sync: pending EMS customer is authoritative; module state is always
+  // intersected with that customer's module contract so stale 15-module storage
+  // can never re-enable modules from another customer.
   React.useEffect(() => {
     const syncTaskContext = () => {
-      // Sync enabled modules from TaskList/EMS context
-      const resolved = getInitialEnabledModules();
-      if (resolved && resolved.length > 0) {
-        setEnabledModuleIds(prev =>
-          JSON.stringify(prev) === JSON.stringify(resolved) ? prev : resolved
-        );
+      const pendingCustomer = getCustomerFromPendingEmsJob();
+      const storedCustomer =
+        resolveCustomerPackKey(sessionStorage.getItem("selectedCustomerClient")) ||
+        resolveCustomerPackKey(localStorage.getItem("selectedCustomerClient"));
+      const nextCustomer = pendingCustomer || storedCustomer || selectedCustomerClient || "bun-nsw-act";
+
+      if (nextCustomer !== selectedCustomerClient) {
+        setSelectedCustomerClient(nextCustomer);
       }
 
-      // Sync customer pack selected by the parent SSO/loadEmsJob flow
-      const customer =
-        sessionStorage.getItem("selectedCustomerClient") ||
-        localStorage.getItem("selectedCustomerClient");
+      try {
+        sessionStorage.setItem("selectedCustomerClient", nextCustomer);
+        localStorage.setItem("selectedCustomerClient", nextCustomer);
+      } catch (_) { }
 
-      if (customer && CUSTOMER_TASK_PACKS[customer]) {
-        setSelectedCustomerClient(customer);
-      }
+      const resolved = getInitialEnabledModules(nextCustomer);
+      setEnabledModuleIds(prev =>
+        JSON.stringify(prev) === JSON.stringify(resolved) ? prev : resolved
+      );
     };
 
     syncTaskContext();
-
     window.addEventListener("storage", syncTaskContext);
     window.addEventListener("task-modules-updated", syncTaskContext);
 
@@ -968,7 +1075,18 @@ export default function RightPropertyPaneView({
       window.removeEventListener("storage", syncTaskContext);
       window.removeEventListener("task-modules-updated", syncTaskContext);
     };
-  }, [currentProjectName, user]);
+  }, [currentProjectName, user, selectedCustomerClient]);
+
+  React.useEffect(() => {
+    setEnabledModuleIds(prev => {
+      const next = sanitizeModuleIds(prev, selectedCustomerClient);
+      return next.length > 0 ? next : customerModuleIds;
+    });
+
+    if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed" && !customerModuleIds.includes(activePaneTab)) {
+      setActivePaneTab("explorer");
+    }
+  }, [selectedCustomerClient, customerModuleIds, activePaneTab]);
 
   // Close Add Module popup on outside click
   React.useEffect(() => {
@@ -990,15 +1108,6 @@ export default function RightPropertyPaneView({
       }
     }
   }, [enabledModuleIds, activePaneTab]);
-
-  // Fallback về explorer nếu người dùng không thuộc nhóm HW nhưng đang ở tab Task HW hoặc module HW
-  React.useEffect(() => {
-    if (!hasHwAccess(user)) {
-      if (activePaneTab === "job_task" || (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "collapsed")) {
-        setActivePaneTab("explorer");
-      }
-    }
-  }, [user, activePaneTab]);
 
   // ── TASK CALCULATION FORMS STATE (10 MODULES) ──
   const [moduleFormData, setModuleFormData] = React.useState({
@@ -1835,7 +1944,7 @@ export default function RightPropertyPaneView({
     const targetName = task.job_number || task.hw_id || "Project";
 
     // 0. Tự động trích xuất danh sách module được tick từ Task Web3 nếu có
-    const taskModules = resolveTaskModules(task);
+    const taskModules = sanitizeModuleIds(resolveTaskModules(task), selectedCustomerClient);
     if (taskModules && taskModules.length > 0) {
       setEnabledModuleIds(taskModules);
       try {
@@ -1971,9 +2080,9 @@ export default function RightPropertyPaneView({
     date: ""
   });
 
-  // ── CHECK USER ACCESS FOR HW TASK MENU (bophanlogin in dbo.Account is "HW" or "All") ──
+  // ── CHECK USER ACCESS FOR HW TASK MENU (Full Admin, HW roles, or bophanlogin "HW"/"All") ──
   const userBophan = String(user?.bophanlogin || user?.bophan || "").trim().toLowerCase();
-  const isHwOrAllUser = userBophan === "hw" || userBophan === "all";
+  const isHwOrAllUser = isFullAdmin(user) || hasHwAccess(user) || userBophan === "hw" || userBophan === "all" || userBophan === "admin";
 
   // Auto-switch to explorer if task tabs are not allowed for this user
   React.useEffect(() => {
@@ -7437,33 +7546,29 @@ export default function RightPropertyPaneView({
                     */}
                       </div>
 
-                      {hasHwAccess(user) && (
-                        <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
-                          📋 Export Takeoff Form (.xlsx)
-                        </ExportButton>
-                      )}
+                      <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
+                        📋 Export Takeoff Form (.xlsx)
+                      </ExportButton>
 
                       {/* 4 Modals Quick Access (FrameWork, Area Summary, Insulation, LockUp) */}
                       <div style={{ display: "flex", gap: "5px", marginTop: "4px" }}>
-                        {hasHwAccess(user) && (
-                          <button
-                            type="button"
-                            onClick={() => setShowFrameworkModal(true)}
-                            style={{
-                              flex: 1,
-                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                              gap: "3px", padding: "8px 2px", background: "#f8fafc",
-                              border: "1px solid #cbd5e1", borderRadius: "8px",
-                              color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
-                              transition: "all 0.15s ease"
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
-                          >
-                            <span style={{ fontSize: "15px" }}>🏗️</span>
-                            <span style={{ color: "#0f172a" }}>FrameWork</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowFrameworkModal(true)}
+                          style={{
+                            flex: 1,
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                            border: "1px solid #cbd5e1", borderRadius: "8px",
+                            color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                            transition: "all 0.15s ease"
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                        >
+                          <span style={{ fontSize: "15px" }}>🏗️</span>
+                          <span style={{ color: "#0f172a" }}>FrameWork</span>
+                        </button>
 
                         <button
                           type="button"
@@ -7483,45 +7588,41 @@ export default function RightPropertyPaneView({
                           <span style={{ color: "#0f172a" }}>Area Summary</span>
                         </button>
 
-                        {hasHwAccess(user) && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => setShowInsulationModal(true)}
-                              style={{
-                                flex: 1,
-                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                                gap: "3px", padding: "8px 2px", background: "#f8fafc",
-                                border: "1px solid #cbd5e1", borderRadius: "8px",
-                                color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
-                                transition: "all 0.15s ease"
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
-                            >
-                              <span style={{ fontSize: "15px" }}>🧱</span>
-                              <span style={{ color: "#0f172a" }}>Insulation</span>
-                            </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowInsulationModal(true)}
+                          style={{
+                            flex: 1,
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                            border: "1px solid #cbd5e1", borderRadius: "8px",
+                            color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                            transition: "all 0.15s ease"
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                        >
+                          <span style={{ fontSize: "15px" }}>🧱</span>
+                          <span style={{ color: "#0f172a" }}>Insulation</span>
+                        </button>
 
-                            <button
-                              type="button"
-                              onClick={() => setShowLockoutModal(true)}
-                              style={{
-                                flex: 1,
-                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                                gap: "3px", padding: "8px 2px", background: "#f8fafc",
-                                border: "1px solid #cbd5e1", borderRadius: "8px",
-                                color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
-                                transition: "all 0.15s ease"
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
-                            >
-                              <span style={{ fontSize: "15px" }}>🔒</span>
-                              <span style={{ color: "#0f172a" }}>LockUp</span>
-                            </button>
-                          </>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowLockoutModal(true)}
+                          style={{
+                            flex: 1,
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                            border: "1px solid #cbd5e1", borderRadius: "8px",
+                            color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                            transition: "all 0.15s ease"
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                        >
+                          <span style={{ fontSize: "15px" }}>🔒</span>
+                          <span style={{ color: "#0f172a" }}>LockUp</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -8008,9 +8109,13 @@ export default function RightPropertyPaneView({
                   onChange={(e) => {
                     const val = e.target.value;
                     setSelectedCustomerClient(val);
+                    const nextModules = getCustomerModuleIds(val);
+                    setEnabledModuleIds(nextModules);
                     try {
                       localStorage.setItem("selectedCustomerClient", val);
                       sessionStorage.setItem("selectedCustomerClient", val);
+                      localStorage.setItem("selectedModules", JSON.stringify(nextModules));
+                      sessionStorage.setItem("selectedModules", JSON.stringify(nextModules));
                     } catch (_) { }
                   }}
                   style={{
@@ -8288,46 +8393,46 @@ export default function RightPropertyPaneView({
           <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Summary</span>
         </button>
 
-        {/* Task HW tab */}
-        {hasHwAccess(user) && (
-          <button
-            title="Task Groups HW"
-            onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
-            className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
-          >
-            <div style={{ position: "relative", display: "inline-flex" }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
-              {taskListJobs.filter(t => t.has_local_job).length > 0 && (
-                <span style={{
-                  position: "absolute",
-                  top: "-5px",
-                  right: "-8px",
-                  background: "#10b981",
-                  color: "#fff",
-                  fontSize: "8.5px",
-                  padding: "0 3px",
-                  borderRadius: "8px",
-                  fontWeight: 800,
-                  minWidth: "13px",
-                  height: "13px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
-                }}>
-                  {taskListJobs.filter(t => t.has_local_job).length}
-                </span>
-              )}
-            </div>
-            <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
-          </button>
-        )}
-
-        {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES FOR HW ROLES) ── */}
-        {hasHwAccess(user) && (
+        {/* Task HW tab & Dynamic Module tabs (Only visible if login bophanlogin is HW or All) */}
+        {isHwOrAllUser && (
           <>
+            {/* Task HW tab */}
+            <button
+              title="Task Groups HW"
+              onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
+              className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
+            >
+              <div style={{ position: "relative", display: "inline-flex" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+                {taskListJobs.filter(t => t.has_local_job).length > 0 && (
+                  <span style={{
+                    position: "absolute",
+                    top: "-5px",
+                    right: "-8px",
+                    background: "#10b981",
+                    color: "#fff",
+                    fontSize: "8.5px",
+                    padding: "0 3px",
+                    borderRadius: "8px",
+                    fontWeight: 800,
+                    minWidth: "13px",
+                    height: "13px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
+                  }}>
+                    {taskListJobs.filter(t => t.has_local_job).length}
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
+            </button>
+
+            {/* Divider */}
             <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
 
+            {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES) ── */}
             {EXTRA_MODULE_TABS.filter(mod => enabledModuleIds.includes(mod.id)).map((mod) => (
               <button
                 key={mod.id}
@@ -8402,7 +8507,7 @@ export default function RightPropertyPaneView({
                     <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
                       <span>📦 Manage Modules</span>
                       <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
-                        ({enabledModuleIds.length}/{EXTRA_MODULE_TABS.length})
+                        ({sanitizeModuleIds(enabledModuleIds, selectedCustomerClient).length}/{customerModuleTabs.length})
                       </span>
                     </div>
                     <button
@@ -8410,73 +8515,79 @@ export default function RightPropertyPaneView({
                       style={{
                         background: "transparent",
                         border: "none",
-                        fontSize: "14px",
                         color: "#94a3b8",
                         cursor: "pointer",
-                        lineHeight: 1,
-                        padding: "2px 4px",
-                        borderRadius: "4px"
+                        fontSize: "14px",
+                        padding: "2px 6px",
+                        fontWeight: 700
                       }}
                     >
                       ✕
                     </button>
                   </div>
 
-                  {/* Module Checkbox List */}
-                  <div style={{
-                    padding: "8px 10px",
-                    overflowY: "auto",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
-                    flex: 1
-                  }}>
-                    {EXTRA_MODULE_TABS.map((mod) => {
+                  {/* Module Checklist List */}
+                  <div style={{ padding: "6px 8px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "280px" }}>
+                    {customerModuleTabs.map((mod) => {
                       const isEnabled = enabledModuleIds.includes(mod.id);
                       return (
-                        <label
+                        <div
                           key={mod.id}
+                          onClick={() => {
+                            let next;
+                            if (isEnabled) {
+                              next = enabledModuleIds.filter(id => id !== mod.id);
+                              if (activePaneTab === mod.id) setActivePaneTab("explorer");
+                            } else {
+                              next = [...enabledModuleIds, mod.id];
+                              setActivePaneTab(mod.id);
+                            }
+                            setEnabledModuleIds(next);
+                            try {
+                              sessionStorage.setItem("selectedModules", JSON.stringify(next));
+                              localStorage.setItem("selectedModules", JSON.stringify(next));
+                            } catch (_) { }
+                          }}
                           style={{
                             display: "flex",
                             alignItems: "center",
-                            gap: "8px",
-                            padding: "6px 8px",
+                            justifyContent: "space-between",
+                            padding: "7px 10px",
                             borderRadius: "6px",
-                            background: isEnabled ? "#eff6ff" : "#ffffff",
-                            border: isEnabled ? "1px solid #bfdbfe" : "1px solid #f1f5f9",
+                            background: isEnabled ? "rgba(37,99,235,0.08)" : "#ffffff",
+                            border: isEnabled ? "1px solid rgba(37,99,235,0.3)" : "1px solid #f1f5f9",
                             cursor: "pointer",
-                            transition: "all 0.12s ease",
-                            fontSize: "12px"
+                            transition: "all 0.15s ease"
                           }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={isEnabled}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setEnabledModuleIds(prev => {
-                                const next = checked ? [...prev, mod.id] : prev.filter(id => id !== mod.id);
-                                try {
-                                  sessionStorage.setItem("selectedModules", JSON.stringify(next));
-                                  localStorage.setItem("selectedModules", JSON.stringify(next));
-                                } catch (_) { }
-                                return next;
-                              });
-                            }}
-                            style={{ cursor: "pointer", accentColor: "var(--blue)" }}
-                          />
-                          <span style={{ display: "flex", alignItems: "center", color: isEnabled ? "var(--blue)" : "#64748b" }}>
-                            {mod.icon}
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div style={{
+                              color: isEnabled ? "var(--blue)" : "#94a3b8",
+                              display: "flex",
+                              alignItems: "center"
+                            }}>
+                              {mod.icon}
+                            </div>
+                            <span style={{ fontSize: "11.5px", fontWeight: isEnabled ? 700 : 500, color: isEnabled ? "var(--blue)" : "var(--text)" }}>
+                              {mod.title}
+                            </span>
+                          </div>
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: 800,
+                            color: isEnabled ? "#10b981" : "#94a3b8",
+                            background: isEnabled ? "#ecfdf5" : "#f1f5f9",
+                            padding: "1px 6px",
+                            borderRadius: "4px"
+                          }}>
+                            {isEnabled ? "✓ Enabled" : "+ Add"}
                           </span>
-                          <span style={{ fontWeight: isEnabled ? 700 : 500, color: isEnabled ? "#1e3a8a" : "var(--text)" }}>
-                            {mod.title}
-                          </span>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>
 
-                  {/* Actions Footer */}
+                  {/* Footer Quick Action */}
                   <div style={{
                     padding: "8px 10px",
                     borderTop: "1px solid var(--border)",
@@ -8486,11 +8597,10 @@ export default function RightPropertyPaneView({
                   }}>
                     <button
                       onClick={() => {
-                        const all = EXTRA_MODULE_TABS.map(m => m.id);
-                        setEnabledModuleIds(all);
+                        setEnabledModuleIds(customerModuleIds);
                         try {
-                          sessionStorage.setItem("selectedModules", JSON.stringify(all));
-                          localStorage.setItem("selectedModules", JSON.stringify(all));
+                          sessionStorage.setItem("selectedModules", JSON.stringify(customerModuleIds));
+                          localStorage.setItem("selectedModules", JSON.stringify(customerModuleIds));
                         } catch (_) { }
                       }}
                       style={{
@@ -8505,16 +8615,15 @@ export default function RightPropertyPaneView({
                         cursor: "pointer"
                       }}
                     >
-                      Enable all ({EXTRA_MODULE_TABS.length})
+                      Enable all ({customerModuleTabs.length})
                     </button>
                     <button
                       onClick={() => {
-                        const initial = getInitialEnabledModules();
-                        setEnabledModuleIds(initial);
                         try {
                           sessionStorage.removeItem("selectedModules");
                           localStorage.removeItem("selectedModules");
                         } catch (_) { }
+                        setEnabledModuleIds(getCustomerModuleIds(selectedCustomerClient));
                       }}
                       style={{
                         flex: 1,

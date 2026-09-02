@@ -74,40 +74,82 @@ function findRoleItem(user) {
 
 /**
  * Kiểm tra xem user có quyền Quản trị tối cao (Full Admin) hay không.
- * Chỉ ID 1 (Admin) duy nhất có quyền toàn hệ thống.
- * Các admin chuyên ngành như AdminSteel, AdminHW, AdminDindas, AdminCSD KHÔNG phải full admin.
+ * Chỉ ID 1 (Admin) hoặc các tài khoản admin/superadmin/quản trị viên có quyền toàn hệ thống.
  * @param {Object} user 
  * @returns {boolean}
  */
 export function isFullAdmin(user) {
   if (!user) return false;
+
+  // 1. Kiểm tra theo role_id (ID = 1 là Admin)
+  if (Number(user.role_id) === 1) return true;
+
+  // 2. Tra cứu theo bảng ROLES_REGISTRY
   const roleItem = findRoleItem(user);
-  if (roleItem) {
-    return !!roleItem.isFullAdmin;
+  if (roleItem && roleItem.isFullAdmin) {
+    return true;
   }
-  const rawRole = (user.role || "").toLowerCase().trim();
-  return rawRole === "admin" || rawRole === "administrator";
+
+  // 3. Kiểm tra chuỗi role / role_name / username / ma_nv
+  const rawRole = String(user.role || user.role_name || "").toLowerCase().trim();
+  if (rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin" || rawRole === "quan_tri_vien") {
+    return true;
+  }
+
+  // 4. Kiểm tra cờ IsManagement hoặc bophanlogin
+  if (user.isManagement === 1 || user.is_management === 1 || user.isManagement === true || user.is_management === true) {
+    // Nếu là admin hoặc không có role hạn chế riêng
+    if (rawRole === "admin" || rawRole === "administrator" || !rawRole) return true;
+  }
+
+  const bophan = String(user.bophanlogin || user.bophan || "").toLowerCase().trim();
+  if (bophan === "all" || bophan === "admin") return true;
+
+  const manv = String(user.ma_nv || user.manv || user.username || "").toUpperCase().trim();
+  if (manv === "EZE0001" || manv === "ADMIN" || manv.startsWith("ADMIN_") || manv.endsWith("_ADMIN")) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
  * Kiểm tra xem user có quyền xem và thao tác các tính năng Hardware Progress (HW) hay không.
- * - ID 1 (Admin): Có quyền toàn bộ
+ * - Admin (isFullAdmin): Có toàn quyền mọi module và tính năng HW
+ * - bophanlogin là "HW" hoặc "All" hoặc "Admin"
  * - ID 13 (LeaderHW), ID 14 (EmployeeHW), ID 15 (AdminHW): Có quyền HW
- * - TẤT CẢ các role khác (Steel, Pryda, Dindas, CSD, Manager, Employee, Leader, Viewer): KHÔNG CÓ QUYỀN HW.
  * @param {Object} user 
  * @returns {boolean}
  */
 export function hasHwAccess(user) {
   if (!user) return false;
+
+  // Full Admin luôn có quyền truy cập tất cả module HW
+  if (isFullAdmin(user)) return true;
+
+  const userBophan = String(user.bophanlogin || user.bophan || "").trim().toLowerCase();
+  if (userBophan === "hw" || userBophan === "all" || userBophan === "admin") return true;
+
   const roleItem = findRoleItem(user);
   if (roleItem) {
-    return !!roleItem.hasHw;
+    return !!roleItem.hasHw || !!roleItem.isFullAdmin;
   }
-  const rawRole = (user.role || "").toLowerCase().trim();
-  if (rawRole === "admin" || rawRole === "administrator") return true;
+
+  const rawRole = String(user.role || user.role_name || "").toLowerCase().trim();
+  if (rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin") return true;
   if (rawRole === "adminhw" || rawRole === "leaderhw" || rawRole === "employeehw") return true;
   if (rawRole.endsWith("hw") || rawRole.includes("hardware")) return true;
+
   return false;
+}
+
+/**
+ * Kiểm tra quyền chỉnh sửa / xóa công việc trong các bảng báo cáo và tổng hợp
+ * @param {Object} user
+ * @returns {boolean}
+ */
+export function hasAdminPrivileges(user) {
+  return isFullAdmin(user);
 }
 
 /**
