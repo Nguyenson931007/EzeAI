@@ -7,7 +7,7 @@ và cơ chế bảo mật (như chống Brute Force, Khóa tài khoản và gử
 
 from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Tuple
 import hashlib
 import os
 import uuid
@@ -241,10 +241,18 @@ def get_mssql_account_user(username_or_manv: str):
                 a.MaNV, 
                 a.UserID, 
                 a.Password, 
-                a.IsManagement, 
-                r.name AS RoleName 
+                a.IsManagement,
+                nv.MaChucVu,
+                nv.MaBoPhan,
+                nv.TenNV,
+                nv.TenEng,
+                COALESCE(r_nv.id, r_acc.id, nv.MaChucVu, a.IsManagement) AS RoleID,
+                COALESCE(r_nv.name, r_acc.name) AS RoleName,
+                COALESCE(r_nv.description, r_acc.description) AS RoleDescription
             FROM dbo.Account a 
-            LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
+            LEFT JOIN dbo.NhanVien nv ON a.MaNV = nv.MaNV 
+            LEFT JOIN dbo.roles r_nv ON nv.MaChucVu = r_nv.id 
+            LEFT JOIN dbo.roles r_acc ON a.IsManagement = r_acc.id 
             WHERE a.UserID = %s OR a.MaNV = %s
         """
         cursor.execute(query, (username_or_manv, username_or_manv))
@@ -254,6 +262,81 @@ def get_mssql_account_user(username_or_manv: str):
     except Exception as e:
         logger.warning(f"Không thể truy vấn MSSQL dbo.Account: {e}")
         return None
+
+
+# Danh sách chuẩn 21 roles từ bảng [emsflow].[dbo].[roles]
+ROLES_REGISTRY_MAP: dict[int, Tuple[str, str]] = {
+    1: ("admin", "Admin"),
+    2: ("manager", "Manager"),
+    3: ("employee", "Employee"),
+    4: ("leader", "Leader"),
+    5: ("employeesteel", "EmployeeSteel"),
+    6: ("managersteel", "ManagerSteel"),
+    7: ("leadersteel", "LeaderSteel"),
+    8: ("checkersteel", "CheckerSteel"),
+    9: ("adminsteel", "AdminSteel"),
+    10: ("viewer", "Viewer"),
+    11: ("employeepryda", "EmployeePryda"),
+    12: ("checkerpryda", "CheckerPryda"),
+    13: ("leaderhw", "LeaderHW"),
+    14: ("employeehw", "EmployeeHW"),
+    15: ("adminhw", "AdminHW"),
+    16: ("admindindas", "AdminDindas"),
+    17: ("leaderdindas", "LeaderDindas"),
+    18: ("employeedindas", "EmployeeDindas"),
+    19: ("admincsd", "AdminCSD"),
+    20: ("leadercsd", "LeaderCSD"),
+    21: ("employeecsd", "EmployeeCSD"),
+}
+
+ROLES_BY_NAME_LOWER: dict[str, Tuple[str, str]] = {
+    "admin": ("admin", "Admin"),
+    "manager": ("manager", "Manager"),
+    "employee": ("employee", "Employee"),
+    "leader": ("leader", "Leader"),
+    "employeesteel": ("employeesteel", "EmployeeSteel"),
+    "managersteel": ("managersteel", "ManagerSteel"),
+    "leadersteel": ("leadersteel", "LeaderSteel"),
+    "checkersteel": ("checkersteel", "CheckerSteel"),
+    "adminsteel": ("adminsteel", "AdminSteel"),
+    "viewer": ("viewer", "Viewer"),
+    "employeepryda": ("employeepryda", "EmployeePryda"),
+    "checkerpryda": ("checkerpryda", "CheckerPryda"),
+    "leaderhw": ("leaderhw", "LeaderHW"),
+    "employeehw": ("employeehw", "EmployeeHW"),
+    "adminhw": ("adminhw", "AdminHW"),
+    "admindindas": ("admindindas", "AdminDindas"),
+    "leaderdindas": ("leaderdindas", "LeaderDindas"),
+    "employeedindas": ("employeedindas", "EmployeeDindas"),
+    "admincsd": ("admincsd", "AdminCSD"),
+    "leadercsd": ("leadercsd", "LeaderCSD"),
+    "employeecsd": ("employeecsd", "EmployeeCSD"),
+}
+
+
+def normalize_role_from_mssql(raw_role_name: Optional[str] = None, role_id: Optional[int] = None) -> Tuple[str, str]:
+    """
+    Chuẩn hóa role lấy theo danh sách bảng [emsflow].[dbo].[roles] (21 roles).
+    Không lấy theo cờ boolean IsManagement.
+    """
+    # 1. Tra cứu theo RoleID (r.id từ dbo.roles hoặc a.IsManagement)
+    if role_id is not None:
+        try:
+            r_id = int(role_id)
+            if r_id in ROLES_REGISTRY_MAP:
+                return ROLES_REGISTRY_MAP[r_id]
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Tra cứu theo RoleName (r.name từ dbo.roles)
+    if raw_role_name:
+        clean = str(raw_role_name).strip()
+        clean_lower = clean.lower()
+        if clean_lower in ROLES_BY_NAME_LOWER:
+            return ROLES_BY_NAME_LOWER[clean_lower]
+        return clean_lower, clean
+
+    return "user", "User"
 
 
 @router.post("/login")
@@ -273,13 +356,12 @@ def login(user: UserLogin, response: Response):
                 detail="Tên đăng nhập hoặc mật khẩu không chính xác."
             )
 
-        # Chuẩn hóa tên quyền (Role)
-        raw_role_name = (mssql_user.get("RoleName") or "User").strip()
-        role_lower = raw_role_name.lower()
-        if mssql_user.get("IsManagement") == 1 or role_lower in ["admin", "adminsteel"]:
-            role = "admin"
-        else:
-            role = role_lower
+        # Chuẩn hóa tên quyền (Role) theo MaChucVu từ bảng NhanVien
+        resolved_role_id = mssql_user.get("MaChucVu") or mssql_user.get("RoleID") or mssql_user.get("IsManagement")
+        role, role_name = normalize_role_from_mssql(
+            raw_role_name=mssql_user.get("RoleName"), 
+            role_id=resolved_role_id
+        )
 
         username = mssql_user["UserID"]
         manv = mssql_user["MaNV"]
@@ -336,7 +418,11 @@ def login(user: UserLogin, response: Response):
             "username": username,
             "manv": manv,
             "role": role,
-            "is_management": mssql_user["IsManagement"],
+            "role_id": resolved_role_id,
+            "role_name": role_name,
+            "full_name_vi": mssql_user.get("TenNV"),
+            "full_name_en": mssql_user.get("TenEng"),
+            "is_management": mssql_user.get("IsManagement"),
             "session_token": new_token
         }
 
@@ -461,7 +547,7 @@ def validate_session_endpoint(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        cursor.execute("SELECT session_token, last_active, role FROM users WHERE username = ?", (auth_username,))
         row = cursor.fetchone()
 
         if not row or row["session_token"] != session_token:
@@ -480,7 +566,42 @@ def validate_session_endpoint(
                 detail="Phiên đăng nhập đã hết hạn."
             )
 
-        return {"status": "valid", "username": auth_username}
+        user_role = row["role"] if (row and "role" in row.keys() and row["role"]) else "user"
+        display_role = user_role
+        manv = None
+
+        # Tự động đồng bộ role mới nhất từ MSSQL Server nếu có (theo MaChucVu trong NhanVien)
+        role_id_val = None
+        full_name_vi = None
+        full_name_en = None
+        try:
+            mssql_user = get_mssql_account_user(auth_username)
+            if mssql_user:
+                role_id_val = mssql_user.get("MaChucVu") or mssql_user.get("RoleID") or mssql_user.get("IsManagement")
+                norm_role, norm_name = normalize_role_from_mssql(
+                    raw_role_name=mssql_user.get("RoleName"), 
+                    role_id=role_id_val
+                )
+                user_role = norm_role
+                display_role = norm_name
+                manv = mssql_user.get("MaNV")
+                full_name_vi = mssql_user.get("TenNV")
+                full_name_en = mssql_user.get("TenEng")
+                cursor.execute("UPDATE users SET role = ? WHERE username = ?", (user_role, auth_username))
+                conn.commit()
+        except Exception as sync_err:
+            logger.debug(f"[validate-session] Lỗi đồng bộ role từ MSSQL: {sync_err}")
+
+        return {
+            "status": "valid",
+            "username": auth_username,
+            "role": user_role,
+            "role_id": role_id_val,
+            "role_name": display_role,
+            "manv": manv,
+            "full_name_vi": full_name_vi,
+            "full_name_en": full_name_en
+        }
     finally:
         conn.close()
 
@@ -630,17 +751,17 @@ async def tasklist_sso(payload: dict, response: Response):
         mssql_user = get_mssql_account_user(raw_username)
 
     if mssql_user:
-        username = str(mssql_user.get("UserID") or raw_username or manv).strip()
+        username = mssql_user["UserID"]
         manv = str(mssql_user.get("MaNV") or manv).strip()
-        raw_role = mssql_user.get("RoleName") or user_data.get("RoleName") or user_data.get("role") or "User"
-        is_mgmt = mssql_user.get("IsManagement") == 1 or user_data.get("IsManagement") == 1
+        raw_role = mssql_user.get("RoleName") or user_data.get("RoleName") or user_data.get("role")
+        r_id = mssql_user.get("RoleID") or mssql_user.get("IsManagement")
     else:
         username = raw_username or manv or "EZE0098"
         manv = manv or username
-        raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
-        is_mgmt = user_data.get("IsManagement") == 1
+        raw_role = user_data.get("RoleName") or user_data.get("role")
+        r_id = user_data.get("RoleID") or user_data.get("IsManagement")
 
-    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or is_mgmt) else str(raw_role).lower()
+    role, role_name = normalize_role_from_mssql(raw_role_name=raw_role, role_id=r_id)
 
     new_token = str(uuid.uuid4())
 
@@ -695,6 +816,7 @@ async def tasklist_sso(payload: dict, response: Response):
         "username": username,
         "manv": manv,
         "role": role,
+        "role_name": role_name,
         "session_token": new_token,
         "data": user_data
     }

@@ -23,6 +23,7 @@ import * as CairnsHardwareTasks from "@/components/cairns-hardware/tasks";
 import * as BunNswActTasks from "@/components/bun-nsw-act/tasks";
 import * as AtsFtTasks from "@/components/ats-ft/tasks";
 import * as BunSaTasks from "@/components/bun-sa/tasks";
+import { hasHwAccess } from "@/utils/permissions";
 import * as BunSeqldTasks from "@/components/bun-seqld/tasks";
 import * as BunTasTasks from "@/components/bun-tas/tasks";
 import * as BunVicTasks from "@/components/bun-vic/tasks";
@@ -982,6 +983,15 @@ export default function RightPropertyPaneView({
       }
     }
   }, [enabledModuleIds, activePaneTab]);
+
+  // Fallback về explorer nếu người dùng không thuộc nhóm HW nhưng đang ở tab Task HW hoặc module HW
+  React.useEffect(() => {
+    if (!hasHwAccess(user)) {
+      if (activePaneTab === "job_task" || (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "collapsed")) {
+        setActivePaneTab("explorer");
+      }
+    }
+  }, [user, activePaneTab]);
 
   // ── TASK CALCULATION FORMS STATE (10 MODULES) ──
   const [moduleFormData, setModuleFormData] = React.useState({
@@ -7409,29 +7419,33 @@ export default function RightPropertyPaneView({
                     */}
                       </div>
 
-                      <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
-                        📋 Export Takeoff Form (.xlsx)
-                      </ExportButton>
+                      {hasHwAccess(user) && (
+                        <ExportButton onClick={() => { lintelController?.roundAllLintels(); openTakeoffModal(); }} disabled={!scaleValue} >
+                          📋 Export Takeoff Form (.xlsx)
+                        </ExportButton>
+                      )}
 
                       {/* 4 Modals Quick Access (FrameWork, Area Summary, Insulation, LockUp) */}
                       <div style={{ display: "flex", gap: "5px", marginTop: "4px" }}>
-                        <button
-                          type="button"
-                          onClick={() => setShowFrameworkModal(true)}
-                          style={{
-                            flex: 1,
-                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                            gap: "3px", padding: "8px 2px", background: "#f8fafc",
-                            border: "1px solid #cbd5e1", borderRadius: "8px",
-                            color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
-                            transition: "all 0.15s ease"
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
-                        >
-                          <span style={{ fontSize: "15px" }}>🏗️</span>
-                          <span style={{ color: "#0f172a" }}>FrameWork</span>
-                        </button>
+                        {hasHwAccess(user) && (
+                          <button
+                            type="button"
+                            onClick={() => setShowFrameworkModal(true)}
+                            style={{
+                              flex: 1,
+                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                              gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                              border: "1px solid #cbd5e1", borderRadius: "8px",
+                              color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                              transition: "all 0.15s ease"
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                          >
+                            <span style={{ fontSize: "15px" }}>🏗️</span>
+                            <span style={{ color: "#0f172a" }}>FrameWork</span>
+                          </button>
+                        )}
 
                         <button
                           type="button"
@@ -7451,41 +7465,45 @@ export default function RightPropertyPaneView({
                           <span style={{ color: "#0f172a" }}>Area Summary</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setShowInsulationModal(true)}
-                          style={{
-                            flex: 1,
-                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                            gap: "3px", padding: "8px 2px", background: "#f8fafc",
-                            border: "1px solid #cbd5e1", borderRadius: "8px",
-                            color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
-                            transition: "all 0.15s ease"
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
-                        >
-                          <span style={{ fontSize: "15px" }}>🧱</span>
-                          <span style={{ color: "#0f172a" }}>Insulation</span>
-                        </button>
+                        {hasHwAccess(user) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setShowInsulationModal(true)}
+                              style={{
+                                flex: 1,
+                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                                gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                                border: "1px solid #cbd5e1", borderRadius: "8px",
+                                color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                                transition: "all 0.15s ease"
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                            >
+                              <span style={{ fontSize: "15px" }}>🧱</span>
+                              <span style={{ color: "#0f172a" }}>Insulation</span>
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setShowLockoutModal(true)}
-                          style={{
-                            flex: 1,
-                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                            gap: "3px", padding: "8px 2px", background: "#f8fafc",
-                            border: "1px solid #cbd5e1", borderRadius: "8px",
-                            color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
-                            transition: "all 0.15s ease"
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
-                        >
-                          <span style={{ fontSize: "15px" }}>🔒</span>
-                          <span style={{ color: "#0f172a" }}>LockUp</span>
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowLockoutModal(true)}
+                              style={{
+                                flex: 1,
+                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                                gap: "3px", padding: "8px 2px", background: "#f8fafc",
+                                border: "1px solid #cbd5e1", borderRadius: "8px",
+                                color: "#0f172a", cursor: "pointer", fontSize: "10px", fontWeight: "800",
+                                transition: "all 0.15s ease"
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#3b82f6"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                            >
+                              <span style={{ fontSize: "15px" }}>🔒</span>
+                              <span style={{ color: "#0f172a" }}>LockUp</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -8261,85 +8279,88 @@ export default function RightPropertyPaneView({
         </button>
 
         {/* Task HW tab */}
-        <button
-          title="Task Groups HW"
-          onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
-          className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
-        >
-          <div style={{ position: "relative", display: "inline-flex" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
-            {taskListJobs.filter(t => t.has_local_job).length > 0 && (
-              <span style={{
-                position: "absolute",
-                top: "-5px",
-                right: "-8px",
-                background: "#10b981",
-                color: "#fff",
-                fontSize: "8.5px",
-                padding: "0 3px",
-                borderRadius: "8px",
-                fontWeight: 800,
-                minWidth: "13px",
-                height: "13px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
-              }}>
-                {taskListJobs.filter(t => t.has_local_job).length}
-              </span>
-            )}
-          </div>
-          <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
-        </button>
-
-        {/* Divider */}
-        <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
-
-        {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES) ── */}
-        {EXTRA_MODULE_TABS.filter(mod => enabledModuleIds.includes(mod.id)).map((mod) => (
+        {hasHwAccess(user) && (
           <button
-            key={mod.id}
-            title={mod.title}
-            onClick={() => setActivePaneTab(prev => prev === mod.id ? "collapsed" : mod.id)}
-            className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
+            title="Task Groups HW"
+            onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
+            className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
           >
-            {mod.icon}
-            <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
-              {mod.label}
-            </span>
+            <div style={{ position: "relative", display: "inline-flex" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+              {taskListJobs.filter(t => t.has_local_job).length > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: "-5px",
+                  right: "-8px",
+                  background: "#10b981",
+                  color: "#fff",
+                  fontSize: "8.5px",
+                  padding: "0 3px",
+                  borderRadius: "8px",
+                  fontWeight: 800,
+                  minWidth: "13px",
+                  height: "13px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
+                }}>
+                  {taskListJobs.filter(t => t.has_local_job).length}
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
           </button>
-        ))}
+        )}
 
-        {/* ── ADD MODULE [+] BUTTON & POPUP ── */}
-        <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>
-          <button
-            title="Add Module (+)"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowAddModulePopup(prev => !prev);
-            }}
-            className="rp-side-tab-btn"
-            style={{
-              border: "1.5px dashed #94a3b8",
-              background: showAddModulePopup ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.7)",
-              color: showAddModulePopup ? "var(--blue)" : "#334155",
-              padding: "6px 2px",
-              boxShadow: "none"
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="12" cy="12" r="9" />
-              <line x1="12" y1="8" x2="12" y2="16" />
-              <line x1="8" y1="12" x2="16" y2="12" />
-            </svg>
-            <span style={{ fontSize: "9.5px", fontWeight: 800, letterSpacing: "-0.2px" }}>
-              + Add
-            </span>
-          </button>
+        {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES FOR HW ROLES) ── */}
+        {hasHwAccess(user) && (
+          <>
+            <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
 
-          {/* Floating Add Module Popup */}
-          {showAddModulePopup && (
+            {EXTRA_MODULE_TABS.filter(mod => enabledModuleIds.includes(mod.id)).map((mod) => (
+              <button
+                key={mod.id}
+                title={mod.title}
+                onClick={() => setActivePaneTab(prev => prev === mod.id ? "collapsed" : mod.id)}
+                className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
+              >
+                {mod.icon}
+                <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
+                  {mod.label}
+                </span>
+              </button>
+            ))}
+
+            {/* ── ADD MODULE [+] BUTTON & POPUP ── */}
+            <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>
+              <button
+                title="Add Module (+)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowAddModulePopup(prev => !prev);
+                }}
+                className="rp-side-tab-btn"
+                style={{
+                  border: "1.5px dashed #94a3b8",
+                  background: showAddModulePopup ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.7)",
+                  color: showAddModulePopup ? "var(--blue)" : "#334155",
+                  padding: "6px 2px",
+                  boxShadow: "none"
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <span style={{ fontSize: "9.5px", fontWeight: 800, letterSpacing: "-0.2px" }}>
+                  + Add
+                </span>
+              </button>
+
+              {/* Floating Add Module Popup */}
+              {showAddModulePopup && (
             <div
               ref={addModulePopupRef}
               onClick={(e) => e.stopPropagation()}
@@ -8508,7 +8529,9 @@ export default function RightPropertyPaneView({
             </div>
           )}
         </div>
-      </div>
+      </>
+    )}
+  </div>
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
       {showTakeoffModal && (

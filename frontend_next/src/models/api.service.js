@@ -64,13 +64,24 @@ const handleResponse = async (res) => {
 
 export const ApiService = {
   async login(authData) {
-    const res = await fetch(`${BASE_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(authData),
-      credentials: "include"
-    });
-    return res.json();
+    try {
+      const res = await fetch(`${BASE_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authData)
+      });
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        return await res.json();
+      }
+      return {
+        detail: "Không thể kết nối đến Backend Server (Port 8090). Vui lòng kiểm tra Backend đã được khởi động chưa!"
+      };
+    } catch (err) {
+      return {
+        detail: `Lỗi kết nối Backend: ${err.message}. Vui lòng khởi động Backend trên cổng 8090.`
+      };
+    }
   },
 
   async signup(authData) {

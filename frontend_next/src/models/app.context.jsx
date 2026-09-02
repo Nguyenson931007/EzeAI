@@ -55,10 +55,17 @@ export const AppProvider = ({ children }) => {
           localStorage.removeItem("activeTab");
         } else {
           const sessionData = await res.json();
-          if (sessionData && (sessionData.manv || sessionData.ma_nv)) {
-            const updatedManv = sessionData.manv || sessionData.ma_nv;
+          if (sessionData) {
             setUser(prev => {
-              const updated = { ...prev, ma_nv: updatedManv };
+              const updated = {
+                ...prev,
+                ...(sessionData.manv || sessionData.ma_nv ? { ma_nv: sessionData.manv || sessionData.ma_nv } : {}),
+                ...(sessionData.role ? { role: sessionData.role } : {}),
+                ...(sessionData.role_id ? { role_id: sessionData.role_id } : {}),
+                ...(sessionData.role_name ? { role_name: sessionData.role_name } : {}),
+                ...(sessionData.full_name_vi ? { full_name_vi: sessionData.full_name_vi } : {}),
+                ...(sessionData.full_name_en ? { full_name_en: sessionData.full_name_en } : {})
+              };
               localStorage.setItem("user", JSON.stringify(updated));
               return updated;
             });

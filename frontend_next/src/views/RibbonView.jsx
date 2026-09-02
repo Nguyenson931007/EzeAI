@@ -13,6 +13,7 @@ import UserProfileModal from "@/components/UserProfileModal";
 import SettingsModal from "@/components/SettingsModal";
 import { createToolAiJwt } from "@/utils/toolAiSso";
 import TrussEngine from "@/engines/Truss";
+import { isFullAdmin, hasHwAccess, getDisplayRoleName } from "@/utils/permissions";
 
 const CAD_ICONS = {
   NewPDF: () => (
@@ -357,7 +358,8 @@ export default function RibbonView({
   // Auto-save
   lastAutoSaveTime,
   isAutoSaving,
-  exportRoofInput
+  exportRoofInput,
+  handleLogout
 }) {
   const { showAlert, showConfirm } = useDialog();
   const {
@@ -914,7 +916,7 @@ export default function RibbonView({
     .join("")
     .substring(0, 2)
     .toUpperCase() || "JD";
-  const displayRole = user?.role ? (user.role.charAt(0).toUpperCase() + user.role.slice(1)) : "Project Estimator";
+  const displayRole = getDisplayRoleName(user);
 
   return (
     <div className="cad-header">
@@ -1081,9 +1083,16 @@ export default function RibbonView({
                 </div>
                 <div style={{ height: "1px", background: "#e2e8f0", margin: "4px 0" }} />
                 <div
-                  onClick={() => {
+                  onClick={async () => {
                     setShowUserMenu(false);
-                    handleLogout();
+                    if (typeof handleLogout === "function") {
+                      await handleLogout();
+                    } else {
+                      localStorage.removeItem("isLoggedIn");
+                      localStorage.removeItem("user");
+                      localStorage.removeItem("activeTab");
+                      window.location.href = "/login";
+                    }
                   }}
                   style={{
                     padding: "8px 14px",
@@ -1124,7 +1133,7 @@ export default function RibbonView({
               {tab}
             </span>
           ))}
-          {user?.role === "admin" && (
+          {isFullAdmin(user) && (
             <span
               className={`cad-menu-item ${activeTab === "Admin" ? "active" : ""}`}
               onClick={() => setActiveTab("Admin")}
@@ -1664,29 +1673,35 @@ export default function RibbonView({
           <>
             <div className="ribbon-group">
               <div className="ribbon-buttons">
-                <button
-                  className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
-                  onClick={handleExportToProcurement}
-                  disabled={isExportingProcurement}
-                  title="Send job data to the system Procurement (http://14.241.197.188:7642/)"
-                >
-                  <span className="icon"><CAD_ICONS.Procurement /></span><span className="label">Procurement</span>
-                </button>
+                {hasHwAccess(user) && (
+                  <button
+                    className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
+                    onClick={handleExportToProcurement}
+                    disabled={isExportingProcurement}
+                    title="Send job data to the system Procurement (http://14.241.197.188:7642/)"
+                  >
+                    <span className="icon"><CAD_ICONS.Procurement /></span><span className="label">Procurement</span>
+                  </button>
+                )}
                 <button className={`ribbon-btn ${showBOQ ? "active" : ""}`} onClick={() => setShowBOQ(v => !v)} title="Bill of Quantities summary">
                   <span className="icon"><CAD_ICONS.Chart /></span><span className="label">BOQ</span>
                 </button>
                 <button className={`ribbon-btn ${showAreaSummaryModal ? "active" : ""}`} onClick={() => setShowAreaSummaryModal(true)} title="Area summary report">
                   <span className="icon"><CAD_ICONS.Measure /></span><span className="label">Area Summary</span>
                 </button>
-                <button className={`ribbon-btn ${showFrameworkModal ? "active" : ""}`} onClick={() => setShowFrameworkModal(true)} title="Framework estimation modal">
-                  <span className="icon"><CAD_ICONS.Building /></span><span className="label">Frame</span>
-                </button>
-                <button className={`ribbon-btn ${showInsulationModal ? "active" : ""}`} onClick={() => setShowInsulationModal(true)} title="Insulation estimation modal">
-                  <span className="icon"><CAD_ICONS.Brush /></span><span className="label">Insulation</span>
-                </button>
-                <button className={`ribbon-btn ${showLockoutModal ? "active" : ""}`} onClick={() => setShowLockoutModal(true)} title="LockUp external doors schedule">
-                  <span className="icon">🔒</span><span className="label">LockUp</span>
-                </button>
+                {hasHwAccess(user) && (
+                  <>
+                    <button className={`ribbon-btn ${showFrameworkModal ? "active" : ""}`} onClick={() => setShowFrameworkModal(true)} title="Framework estimation modal">
+                      <span className="icon"><CAD_ICONS.Building /></span><span className="label">Frame</span>
+                    </button>
+                    <button className={`ribbon-btn ${showInsulationModal ? "active" : ""}`} onClick={() => setShowInsulationModal(true)} title="Insulation estimation modal">
+                      <span className="icon"><CAD_ICONS.Brush /></span><span className="label">Insulation</span>
+                    </button>
+                    <button className={`ribbon-btn ${showLockoutModal ? "active" : ""}`} onClick={() => setShowLockoutModal(true)} title="LockUp external doors schedule">
+                      <span className="icon">🔒</span><span className="label">LockUp</span>
+                    </button>
+                  </>
+                )}
               </div>
               <span className="ribbon-group-title">ESTIMATION</span>
             </div>

@@ -1018,13 +1018,32 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
 
 @router.post("/jobs/export-procurement")
 @router.post("/api/jobs/export-procurement")
-async def export_procurement(payload: dict):
+async def export_procurement(payload: dict, x_username: Optional[str] = Header(None, alias="X-Username")):
     """
     Chuyển tiếp gói dữ liệu Job từ EzeFloor sang dịch vụ Procurement.
+    Chỉ cho phép tài khoản Admin hoặc nhóm Hardware (AdminHW, LeaderHW, EmployeeHW) thực hiện.
     Tự động truy xuất và đính kèm toàn bộ 12 cột của Job từ CSDL SQLite (ezefloor.db):
     id, user_id, project_name, room_count, total_area, data (JSON CAD/BIM), thumbnail,
     is_trained, is_corrected, share_token, is_exported, created_at.
     """
+    if x_username:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT role FROM users WHERE username = ?", (x_username,))
+            u_row = cur.fetchone()
+            if u_row:
+                u_role = (u_row["role"] or "").lower()
+                is_hw_or_admin = u_role in ["admin", "administrator", "adminhw", "leaderhw", "employeehw"] or u_role.endswith("hw") or "hardware" in u_role
+                if not is_hw_or_admin:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Tài khoản của bạn không thuộc nhóm Hardware (HW Progress) để xuất dữ liệu Procurement."
+                    )
+        finally:
+            if conn:
+                conn.close()
     import httpx
 
     # 1. Truy xuất bản ghi đầy đủ 12 cột từ bảng jobs trong CSDL

@@ -414,8 +414,28 @@ const UserManagement = ({ onLoadJob }) => {
                   <div className="form-group">
                     <label>Role</label>
                     <select name="role" value={formData.role} onChange={handleInputChange}>
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
+                      <option value="admin">1. Admin (Full Control)</option>
+                      <option value="manager">2. Manager (General Manager)</option>
+                      <option value="employee">3. Employee (General Employee)</option>
+                      <option value="leader">4. Leader (Team Leader)</option>
+                      <option value="employeesteel">5. EmployeeSteel (Detailer Steel)</option>
+                      <option value="managersteel">6. ManagerSteel (Manager Steel)</option>
+                      <option value="leadersteel">7. LeaderSteel (Leader Steel)</option>
+                      <option value="checkersteel">8. CheckerSteel (Checker Steel)</option>
+                      <option value="adminsteel">9. AdminSteel (Admin Steel Progress)</option>
+                      <option value="viewer">10. Viewer (Read Only)</option>
+                      <option value="employeepryda">11. EmployeePryda (Detailer Pryda)</option>
+                      <option value="checkerpryda">12. CheckerPryda (Checker Pryda)</option>
+                      <option value="leaderhw">13. LeaderHW (Team Leader HW Progress)</option>
+                      <option value="employeehw">14. EmployeeHW (Detailer HW Progress)</option>
+                      <option value="adminhw">15. AdminHW (Admin HW Progress)</option>
+                      <option value="admindindas">16. AdminDindas (Admin Dindas Progress)</option>
+                      <option value="leaderdindas">17. LeaderDindas (Leader Dindas)</option>
+                      <option value="employeedindas">18. EmployeeDindas (Employee Dindas)</option>
+                      <option value="admincsd">19. AdminCSD (Admin CSD Progress)</option>
+                      <option value="leadercsd">20. LeaderCSD (Leader CSD Progress)</option>
+                      <option value="employeecsd">21. EmployeeCSD (Employee CSD Progress)</option>
+                      <option value="user">User (Standard)</option>
                     </select>
                   </div>
                   <div className="form-group">
