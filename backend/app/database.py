@@ -198,7 +198,8 @@ def init_db():
                 age INT,
                 position VARCHAR(255),
                 team VARCHAR(255),
-                phone VARCHAR(50)
+                phone VARCHAR(50),
+                bophanlogin VARCHAR(100)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
         cursor.execute('''
@@ -290,6 +291,8 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN team TEXT")
         if 'phone' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        if 'bophanlogin' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN bophanlogin TEXT")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS jobs (

@@ -319,6 +319,7 @@ export default function RibbonView({
   show3D, setShow3D,
   workspaceMode = "split", setWorkspaceMode,
   layerVisibility, setLayerVisibility,
+  handleLogout,
   // Handlers from App.jsx
 
   handleSaveJob,
@@ -358,8 +359,7 @@ export default function RibbonView({
   // Auto-save
   lastAutoSaveTime,
   isAutoSaving,
-  exportRoofInput,
-  handleLogout
+  exportRoofInput
 }) {
   const { showAlert, showConfirm } = useDialog();
   const {
@@ -1091,7 +1091,7 @@ export default function RibbonView({
                       localStorage.removeItem("isLoggedIn");
                       localStorage.removeItem("user");
                       localStorage.removeItem("activeTab");
-                      window.location.href = "/login";
+                      window.location.reload();
                     }
                   }}
                   style={{

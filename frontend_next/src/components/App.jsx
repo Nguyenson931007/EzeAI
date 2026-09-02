@@ -589,6 +589,7 @@ export default function App() {
               username: finalUsername,
               role: data.role || "admin",
               ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
+              bophanlogin: data.bophanlogin || data.bophan || "",
               session_token: data.session_token,
               tasklist_token: urlToken || "",
             };
@@ -901,6 +902,7 @@ export default function App() {
           username: finalUsername,
           role: data.role || "admin",
           ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
+          bophanlogin: data.bophanlogin || data.bophan || (event.data.user && (event.data.user.bophanlogin || event.data.user.bophan)) || "",
           session_token: data.session_token,
           tasklist_token: rawToken,
         };

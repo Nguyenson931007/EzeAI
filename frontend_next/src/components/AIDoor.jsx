@@ -112,7 +112,11 @@ export default function AIDoor({
     const centerline = getDoorCenterline(d, walls);
     const p1 = centerline.p1;
     const p2 = centerline.p2;
-    slidingWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (d.width_mm && realScale && realScale > 0) {
+      slidingWidth = d.width_mm / realScale;
+    } else {
+      slidingWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    }
     slidingAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
     slidingCx = (p1.x + p2.x) / 2;
     slidingCy = (p1.y + p2.y) / 2;
@@ -177,7 +181,11 @@ export default function AIDoor({
     if (centerline) {
       const p1 = centerline.p1;
       const p2 = centerline.p2;
-      garageWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      if (d.width_mm && realScale && realScale > 0) {
+        garageWidth = d.width_mm / realScale;
+      } else {
+        garageWidth = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      }
       garageAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
       garageCx = (p1.x + p2.x) / 2;
       garageCy = (p1.y + p2.y) / 2;
@@ -289,6 +297,21 @@ export default function AIDoor({
             }
           }
         }
+      }
+    }
+
+    if (bestH1 && bestH2 && d.width_mm && realScale && realScale > 0) {
+      const desiredWidthPx = d.width_mm / realScale;
+      const curLen = Math.hypot(bestH2.x - bestH1.x, bestH2.y - bestH1.y);
+      if (curLen > 1e-3) {
+        const midX = (bestH1.x + bestH2.x) / 2;
+        const midY = (bestH1.y + bestH2.y) / 2;
+        const uX = (bestH2.x - bestH1.x) / curLen;
+        const uY = (bestH2.y - bestH1.y) / curLen;
+        const halfW = desiredWidthPx / 2;
+        bestH1 = { x: midX - uX * halfW, y: midY - uY * halfW };
+        bestH2 = { x: midX + uX * halfW, y: midY + uY * halfW };
+        maxBoundaryLen = desiredWidthPx;
       }
     }
 
@@ -605,7 +628,10 @@ export default function AIDoor({
         const len2 = Math.hypot(o2.x - hingeX, o2.y - hingeY);
 
         if (len1 > 1e-3 && len2 > 1e-3) {
-          const r = Math.max(len1, len2);
+          let r = Math.max(len1, len2);
+          if (d.width_mm && realScale && realScale > 0) {
+            r = d.width_mm / realScale;
+          }
           let o1_proj = {
             x: hingeX + (o1.x - hingeX) * (r / len1),
             y: hingeY + (o1.y - hingeY) * (r / len1)

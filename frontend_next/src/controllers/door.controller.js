@@ -519,7 +519,7 @@ export function useDoorController({
     }
 
     // 2. Width change
-    if (updatedDoor.width_mm && updatedDoor.width_mm !== oldDoor.width_mm) {
+    if (updatedDoor.width_mm && (updatedDoor.width_mm !== oldDoor.width_mm || updatedDoor.width_source === 'manual')) {
       const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
       const newWidthPx = updatedDoor.width_mm / effScale;
       updatedDoor = scaleDoorWidth(updatedDoor, newWidthPx);
@@ -552,8 +552,13 @@ export function useDoorController({
 
     const updatedDoors = doors.map(d => d.id === newDoorData.id ? updatedDoor : d);
 
-    pushHistory(null, healedWalls, updatedDoors);
-  }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
+    if (setDoorsByPage) {
+      setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
+    }
+    if (pushHistory) {
+      pushHistory(null, healedWalls, updatedDoors);
+    }
+  }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls, setDoorsByPage, currentPage]);
 
   /**
    * Moves a door along its parent wall to match a specified distance.

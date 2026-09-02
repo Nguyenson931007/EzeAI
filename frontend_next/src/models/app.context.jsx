@@ -56,10 +56,13 @@ export const AppProvider = ({ children }) => {
         } else {
           const sessionData = await res.json();
           if (sessionData) {
+            const updatedManv = sessionData.manv || sessionData.ma_nv;
+            const updatedBophan = sessionData.bophanlogin || sessionData.bophan;
             setUser(prev => {
               const updated = {
                 ...prev,
-                ...(sessionData.manv || sessionData.ma_nv ? { ma_nv: sessionData.manv || sessionData.ma_nv } : {}),
+                ...(updatedManv ? { ma_nv: updatedManv } : {}),
+                ...(updatedBophan !== undefined ? { bophanlogin: updatedBophan } : {}),
                 ...(sessionData.role ? { role: sessionData.role } : {}),
                 ...(sessionData.role_id ? { role_id: sessionData.role_id } : {}),
                 ...(sessionData.role_name ? { role_name: sessionData.role_name } : {}),

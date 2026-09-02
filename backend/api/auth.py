@@ -242,6 +242,7 @@ def get_mssql_account_user(username_or_manv: str):
                 a.UserID, 
                 a.Password, 
                 a.IsManagement,
+                a.bophanlogin,
                 nv.MaChucVu,
                 nv.MaBoPhan,
                 nv.TenNV,
@@ -365,6 +366,7 @@ def login(user: UserLogin, response: Response):
 
         username = mssql_user["UserID"]
         manv = mssql_user["MaNV"]
+        bophanlogin = str(mssql_user.get("bophanlogin") or "").strip()
         new_token = str(uuid.uuid4())
 
         # Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
@@ -390,14 +392,14 @@ def login(user: UserLogin, response: Response):
                     )
 
                 local_cursor.execute(
-                    "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
-                    (role, new_token, datetime.now().isoformat(), username)
+                    "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0, bophanlogin = ? WHERE username = ?",
+                    (role, new_token, datetime.now().isoformat(), bophanlogin, username)
                 )
             else:
                 dummy_email = f"{username.lower()}@ezefloor.ai"
                 local_cursor.execute(
-                    "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
-                    (username, dummy_email, mssql_user["Password"], role, new_token, datetime.now().isoformat())
+                    "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active, bophanlogin) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?, ?)",
+                    (username, dummy_email, mssql_user["Password"], role, new_token, datetime.now().isoformat(), bophanlogin)
                 )
             local_conn.commit()
         finally:
@@ -420,6 +422,7 @@ def login(user: UserLogin, response: Response):
             "role": role,
             "role_id": resolved_role_id,
             "role_name": role_name,
+            "bophanlogin": bophanlogin,
             "full_name_vi": mssql_user.get("TenNV"),
             "full_name_en": mssql_user.get("TenEng"),
             "is_management": mssql_user.get("IsManagement"),
@@ -547,7 +550,7 @@ def validate_session_endpoint(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT session_token, last_active, role FROM users WHERE username = ?", (auth_username,))
+        cursor.execute("SELECT session_token, last_active, role, bophanlogin FROM users WHERE username = ?", (auth_username,))
         row = cursor.fetchone()
 
         if not row or row["session_token"] != session_token:
@@ -565,6 +568,17 @@ def validate_session_endpoint(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Phiên đăng nhập đã hết hạn."
             )
+
+        bophanlogin = ""
+        try:
+            bophanlogin = row["bophanlogin"] or ""
+        except Exception:
+            pass
+
+        if not bophanlogin:
+            mssql_user = get_mssql_account_user(auth_username)
+            if mssql_user:
+                bophanlogin = str(mssql_user.get("bophanlogin") or "").strip()
 
         user_role = row["role"] if (row and "role" in row.keys() and row["role"]) else "user"
         display_role = user_role
@@ -595,6 +609,7 @@ def validate_session_endpoint(
         return {
             "status": "valid",
             "username": auth_username,
+            "bophanlogin": bophanlogin,
             "role": user_role,
             "role_id": role_id_val,
             "role_name": display_role,
@@ -750,16 +765,19 @@ async def tasklist_sso(payload: dict, response: Response):
     if not mssql_user and raw_username:
         mssql_user = get_mssql_account_user(raw_username)
 
+    bophanlogin = ""
     if mssql_user:
         username = mssql_user["UserID"]
         manv = str(mssql_user.get("MaNV") or manv).strip()
-        raw_role = mssql_user.get("RoleName") or user_data.get("RoleName") or user_data.get("role")
+        raw_role = mssql_user.get("RoleName") or user_data.get("RoleName") or user_data.get("role") or "User"
         r_id = mssql_user.get("RoleID") or mssql_user.get("IsManagement")
+        bophanlogin = str(mssql_user.get("bophanlogin") or "").strip()
     else:
         username = raw_username or manv or "EZE0098"
         manv = manv or username
-        raw_role = user_data.get("RoleName") or user_data.get("role")
+        raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
         r_id = user_data.get("RoleID") or user_data.get("IsManagement")
+        bophanlogin = str(user_data.get("bophanlogin") or user_data.get("bophan") or "").strip()
 
     role, role_name = normalize_role_from_mssql(raw_role_name=raw_role, role_id=r_id)
 
@@ -788,14 +806,14 @@ async def tasklist_sso(payload: dict, response: Response):
                 )
 
             local_cursor.execute(
-                "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
-                (role, new_token, datetime.now().isoformat(), username)
+                "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0, bophanlogin = ? WHERE username = ?",
+                (role, new_token, datetime.now().isoformat(), bophanlogin, username)
             )
         else:
             dummy_email = user_data.get("email") or f"{username.lower()}@ezefloor.ai"
             local_cursor.execute(
-                "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
-                (username, dummy_email, "sso_managed", role, new_token, datetime.now().isoformat())
+                "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active, bophanlogin) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?, ?)",
+                (username, dummy_email, "sso_managed", role, new_token, datetime.now().isoformat(), bophanlogin)
             )
         local_conn.commit()
     finally:
@@ -817,6 +835,7 @@ async def tasklist_sso(payload: dict, response: Response):
         "manv": manv,
         "role": role,
         "role_name": role_name,
+        "bophanlogin": bophanlogin,
         "session_token": new_token,
         "data": user_data
     }

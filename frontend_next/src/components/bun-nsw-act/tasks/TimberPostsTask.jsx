@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
-import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
+import { useCatalog } from "@/utils/catalogHelpers";
 
 export default function TimberPostsTask({
   formData = {},
@@ -47,6 +47,35 @@ export default function TimberPostsTask({
     "140x140",
     "190x190"
   ];
+
+  // Keep the raw value saved to ProcurementApp identical to the manual
+  // Timber/Posts choice.  Procurement uses this value to resolve the
+  // matching beams-posts catalogue item.
+  const normalizeMm = (value) => {
+    const match = String(value ?? "").match(/[-+]?\d*\.?\d+/);
+    return match ? Number(match[0]) : 0;
+  };
+
+  const resolveAutoPost = (type, size, height) => {
+    const normalizedType = String(type || "").trim().toUpperCase();
+    const normalizedSize = String(size || "").replace(/\s+/g, "").toLowerCase();
+    const heightMm = normalizeMm(height);
+    const requiredStockMm = heightMm > 0 ? heightMm + 300 : 0;
+
+    // Confirmed BUN NSW Beam manual values.  The first 90x90 HWD stock
+    // resolves to Procurement catalogue item 0218185.
+    if (normalizedType === "HWD" && normalizedSize === "90x90") {
+      if (!requiredStockMm || requiredStockMm <= 2400) return "90x90 Solid Post @ 2.4m";
+      if (requiredStockMm <= 2700) return "90x90 Solid Post @ 2.7m";
+      if (requiredStockMm <= 3000) return "90x90 Solid Post @ 3.0m";
+    }
+
+    if (normalizedType === "HWD" && normalizedSize === "115x115" && (!requiredStockMm || requiredStockMm <= 3000)) {
+      return "115x115 Hardwood Post @ 3.0m";
+    }
+
+    return "";
+  };
 
   const [postType, setPostType] = useState("Please Select");
   const [postHeight, setPostHeight] = useState("");
@@ -117,25 +146,30 @@ export default function TimberPostsTask({
     if (postType === "Please Select" || !postHeight) {
       return "Select type, size and enter post height.";
     }
+
     const size = postSize !== "Please Select" ? postSize : "90x90";
-    return `${postType} ${size} @ ${postHeight}mm Post`;
+    const autoPost = resolveAutoPost(postType, size, postHeight);
+
+    return autoPost || `${postType} ${size} @ ${postHeight}mm Post`;
   };
 
   const handleAddPost = () => {
     const h = postHeight || "2700";
-    const qty = parseInt(postQty, 10) || 1;
+    const qty = Math.max(1, parseInt(postQty, 10) || 1);
     const type = postType !== "Please Select" ? postType : "HWD";
     const size = postSize !== "Please Select" ? postSize : "90x90";
-    const stock = getSelectedStockDescription();
-    const prod = postProduct !== "Auto select by height" ? postProduct : stock;
-    const gal = galSupports !== "" ? String(galSupports).trim() : "0";
+    const autoPost = resolveAutoPost(type, size, h);
+    const prod = postProduct !== "Auto select by height"
+      ? postProduct
+      : (autoPost || `${type} ${size} @ ${h}mm Post`);
+    const gal = galSupports !== "" ? String(Math.max(0, parseInt(galSupports, 10) || 0)) : "0";
 
     const newEntry = {
       id: "post-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
       postType: type,
-      postHeight: String(h).includes("mm") ? h : `${h} mm`,
+      postHeight: String(h).toLowerCase().includes("mm") ? String(h).trim() : `${h} mm`,
       postSize: size,
-      post: prod !== "Select type, size and enter post height." ? prod : `${type} ${size} @ ${h}mm Post`,
+      post: prod,
       qty: qty,
       galPostSupports: gal
     };
@@ -170,12 +204,12 @@ export default function TimberPostsTask({
         jobs: [{
           id_job_hw: jobId || "default",
           posts: entries.map(e => ({
-            post_type: e.postType || e.type || "HWD",
-            post_height: e.postHeight || e.height || "2700 mm",
-            post_size: e.postSize || e.size || "90x90",
-            post: e.post || e.stock || `${e.postType || "HWD"} ${e.postSize || "90x90"} @ ${e.postHeight || "2700mm"}`,
-            qty: parseInt(String(e.qty || 1).replace("pcs", "").trim(), 10) || 1,
-            gal_post_supports: String(e.galPostSupports !== undefined ? e.galPostSupports : (e.gal_post_supports || "0")).trim()
+            post_type: String(e.postType || e.type || "").trim(),
+            post_height: String(e.postHeight || e.height || "").trim(),
+            post_size: String(e.postSize || e.size || "").trim(),
+            post: String(e.post || e.stock || "").trim(),
+            qty: Math.max(1, parseInt(String(e.qty || 1).replace("pcs", "").trim(), 10) || 1),
+            gal_post_supports: String(Math.max(0, parseInt(String(e.galPostSupports !== undefined ? e.galPostSupports : (e.gal_post_supports || "0")).trim(), 10) || 0))
           }))
         }]
       };

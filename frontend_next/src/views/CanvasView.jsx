@@ -39,7 +39,7 @@ import {
   mirrorPolygonAcrossPerpendicular
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
-import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall } from "@/engines/DoorGeometryEngine";
+import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall, scaleDoorWidth } from "@/engines/DoorGeometryEngine";
 import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
 
 
@@ -2948,7 +2948,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage } = useAppModel();
+  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -3473,20 +3473,39 @@ export default function CanvasView({
   const handleDoorEditSave = (updatedDoor, applyToAll) => {
     if (!updateDoor) return;
     if (applyToAll) {
-      // Apply to all doors of same type
+      // Apply to all doors of same type in a single atomic batch
       const originalType = doorEditDialog.door?.class || 'single_door';
-      (doors || []).forEach(d => {
+      const targetId = updatedDoor.id;
+      const newDoors = (doors || []).map(d => {
+        if (d.id === targetId) {
+          return updatedDoor;
+        }
         if ((d.class || 'single_door') === originalType) {
-          updateDoor({
+          let updatedItem = {
             ...d,
             penetration_type: updatedDoor.penetration_type,
             hardware_type: updatedDoor.hardware_type,
             height_mm: updatedDoor.height_mm,
             width_mm: updatedDoor.width_mm,
-            width_source: 'manual'
-          });
+            width_source: 'manual',
+            modifiedAt: new Date().toISOString()
+          };
+          if (updatedDoor.width_mm) {
+            const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
+            const newWidthPx = updatedDoor.width_mm / effScale;
+            updatedItem = scaleDoorWidth(updatedItem, newWidthPx);
+          }
+          return updatedItem;
         }
+        return d;
       });
+
+      if (setDoorsByPage) {
+        setDoorsByPage(prev => ({ ...prev, [currentPage]: newDoors }));
+      }
+      if (pushHistory) {
+        pushHistory(null, walls, newDoors);
+      }
     } else {
       updateDoor(updatedDoor);
     }
