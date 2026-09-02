@@ -10,7 +10,8 @@ export default function CladdingTask({
   cadMetrics = {},
   entries = [],
   onSetEntries,
-  onAddDataAI
+  onAddDataAI,
+  activeJobNumber
 }) {
   const appModel = useAppModel ? useAppModel() : {};
   const activeCustomerShortName = getActiveClientShortName();
@@ -48,7 +49,18 @@ export default function CladdingTask({
         currentUsername = localStorage.getItem("username") || localStorage.getItem("user_name") || "admin";
       }
 
-      const savedJobId = appModel?.currentJobId || appModel?.currentProjectName || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      const savedJobId = activeJobNumber
+        || appModel?.currentJobId 
+        || appModel?.currentProjectName 
+        || appModel?.current_hw_id 
+        || (typeof window !== "undefined" ? (
+            localStorage.getItem("ezefloor_last_active_job_id") 
+            || localStorage.getItem("ezefloor_last_active_project_name") 
+            || localStorage.getItem("currentJobId") 
+            || localStorage.getItem("current_hw_id") 
+            || sessionStorage.getItem("current_hw_id") 
+            || "default"
+          ) : "default");
       if (!savedJobId) {
         console.warn("Chưa chọn Job để lưu Cladding");
       }

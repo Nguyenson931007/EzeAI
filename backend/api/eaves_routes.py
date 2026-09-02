@@ -1,16 +1,6 @@
-"""
-api/eaves_routes.py – Eaves-router (Eaves & Soffit API Router)
-=============================================================
-Cung cấp REST endpoint để truy vấn và lưu bóc tách Eaves & Soffit vào [ProcurementApp].[dbo].[EavesSoffit]
 
-QUẢN LÝ LỊCH SỬ & TRANSACTION (IsOldData Versioning):
-1. Không UPDATE trực tiếp dữ liệu hiện tại làm mất lịch sử.
-2. Với mỗi Job được Save:
-   - Chuyển toàn bộ record hiện tại (IsOldData = 0) thành lịch sử (IsOldData = 1, UserUpdate, DatetimeUpdate = GETDATE()).
-   - Thêm mới các record hiện tại (IsOldData = 0) với ID sinh mới bằng NEWID().
-3. Toàn bộ thao tác Save được thực hiện trong DATABASE TRANSACTION để đảm bảo an toàn tuyệt đối.
-"""
 
+import json
 import logging
 import re
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -23,7 +13,7 @@ logger = logging.getLogger("ezefloor.eaves")
 router = APIRouter(prefix="/api/eaves", tags=["Eaves-router"])
 
 
-def _parse_decimal(val: Any, default: Optional[float] = 4.5) -> Optional[float]:
+def _parse_decimal(val: Any, default: Optional[float] = None) -> Optional[float]:
     """Chuyển đổi an toàn chuỗi (VD: '4.5mm', '6 mm', 4.5) sang số float/decimal cho MSSQL."""
     if val is None:
         return default
@@ -42,21 +32,106 @@ def _parse_decimal(val: Any, default: Optional[float] = 4.5) -> Optional[float]:
 # ══════════════════════════════════════════════════════
 
 class EavesItemSchema(BaseModel):
-    sheet_brand: Optional[str] = Field("FC", description="Nhãn hiệu tấm: 'FC', 'BGC', v.v.")
-    sheet_thickness: Optional[Union[float, int, str]] = Field("4.5mm", description="Độ dày tấm: '4.5mm', '6mm', v.v.")
-    sofit_batten: Optional[str] = Field("0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE", description="Quy cách Sofit Batten")
-    sofit_bead: Optional[str] = Field("0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD", description="Quy cách Sofit Bead")
-    short_name: Optional[str] = Field("BUN-NSW-ACT", description="Mã viết tắt client (VD: BUN-NSW-ACT, CAIRNS)")
+    # All setup values are required.  Silently manufacturing FC/BUN defaults
+    # here can attach plausible-looking but incorrect data to a job.
+    sheet_brand: str = Field(..., min_length=1, description="Nhãn hiệu tấm từ DB")
+    sheet_thickness: Union[float, int, str] = Field(..., description="Độ dày tấm từ DB")
+    sofit_batten: str = Field(..., min_length=1, description="Quy cách Sofit Batten từ DB")
+    sofit_bead: str = Field(..., min_length=1, description="Quy cách Sofit Bead từ DB")
+    short_name: str = Field(..., min_length=1, description="Mã viết tắt client từ DB")
+    input_data: dict[str, Any] = Field(default_factory=dict, description="Raw Eaves/Soffit manual inputs used by Procurement")
 
 
 class JobSaveSchema(BaseModel):
-    id_job_hw: Any = Field(..., description="ID / Mã HW Job (tghw.id)")
-    eaves: List[EavesItemSchema] = Field(default_factory=list, description="Danh sách các mốc Eaves Soffit bóc tách")
+    id_job_hw: str = Field(..., min_length=1, description="ID HW Job (tghw.id), IDJob EMS hoặc JobNumber")
+    eaves: List[EavesItemSchema] = Field(
+        ...,
+        min_length=1,
+        max_length=1,
+        description="Đúng một setup Eaves/Soffit hiện hành cho mỗi job",
+    )
 
 
 class SaveJobsPayloadSchema(BaseModel):
-    user_update: str = Field(..., description="Tên / mã người dùng thực hiện thao tác lưu")
-    jobs: List[JobSaveSchema] = Field(..., description="Danh sách các Job cần lưu")
+    user_update: str = Field(..., min_length=1, description="Tên / mã người dùng thực hiện thao tác lưu")
+    jobs: List[JobSaveSchema] = Field(..., min_length=1, description="Danh sách các Job cần lưu")
+
+
+
+EAVES_INPUT_KEYS = {
+    "eaves_450", "eaves_600", "eaves_750", "eaves_900",
+    "single_1800", "single_2400", "single_2700", "single_3000",
+    "double_1800", "double_2400", "double_2700", "double_3000",
+    "multi_1800", "multi_2400", "multi_2700", "multi_3000",
+    "extra_batten", "extra_bead", "metal_batten_m2",
+}
+
+def _normalize_input_data(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key in EAVES_INPUT_KEYS:
+        raw = value.get(key)
+        if raw is None or str(raw).strip() == "":
+            continue
+        parsed = _parse_decimal(raw)
+        if parsed is None or parsed < 0:
+            raise HTTPException(status_code=422, detail=f"Invalid Eaves/Soffit input '{key}'.")
+        result[key] = parsed
+    return result
+
+
+def _row_value(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[index]
+
+
+def _resolve_job(cursor: Any, input_job_id: str) -> tuple[str, str]:
+    """Resolve a job only from authoritative MSSQL data.
+
+    An ambiguous IDJob/JobNumber is rejected instead of guessing a hardware
+    group.  The returned short name is also authoritative and is used to
+    validate the client supplied in the save payload.
+    """
+    base_select = """
+        SELECT TOP 2
+            CAST(tghw.id AS nvarchar(100)) AS id,
+            UPPER(LTRIM(RTRIM(COALESCE(NULLIF(lc.ShortName, ''), lj.Client)))) AS short_name
+        FROM [emsflow].[dbo].[task_group_hw] AS tghw
+        INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj
+            ON tghw.id_job_ems = lj.IDJob
+           AND ISNULL(lj.IsDelete, 0) = 0
+        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] AS lc
+            ON lc.ClientName = lj.Client
+           AND ISNULL(lc.IsDelete, 0) = 0
+        WHERE ISNULL(tghw.is_delete, 0) = 0
+          AND {condition}
+        ORDER BY tghw.created_at DESC, tghw.id
+    """
+    lookups = (
+        ("CAST(tghw.id AS nvarchar(100)) = %s", (input_job_id,)),
+        ("CAST(tghw.id_job_ems AS nvarchar(100)) = %s", (input_job_id,)),
+        ("LOWER(LTRIM(RTRIM(lj.JobNumber))) = LOWER(LTRIM(RTRIM(%s)))", (input_job_id,)),
+    )
+    for condition, params in lookups:
+        cursor.execute(base_select.format(condition=condition), params)
+        rows = cursor.fetchall()
+        if not rows:
+            continue
+        if len(rows) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Job '{input_job_id}' maps to multiple hardware groups; send the exact id_job_hw.",
+            )
+        row = rows[0]
+        job_hw_id = str(_row_value(row, "id", 0) or "").strip()
+        short_name = str(_row_value(row, "short_name", 1) or "").strip().upper()
+        if not job_hw_id or not short_name:
+            raise HTTPException(status_code=422, detail="The resolved job has no valid hardware ID or client short name.")
+        return job_hw_id, short_name
+
+    raise HTTPException(status_code=404, detail=f"Job '{input_job_id}' was not found in MSSQL.")
 
 
 # ══════════════════════════════════════════════════════
@@ -74,6 +149,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
+        normalized_office = (office or "").strip().upper() or None
         sql = """
             SELECT
                 es.ID AS eaves_id,
@@ -90,6 +166,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
                 es.UserUpdate AS user_update,
                 es.DatetimeUpdate AS datetime_update,
                 es.IsOldData AS is_old_data,
+                es.InputDataJson AS input_data_json,
 
                 lj.JobNumber AS job_number
 
@@ -109,24 +186,31 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
 
             WHERE
                 ISNULL(tghw.is_delete, 0) = 0
-                AND aj.MaNV = 'EZE0098'
+                AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s)
 
             ORDER BY tghw.id DESC;
         """
 
-        cursor.execute(sql)
+        cursor.execute(sql, (normalized_office, normalized_office))
         rows = cursor.fetchall()
 
         result = []
         for row in rows:
             item = {}
             for key, val in row.items():
+                if key == "input_data_json":
+                    continue
                 if val is None:
                     item[key] = None
                 elif isinstance(val, (int, float, str, bool)):
                     item[key] = val
                 else:
                     item[key] = str(val)
+            raw_input_data = row.get("input_data_json")
+            try:
+                item["input_data"] = json.loads(raw_input_data) if raw_input_data else {}
+            except (TypeError, ValueError):
+                item["input_data"] = {}
             result.append(item)
 
         return {
@@ -148,7 +232,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = None):
+async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
     """
     Lưu dữ liệu Eaves & Soffit theo đúng chuẩn Versioning & Transaction:
     1. Kiểm tra Validate toàn bộ Payload (id_job_hw, user_update).
@@ -158,19 +242,20 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
        b) INSERT toàn bộ record mới với NEWID() và IsOldData = 0.
     4. Nếu xảy ra bất kỳ lỗi nào -> ROLLBACK toàn bộ transaction!
     """
-    user_update = (payload.user_update or "").strip()
-    if not user_update and request:
-        user_update = (request.headers.get("x-username") or "").strip()
+    user_update = payload.user_update.strip()
     if not user_update:
-        user_update = "admin"
-
-    if not payload.jobs:
-        raise HTTPException(status_code=400, detail="Danh sách jobs không được để trống")
+        raise HTTPException(status_code=422, detail="user_update là bắt buộc")
 
     # ── VALIDATION BƯỚC 1: Kiểm tra cấu trúc từng Job ──
+    input_job_ids: set[str] = set()
     for job in payload.jobs:
-        if not job.id_job_hw:
-            raise HTTPException(status_code=400, detail="id_job_hw là bắt buộc cho tất cả các Job trong danh sách")
+        input_job_id = job.id_job_hw.strip()
+        if not input_job_id:
+            raise HTTPException(status_code=422, detail="id_job_hw là bắt buộc cho tất cả các Job trong danh sách")
+        normalized_id = input_job_id.lower()
+        if normalized_id in input_job_ids:
+            raise HTTPException(status_code=422, detail=f"Job '{input_job_id}' appears more than once in the payload.")
+        input_job_ids.add(normalized_id)
 
     conn = None
     try:
@@ -182,73 +267,36 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
 
         # ── THỰC THI TRANSACTION CHO TẤT CẢ CÁC JOBS ──
         for job in payload.jobs:
-            input_job_id = str(job.id_job_hw).strip()
-            job_hw_id = input_job_id
+            input_job_id = job.id_job_hw.strip()
+            job_hw_id, authoritative_short_name = _resolve_job(cursor, input_job_id)
+            item = job.eaves[0]
+            short_name_val = item.short_name.strip().upper()
+            if short_name_val != authoritative_short_name:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Client '{short_name_val}' does not match job '{input_job_id}' "
+                        f"(expected '{authoritative_short_name}')."
+                    ),
+                )
 
-            # 1. Tìm chính xác tghw.id trong task_group_hw
-            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (input_job_id,))
-            found_tghw = cursor.fetchone()
-            if found_tghw:
-                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', input_job_id)
-            else:
-                # 2. Tìm theo id_job_ems
-                cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id_job_ems = %s AND is_delete = 0", (input_job_id,))
-                found_by_ems = cursor.fetchone()
-                if found_by_ems:
-                    job_hw_id = found_by_ems[0] if isinstance(found_by_ems, (list, tuple)) else found_by_ems.get('id', input_job_id)
-                else:
-                    # 3. Tìm theo JobNumber từ ListJobs (VD: 'TestAI', 'EZEFLO-...')
-                    cursor.execute("""
-                        SELECT TOP 1 tghw.id 
-                        FROM [emsflow].[dbo].[task_group_hw] tghw
-                        INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                        WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                          AND ISNULL(tghw.is_delete, 0) = 0
-                        ORDER BY tghw.created_at DESC
-                    """, (input_job_id, input_job_id))
-                    found_by_jn = cursor.fetchone()
-                    if found_by_jn:
-                        job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', input_job_id)
-                    elif input_job_id.isdigit():
-                        try:
-                            import sqlite3
-                            import os
-                            db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
-                            if os.path.exists(db_p):
-                                sq_c = sqlite3.connect(db_p)
-                                sq_cur = sq_c.cursor()
-                                sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(input_job_id),))
-                                sq_r = sq_cur.fetchone()
-                                sq_c.close()
-                                if sq_r and sq_r[0]:
-                                    p_name = sq_r[0]
-                                    cursor.execute("""
-                                        SELECT TOP 1 tghw.id 
-                                        FROM [emsflow].[dbo].[task_group_hw] tghw
-                                        INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                                        WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                                          AND ISNULL(tghw.is_delete, 0) = 0
-                                        ORDER BY tghw.created_at DESC
-                                    """, (p_name, p_name))
-                                    found_sq_jn = cursor.fetchone()
-                                    if found_sq_jn:
-                                        job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', input_job_id)
-                        except Exception as e:
-                            logger.warning(f"Không thể tra cứu local SQLite job ID {input_job_id}: {e}")
+            sheet_brand_val = item.sheet_brand.strip().upper()
+            sheet_thickness_val = _parse_decimal(item.sheet_thickness)
+            sofit_batten_val = item.sofit_batten.strip()
+            sofit_bead_val = item.sofit_bead.strip()
+            input_data_val = _normalize_input_data(item.input_data)
+            if not all((sheet_brand_val, sofit_batten_val, sofit_bead_val)) or not sheet_thickness_val or sheet_thickness_val <= 0:
+                raise HTTPException(status_code=422, detail=f"Eaves setup for job '{input_job_id}' is incomplete or invalid.")
 
-            # 4. Fallback bắt buộc: Nếu job_hw_id vẫn là số integer (như '204') hoặc không tồn tại trong task_group_hw
-            if job_hw_id == input_job_id or len(job_hw_id) < 10 or input_job_id.isdigit():
-                cursor.execute("""
-                    SELECT TOP 1 tghw.id 
-                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj ON tghw.id_assign_ems = aj.ID
-                    WHERE ISNULL(tghw.is_delete, 0) = 0
-                      AND (tghw.id = '09a02fb8-e940-4e7b-ba93-358145170e77' OR aj.MaNV = 'EZE0098' OR aj.MaNV = %s)
-                    ORDER BY CASE WHEN tghw.id = '09a02fb8-e940-4e7b-ba93-358145170e77' THEN 0 ELSE 1 END, tghw.created_at DESC
-                """, (user_update,))
-                found_fallback = cursor.fetchone()
-                if found_fallback:
-                    job_hw_id = found_fallback[0] if isinstance(found_fallback, (list, tuple)) else found_fallback.get('id', '09a02fb8-e940-4e7b-ba93-358145170e77')
+            # Range-lock this job/client so concurrent requests cannot both
+            # create a current row.
+            cursor.execute("""
+                SELECT ID
+                FROM [ProcurementApp].[dbo].[EavesSoffit] WITH (UPDLOCK, HOLDLOCK)
+                WHERE IdJob_HW = %s
+                  AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s;
+            """, (job_hw_id, short_name_val))
+            cursor.fetchall()
 
             # Step 1: Đánh dấu tất cả record hiện tại của Job đó thành dữ liệu lịch sử (IsOldData = 1)
             sql_update_history = """
@@ -258,9 +306,10 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
                     UserUpdate = %s,
                     DatetimeUpdate = GETDATE()
                 WHERE IdJob_HW = %s
+                  AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s
                   AND ISNULL(IsOldData, 0) = 0;
             """
-            cursor.execute(sql_update_history, (user_update, job_hw_id))
+            cursor.execute(sql_update_history, (user_update, job_hw_id, short_name_val))
 
             # Step 2: INSERT dữ liệu mới thành record mới (IsOldData = 0, NEWID())
             sql_insert_new = """
@@ -275,7 +324,8 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
                     IdJob_HW,
                     UserUpdate,
                     DatetimeUpdate,
-                    IsOldData
+                    IsOldData,
+                    InputDataJson
                 )
                 VALUES
                 (
@@ -288,37 +338,43 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
                     %s,
                     %s,
                     GETDATE(),
-                    0
+                    0,
+                    %s
                 );
             """
 
-            inserted_eaves_count = 0
-            items_to_insert = job.eaves if job.eaves else [EavesItemSchema()]
+            cursor.execute(
+                sql_insert_new,
+                (
+                    sheet_brand_val,
+                    sheet_thickness_val,
+                    sofit_batten_val,
+                    sofit_bead_val,
+                    short_name_val,
+                    job_hw_id,
+                    user_update,
+                    json.dumps(input_data_val, separators=(",", ":")),
+                ),
+            )
 
-            for item in items_to_insert:
-                sheet_brand_val = item.sheet_brand or "FC"
-                sheet_thickness_val = _parse_decimal(item.sheet_thickness, default=4.5)
-                sofit_batten_val = item.sofit_batten or "0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE"
-                sofit_bead_val = item.sofit_bead or "0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD"
-                short_name_val = item.short_name or "BUN-NSW-ACT"
-
-                cursor.execute(
-                    sql_insert_new,
-                    (
-                        sheet_brand_val,
-                        sheet_thickness_val,
-                        sofit_batten_val,
-                        sofit_bead_val,
-                        short_name_val,
-                        job_hw_id,
-                        user_update
-                    )
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM [ProcurementApp].[dbo].[EavesSoffit]
+                WHERE IdJob_HW = %s
+                  AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s
+                  AND ISNULL(IsOldData, 0) = 0;
+            """, (job_hw_id, short_name_val))
+            active_count_row = cursor.fetchone()
+            active_count = int(_row_value(active_count_row, "", 0) or 0)
+            if active_count != 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Expected one current Eaves row for job '{input_job_id}', found {active_count}.",
                 )
-                inserted_eaves_count += 1
 
             saved_summary.append({
                 "id_job_hw": job_hw_id,
-                "eaves_inserted": inserted_eaves_count
+                "eaves_inserted": 1
             })
 
         # Commit Transaction khi tất cả các bước thành công!
@@ -332,6 +388,13 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
             "jobs_saved": saved_summary
         }
 
+    except HTTPException:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception as rb_err:
+                logger.error(f"Lỗi khi Rollback MSSQL: {rb_err}")
+        raise
     except Exception as e:
         if conn:
             try:
@@ -354,7 +417,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema, request: Request = Non
 
 @router.post("/save")
 @router.put("/save")
-async def save_eaves_single(payload: dict, request: Request = None):
+async def save_eaves_single(payload: dict, request: Request):
     """
     Endpoint lưu đơn lẻ (POST / PUT /api/eaves/save).
     Tự động chuyển đổi payload đơn lẻ sang quy trình Transaction & Versioning /api/eaves/save-jobs.
@@ -363,12 +426,28 @@ async def save_eaves_single(payload: dict, request: Request = None):
     if not id_job_hw:
         raise HTTPException(status_code=400, detail="id_job_hw là bắt buộc")
 
-    sheet_brand = payload.get("sheet_brand") or payload.get("SheetBrand") or payload.get("brand") or "FC"
-    sheet_thickness = payload.get("sheet_thickness") or payload.get("SheetThickness") or payload.get("thickness") or "4.5mm"
-    sofit_batten = payload.get("sofit_batten") or payload.get("SofitBatten") or payload.get("batten") or "0053618 · PINE BATTEN++42X35MM 4.8M T2 BLUE"
-    sofit_bead = payload.get("sofit_bead") or payload.get("SofitBead") or payload.get("bead") or "0052832 · PINE PRIMED DAR FJ LOSP H3++18X18MM 5.4M BEAD"
-    short_name = payload.get("short_name") or "BUN-NSW-ACT"
-    user_update = payload.get("user_update") or (request.headers.get("x-username") if request else None) or "admin"
+    sheet_brand = payload.get("sheet_brand") or payload.get("SheetBrand") or payload.get("brand")
+    sheet_thickness = payload.get("sheet_thickness") or payload.get("SheetThickness") or payload.get("thickness")
+    sofit_batten = payload.get("sofit_batten") or payload.get("SofitBatten") or payload.get("batten")
+    sofit_bead = payload.get("sofit_bead") or payload.get("SofitBead") or payload.get("bead")
+    short_name = payload.get("short_name")
+    input_data = payload.get("input_data") or payload.get("InputData") or payload.get("inputs") or {}
+    user_update = payload.get("user_update") or request.headers.get("x-username")
+
+    missing = [
+        name
+        for name, value in (
+            ("sheet_brand", sheet_brand),
+            ("sheet_thickness", sheet_thickness),
+            ("sofit_batten", sofit_batten),
+            ("sofit_bead", sofit_bead),
+            ("short_name", short_name),
+            ("user_update", user_update),
+        )
+        if value is None or (isinstance(value, str) and not value.strip())
+    ]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required fields: {', '.join(missing)}")
 
     formatted_payload = SaveJobsPayloadSchema(
         user_update=user_update,
@@ -381,7 +460,8 @@ async def save_eaves_single(payload: dict, request: Request = None):
                         sheet_thickness=sheet_thickness,
                         sofit_batten=sofit_batten,
                         sofit_bead=sofit_bead,
-                        short_name=short_name
+                        short_name=short_name,
+                        input_data=input_data
                     )
                 ]
             )

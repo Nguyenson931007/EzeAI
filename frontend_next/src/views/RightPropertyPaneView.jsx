@@ -937,28 +937,35 @@ export default function RightPropertyPaneView({
     SheetScheduleTask
   } = activeCustomerTasks;
 
-  // Dynamic sync enabledModuleIds when pendingEmsJob or selectedModules or URL params update
+  // Dynamic sync task context when pendingEmsJob / selectedModules / selectedCustomerClient update
   React.useEffect(() => {
-    const syncModulesFromContext = () => {
+    const syncTaskContext = () => {
+      // Sync enabled modules from TaskList/EMS context
       const resolved = getInitialEnabledModules();
       if (resolved && resolved.length > 0) {
-        setEnabledModuleIds(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(resolved)) {
-            return resolved;
-          }
-          return prev;
-        });
+        setEnabledModuleIds(prev =>
+          JSON.stringify(prev) === JSON.stringify(resolved) ? prev : resolved
+        );
+      }
+
+      // Sync customer pack selected by the parent SSO/loadEmsJob flow
+      const customer =
+        sessionStorage.getItem("selectedCustomerClient") ||
+        localStorage.getItem("selectedCustomerClient");
+
+      if (customer && CUSTOMER_TASK_PACKS[customer]) {
+        setSelectedCustomerClient(customer);
       }
     };
 
-    syncModulesFromContext();
+    syncTaskContext();
 
-    window.addEventListener("storage", syncModulesFromContext);
-    window.addEventListener("task-modules-updated", syncModulesFromContext);
+    window.addEventListener("storage", syncTaskContext);
+    window.addEventListener("task-modules-updated", syncTaskContext);
 
     return () => {
-      window.removeEventListener("storage", syncModulesFromContext);
-      window.removeEventListener("task-modules-updated", syncModulesFromContext);
+      window.removeEventListener("storage", syncTaskContext);
+      window.removeEventListener("task-modules-updated", syncTaskContext);
     };
   }, [currentProjectName, user]);
 
@@ -1954,8 +1961,19 @@ export default function RightPropertyPaneView({
     date: ""
   });
 
+  // ── CHECK USER ACCESS FOR HW TASK MENU (bophanlogin in dbo.Account is "HW" or "All") ──
+  const userBophan = String(user?.bophanlogin || user?.bophan || "").trim().toLowerCase();
+  const isHwOrAllUser = userBophan === "hw" || userBophan === "all";
+
+  // Auto-switch to explorer if task tabs are not allowed for this user
+  React.useEffect(() => {
+    if (!isHwOrAllUser && (activePaneTab === "job_task" || EXTRA_MODULE_TABS.some(t => t.id === activePaneTab))) {
+      setActivePaneTab("explorer");
+    }
+  }, [isHwOrAllUser, activePaneTab]);
+
   // ── DYNAMIC TASK EXPANSION & DRAG RESIZING STATE ──
-  const isTaskModuleActive = EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
+  const isTaskModuleActive = isHwOrAllUser && EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
   const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
   const [isTaskExpanded, setIsTaskExpanded] = React.useState(false);
   const [taskPanelWidth, setTaskPanelWidth] = React.useState(420);
@@ -8055,6 +8073,7 @@ export default function RightPropertyPaneView({
               entries={eavesEntries}
               onSetEntries={setEavesEntries}
               onAddDataAI={handleAddDataAI}
+              activeJobNumber={currentProjectName || currentJobId}
             />
           )}
 
@@ -8067,6 +8086,7 @@ export default function RightPropertyPaneView({
               entries={claddingWallEntries}
               onSetEntries={setCladdingWallEntries}
               onAddDataAI={handleAddDataAI}
+              activeJobNumber={currentProjectName || currentJobId}
             />
           )}
 
@@ -8223,16 +8243,6 @@ export default function RightPropertyPaneView({
             />
           )}
 
-          {/* 15. Sheet Schedule */}
-          {activeModuleTab.id === "sheet_schedule" && (
-            <SheetScheduleTask
-              formData={moduleFormData.sheet_schedule || {}}
-              onChange={handleModuleFormChange}
-              cadMetrics={cadMetrics}
-              onAddDataAI={handleAddDataAI}
-            />
-          )}
-
         </div>
       )}
 
@@ -8260,254 +8270,259 @@ export default function RightPropertyPaneView({
           <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Summary</span>
         </button>
 
-        {/* Task HW tab */}
-        <button
-          title="Task Groups HW"
-          onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
-          className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
-        >
-          <div style={{ position: "relative", display: "inline-flex" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
-            {taskListJobs.filter(t => t.has_local_job).length > 0 && (
-              <span style={{
-                position: "absolute",
-                top: "-5px",
-                right: "-8px",
-                background: "#10b981",
-                color: "#fff",
-                fontSize: "8.5px",
-                padding: "0 3px",
-                borderRadius: "8px",
-                fontWeight: 800,
-                minWidth: "13px",
-                height: "13px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
-              }}>
-                {taskListJobs.filter(t => t.has_local_job).length}
-              </span>
-            )}
-          </div>
-          <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
-        </button>
-
-        {/* Divider */}
-        <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
-
-        {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES) ── */}
-        {EXTRA_MODULE_TABS.filter(mod => enabledModuleIds.includes(mod.id)).map((mod) => (
-          <button
-            key={mod.id}
-            title={mod.title}
-            onClick={() => setActivePaneTab(prev => prev === mod.id ? "collapsed" : mod.id)}
-            className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
-          >
-            {mod.icon}
-            <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
-              {mod.label}
-            </span>
-          </button>
-        ))}
-
-        {/* ── ADD MODULE [+] BUTTON & POPUP ── */}
-        <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>
-          <button
-            title="Add Module (+)"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowAddModulePopup(prev => !prev);
-            }}
-            className="rp-side-tab-btn"
-            style={{
-              border: "1.5px dashed #94a3b8",
-              background: showAddModulePopup ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.7)",
-              color: showAddModulePopup ? "var(--blue)" : "#334155",
-              padding: "6px 2px",
-              boxShadow: "none"
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="12" cy="12" r="9" />
-              <line x1="12" y1="8" x2="12" y2="16" />
-              <line x1="8" y1="12" x2="16" y2="12" />
-            </svg>
-            <span style={{ fontSize: "9.5px", fontWeight: 800, letterSpacing: "-0.2px" }}>
-              + Add
-            </span>
-          </button>
-
-          {/* Floating Add Module Popup */}
-          {showAddModulePopup && (
-            <div
-              ref={addModulePopupRef}
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: "fixed",
-                right: "60px",
-                bottom: "30px",
-                width: "270px",
-                maxHeight: "440px",
-                background: "#ffffff",
-                border: "1px solid var(--border)",
-                borderRadius: "12px",
-                boxShadow: "0 16px 40px rgba(15, 23, 42, 0.25)",
-                zIndex: 99999,
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden"
-              }}
+        {/* Task HW tab & Dynamic Module tabs (Only visible if login bophanlogin is HW or All) */}
+        {isHwOrAllUser && (
+          <>
+            {/* Task HW tab */}
+            <button
+              title="Task Groups HW"
+              onClick={() => setActivePaneTab(prev => prev === "job_task" ? "collapsed" : "job_task")}
+              className={`rp-side-tab-btn ${activePaneTab === "job_task" ? "active" : ""}`}
             >
-              {/* Header */}
-              <div style={{
-                padding: "10px 12px",
-                borderBottom: "1px solid var(--border)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                background: "#f8fafc"
-              }}>
-                <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>📦 Manage Modules</span>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
-                    ({enabledModuleIds.length}/{EXTRA_MODULE_TABS.length})
+              <div style={{ position: "relative", display: "inline-flex" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+                {taskListJobs.filter(t => t.has_local_job).length > 0 && (
+                  <span style={{
+                    position: "absolute",
+                    top: "-5px",
+                    right: "-8px",
+                    background: "#10b981",
+                    color: "#fff",
+                    fontSize: "8.5px",
+                    padding: "0 3px",
+                    borderRadius: "8px",
+                    fontWeight: 800,
+                    minWidth: "13px",
+                    height: "13px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
+                  }}>
+                    {taskListJobs.filter(t => t.has_local_job).length}
                   </span>
-                </div>
-                <button
-                  onClick={() => setShowAddModulePopup(false)}
+                )}
+              </div>
+              <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
+            </button>
+
+            {/* Divider */}
+            <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
+
+            {/* ── DYNAMIC MODULE TABS (ONLY DISPLAY CHECKED / ENABLED MODULES) ── */}
+            {EXTRA_MODULE_TABS.filter(mod => enabledModuleIds.includes(mod.id)).map((mod) => (
+              <button
+                key={mod.id}
+                title={mod.title}
+                onClick={() => setActivePaneTab(prev => prev === mod.id ? "collapsed" : mod.id)}
+                className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
+              >
+                {mod.icon}
+                <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
+                  {mod.label}
+                </span>
+              </button>
+            ))}
+
+            {/* ── ADD MODULE [+] BUTTON & POPUP ── */}
+            <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>
+              <button
+                title="Add Module (+)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowAddModulePopup(prev => !prev);
+                }}
+                className="rp-side-tab-btn"
+                style={{
+                  border: "1.5px dashed #94a3b8",
+                  background: showAddModulePopup ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.7)",
+                  color: showAddModulePopup ? "var(--blue)" : "#334155",
+                  padding: "6px 2px",
+                  boxShadow: "none"
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <span style={{ fontSize: "9.5px", fontWeight: 800, letterSpacing: "-0.2px" }}>
+                  + Add
+                </span>
+              </button>
+
+              {/* Floating Add Module Popup */}
+              {showAddModulePopup && (
+                <div
+                  ref={addModulePopupRef}
+                  onClick={(e) => e.stopPropagation()}
                   style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "#94a3b8",
-                    cursor: "pointer",
-                    fontSize: "14px",
-                    padding: "2px 6px",
-                    fontWeight: 700
+                    position: "fixed",
+                    right: "60px",
+                    bottom: "30px",
+                    width: "270px",
+                    maxHeight: "440px",
+                    background: "#ffffff",
+                    border: "1px solid var(--border)",
+                    borderRadius: "12px",
+                    boxShadow: "0 16px 40px rgba(15, 23, 42, 0.25)",
+                    zIndex: 99999,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden"
                   }}
                 >
-                  ✕
-                </button>
-              </div>
+                  {/* Header */}
+                  <div style={{
+                    padding: "10px 12px",
+                    borderBottom: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "#f8fafc"
+                  }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span>📦 Manage Modules</span>
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 500 }}>
+                        ({enabledModuleIds.length}/{EXTRA_MODULE_TABS.length})
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setShowAddModulePopup(false)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "#94a3b8",
+                        cursor: "pointer",
+                        fontSize: "14px",
+                        padding: "2px 6px",
+                        fontWeight: 700
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
 
-              {/* Module Checklist List */}
-              <div style={{ padding: "6px 8px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "280px" }}>
-                {EXTRA_MODULE_TABS.map((mod) => {
-                  const isEnabled = enabledModuleIds.includes(mod.id);
-                  return (
-                    <div
-                      key={mod.id}
+                  {/* Module Checklist List */}
+                  <div style={{ padding: "6px 8px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "280px" }}>
+                    {EXTRA_MODULE_TABS.map((mod) => {
+                      const isEnabled = enabledModuleIds.includes(mod.id);
+                      return (
+                        <div
+                          key={mod.id}
+                          onClick={() => {
+                            let next;
+                            if (isEnabled) {
+                              next = enabledModuleIds.filter(id => id !== mod.id);
+                              if (activePaneTab === mod.id) setActivePaneTab("explorer");
+                            } else {
+                              next = [...enabledModuleIds, mod.id];
+                              setActivePaneTab(mod.id);
+                            }
+                            setEnabledModuleIds(next);
+                            try {
+                              sessionStorage.setItem("selectedModules", JSON.stringify(next));
+                              localStorage.setItem("selectedModules", JSON.stringify(next));
+                            } catch (_) { }
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "7px 10px",
+                            borderRadius: "6px",
+                            background: isEnabled ? "rgba(37,99,235,0.08)" : "#ffffff",
+                            border: isEnabled ? "1px solid rgba(37,99,235,0.3)" : "1px solid #f1f5f9",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div style={{
+                              color: isEnabled ? "var(--blue)" : "#94a3b8",
+                              display: "flex",
+                              alignItems: "center"
+                            }}>
+                              {mod.icon}
+                            </div>
+                            <span style={{ fontSize: "11.5px", fontWeight: isEnabled ? 700 : 500, color: isEnabled ? "var(--blue)" : "var(--text)" }}>
+                              {mod.title}
+                            </span>
+                          </div>
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: 800,
+                            color: isEnabled ? "#10b981" : "#94a3b8",
+                            background: isEnabled ? "#ecfdf5" : "#f1f5f9",
+                            padding: "1px 6px",
+                            borderRadius: "4px"
+                          }}>
+                            {isEnabled ? "✓ Enabled" : "+ Add"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Footer Quick Action */}
+                  <div style={{
+                    padding: "8px 10px",
+                    borderTop: "1px solid var(--border)",
+                    display: "flex",
+                    gap: "6px",
+                    background: "#f8fafc"
+                  }}>
+                    <button
                       onClick={() => {
-                        let next;
-                        if (isEnabled) {
-                          next = enabledModuleIds.filter(id => id !== mod.id);
-                          if (activePaneTab === mod.id) setActivePaneTab("explorer");
-                        } else {
-                          next = [...enabledModuleIds, mod.id];
-                          setActivePaneTab(mod.id);
-                        }
-                        setEnabledModuleIds(next);
+                        setEnabledModuleIds(ALL_MODULE_IDS);
                         try {
-                          sessionStorage.setItem("selectedModules", JSON.stringify(next));
-                          localStorage.setItem("selectedModules", JSON.stringify(next));
+                          sessionStorage.setItem("selectedModules", JSON.stringify(ALL_MODULE_IDS));
+                          localStorage.setItem("selectedModules", JSON.stringify(ALL_MODULE_IDS));
                         } catch (_) { }
                       }}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "7px 10px",
-                        borderRadius: "6px",
-                        background: isEnabled ? "rgba(37,99,235,0.08)" : "#ffffff",
-                        border: isEnabled ? "1px solid rgba(37,99,235,0.3)" : "1px solid #f1f5f9",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease"
+                        flex: 1,
+                        padding: "6px",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        color: "var(--blue)",
+                        background: "#eff6ff",
+                        border: "1px solid #bfdbfe",
+                        borderRadius: "5px",
+                        cursor: "pointer"
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <div style={{
-                          color: isEnabled ? "var(--blue)" : "#94a3b8",
-                          display: "flex",
-                          alignItems: "center"
-                        }}>
-                          {mod.icon}
-                        </div>
-                        <span style={{ fontSize: "11.5px", fontWeight: isEnabled ? 700 : 500, color: isEnabled ? "var(--blue)" : "var(--text)" }}>
-                          {mod.title}
-                        </span>
-                      </div>
-                      <span style={{
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        color: isEnabled ? "#10b981" : "#94a3b8",
-                        background: isEnabled ? "#ecfdf5" : "#f1f5f9",
-                        padding: "1px 6px",
-                        borderRadius: "4px"
-                      }}>
-                        {isEnabled ? "✓ Enabled" : "+ Add"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Footer Quick Action */}
-              <div style={{
-                padding: "8px 10px",
-                borderTop: "1px solid var(--border)",
-                display: "flex",
-                gap: "6px",
-                background: "#f8fafc"
-              }}>
-                <button
-                  onClick={() => {
-                    setEnabledModuleIds(ALL_MODULE_IDS);
-                    try {
-                      sessionStorage.setItem("selectedModules", JSON.stringify(ALL_MODULE_IDS));
-                      localStorage.setItem("selectedModules", JSON.stringify(ALL_MODULE_IDS));
-                    } catch (_) { }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "6px",
-                    fontSize: "10px",
-                    fontWeight: 600,
-                    color: "var(--blue)",
-                    background: "#eff6ff",
-                    border: "1px solid #bfdbfe",
-                    borderRadius: "5px",
-                    cursor: "pointer"
-                  }}
-                >
-                  Enable all ({EXTRA_MODULE_TABS.length})
-                </button>
-                <button
-                  onClick={() => {
-                    const initial = getInitialEnabledModules();
-                    setEnabledModuleIds(initial);
-                    try {
-                      sessionStorage.removeItem("selectedModules");
-                      localStorage.removeItem("selectedModules");
-                    } catch (_) { }
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "6px",
-                    fontSize: "10px",
-                    fontWeight: 600,
-                    color: "#64748b",
-                    background: "#ffffff",
-                    border: "1px solid var(--border)",
-                    borderRadius: "5px",
-                    cursor: "pointer"
-                  }}
-                >
-                  Reset default
-                </button>
-              </div>
+                      Enable all ({EXTRA_MODULE_TABS.length})
+                    </button>
+                    <button
+                      onClick={() => {
+                        const initial = getInitialEnabledModules();
+                        setEnabledModuleIds(initial);
+                        try {
+                          sessionStorage.removeItem("selectedModules");
+                          localStorage.removeItem("selectedModules");
+                        } catch (_) { }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: "6px",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        color: "#64748b",
+                        background: "#ffffff",
+                        border: "1px solid var(--border)",
+                        borderRadius: "5px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Reset default
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}

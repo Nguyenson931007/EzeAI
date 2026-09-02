@@ -318,6 +318,7 @@ export default function RibbonView({
   show3D, setShow3D,
   workspaceMode = "split", setWorkspaceMode,
   layerVisibility, setLayerVisibility,
+  handleLogout,
   // Handlers from App.jsx
 
   handleSaveJob,
@@ -1083,7 +1084,13 @@ export default function RibbonView({
                 <div
                   onClick={() => {
                     setShowUserMenu(false);
-                    handleLogout();
+                    if (typeof handleLogout === "function") {
+                      handleLogout();
+                    } else {
+                      localStorage.removeItem("isLoggedIn");
+                      localStorage.removeItem("user");
+                      window.location.reload();
+                    }
                   }}
                   style={{
                     padding: "8px 14px",

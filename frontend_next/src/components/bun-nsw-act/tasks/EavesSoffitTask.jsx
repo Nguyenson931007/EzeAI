@@ -47,6 +47,25 @@ export default function EavesSoffitTask({
   const [soffitBatten, setSoffitBatten] = useState("");
   const [soffitBead, setSoffitBead] = useState("");
 
+  // Keep the same raw inputs Procurement manual mode uses.
+  const [inputData, setInputData] = useState({});
+
+  const standardEavesWidths = useMemo(() => {
+    if (sheetThickness === "6mm") return sheetBrand === "BGC" ? ["900"] : [];
+    return ["450", "600", "750", "900"];
+  }, [sheetBrand, sheetThickness]);
+
+  const soffitLengths = useMemo(() => {
+    if (sheetBrand === "FC" && sheetThickness === "6mm") return ["2400", "2700", "3000"];
+    return ["1800", "2400", "2700", "3000"];
+  }, [sheetBrand, sheetThickness]);
+
+  const setInputNumber = (key, value) => {
+    if (/^\d*(?:[.,]\d*)?$/.test(value)) {
+      setInputData(prev => ({ ...prev, [key]: value }));
+    }
+  };
+
   useEffect(() => {
     if (SOFFIT_BATTEN_OPTIONS.length > 0 && (!soffitBatten || !SOFFIT_BATTEN_OPTIONS.includes(soffitBatten))) {
       const initial = SOFFIT_BATTEN_OPTIONS[0];
@@ -66,14 +85,25 @@ export default function EavesSoffitTask({
   // Inline editing state for Card 2
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
-  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isSection1Open, setIsSection1Open] = useState(true);
   const [isSection2Open, setIsSection2Open] = useState(true);
+  const [openSections, setOpenSections] = useState({
+    spec: true,
+    standard: true,
+    soffit: true,
+    extras: true
+  });
+
+  const toggleSubSection = (key) => {
+    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const handleResetData = () => {
     setSheetBrand("FC");
     setSheetThickness("4.5mm");
     if (SOFFIT_BATTEN_OPTIONS.length > 0) setSoffitBatten(SOFFIT_BATTEN_OPTIONS[0]);
     if (SOFFIT_BEAD_OPTIONS.length > 0) setSoffitBead(SOFFIT_BEAD_OPTIONS[0]);
+    setInputData({});
   };
 
   const handleSaveToMSSQL = async () => {
@@ -116,7 +146,8 @@ export default function EavesSoffitTask({
               sheet_thickness: e.thickness || e.sheetThickness || sheetThickness,
               sofit_batten: e.batten || e.soffitBatten || soffitBatten,
               sofit_bead: e.bead || e.soffitBead || soffitBead,
-              short_name: activeCustomerShortName
+              short_name: activeCustomerShortName,
+              input_data: e.inputData || e.input_data || inputData
             }))
           }
         ]
@@ -143,11 +174,14 @@ export default function EavesSoffitTask({
       brand: sheetBrand,
       thickness: sheetThickness,
       batten: soffitBatten,
-      bead: soffitBead
+      bead: soffitBead,
+      inputData: { ...inputData }
     };
 
     if (onSetEntries) {
-      onSetEntries(prev => [...(prev || []), newEntry]);
+      // Backend stores one current Eaves/Soffit setup per job. Replace the
+      // current snapshot so Save always matches the API contract.
+      onSetEntries([newEntry]);
     }
   };
 
@@ -233,89 +267,248 @@ export default function EavesSoffitTask({
         </div>
 
         {isSection1Open && (
-          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            {/* Row 1: Brand & Thickness */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <div>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet brand</span>
-                <select
-                  value={sheetBrand}
-                  onChange={(e) => {
-                    setSheetBrand(e.target.value);
-                    if (onChange) onChange("eaves", "sheet_brand", e.target.value);
-                  }}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
+          <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            {/* Subsection 1: Specification */}
+            <div>
+              <div
+                onClick={() => toggleSubSection("spec")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  padding: "2px 0",
+                  marginBottom: openSections.spec ? "6px" : "0",
+                  userSelect: "none"
+                }}
+              >
+                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>1. Eaves specification</span>
+                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
+                  {openSections.spec ? "▲ Collapse" : "▼ Expand"}
+                </span>
               </div>
 
-              <div>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Sheet thickness</span>
-                <select
-                  value={sheetThickness}
-                  onChange={(e) => {
-                    setSheetThickness(e.target.value);
-                    if (onChange) onChange("eaves", "sheet_thickness", e.target.value);
-                  }}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
+              {openSections.spec && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {/* Row 1: Brand & Thickness */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                    <div>
+                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Sheet brand</span>
+                      <select
+                        value={sheetBrand}
+                        onChange={(e) => {
+                          setSheetBrand(e.target.value);
+                          if (onChange) onChange("eaves", "sheet_brand", e.target.value);
+                        }}
+                        className="task-field-select"
+                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                      >
+                        {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Sheet thickness</span>
+                      <select
+                        value={sheetThickness}
+                        onChange={(e) => {
+                          setSheetThickness(e.target.value);
+                          if (onChange) onChange("eaves", "sheet_thickness", e.target.value);
+                        }}
+                        className="task-field-select"
+                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                      >
+                        {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Soffit Batten & Soffit Bead */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                    <div>
+                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Soffit batten</span>
+                      <select
+                        value={soffitBatten}
+                        onChange={(e) => {
+                          setSoffitBatten(e.target.value);
+                          if (onChange) onChange("eaves", "soffit_batten", e.target.value);
+                        }}
+                        className="task-field-select"
+                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                      >
+                        {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Soffit bead</span>
+                      <select
+                        value={soffitBead}
+                        onChange={(e) => {
+                          setSoffitBead(e.target.value);
+                          if (onChange) onChange("eaves", "soffit_bead", e.target.value);
+                        }}
+                        className="task-field-select"
+                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                      >
+                        {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Subsection 2: Standard eaves */}
+            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "6px" }}>
+              <div
+                onClick={() => toggleSubSection("standard")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  padding: "2px 0",
+                  marginBottom: openSections.standard ? "6px" : "0",
+                  userSelect: "none"
+                }}
+              >
+                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>2. Standard eaves</span>
+                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
+                  {openSections.standard ? "▲ Collapse" : "▼ Expand"}
+                </span>
               </div>
+
+              {openSections.standard && (
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${standardEavesWidths.length || 4}, minmax(0, 1fr))`, gap: "6px" }}>
+                  {standardEavesWidths.map(width => (
+                    <div key={`eaves-${width}`}>
+                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {width}mm · Lm
+                      </span>
+                      <input
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={inputData[`eaves_${width}`] ?? ""}
+                        onChange={(e) => setInputNumber(`eaves_${width}`, e.target.value)}
+                        style={{ width: "100%", height: "24px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Row 2: Soffit Batten */}
-            <div>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit batten</span>
-              <select
-                value={soffitBatten}
-                onChange={(e) => {
-                  setSoffitBatten(e.target.value);
-                  if (onChange) onChange("eaves", "soffit_batten", e.target.value);
+            {/* Subsection 3: Soffit lengths */}
+            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "6px" }}>
+              <div
+                onClick={() => toggleSubSection("soffit")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  padding: "2px 0",
+                  marginBottom: openSections.soffit ? "6px" : "0",
+                  userSelect: "none"
                 }}
-                className="task-field-select"
-                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>3. Soffit lengths</span>
+                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
+                  {openSections.soffit ? "▲ Collapse" : "▼ Expand"}
+                </span>
+              </div>
+
+              {openSections.soffit && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {["single", "double", "multi"].map(kind => (
+                    <div key={kind} style={{ marginBottom: kind === "multi" ? "0" : "2px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 600, display: "block", marginBottom: "2px", textTransform: "capitalize" }}>
+                        {kind} sheet
+                      </span>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${soffitLengths.length || 4}, minmax(0, 1fr))`, gap: "6px" }}>
+                        {soffitLengths.map(length => (
+                          <div key={`${kind}-${length}`}>
+                            <span style={{ fontSize: "9px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {kind === "double" ? Number(length) * 2 : length}mm · Lm
+                            </span>
+                            <input
+                              inputMode="decimal"
+                              placeholder="0"
+                              value={inputData[`${kind}_${length}`] ?? ""}
+                              onChange={(e) => setInputNumber(`${kind}_${length}`, e.target.value)}
+                              style={{ width: "100%", height: "24px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Row 3: Soffit Bead */}
-            <div>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Soffit bead</span>
-              <select
-                value={soffitBead}
-                onChange={(e) => {
-                  setSoffitBead(e.target.value);
-                  if (onChange) onChange("eaves", "soffit_bead", e.target.value);
+            {/* Subsection 4: Extras */}
+            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "6px" }}>
+              <div
+                onClick={() => toggleSubSection("extras")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  padding: "2px 0",
+                  marginBottom: openSections.extras ? "6px" : "0",
+                  userSelect: "none"
                 }}
-                className="task-field-select"
-                style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>4. Extras</span>
+                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
+                  {openSections.extras ? "▲ Collapse" : "▼ Expand"}
+                </span>
+              </div>
+
+              {openSections.extras && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px" }}>
+                  {[
+                    ["extra_batten", "Extra battens · Lm"],
+                    ["extra_bead", "Extra bead · Lm"],
+                    ["metal_batten_m2", "Metal battens @450c · m²"]
+                  ].map(([key, label]) => (
+                    <div key={key}>
+                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {label}
+                      </span>
+                      <input
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={inputData[key] ?? ""}
+                        onChange={(e) => setInputNumber(key, e.target.value)}
+                        style={{ width: "100%", height: "24px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Add Button */}
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "2px" }}>
               <button
                 type="button"
                 onClick={handleAddEave}
                 style={{
-                  padding: "7px 16px",
+                  padding: "5px 14px",
                   background: "#1e3a5f",
                   color: "#ffffff",
                   border: "none",
-                  borderRadius: "5px",
-                  fontSize: "11.5px",
+                  borderRadius: "4px",
+                  fontSize: "11px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: "5px"
+                  gap: "4px"
                 }}
               >
                 + Add Eave
@@ -328,21 +521,30 @@ export default function EavesSoffitTask({
       {/* ── CARD 2: ENTERED EAVES ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div
+          onClick={() => setIsSection2Open(!isSection2Open)}
           style={{
             padding: "10px 14px",
             background: "#f8fafc",
-            borderBottom: "1px solid #e2e8f0",
+            borderBottom: isSection2Open ? "1px solid #e2e8f0" : "none",
             fontWeight: "800",
             fontSize: "13px",
             color: "#0f2744",
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between"
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
           }}
         >
           <span>2. Entered Eaves ({(entries || []).length})</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+            {isSection2Open ? "▲" : "▼"}
+          </span>
         </div>
-        <div style={{ padding: "8px", overflowX: "auto" }}>
+
+        {isSection2Open && (
+          <>
+            <div style={{ padding: "8px", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -366,6 +568,13 @@ export default function EavesSoffitTask({
                       if (!isRowEditing) {
                         const nextSelected = isSelected ? null : item.id;
                         setSelectedEntryId(nextSelected);
+                        if (!isSelected) {
+                          setSheetBrand(item.brand || "FC");
+                          setSheetThickness(item.thickness || "4.5mm");
+                          setSoffitBatten(item.batten || "");
+                          setSoffitBead(item.bead || "");
+                          setInputData({ ...(item.inputData || item.input_data || {}) });
+                        }
                         if (onSelectEntry) onSelectEntry(isSelected ? null : item);
                       }
                     }}
@@ -547,6 +756,8 @@ export default function EavesSoffitTask({
               </button>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

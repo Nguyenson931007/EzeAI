@@ -899,23 +899,40 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           if (value === "block_wall" || value === "block") {
             class_name = "block_wall";
             wall_type = "block";
+            newWall.is_lbw = false;
+            newWall.is_ext = false;
+            newWall.is_exterior = false;
           } else if (value === "exterior_wall" || value === "ext") {
             class_name = "exterior_wall";
             wall_type = "ext";
+            newWall.is_lbw = false;
+            newWall.is_ext = true;
+            newWall.is_exterior = true;
           } else if (value === "interior_wall" || value === "int") {
             class_name = "interior_wall";
             wall_type = "int";
             newWall.is_lbw = true;
+            newWall.is_ext = false;
+            newWall.is_exterior = false;
           } else if (value === "partition_wall" || value === "part") {
             class_name = "partition_wall";
             wall_type = "part";
             newWall.is_lbw = false;
+            newWall.is_ext = false;
+            newWall.is_exterior = false;
           } else {
             class_name = value;
             wall_type = value;
+            const isExtVal = value === "exterior_wall" || value === "ext";
+            newWall.is_ext = isExtVal;
+            newWall.is_exterior = isExtVal;
           }
           newWall.class_name = class_name;
           newWall.wall_type = wall_type;
+          newWall.user_modified = true;
+          newWall.manual_type = true;
+          newWall.is_manual = true;
+          newWall.is_manually_set = true;
 
           const thicknessPx = mmToPx(thicknessMm, realScale);
           newWall.thickness = thicknessMm;

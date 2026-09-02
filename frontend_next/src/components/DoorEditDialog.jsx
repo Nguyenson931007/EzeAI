@@ -65,7 +65,7 @@ export default function DoorEditDialog({
   const [distanceValue, setDistanceValue] = useState(0);
   const [heightMm, setHeightMm] = useState(1980);
   const [widthMm, setWidthMm] = useState(760);
-  const [applyToAll, setApplyToAll] = useState(true);
+  const [applyToAll, setApplyToAll] = useState(false);
   const [computedDistances, setComputedDistances] = useState({ left: 0, right: 0 });
 
   const healedWalls = React.useMemo(() => {
@@ -198,7 +198,7 @@ export default function DoorEditDialog({
 
     setHeightMm(door.height_mm || 1980);
     setWidthMm(effW || 760);
-    setApplyToAll(true);
+    setApplyToAll(false);
   }, [door, walls, realScale]);
 
   if (!visible || !door) return null;

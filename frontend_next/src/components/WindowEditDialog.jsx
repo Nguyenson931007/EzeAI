@@ -80,7 +80,7 @@ export default function WindowEditDialog({
   const [sillHeight, setSillHeight] = useState(900);
   const [heightMm, setHeightMm] = useState(1200);
   const [widthMm, setWidthMm] = useState(1200);
-  const [applyToAll, setApplyToAll] = useState(true);
+  const [applyToAll, setApplyToAll] = useState(false);
   const [computedDistances, setComputedDistances] = useState({ left: 0, right: 0 });
 
   const healedWalls = React.useMemo(() => {
@@ -222,7 +222,7 @@ export default function WindowEditDialog({
     setSillHeight(door.sillHeight || door.sill_height || 900);
     setHeightMm(door.height_mm || 1200);
     setWidthMm(effW || 1200);
-    setApplyToAll(true);
+    setApplyToAll(false);
   }, [door, walls, realScale]);
 
   if (!visible || !door) return null;

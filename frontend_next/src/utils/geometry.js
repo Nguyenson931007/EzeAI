@@ -1,26 +1,53 @@
 export function getWallClass(w) {
   if (!w) return "interior_wall";
-  const c = typeof w === "string" ? w.toLowerCase() : ((w.class_name || w.wall_type || "").toLowerCase());
-  const t = typeof w === "object" && w ? (w.wall_type || "").toLowerCase() : "";
 
-  if (
-    c === "block_wall" || c === "block" || c.includes("block") ||
-    t === "block" || t === "block_wall" || t.includes("block")
-  ) {
-    return "block_wall";
+  const matchClass = (val) => {
+    if (!val || typeof val !== "string") return null;
+    const s = val.toLowerCase().trim();
+    if (s === "block_wall" || s === "block" || s.includes("block")) return "block_wall";
+    if (
+      s === "exterior_wall" || s === "ext_wall" || s === "external_wall" || s === "ext" || s === "external" || s === "exterior" ||
+      s.startsWith("ext") || s.includes("exterior") || s.includes("external")
+    ) {
+      return "exterior_wall";
+    }
+    if (
+      s === "partition_wall" || s === "part_wall" || s === "parternal_wall" || s === "part" || s === "partition" ||
+      s.startsWith("part") || s.includes("partition") || s.includes("parternal")
+    ) {
+      return "partition_wall";
+    }
+    if (
+      s === "interior_wall" || s === "int_wall" || s === "internal_wall" || s === "int" || s === "internal" || s === "interior" ||
+      s.startsWith("int") || s.includes("interior") || s.includes("internal")
+    ) {
+      return "interior_wall";
+    }
+    return null;
+  };
+
+  if (typeof w === "object" && w !== null) {
+    // 1. Check explicit class_name first (highest priority)
+    const clsFromClass = matchClass(w.class_name);
+    if (clsFromClass) return clsFromClass;
+
+    // 2. Check wall_type second
+    const clsFromType = matchClass(w.wall_type);
+    if (clsFromType) return clsFromType;
+
+    // 3. Check boolean flags
+    if (w.is_ext || w.is_exterior) return "exterior_wall";
   }
-  if (
-    c === "exterior_wall" || c === "ext_wall" || c === "ext" || c.includes("ext") || c.includes("external") ||
-    t === "ext" || t === "exterior_wall" || t.includes("ext") || t.includes("external")
-  ) {
-    return "exterior_wall";
+
+  // If a string was passed (only match if it is a class name, not a wall ID)
+  if (typeof w === "string") {
+    if (w.startsWith("wall_") || w.startsWith("man_wall_") || w.startsWith("wall-") || w.startsWith("W-")) {
+      return "interior_wall";
+    }
+    const matched = matchClass(w);
+    if (matched) return matched;
   }
-  if (
-    c === "partition_wall" || c === "part_wall" || c === "part" || c.includes("part") || c.includes("partition") ||
-    t === "part" || t === "partition_wall" || t.includes("part") || t.includes("partition")
-  ) {
-    return "partition_wall";
-  }
+
   return "interior_wall";
 }
 
@@ -55,6 +82,12 @@ export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
   const resultWalls = [];
 
   walls.forEach(w => {
+    // If wall has been explicitly set or modified by user, do not auto-reclassify it
+    if (w.user_modified || w.manual_type || w.is_manual || w.is_manually_set || w.locked || w.user_set_type) {
+      resultWalls.push(w);
+      return;
+    }
+
     const cls = getWallClass(w);
     if (cls === "exterior_wall" || !w.centerline || w.centerline.length !== 2) {
       resultWalls.push(w);
@@ -576,7 +609,14 @@ export function overlapsWithAnyDoor(wall, doors) {
 
 export function getBaseWallId(id) {
   if (id == null || id === '') return '';
-  return String(id).split('-A-')[0].split('-B-')[0].split('-C-')[0].split('-D-')[0].split('-door_')[0].split('-sub-')[0];
+  return String(id)
+    .split('-A-')[0]
+    .split('-B-')[0]
+    .split('-C-')[0]
+    .split('-D-')[0]
+    .split('-door_')[0]
+    .split('-sub-')[0]
+    .replace(/_(?:ext|int\d*|part\d*)$/i, '');
 }
 
 export function restoreBaseWalls(walls) {

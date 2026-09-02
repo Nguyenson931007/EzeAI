@@ -842,9 +842,12 @@ export function scaleDoorWidth(door, newWidthPx) {
     return isArr ? [center.x + dx, center.y + dy] : { x: center.x + dx, y: center.y + dy };
   };
 
+  const newP1 = scalePt(pts.p1);
+  const newP2 = scalePt(pts.p2);
+
   return {
     ...door,
-    points: door.points ? door.points.map(scalePt) : undefined,
+    points: [newP1, newP2],
     polygon: door.polygon ? door.polygon.map(scalePt) : undefined,
     mask_polygon: door.mask_polygon ? door.mask_polygon.map(scalePt) : undefined,
     geometryVersion: (door.geometryVersion || 1) + 1,

@@ -28,12 +28,14 @@ router = APIRouter(prefix="/api/timber-posts", tags=["TimberPosts-router"])
 # ══════════════════════════════════════════════════════
 
 class TimberPostItemSchema(BaseModel):
-    post_type: Optional[str] = Field(None, description="Post Type (e.g. HWD, HWD F14)")
-    post_height: Optional[Union[str, float, int]] = Field(None, description="Post Height (e.g. 2700, 2700mm)")
-    post_size: Optional[str] = Field(None, description="Post Size (e.g. 90x90, 100x100)")
-    post: Optional[str] = Field(None, description="Post / Product description")
-    qty: Optional[Union[int, str]] = Field(1, description="Quantity")
-    gal_post_supports: Optional[Union[str, int]] = Field("0", description="Gal Post Supports")
+    # These are the raw manual Beam inputs.  Keep them authoritative so
+    # Procurement can reproduce the same result when "Add data AI" is used.
+    post_type: str = Field(..., min_length=1, description="Post Type (e.g. HWD, HWD F14)")
+    post_height: Union[str, float, int] = Field(..., description="Post Height (e.g. 2700, 2700mm)")
+    post_size: str = Field(..., min_length=1, description="Post Size (e.g. 90x90, 100x100)")
+    post: str = Field(..., min_length=1, description="Exact Post / Product selection from the form")
+    qty: Union[int, str] = Field(1, description="Quantity")
+    gal_post_supports: Union[str, int] = Field("0", description="Gal Post Supports")
 
 
 class TimberPostJobSaveSchema(BaseModel):
@@ -141,6 +143,34 @@ async def get_timber_posts_jobs(office: Optional[str] = Query(None, description=
     finally:
         if conn:
             conn.close()
+
+
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value if value is not None else "").strip().split())
+
+
+def _normalize_height(value: Any) -> str:
+    raw = _clean_text(value)
+    if not raw:
+        raise ValueError("Post Height is required")
+    match = __import__("re").search(r"[-+]?\d*\.?\d+", raw)
+    if not match:
+        raise ValueError(f"Invalid Post Height: {raw}")
+    number = float(match.group(0))
+    if number <= 0:
+        raise ValueError("Post Height must be greater than 0")
+    clean_number = str(int(number)) if number.is_integer() else str(number)
+    return f"{clean_number} mm"
+
+
+def _positive_int(value: Any, field_name: str, minimum: int) -> int:
+    try:
+        result = int(str(value).strip())
+    except Exception as exc:
+        raise ValueError(f"{field_name} must be an integer") from exc
+    if result < minimum:
+        raise ValueError(f"{field_name} must be >= {minimum}")
+    return result
 
 
 # ══════════════════════════════════════════════════════
@@ -254,17 +284,23 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
 
             # 2. Thêm mới các post hiện tại (IsOldData = 0)
             for p in job.posts:
-                qty_val = 1
                 try:
-                    qty_val = int(str(p.qty).replace("pcs", "").strip())
-                except Exception:
-                    qty_val = 1
+                    qty_val = _positive_int(p.qty, "Qty", 1)
+                    gal_val = _positive_int(p.gal_post_supports, "Gal Post Supports", 0)
+                    p_type = _clean_text(p.post_type)
+                    p_height = _normalize_height(p.post_height)
+                    p_size = _clean_text(p.post_size).replace(" ", "")
+                    p_post = _clean_text(p.post)
 
-                p_type = p.post_type or "HWD"
-                p_height = str(p.post_height or "").strip()
-                p_size = p.post_size or "90x90"
-                p_post = p.post or f"{p_type} {p_size} @ {p_height}mm Post"
-                p_gal = str(p.gal_post_supports if p.gal_post_supports is not None else "0").strip()
+                    if not p_type or not p_size or not p_post:
+                        raise ValueError("Post Type, Post Size and Post are required")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc))
+
+                # Do not manufacture a generic Post description here.  The
+                # exact selected value is what Procurement uses to match
+                # beams-posts mappings (e.g. HWD 90x90 2.4m -> 0218185).
+                p_gal = str(gal_val)
 
                 cursor.execute(
                     sql_insert_new,

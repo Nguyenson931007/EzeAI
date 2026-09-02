@@ -110,13 +110,17 @@ def _run_yolo_inference(
                 class_name = model.names.get(class_id, f"wall_{class_id}")
 
                 # Normalize YOLO class names to canonical names used in frontend/backend
-                _CLASS_NAME_MAP = {
-                    "ext_wall": "exterior_wall",
-                    "int_wall": "interior_wall",
-                    "part_wall": "partition_wall",
-                    "block_wall": "block_wall",
-                }
-                class_name = _CLASS_NAME_MAP.get(class_name, class_name)
+                _norm = str(class_name).lower().strip()
+                if "ext" in _norm or "external" in _norm or "exterior" in _norm:
+                    class_name = "exterior_wall"
+                elif "part" in _norm or "parternal" in _norm or "partition" in _norm:
+                    class_name = "partition_wall"
+                elif "block" in _norm:
+                    class_name = "block_wall"
+                elif "int" in _norm or "internal" in _norm or "interior" in _norm:
+                    class_name = "interior_wall"
+                else:
+                    class_name = "exterior_wall"
 
                 # Class-specific confidence filtering
                 if conf < confidence:
