@@ -509,10 +509,11 @@ def login(user: UserLogin, response: Response):
 
 
 @router.post("/logout")
-def logout(user: UserLogout):
+def logout(user: UserLogout, response: Response):
     """
     Đăng xuất tài khoản người dùng.
     - Cập nhật trạng thái offline và xóa bỏ session_token tương ứng trong DB.
+    - Xóa session_token cookie trên trình duyệt.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -522,6 +523,7 @@ def logout(user: UserLogout):
             (user.username,)
         )
         conn.commit()
+        response.delete_cookie(key="session_token")
         return {"status": "success", "message": "Đăng xuất thành công."}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

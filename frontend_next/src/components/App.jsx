@@ -195,7 +195,8 @@ export default function App() {
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId,
     lintelsByPage, setLintelsByPage,
-    scalesByPage, setScalesByPage
+    scalesByPage, setScalesByPage,
+    annotationsByPage, setAnnotationsByPage
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -380,7 +381,8 @@ export default function App() {
     separateJunction,
     selectedVertices,
     setSelectedVertices,
-    startVertexMove
+    startVertexMove,
+    zoomIn, zoomOut, zoom100
   } = useInteractionController(svgRef, layerVisibility);
 
   useEffect(() => {
@@ -535,6 +537,10 @@ export default function App() {
         // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
         localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+        if (Array.isArray(jobInfo.task_modules)) {
+          sessionStorage.setItem("selectedModules", JSON.stringify(jobInfo.task_modules));
+          localStorage.setItem("selectedModules", JSON.stringify(jobInfo.task_modules));
+        }
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("task-modules-updated"));
         }
@@ -1274,7 +1280,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
+  const { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, rotatePlanCCW, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -1388,7 +1394,8 @@ export default function App() {
         confirmImport={confirmImport}
         isAddingPagesMode={isAddingPagesMode}
         setIsAddingPagesMode={setIsAddingPagesMode}
-        fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} goPage={goPage}
+        fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} rotatePlanCCW={rotatePlanCCW} goPage={goPage}
+        zoomIn={zoomIn} zoomOut={zoomOut} zoom100={zoom100}
         loadPDF={loadPDF} setImage={setImage} setImgSize={setImgSize}
         searchResultsVisible={searchResultsVisible}
         setSearchResultsVisible={setSearchResultsVisible}

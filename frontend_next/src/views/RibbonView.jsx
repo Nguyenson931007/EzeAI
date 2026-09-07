@@ -14,6 +14,7 @@ import SettingsModal from "@/components/SettingsModal";
 import { createToolAiJwt } from "@/utils/toolAiSso";
 import TrussEngine from "@/engines/Truss";
 import { isFullAdmin, hasHwAccess, getDisplayRoleName } from "@/utils/permissions";
+import PdfToolsRibbon from "./ribbon/PdfToolsRibbon";
 
 const CAD_ICONS = {
   NewPDF: () => (
@@ -350,7 +351,8 @@ export default function RibbonView({
   confirmImport,
   isAddingPagesMode,
   setIsAddingPagesMode,
-  fitToScreen, rotatePlan90, goPage,
+  fitToScreen, rotatePlan90, rotatePlanCCW, goPage,
+  zoomIn, zoomOut, zoom100,
   loadPDF, setImage, setImgSize,
   // Add new search props
   searchResultsVisible, setSearchResultsVisible,
@@ -378,6 +380,7 @@ export default function RibbonView({
     wasteByPage, setWasteByPage,
     currentJobId, setCurrentJobId,
     realScale,
+    annotationsByPage,
     showFrameworkModal, setShowFrameworkModal,
     showAreaSummaryModal, setShowAreaSummaryModal,
     showInsulationModal, setShowInsulationModal,
@@ -929,6 +932,50 @@ export default function RibbonView({
           {currentProjectName || "EzeFloor Workspace"}
         </span>
 
+        {/* Quick Access Toolbar (Undo / Redo) */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "10px" }}>
+          <button
+            onClick={undo}
+            title="Hoàn tác / Undo (Ctrl+Z)"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.85)",
+              cursor: "pointer",
+              padding: "3px 6px",
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "background 0.15s, color 0.15s"
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255, 255, 255, 0.18)"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            <CAD_ICONS.Undo />
+          </button>
+          <button
+            onClick={redo}
+            title="Làm lại / Redo (Ctrl+Y)"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.85)",
+              cursor: "pointer",
+              padding: "3px 6px",
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "background 0.15s, color 0.15s"
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255, 255, 255, 0.18)"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            <CAD_ICONS.Redo />
+          </button>
+        </div>
+
         {/* Auto-save Status Indicator */}
         {lastAutoSaveTime && (
           <div
@@ -963,7 +1010,7 @@ export default function RibbonView({
         {/* Top Header Right Controls */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
           {/* User Account Pill & Dropdown (Right side of top bar) */}
-          <div ref={userMenuRef} style={{ position: "relative" }}>
+          <div ref={userMenuRef} style={{ position: "relative", zIndex: 9999 }}>
             <div
               onClick={() => setShowUserMenu(prev => !prev)}
               style={{
@@ -1022,7 +1069,7 @@ export default function RibbonView({
                   border: "1px solid #e2e8f0",
                   boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
                   padding: "4px 0",
-                  zIndex: 1000,
+                  zIndex: 10000,
                   animation: "fadeIn 0.15s ease"
                 }}
               >
@@ -1059,12 +1106,19 @@ export default function RibbonView({
                     color: "#1e293b",
                     fontWeight: 500,
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
                     transition: "background 0.12s"
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                 >
-                  Account Settings
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                  <span>Account Settings</span>
                 </div>
                 <div
                   onClick={() => setShowUserMenu(false)}
@@ -1074,12 +1128,19 @@ export default function RibbonView({
                     color: "#1e293b",
                     fontWeight: 500,
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
                     transition: "background 0.12s"
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                 >
-                  Billing
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                    <line x1="2" y1="10" x2="22" y2="10" />
+                  </svg>
+                  <span>Billing</span>
                 </div>
                 <div style={{ height: "1px", background: "#e2e8f0", margin: "4px 0" }} />
                 <div
@@ -1102,7 +1163,7 @@ export default function RibbonView({
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    gap: "6px",
+                    gap: "8px",
                     transition: "background 0.12s"
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.background = "#fef2f2"}
@@ -1113,7 +1174,7 @@ export default function RibbonView({
                     <polyline points="16 17 21 12 16 7" />
                     <line x1="21" y1="12" x2="9" y2="12" />
                   </svg>
-                  Log Out
+                  <span>Log Out</span>
                 </div>
               </div>
             )}
@@ -1121,10 +1182,10 @@ export default function RibbonView({
         </div>
       </div>
 
-      {/* ── CAD Menubar (File, Edit, View, Design, Reports, Tools, Help, Admin) ── */}
+      {/* ── CAD Menubar (File, Edit, View, Design, Exports, Tools, PDF Tools, Help, Admin) ── */}
       <div className="cad-menubar">
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          {["File", "Edit", "View", "Design", "Exports", "Tools", "Help"].map(tab => (
+          {["File", "Edit", "View", "Design", "Exports", "Tools", "PDF Tools", "Help"].map(tab => (
             <span
               key={tab}
               className={`cad-menu-item ${activeTab === tab || (tab === "File" && activeTab === "Home") ? "active" : ""}`}
@@ -1146,7 +1207,7 @@ export default function RibbonView({
       </div>
 
       {/* ── CAD Action Ribbon ── */}
-      <div className="cad-ribbon">
+      <div className="cad-ribbon" style={{ overflow: "visible", position: "relative", zIndex: 1000 }}>
         {/* 1. FILE MENU */}
         {(activeTab === "File" || activeTab === "Home") && (
           <>
@@ -1775,6 +1836,44 @@ export default function RibbonView({
               <span>💡 <b>EzeFloor CAD Workspace:</b> Select the <b>Design</b> menu to start drawing walls, rooms, doors, and windows.</span>
             </div>
           </div>
+        )}
+
+        {/* 8. PDF TOOLS & MARKUP SUITE */}
+        {activeTab === "PDF Tools" && (
+          <PdfToolsRibbon
+            fitToScreen={fitToScreen}
+            rotatePlan90={rotatePlan90}
+            rotatePlanCCW={rotatePlanCCW}
+            zoomIn={zoomIn}
+            zoomOut={zoomOut}
+            zoom100={zoom100 || fitToScreen}
+            handleSaveJob={handleSaveJob}
+            handleNewDrawing={handleNewClick}
+            loadPDF={loadPDF}
+            handleCloseProject={handleNewClick}
+            undo={undo}
+            redo={redo}
+            deleteItem={deleteItem}
+            onCopy={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true }))}
+            onPaste={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true }))}
+            isWallSnapEnabled={isWallSnapEnabled}
+            setIsWallSnapEnabled={setIsWallSnapEnabled}
+            isDistancing={isDistancing}
+            setIsDistancing={setIsDistancing}
+            setDistancePoints={setDistancePoints}
+            setDistanceResults={setDistanceResults}
+            isMeasuring={isMeasuring}
+            setIsMeasuring={setIsMeasuring}
+            setMeasurePoints={setMeasurePoints}
+            scaleValue={scaleValue}
+            interactionMode={interactionMode}
+            setInteractionMode={setInteractionMode}
+            setActiveTab={setActiveTab}
+            setPendingPages={setPendingPages}
+            setImportSelectedPages={setImportSelectedPages}
+            setIsAddingPagesMode={setIsAddingPagesMode}
+            setShowImportPageSelector={setShowImportPageSelector}
+          />
         )}
 
       </div>

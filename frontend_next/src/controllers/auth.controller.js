@@ -45,23 +45,33 @@ export const useAuthController = (user, setUser, setIsLoggedIn) => {
   };
 
   const handleLogout = async () => {
-    try {
-      if (user && user.username) {
-        await ApiService.logout(user.username);
-      }
-    } catch (err) {
-      console.error("Logout error:", err);
-    }
-    await clearWorkspaceState();
-    setIsLoggedIn(false);
-    setUser(null);
+    // 1. Lấy username trước khi xóa bất cứ thứ gì
+    const username = user?.username || (() => {
+      try { return JSON.parse(localStorage.getItem("user") || "{}")?.username; } catch { return null; }
+    })();
+
+    // 2. Xóa localStorage NGAY LẬP TỨC (trước khi reload để không bị race condition)
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("user");
     localStorage.removeItem("activeTab");
     localStorage.removeItem("ezefloor_last_active_job_id");
     localStorage.removeItem("ezefloor_last_active_project_name");
     localStorage.removeItem("ezefloor_last_active_current_page");
-    sessionStorage.removeItem("pendingEmsJob");
+    sessionStorage.clear();
+
+    // 3. Cập nhật React state ngay
+    setIsLoggedIn(false);
+    setUser(null);
+
+    // 4. Gọi backend logout (fire-and-forget, không block UI)
+    if (username) {
+      ApiService.logout(username).catch(err => console.warn("[Logout] Backend error:", err));
+    }
+
+    // 5. Xóa IndexedDB workspace (không cần await — reload sẽ clean up)
+    clearWorkspaceState().catch(() => {});
+
+    // 6. Reload trang để về màn hình đăng nhập
     window.location.reload();
   };
 

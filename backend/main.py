@@ -90,18 +90,9 @@ async def lifespan(app: FastAPI):
     logger.info("Khởi chạy hệ thống EzeFloor Backend, đang khởi tạo cơ sở dữ liệu...")
     init_db()
     
-    # Ép buộc đăng xuất tất cả các tài khoản khi server khởi động lại (để bảo mật tối ưu)
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        logger.info("Đang dọn dẹp các phiên đăng nhập cũ và đánh dấu người dùng offline trên máy chủ khởi động...")
-        cursor.execute("UPDATE users SET is_online = 0, session_token = NULL")
-        conn.commit()
-        logger.info("Dọn dẹp phiên đăng nhập cũ thành công.")
-    except Exception as e:
-        logger.error(f"Lỗi xảy ra khi dọn dẹp phiên đăng nhập khởi động: {e}")
-    finally:
-        conn.close()
+    # Giữ session hợp lệ qua restart/reload.
+    # validate_session đã tự kiểm tra timeout 5 giờ.
+    logger.info("Giữ nguyên session hợp lệ khi backend khởi động/reload.")
     # ── Pre-warm AI models & Background Task Sync in background thread ──
     import threading
     def _background_startup_tasks():

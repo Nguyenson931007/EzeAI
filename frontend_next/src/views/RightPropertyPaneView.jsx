@@ -79,6 +79,7 @@ import DoorWindowPropertyPanel from "./right-property-pane/property-panels/DoorW
 import RoomPropertyPanel from "./right-property-pane/property-panels/RoomPropertyPanel";
 import RoofPropertyPanel from "./right-property-pane/property-panels/RoofPropertyPanel";
 import LintelPropertyPanel from "./right-property-pane/property-panels/LintelPropertyPanel";
+import AnnotationPropertyPanel from "./right-property-pane/property-panels/AnnotationPropertyPanel";
 
 /* ================================================================
    MAIN PANEL
@@ -165,8 +166,82 @@ export default function RightPropertyPaneView({
     setShowAreaSummaryModal,
     setShowInsulationModal,
     showLockoutModal,
-    setShowLockoutModal
+    setShowLockoutModal,
+    annotationsByPage = {},
+    setAnnotationsByPage,
+    selectedAnnotationId,
+    setSelectedAnnotationId,
+    pushAnnotationHistory
   } = useAppModel();
+
+  const selectedAnnotation = React.useMemo(() => {
+    if (!selectedAnnotationId) return null;
+    const list = annotationsByPage[currentPage] || [];
+    return list.find((a) => a.id === selectedAnnotationId) || null;
+  }, [annotationsByPage, currentPage, selectedAnnotationId]);
+
+  const handleUpdateAnnotation = React.useCallback((annId, patch) => {
+    if (typeof pushAnnotationHistory === "function") {
+      pushAnnotationHistory(annotationsByPage);
+    }
+    if (setAnnotationsByPage) {
+      setAnnotationsByPage((prev) => {
+        const list = prev[currentPage] || [];
+        return {
+          ...prev,
+          [currentPage]: list.map((a) => (a.id === annId ? { ...a, ...patch } : a))
+        };
+      });
+    }
+  }, [currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage]);
+
+  const handleDeleteAnnotation = React.useCallback((annId) => {
+    if (typeof pushAnnotationHistory === "function") {
+      pushAnnotationHistory(annotationsByPage);
+    }
+    if (setAnnotationsByPage) {
+      setAnnotationsByPage((prev) => {
+        const list = prev[currentPage] || [];
+        return {
+          ...prev,
+          [currentPage]: list.filter((a) => a.id !== annId)
+        };
+      });
+    }
+    if (selectedAnnotationId === annId && setSelectedAnnotationId) {
+      setSelectedAnnotationId(null);
+    }
+  }, [currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage, selectedAnnotationId, setSelectedAnnotationId]);
+
+  const handleDuplicateAnnotation = React.useCallback((annId) => {
+    const list = annotationsByPage[currentPage] || [];
+    const target = list.find((a) => a.id === annId);
+    if (!target) return;
+    if (typeof pushAnnotationHistory === "function") {
+      pushAnnotationHistory(annotationsByPage);
+    }
+    const offset = 30;
+    const duplicated = {
+      ...target,
+      id: `${target.type || "ann"}_dup_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      x: (target.x || 0) + offset,
+      y: (target.y || 0) + offset,
+      startPt: target.startPt ? { x: target.startPt.x + offset, y: target.startPt.y + offset } : undefined,
+      currentPt: target.currentPt ? { x: target.currentPt.x + offset, y: target.currentPt.y + offset } : undefined,
+      points: target.points ? target.points.map((p) => ({ x: p.x + offset, y: p.y + offset })) : undefined,
+      boxX: target.boxX != null ? target.boxX + offset : undefined,
+      boxY: target.boxY != null ? target.boxY + offset : undefined
+    };
+    if (setAnnotationsByPage) {
+      setAnnotationsByPage((prev) => ({
+        ...prev,
+        [currentPage]: [...(prev[currentPage] || []), duplicated]
+      }));
+    }
+    if (setSelectedAnnotationId) {
+      setSelectedAnnotationId(duplicated.id);
+    }
+  }, [currentPage, annotationsByPage, setAnnotationsByPage, setSelectedAnnotationId, pushAnnotationHistory]);
 
   const pages = (pagesProp && pagesProp.length > 0) ? pagesProp : (pagesContext || []);
   const setPages = setPagesProp || setPagesContext;
@@ -259,6 +334,12 @@ export default function RightPropertyPaneView({
   // can never re-enable modules from another customer.
   React.useEffect(() => {
     const syncTaskContext = () => {
+      let pendingJob = null;
+      try {
+        const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+        if (pendingJobStr) pendingJob = JSON.parse(pendingJobStr);
+      } catch (_) { }
+
       const pendingCustomer = getCustomerFromPendingEmsJob();
       const storedCustomer =
         resolveCustomerPackKey(sessionStorage.getItem("selectedCustomerClient")) ||
@@ -273,6 +354,14 @@ export default function RightPropertyPaneView({
         sessionStorage.setItem("selectedCustomerClient", nextCustomer);
         localStorage.setItem("selectedCustomerClient", nextCustomer);
       } catch (_) { }
+
+      // Authoritative task_modules from API (even if empty [])
+      if (pendingJob && Array.isArray(pendingJob.task_modules)) {
+        setEnabledModuleIds(prev =>
+          JSON.stringify(prev) === JSON.stringify(pendingJob.task_modules) ? prev : pendingJob.task_modules
+        );
+        return;
+      }
 
       const resolved = getInitialEnabledModules(nextCustomer);
       setEnabledModuleIds(prev =>
@@ -292,6 +381,18 @@ export default function RightPropertyPaneView({
 
   React.useEffect(() => {
     setEnabledModuleIds(prev => {
+      // If pendingEmsJob explicitly provides authoritative task_modules, keep it authoritative!
+      if (typeof window !== "undefined") {
+        try {
+          const pendingStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+          if (pendingStr) {
+            const parsed = JSON.parse(pendingStr);
+            if (Array.isArray(parsed?.task_modules)) {
+              return sanitizeModuleIds(parsed.task_modules, selectedCustomerClient);
+            }
+          }
+        } catch (_) { }
+      }
       const next = sanitizeModuleIds(prev, selectedCustomerClient);
       return next.length > 0 ? next : customerModuleIds;
     });
@@ -1228,19 +1329,43 @@ export default function RightPropertyPaneView({
     if (!task) return;
     const targetName = task.job_number || task.hw_id || "Project";
 
-    // 0. Tự động trích xuất danh sách module được tick từ Task Web3 nếu có
-    const taskModules = sanitizeModuleIds(resolveTaskModules(task), selectedCustomerClient);
-    if (taskModules && taskModules.length > 0) {
-      setEnabledModuleIds(taskModules);
+    let currentTask = task;
+    const emsId = task.id_job_ems || task.ems_id;
+    if (emsId && !Array.isArray(task.task_modules)) {
       try {
-        sessionStorage.setItem("selectedModules", JSON.stringify(taskModules));
-        localStorage.setItem("selectedModules", JSON.stringify(taskModules));
+        const emsRes = await ApiService.getJobByEmsId(emsId);
+        if (emsRes?.status === "success" && emsRes.data) {
+          currentTask = { ...task, ...emsRes.data };
+        }
+      } catch (err) {
+        console.warn("Could not fetch EMS details for task:", err);
+      }
+    }
+
+    // 0. Sử dụng task_modules từ API làm nguồn chân lý cao nhất
+    if (Array.isArray(currentTask.task_modules)) {
+      setEnabledModuleIds(currentTask.task_modules);
+      try {
+        sessionStorage.setItem("selectedModules", JSON.stringify(currentTask.task_modules));
+        localStorage.setItem("selectedModules", JSON.stringify(currentTask.task_modules));
       } catch (_) { }
+    } else {
+      const taskModules = sanitizeModuleIds(resolveTaskModules(currentTask), selectedCustomerClient);
+      if (taskModules && taskModules.length > 0) {
+        setEnabledModuleIds(taskModules);
+        try {
+          sessionStorage.setItem("selectedModules", JSON.stringify(taskModules));
+          localStorage.setItem("selectedModules", JSON.stringify(taskModules));
+        } catch (_) { }
+      }
     }
 
     // Lưu thông tin pendingEmsJob vào sessionStorage và localStorage để đồng bộ SQL
-    sessionStorage.setItem("pendingEmsJob", JSON.stringify(task));
-    localStorage.setItem("pendingEmsJob", JSON.stringify(task));
+    sessionStorage.setItem("pendingEmsJob", JSON.stringify(currentTask));
+    localStorage.setItem("pendingEmsJob", JSON.stringify(currentTask));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("task-modules-updated"));
+    }
 
     // 1. Nếu Job đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor
     let loadedSuccess = false;
@@ -1340,6 +1465,14 @@ export default function RightPropertyPaneView({
       lastSingleWallIdRef.current = selectedWall.id;
     }
   }, [selectedWallIds, selectedWall]);
+
+  // Auto-switch to properties mode when an annotation is selected
+  React.useEffect(() => {
+    if (selectedAnnotationId) {
+      setExplorerViewMode("properties");
+      setActivePaneTab("explorer");
+    }
+  }, [selectedAnnotationId]);
 
   // Resolve savedDefault wall height using the specified precedence rules
   const savedDefault = React.useMemo(() => {
@@ -3457,7 +3590,7 @@ export default function RightPropertyPaneView({
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", padding: "3px 8px", borderRadius: "12px", textTransform: "uppercase" }}>
-                    {selectedType ? selectedType.toUpperCase() : "PROPERTIES"}
+                    {selectedType ? selectedType.toUpperCase() : selectedAnnotation ? (selectedAnnotation.type || "ANNOTATION").toUpperCase() : "PROPERTIES"}
                   </span>
                   <button
                     onClick={() => setActivePaneTab("collapsed")}
@@ -3569,8 +3702,17 @@ export default function RightPropertyPaneView({
                     showConfirm={showConfirm}
                     setExplorerViewMode={setExplorerViewMode}
                   />
+                ) : selectedAnnotation ? (
+                  <AnnotationPropertyPanel
+                    annotation={selectedAnnotation}
+                    onUpdateAnnotation={handleUpdateAnnotation}
+                    onDeleteAnnotation={handleDeleteAnnotation}
+                    onDuplicateAnnotation={handleDuplicateAnnotation}
+                    realScale={realScale}
+                    scaleValue={scaleValue}
+                  />
                 ) : (
-                  <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, lintel, or roof to edit properties.</div>
+                  <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, lintel, roof, or drawing to edit properties.</div>
                 )}
               </div>
             </div>

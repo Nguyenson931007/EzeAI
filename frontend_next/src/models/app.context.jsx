@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useState, useContext, useEffect } from "react";
+import React, { createContext, useState, useContext, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
 import { DialogProvider } from "@/components/DialogContext";
 
@@ -29,6 +29,48 @@ export const AppProvider = ({ children }) => {
   const [roofsByPage, setRoofsByPage] = useState({});
   const [lintelsByPage, setLintelsByPage] = useState({});
   const [trussesByPage, setTrussesByPage] = useState({});
+
+  // ── PDF MARKUP / ANNOTATION STATES ──
+  const [annotationsByPage, setAnnotationsByPage] = useState({});
+  const [annotationsHistory, setAnnotationsHistory] = useState([]);
+  const [annotationsFuture, setAnnotationsFuture] = useState([]);
+
+  const pushAnnotationHistory = useCallback((snapshot) => {
+    const dataToSave = JSON.parse(JSON.stringify(snapshot || annotationsByPage || {}));
+    setAnnotationsHistory((h) => [...h, dataToSave]);
+    setAnnotationsFuture([]);
+  }, [annotationsByPage]);
+
+  const undoAnnotation = useCallback(() => {
+    if (!annotationsHistory.length) return false;
+    const prev = annotationsHistory[annotationsHistory.length - 1];
+    setAnnotationsFuture((f) => [JSON.parse(JSON.stringify(annotationsByPage || {})), ...f]);
+    setAnnotationsByPage(prev);
+    setAnnotationsHistory((h) => h.slice(0, -1));
+    setSelectedAnnotationId(null);
+    return true;
+  }, [annotationsHistory, annotationsByPage]);
+
+  const redoAnnotation = useCallback(() => {
+    if (!annotationsFuture.length) return false;
+    const next = annotationsFuture[0];
+    setAnnotationsHistory((h) => [...h, JSON.parse(JSON.stringify(annotationsByPage || {}))]);
+    setAnnotationsByPage(next);
+    setAnnotationsFuture((f) => f.slice(1));
+    setSelectedAnnotationId(null);
+    return true;
+  }, [annotationsFuture, annotationsByPage]);
+
+  const [activeAnnotationTool, setActiveAnnotationTool] = useState(null); // 'highlight' | 'sticky-note' | 'text' | 'callout' | 'rect' | 'oval' | 'cloud' | 'line' | 'arrow' | 'polygon' | 'stamp'
+  const [annotationColor, setAnnotationColor] = useState("#facc15");
+  const [annotationStrokeWidth, setAnnotationStrokeWidth] = useState(2);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
+
+  // Text Formatting States (B, I, U, S)
+  const [textBold, setTextBold] = useState(true);
+  const [textItalic, setTextItalic] = useState(false);
+  const [textUnderline, setTextUnderline] = useState(false);
+  const [textStrikethrough, setTextStrikethrough] = useState(false);
 
   const [activeTab, setActiveTab] = useState(() => safeGetItem("activeTab") || "Home");
   const [currentJobId, setCurrentJobId] = useState(null);
@@ -105,6 +147,21 @@ export const AppProvider = ({ children }) => {
     roofsByPage, setRoofsByPage,
     lintelsByPage, setLintelsByPage,
     trussesByPage, setTrussesByPage,
+
+    annotationsByPage, setAnnotationsByPage,
+    annotationsHistory, setAnnotationsHistory,
+    annotationsFuture, setAnnotationsFuture,
+    pushAnnotationHistory,
+    undoAnnotation, redoAnnotation,
+    activeAnnotationTool, setActiveAnnotationTool,
+    annotationColor, setAnnotationColor,
+    annotationStrokeWidth, setAnnotationStrokeWidth,
+    selectedAnnotationId, setSelectedAnnotationId,
+
+    textBold, setTextBold,
+    textItalic, setTextItalic,
+    textUnderline, setTextUnderline,
+    textStrikethrough, setTextStrikethrough,
 
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId,

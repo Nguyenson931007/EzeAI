@@ -1,4 +1,4 @@
-﻿"""
+"""
 backend/api/jobs.py
 ===================
 Module xá»­ lÃ½ quáº£n lÃ½ dá»± Ã¡n (Jobs) cá»§a EzeFloor.
@@ -21,7 +21,68 @@ logger = logging.getLogger("ezefloor.jobs")
 # Khá»Ÿi táº¡o APIRouter cho cÃ¡c API liÃªn quan Ä‘áº¿n quáº£n lÃ½ dá»± Ã¡n
 router = APIRouter()
 
-# â”€â”€ Pydantic Schemas (MÃ´ hÃ¬nh dá»¯ liá»‡u Ä‘áº§u vÃ o vÃ  Ä‘áº§u ra) â”€â”€
+# ── Katherine (EZE0098) 13-Task Standard HW Contract ──
+# Every NON-Cairns customer under manager EZE0098 uses this standard set.
+# Cairns keeps its existing separate workflow.
+
+KATHERINE_STANDARD_STEPS = {
+    1: "Cladding",
+    2: "Eaves Soffit",
+    3: "Flooring & Decking",
+    4: "Frame Hardware",
+    5: "Insulation",
+    6: "Lockup",
+    7: "Fixout",
+    8: "Final Fit",
+    9: "Shelving",
+    10: "Timber Post",
+    11: "FOW Plumbing",
+    12: "Power Truss Braces",
+    13: "Hardies Fire Walls",
+}
+
+# Map step names → EzeFloor frontend module IDs
+KATHERINE_STEP_TO_MODULE = {
+    "Cladding": "cladding",
+    "Eaves Soffit": "eaves_soffit",
+    "Flooring & Decking": "flooring_decking",
+    "Frame Hardware": "frame_hardware",
+    "Insulation": "insulation",
+    "Lockup": "lock_up",
+    "Fixout": "fixout",
+    "Final Fit": "final_fit",
+    "Shelving": "shelving",
+    "Timber Post": "timber_posts",
+    "FOW Plumbing": "fow_plumbing",
+    "Power Truss Braces": "power_truss_braces",
+    "Hardies Fire Walls": None,  # No EzeFloor module yet — pending
+}
+
+
+def is_cairns(customer: str) -> bool:
+    """Check if a customer string indicates a Cairns customer."""
+    value = str(customer or "").strip().upper()
+    return "CAIRNS" in value
+
+
+def get_expected_hw_steps(manager_code: str, customer: str):
+    """
+    Return the expected HW steps dict for the given manager/customer combo.
+    - EZE0098 + non-Cairns → 13-task standard set
+    - EZE0098 + Cairns → None (keep existing Cairns workflow)
+    - Other managers → None (keep existing legacy behavior)
+    """
+    manager = str(manager_code or "").strip().upper()
+
+    if manager == "EZE0098":
+        if is_cairns(customer):
+            return None  # keep EzeFloor's existing Cairns workflow
+        return KATHERINE_STANDARD_STEPS
+
+    return None  # keep existing legacy behavior for other managers
+
+
+# ── Pydantic Schemas (MÃ´ hÃ¬nh dá»¯ liá»‡u Ä‘áº§u vÃ o vÃ  Ä‘áº§u ra) ──
 
 class JobCreate(BaseModel):
     """MÃ´ hÃ¬nh dá»¯ liá»‡u gá»­i lÃªn khi táº¡o má»›i hoáº·c cáº­p nháº­t má»™t dá»± Ã¡n."""
@@ -1004,6 +1065,53 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
                 logger.warning(f"[open-by-ems] KhÃ´ng thá»ƒ kiá»ƒm tra local jobs: {ex}")
 
         result["local_job"] = local_job
+
+        # Resolve manager code and customer
+        manager_code = str(result.get("ma_nv") or "").strip().upper()
+        customer = result.get("customer_short_name") or result.get("client") or ""
+        result["manager_code"] = manager_code
+        result["customer"] = customer
+
+        # Resolve HW steps and visible task modules
+        expected_steps = get_expected_hw_steps(manager_code, customer)
+        if expected_steps is not None:
+            # EZE0098 non-Cairns: query task_group_hw_steps for authoritative step visibility
+            try:
+                hw_id = result.get("hw_id")
+                cursor.execute("""
+                    SELECT step_number, is_visible
+                    FROM [emsflow].[dbo].[task_group_hw_steps]
+                    WHERE task_group_hw_id = %s
+                    ORDER BY step_number ASC
+                """, (hw_id,))
+                step_rows = cursor.fetchall()
+
+                if step_rows:
+                    selected_steps = [
+                        int(r["step_number"]) for r in step_rows
+                        if r.get("is_visible") and int(r.get("step_number") or 0) in expected_steps
+                    ]
+                    task_modules = []
+                    for s in selected_steps:
+                        step_name = expected_steps.get(s)
+                        mod_id = KATHERINE_STEP_TO_MODULE.get(step_name)
+                        if mod_id and mod_id not in task_modules:
+                            task_modules.append(mod_id)
+
+                    result["selected_steps"] = selected_steps
+                    result["task_modules"] = task_modules
+                else:
+                    # Query thành công nhưng không có row => lựa chọn rỗng có thẩm quyền.
+                    result["selected_steps"] = []
+                    result["task_modules"] = []
+            except Exception as step_err:
+                logger.warning(f"[open-by-ems] Lỗi truy vấn task_group_hw_steps: {step_err}")
+                result["selected_steps"] = None
+                result["task_modules"] = None
+        else:
+            # Cairns or other managers keep legacy behavior
+            result["selected_steps"] = None
+            result["task_modules"] = None
 
         return {
             "status": "success",

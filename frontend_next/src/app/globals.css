@@ -2,17 +2,18 @@
 
 /* ===== CAD/BIM DESIGN SYSTEM TOKENS ===== */
 :root {
-  --navy: #17364f;
-  --navy-deep: #102a3e;
-  --blue: #347fba;
-  --blue-light: #559bd0;
+  --navy: #243352;
+  --navy-deep: #1a253b;
+  --blue: #31456E;
+  --blue-hover: #263657;
+  --blue-light: #445d8f;
   --ink: #1b2f40;
-  --muted: #667b8c;
-  --line: #dce6ed;
-  --soft: #f4f7fa;
+  --muted: #64748b;
+  --line: #dce4ed;
+  --soft: #f4f6fa;
   --card: #ffffff;
 
-  --ui-font-family: Inter, "Segoe UI", Arial, sans-serif;
+  --ui-font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --ui-font-content: 12px;
   --ui-font-label: 12px;
   --ui-font-section: 13px;
@@ -26,38 +27,39 @@
   --ui-space-2: 8px;
   --ui-space-3: 12px;
   --ui-space-4: 16px;
-  --ui-color-text: #132b47;
-  --ui-color-muted: #6f8398;
-  --ui-color-primary: #29466f;
-  --ui-color-primary-hover: #203b61;
-  --ui-color-border: #cfdae7;
-  --ui-color-border-strong: #b9c8d9;
+  --ui-color-text: #172337;
+  --ui-color-muted: #64748b;
+  --ui-color-primary: #31456E;
+  --ui-color-primary-hover: #243352;
+  --ui-color-border: #d0d9e8;
+  --ui-color-border-strong: #b5c3d8;
   --ui-color-surface: #ffffff;
-  --ui-color-surface-soft: #f5f8fc;
+  --ui-color-surface-soft: #f8fafc;
   --ui-color-required: #fffbe2;
   --ui-color-danger: #d83b3b;
   --ui-color-danger-bg: #fff0f0;
   --ui-color-danger-border: #f2caca;
-  --ui-table-header-bg: #29466f;
+  --ui-table-header-bg: #31456E;
   --ui-table-header-text: #ffffff;
-  --ui-table-resize-handle: #7aa7d6;
-  --ui-table-resize-handle-active: #2d76ba;
+  --ui-table-resize-handle: #5b75a6;
+  --ui-table-resize-handle-active: #31456E;
 
-  --blue-950: #0b1f4d;
-  --blue-900: #0f2f76;
-  --blue-800: #12388f;
-  --blue-700: #1746b3;
-  --blue-600: #1d5fd6;
-  --blue-50: #eef3ff;
-  --blue-100: #e2eaff;
-  --border: #dbe3f5;
-  --border-dark: #c3d0ef;
-  --text: #101a33;
-  --text-dim: #5b6b8c;
-  --text-faint: #94a3c4;
+  --blue-950: #141d2e;
+  --blue-900: #1d2a42;
+  --blue-800: #243352;
+  --blue-700: #31456E;
+  --blue-600: #3b5384;
+  --blue-500: #49669f;
+  --blue-50: #f1f4f9;
+  --blue-100: #e2e8f1;
+  --border: #d8e0ec;
+  --border-dark: #c0cce0;
+  --text: #172337;
+  --text-dim: #556580;
+  --text-faint: #8d9bb0;
   --bg-app: #ffffff;
-  --bg-panel: #f6f8fe;
-  --bg-canvas: #eef2fc;
+  --bg-panel: #f7f9fc;
+  --bg-canvas: #edf1f7;
   --green: #16a34a;
   --orange: #f59e0b;
   --red: #dc2626;
@@ -106,9 +108,12 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  background: linear-gradient(90deg, var(--blue-900), var(--blue-700));
-  border-bottom: none;
+  padding: 0 14px;
+  background: linear-gradient(90deg, #1d2a42 0%, #31456E 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  z-index: 1200;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .mb-logo {
@@ -196,25 +201,27 @@ html, body {
 
 /* --- Dedicated CAD Menubar (File, Edit, View, Design, Reports, Tools, Help) --- */
 .cad-menubar {
-  height: 34px;
+  height: 36px;
   display: flex;
   align-items: center;
   padding: 0 12px;
   gap: 4px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
-  color: #374151;
+  color: #475569;
   flex-shrink: 0;
-  background: var(--bg-app);
+  background: #ffffff;
+  position: relative;
+  z-index: 1050;
 }
 
 .cad-menu-item {
   cursor: pointer;
   padding: 5px 12px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
-  color: #374151;
+  color: #475569;
   transition: all 0.15s ease;
   user-select: none;
   background: transparent;
@@ -223,14 +230,15 @@ html, body {
 
 .cad-menu-item:hover {
   background: var(--blue-50);
-  color: var(--blue-700);
+  color: var(--blue);
 }
 
 .cad-menu-item.active {
-  background: #eff6ff;
+  background: var(--blue-50);
   color: var(--blue);
-  font-weight: 600;
-  border: 1px solid #dbeafe;
+  font-weight: 700;
+  border: 1px solid #d0d9e8;
+  box-shadow: 0 1px 2px rgba(49, 69, 110, 0.06);
 }
 
 /* --- Segmented 2D Plan / 3D View Switch Toggle --- */
@@ -268,9 +276,9 @@ html, body {
 }
 
 .cad-view-switch-opt.active {
-  background: var(--blue, #2563eb);
+  background: var(--blue, #31456E);
   color: #ffffff;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 2px 6px rgba(49, 69, 110, 0.35);
 }
 
 /* --- 2D / 3D DUAL WORKSPACE STYLING --- */
@@ -379,6 +387,9 @@ html, body {
   min-height: auto;
   box-shadow: none;
   flex-shrink: 0;
+  overflow: visible !important;
+  position: relative;
+  z-index: 500;
 }
 
 .ribbon-group {
@@ -404,23 +415,24 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   font-size: 11px;
-  color: #374151;
-  padding: 4px 9px;
+  color: #475569;
+  padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
   min-width: 44px;
   height: auto;
   border: 1px solid transparent;
   background: none;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, box-shadow 0.12s;
   position: relative;
 }
 
 .ribbon-btn:hover {
   background: var(--blue-50);
-  color: var(--blue-700);
+  color: var(--blue);
+  border-color: #e2e8f0;
   transform: none;
   box-shadow: none;
 }
@@ -432,7 +444,13 @@ html, body {
 .ribbon-btn.active {
   background: var(--blue);
   color: #fff;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+  border-color: #243352;
+  box-shadow: 0 2px 6px rgba(49, 69, 110, 0.3);
+}
+
+.ribbon-btn.active .icon,
+.ribbon-btn.active .label {
+  color: #ffffff !important;
 }
 
 .ribbon-btn.active::before {
@@ -602,13 +620,13 @@ html, body {
 
 .cad-rail-btn:hover:not(.active) {
   background: var(--blue-50);
-  color: var(--blue-700);
+  color: var(--blue);
 }
 
 .cad-rail-btn.active {
   background: var(--blue);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 2px 8px rgba(49, 69, 110, 0.35);
 }
 
 .cad-rail-divider {
@@ -673,8 +691,8 @@ html, body {
   padding: 0 10px;
   font-size: 12px;
   font-weight: 500;
-  color: #4b5563;
-  background: #e2eaff;
+  color: #475569;
+  background: var(--blue-50);
   border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
@@ -684,13 +702,13 @@ html, body {
 }
 
 .cad-floor-tab:hover:not(.active) {
-  background: #eef3ff;
-  color: var(--blue-700);
+  background: var(--blue-100);
+  color: var(--blue);
 }
 
 .cad-floor-tab.active {
   background: #ffffff;
-  color: var(--blue-700);
+  color: var(--blue);
   font-weight: 600;
   border-color: var(--border);
   box-shadow: 0 -2px 0 var(--blue) inset;

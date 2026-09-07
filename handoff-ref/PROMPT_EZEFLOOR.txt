@@ -1,0 +1,74 @@
+EzeFloor implementation request — Katherine HW task contract sync
+
+Please update EzeFloor so its HW task/module contract matches TaskList/Procurement.
+
+Final rule
+1. Katherine team = manager code EZE0098.
+2. For EZE0098:
+   - Cairns stays on its existing separate Cairns workflow. Do not force it through the standard module set.
+   - Every NON-Cairns customer uses the same 13-task standard set:
+     1 Cladding
+     2 Eaves Soffit
+     3 Flooring & Decking
+     4 Frame Hardware
+     5 Insulation
+     6 Lockup
+     7 Fixout
+     8 Final Fit
+     9 Shelving
+     10 Timber Post
+     11 FOW Plumbing
+     12 Power Truss Braces
+     13 Hardies Fire Walls
+3. Other leaders/managers must keep the old EzeFloor/TaskList manager-based behavior. Do not apply Katherine's 13 tasks to them.
+
+Important implementation constraints
+- Do NOT hard-code BUN NSW as the only 13-task customer anymore.
+- Standard EZE0098 customers should share one common 13-task contract.
+- Cairns remains an explicit separate branch.
+- Keep per-job task selection authoritative:
+  TaskList task_group_hw_steps.is_visible (or the API field derived from it) decides which modules are actually enabled for a job.
+- If TaskList returns selected_steps/task_modules = [], treat that empty array as authoritative. Do not fall back to stale localStorage/sessionStorage and re-enable old modules.
+- Do not expose DB credentials in frontend.
+- Frontend should continue passing only the job/EMS id; backend resolves TaskList data.
+- Preserve auth/session validation on /jobs/open-by-ems/{ems_id}.
+- Do not change unrelated UI, calculators, DB schema, or existing Cairns behavior.
+
+Backend expected shape
+- /jobs/open-by-ems/{ems_id} should resolve:
+  - manager_code / MaNV
+  - customer/client
+  - selected visible HW steps for that job
+  - task_modules derived from those visible steps
+- Apply the 13-task contract only when manager_code == EZE0098 AND customer is not Cairns.
+- Cairns uses its existing separate mapping.
+- Other managers use existing legacy mapping.
+
+Hardies Fire Walls
+- Add step 13 = "Hardies Fire Walls".
+- If EzeFloor already has a Hardies/Firewall module, map step 13 to that module id.
+- If no module exists yet, do NOT invent a random id. Add the contract entry and clearly leave the module mapping pending/empty until the real module is available.
+
+Frontend expected behavior
+- Use API task_modules/selected_steps as the source of truth.
+- Keep module filtering generic/common for EZE0098; do not special-case BUN NSW.
+- Cairns override remains separate.
+- Other leaders remain unchanged.
+
+Acceptance tests
+A. EZE0098 + Bunnings NSW job:
+   available contract = 13 tasks; visible modules follow that job's selected steps only.
+B. EZE0098 + another non-Cairns customer:
+   same 13-task contract; visible modules follow selected steps only.
+C. EZE0098 + Cairns:
+   existing Cairns workflow unchanged.
+D. EZE0093 / EZE0112 / EZE000291 / EZE000475:
+   old behavior unchanged.
+E. Unselect a task in TaskList:
+   refresh/open EzeFloor job -> that module disappears.
+F. API returns task_modules=[]:
+   EzeFloor shows no standard modules; no stale fallback.
+G. Auth:
+   /jobs/open-by-ems/{ems_id} still requires validate_session.
+
+Please implement this with the smallest clean diff, reuse existing helpers, and avoid duplicating customer-specific arrays in multiple frontend files.

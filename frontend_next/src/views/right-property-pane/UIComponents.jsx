@@ -575,6 +575,61 @@ export const EXTRA_MODULE_TABS = [
 
 export const ALL_MODULE_IDS = EXTRA_MODULE_TABS.map(m => m.id);
 
+// ── Katherine (EZE0098) 13-Task Standard HW Contract ──
+export const KATHERINE_STANDARD_STEPS = {
+  1: "Cladding",
+  2: "Eaves Soffit",
+  3: "Flooring & Decking",
+  4: "Frame Hardware",
+  5: "Insulation",
+  6: "Lockup",
+  7: "Fixout",
+  8: "Final Fit",
+  9: "Shelving",
+  10: "Timber Post",
+  11: "FOW Plumbing",
+  12: "Power Truss Braces",
+  13: "Hardies Fire Walls",
+};
+
+export const isCairnsCustomer = (customer) =>
+  String(customer || "").trim().toUpperCase().includes("CAIRNS");
+
+export const isKatherineStandardJob = (managerCode, customer) =>
+  String(managerCode || "").trim().toUpperCase() === "EZE0098" &&
+  !isCairnsCustomer(customer);
+
+export const KATHERINE_STEP_TO_MODULE = {
+  1: "cladding",
+  2: "eaves_soffit",
+  3: "flooring_decking",
+  4: "frame_hardware",
+  5: "insulation",
+  6: "lock_up",
+  7: "fixout",
+  8: "final_fit",
+  9: "shelving",
+  10: "timber_posts",
+  11: "fow_plumbing",
+  12: "power_truss_braces",
+  13: null, // Hardies Fire Walls — module pending
+};
+
+export const KATHERINE_STANDARD_MODULE_IDS = [
+  "cladding",
+  "eaves_soffit",
+  "flooring_decking",
+  "frame_hardware",
+  "insulation",
+  "lock_up",
+  "fixout",
+  "final_fit",
+  "shelving",
+  "timber_posts",
+  "fow_plumbing",
+  "power_truss_braces"
+];
+
 export function normalizeCustomerKey(value) {
   return String(value || "")
     .trim()
@@ -595,15 +650,32 @@ export function resolveCustomerPackKey(value) {
   return null;
 }
 
-export function getCustomerModuleIds(customerKey) {
+export function getCustomerModuleIds(customerKey, managerCode = null) {
+  let mgr = managerCode;
+  let cust = customerKey;
+  if (!mgr && typeof window !== "undefined") {
+    try {
+      const pendingStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      if (pendingStr) {
+        const pending = JSON.parse(pendingStr);
+        mgr = pending?.manager_code || pending?.ma_nv || pending?.MaNV;
+        cust = pending?.customer || pending?.customer_short_name || pending?.client || customerKey;
+      }
+    } catch (_) { }
+  }
+
+  if (isKatherineStandardJob(mgr, cust)) {
+    return KATHERINE_STANDARD_MODULE_IDS;
+  }
+
   const pack = CUSTOMER_TASK_PACKS[customerKey];
   return Array.isArray(pack?.moduleIds) && pack.moduleIds.length > 0
     ? pack.moduleIds.filter(id => ALL_MODULE_IDS.includes(id))
     : ALL_MODULE_IDS;
 }
 
-export function sanitizeModuleIds(moduleIds, customerKey) {
-  const allowed = getCustomerModuleIds(customerKey);
+export function sanitizeModuleIds(moduleIds, customerKey, managerCode = null) {
+  const allowed = getCustomerModuleIds(customerKey, managerCode);
   const input = Array.isArray(moduleIds) ? moduleIds : [];
   return Array.from(new Set(input.filter(id => allowed.includes(id))));
 }
@@ -778,6 +850,19 @@ export function resolveTaskModules(taskContext) {
 }
 
 export function getInitialEnabledModules(customerKey = null) {
+  // 0. Pending EMS job task_modules is the highest-priority authoritative source
+  if (typeof window !== "undefined") {
+    try {
+      const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      if (pendingJobStr) {
+        const pendingJob = JSON.parse(pendingJobStr);
+        if (Array.isArray(pendingJob?.task_modules)) {
+          return pendingJob.task_modules;
+        }
+      }
+    } catch (_) { }
+  }
+
   const resolvedCustomer = customerKey || (() => {
     if (typeof window === "undefined") return "bun-nsw-act";
     const storedCustomer =
@@ -790,31 +875,55 @@ export function getInitialEnabledModules(customerKey = null) {
   if (typeof window === "undefined") return allowed;
 
   const resolveAndLimit = (value) => {
+    if (Array.isArray(value)) {
+      if (value.length === 0) return [];
+      return sanitizeModuleIds(value, resolvedCustomer);
+    }
+    if (value === "[]") return [];
     const parsed = resolveTaskModules(value);
-    const limited = sanitizeModuleIds(parsed, resolvedCustomer);
-    return limited.length > 0 ? limited : null;
+    if (Array.isArray(parsed)) {
+      return sanitizeModuleIds(parsed, resolvedCustomer);
+    }
+    return null;
   };
 
   // 1. URL task/module context
   try {
     const urlParams = new URLSearchParams(window.location.search);
     const qModules = urlParams.get("modules") || urlParams.get("selectedModules") || urlParams.get("tasks") || urlParams.get("task_modules");
-    const resolved = qModules ? resolveAndLimit(qModules) : null;
-    if (resolved) return resolved;
+    if (qModules !== null) {
+      const resolved = resolveAndLimit(qModules);
+      if (resolved !== null) return resolved;
+    }
   } catch (_) { }
 
   // 2. Explicit local/session override, always intersected with customer contract
   try {
     const stored = sessionStorage.getItem("selectedModules") || localStorage.getItem("selectedModules");
-    const resolved = stored ? resolveAndLimit(stored) : null;
-    if (resolved) return resolved;
+    if (stored !== null) {
+      if (stored === "[]") return [];
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return sanitizeModuleIds(parsed, resolvedCustomer);
+        }
+      } catch (_) { }
+      const resolved = resolveAndLimit(stored);
+      if (resolved !== null) return resolved;
+    }
   } catch (_) { }
 
-  // 3. Pending EMS job task context
+  // 3. Pending EMS job task context fallback (non-authoritative object/string format)
   try {
     const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
-    const resolved = pendingJobStr ? resolveAndLimit(JSON.parse(pendingJobStr)) : null;
-    if (resolved) return resolved;
+    if (pendingJobStr) {
+      const parsedJob = JSON.parse(pendingJobStr);
+      if (Array.isArray(parsedJob?.task_modules)) {
+        return parsedJob.task_modules;
+      }
+      const resolved = resolveAndLimit(parsedJob);
+      if (resolved !== null) return resolved;
+    }
   } catch (_) { }
 
   // 4. Customer contract is the authoritative fallback.

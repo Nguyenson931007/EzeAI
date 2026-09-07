@@ -20,6 +20,7 @@ import WallVertexMenu from "../components/WallVertexMenu";
 import RoofContextMenu from "../components/RoofContextMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
+import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
 import {
   distancePointToSegment,
   pointInPolygon,
@@ -2948,7 +2949,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
+  const { activeAnnotationTool, setSelectedAnnotationId, roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -4072,7 +4073,7 @@ export default function CanvasView({
               : "default"
           }}
           onClick={(e) => {
-            if (editingRoomId) return;
+            if (editingRoomId || activeAnnotationTool) return;
             if (handleClick) handleClick(e);
             closeDoorContextMenu();
             closeWallContextMenu();
@@ -4095,6 +4096,7 @@ export default function CanvasView({
               if (setSelectedLintelIds) setSelectedLintelIds([]);
               if (setSelectedRoofId) setSelectedRoofId(null);
               if (setSelectedWallVertex) setSelectedWallVertex(null);
+              if (setSelectedAnnotationId) setSelectedAnnotationId(null);
             }
           }}
           onDoubleClick={(e) => {
@@ -4115,7 +4117,7 @@ export default function CanvasView({
             }
           }}
           onMouseDown={(e) => {
-            if (editingRoomId) return;
+            if (editingRoomId || activeAnnotationTool) return;
             if (onMouseDown) onMouseDown(e);
           }}
           onContextMenu={(e) => {
@@ -4900,7 +4902,7 @@ export default function CanvasView({
             )}
 
             {/* Distance Tool Overlay */}
-            {distanceResults.map((seg, idx) => {
+            {Array.isArray(distanceResults) && distanceResults.map((seg, idx) => {
               const d1 = seg.dimP1 || seg.p1;
               const d2 = seg.dimP2 || seg.p2;
               const isHov = hoveredDistIdx === idx;
@@ -4945,7 +4947,7 @@ export default function CanvasView({
                   onClick={(e) => {
                     if (!isDistancing || distancePoints.length > 0) return;
                     e.stopPropagation();
-                    setDistanceResults(prev => prev.filter((_, i) => i !== idx));
+                    setDistanceResults(prev => (Array.isArray(prev) ? prev : []).filter((_, i) => i !== idx));
                     setHoveredDistIdx(null);
                   }}
                 >
@@ -5867,6 +5869,26 @@ export default function CanvasView({
                 </g>
               );
             })()}
+
+            {/* ── PDF MARKUP / ANNOTATION LAYER ── */}
+            <AnnotationCanvasLayer
+              scale={scale}
+              getCanvasPoint={(e) => {
+                if (e && typeof e.clientX === "number" && svgRef?.current) {
+                  const rect = svgRef.current.getBoundingClientRect();
+                  return {
+                    x: (e.clientX - rect.left - offset.x) / scale,
+                    y: (e.clientY - rect.top - offset.y) / scale
+                  };
+                }
+                return currentMouse || { x: 0, y: 0 };
+              }}
+              containerRef={containerRef}
+              realScale={realScale}
+              scaleValue={scaleValue}
+              isShiftDown={isShiftDown}
+              setInteractionMode={setInteractionMode}
+            />
 
           </g>
         </svg>

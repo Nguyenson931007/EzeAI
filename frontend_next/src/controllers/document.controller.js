@@ -56,9 +56,11 @@ export function useDocumentController({
   const [currentPdfFile, setCurrentPdfFile] = useState(null);
 
   async function loadPDF(file, isAppend = false) {
-    if (file) {
-      setCurrentPdfFile(file);
+    if (!file || typeof file.arrayBuffer !== "function") {
+      console.warn("[loadPDF] Invalid file object provided:", file);
+      return;
     }
+    setCurrentPdfFile(file);
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
@@ -244,6 +246,98 @@ export function useDocumentController({
     ctx.imageSmoothingEnabled = false;
     ctx.translate(newW, 0);
     ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, 0, 0, oldW, oldH);
+    const rotatedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
+
+    const rotatedRooms = (roomsByPage[currentPage] || []).map(r => ({
+      ...r,
+      polygon: rotPolygon(r.polygon)
+    }));
+
+    const rotatedWalls = (wallsByPage[currentPage] || []).map(w => ({
+      ...w,
+      centerline: w.centerline ? w.centerline.map(rotPoint) : w.centerline,
+      polygon: rotPolygon(w.polygon)
+    }));
+
+    const rotatedDoors = (doorsByPage[currentPage] || []).map(d => ({
+      ...d,
+      bbox: rotBbox(d.bbox),
+      polygon: rotPolygon(d.polygon),
+      centroid: rotPoint(d.centroid),
+      points: d.points ? d.points.map(rotPoint) : d.points,
+      centerPoint: rotPoint(d.centerPoint),
+      position: rotPoint(d.position)
+    }));
+
+    const rotatedRoofs = (roofsByPage?.[currentPage] || []).map(r => ({
+      ...r,
+      polygon: rotPolygon(r.polygon)
+    }));
+
+    const rotatedLintels = (lintelsByPage?.[currentPage] || []).map(l => ({
+      ...l,
+      startPt: rotPoint(l.startPt),
+      endPt: rotPoint(l.endPt)
+    }));
+
+    pushHistory(rotatedRooms, rotatedWalls, rotatedDoors);
+    setImage(rotatedDataUrl);
+    setImgSize({ w: newW, h: newH });
+
+    setRoomsByPage(prev => ({ ...prev, [currentPage]: rotatedRooms }));
+    if (setWallsByPage) setWallsByPage(prev => ({ ...prev, [currentPage]: rotatedWalls }));
+    setDoorsByPage(prev => ({ ...prev, [currentPage]: rotatedDoors }));
+    if (setRoofsByPage) setRoofsByPage(prev => ({ ...prev, [currentPage]: rotatedRoofs }));
+    if (setLintelsByPage) setLintelsByPage(prev => ({ ...prev, [currentPage]: rotatedLintels }));
+
+    setPages(prev => prev.map((pg, i) =>
+      i === currentPage ? { ...pg, image: rotatedDataUrl, w: newW, h: newH } : pg
+    ));
+
+    setTimeout(fitToScreen, 50);
+  }
+
+  async function rotatePlanCCW() {
+    if (!image || !imgSize) return;
+
+    const oldW = imgSize.w;
+    const oldH = imgSize.h;
+    const newW = oldH;
+    const newH = oldW;
+
+    const rotPoint = (p) => {
+      if (!p) return p;
+      if (Array.isArray(p)) {
+        return [p[1], oldW - p[0]];
+      }
+      if (typeof p === "object" && typeof p.x === "number" && typeof p.y === "number") {
+        return { ...p, x: p.y, y: oldW - p.x };
+      }
+      return p;
+    };
+
+    const rotPolygon = (poly) => {
+      if (!poly || !Array.isArray(poly)) return poly;
+      return poly.map(rotPoint);
+    };
+
+    const rotBbox = (bbox) => {
+      if (!bbox || !Array.isArray(bbox) || bbox.length !== 4) return bbox;
+      const [x1, y1, x2, y2] = bbox;
+      return [y1, oldW - x2, y2, oldW - x1];
+    };
+
+    const img = new window.Image();
+    await new Promise(resolve => { img.onload = resolve; img.src = image; });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = newW;
+    canvas.height = newH;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(0, newH);
+    ctx.rotate(-Math.PI / 2);
     ctx.drawImage(img, 0, 0, oldW, oldH);
     const rotatedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
 
@@ -859,5 +953,5 @@ export function useDocumentController({
     }
   }
 
-  return { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels };
+  return { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, rotatePlanCCW, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels };
 }

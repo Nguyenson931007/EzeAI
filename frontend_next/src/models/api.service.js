@@ -33,7 +33,8 @@ const handleResponse = async (res) => {
     }
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    // Reload về trang chủ (app dùng isLoggedIn state, không có route /login riêng)
+    window.location.reload();
     return { detail: "Unauthorized" };
   }
 
@@ -94,13 +95,20 @@ export const ApiService = {
   },
 
   async logout(username) {
-    const res = await fetch(`${BASE_URL}/logout`, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify({ username }),
-      credentials: "include"
-    });
-    return handleResponse(res);
+    try {
+      // Không dùng handleResponse ở đây vì kể cả backend lỗi, ta vẫn phải logout được
+      const res = await fetch(`${BASE_URL}/logout`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ username }),
+        credentials: "include"
+      });
+      const data = await res.json().catch(() => ({}));
+      return data;
+    } catch (err) {
+      console.warn("[Logout] Backend không phản hồi, vẫn tiếp tục logout client-side:", err);
+      return {};
+    }
   },
 
   async validateSession() {
