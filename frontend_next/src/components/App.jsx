@@ -1850,6 +1850,7 @@ export default function App() {
                 setIsAddingPagesMode={setIsAddingPagesMode}
                 setShowImportPageSelector={setShowImportPageSelector}
                 pages={pages}
+                setPages={setPages}
                 currentPage={currentPage}
                 setCurrentPage={goPage}
                 goPage={goPage}

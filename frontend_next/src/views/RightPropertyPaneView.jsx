@@ -127,7 +127,8 @@ export default function RightPropertyPaneView({
   setImportSelectedPages,
   setIsAddingPagesMode,
   setShowImportPageSelector,
-  pages = [],
+  pages: pagesProp = [],
+  setPages: setPagesProp,
   currentPage: currentPageProp,
   setCurrentPage: setCurrentPageProp,
   goPage,
@@ -150,6 +151,8 @@ export default function RightPropertyPaneView({
   const [defaultOverhangInput, setDefaultOverhangInput] = useState(0);
   const { showConfirm, showPrompt } = useDialog();
   const {
+    pages: pagesContext,
+    setPages: setPagesContext,
     wasteByPage, setWasteByPage,
     roofsByPage, setRoofsByPage,
     currentPage,
@@ -164,6 +167,9 @@ export default function RightPropertyPaneView({
     showLockoutModal,
     setShowLockoutModal
   } = useAppModel();
+
+  const pages = (pagesProp && pagesProp.length > 0) ? pagesProp : (pagesContext || []);
+  const setPages = setPagesProp || setPagesContext;
 
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
@@ -1095,6 +1101,78 @@ export default function RightPropertyPaneView({
       }
     }
   };
+
+  // ── SELECTION & NAVIGATION HANDLERS FOR TREE EXPLORER ──
+  const selectExclusiveWall = React.useCallback((e, targetPageIdx, w, isMulti = false) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setSelectedDoorIds) setSelectedDoorIds([]);
+    if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (isMulti) {
+      if (selectedWallIds.includes(w.id)) {
+        if (setSelectedWallIds) setSelectedWallIds(selectedWallIds.filter(id => id !== w.id));
+      } else {
+        if (setSelectedWallIds) setSelectedWallIds([...selectedWallIds, w.id]);
+      }
+    } else {
+      if (setSelectedId) setSelectedId(w.id);
+      if (setSelectedType) setSelectedType("wall");
+      if (setSelectedWallIds) setSelectedWallIds([w.id]);
+      if (selectWall) selectWall(w.id);
+    }
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedDoorIds, setSelectedRoomIds, setSelectedLintelIds, selectedWallIds, setSelectedWallIds, setSelectedId, setSelectedType, selectWall]);
+
+  const selectExclusiveDoor = React.useCallback((e, targetPageIdx, d) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setSelectedWallIds) setSelectedWallIds([]);
+    if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedId) setSelectedId(d.id);
+    if (setSelectedType) setSelectedType("door");
+    if (setSelectedDoorIds) setSelectedDoorIds([d.id]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedId, setSelectedType, setSelectedDoorIds]);
+
+  const selectExclusiveRoom = React.useCallback((e, targetPageIdx, r) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setSelectedWallIds) setSelectedWallIds([]);
+    if (setSelectedDoorIds) setSelectedDoorIds([]);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedId) setSelectedId(r.id);
+    if (setSelectedType) setSelectedType("room");
+    if (setSelectedRoomIds) setSelectedRoomIds([r.id]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedDoorIds, setSelectedLintelIds, setSelectedId, setSelectedType, setSelectedRoomIds]);
+
+  const selectExclusiveLintel = React.useCallback((e, targetPageIdx, l) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setSelectedWallIds) setSelectedWallIds([]);
+    if (setSelectedDoorIds) setSelectedDoorIds([]);
+    if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedId) setSelectedId(l.id);
+    if (setSelectedType) setSelectedType("lintel");
+    if (setSelectedLintelIds) setSelectedLintelIds([l.id]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedDoorIds, setSelectedRoomIds, setSelectedId, setSelectedType, setSelectedLintelIds]);
+
+  const selectExclusiveRoof = React.useCallback((e, targetPageIdx, rf) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
+    if (setSelectedWallIds) setSelectedWallIds([]);
+    if (setSelectedDoorIds) setSelectedDoorIds([]);
+    if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedRoofId) setSelectedRoofId(rf.id);
+    if (setSelectedId) setSelectedId(rf.id);
+    if (setSelectedType) setSelectedType("roof");
+    setExplorerViewMode("properties");
+  }, [goPage, currentPage, setSelectedWallIds, setSelectedDoorIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedRoofId, setSelectedId, setSelectedType, setExplorerViewMode]);
+
   const [taskListJobs, setTaskListJobs] = React.useState([]);
   const [taskLoading, setTaskLoading] = React.useState(false);
   const [taskError, setTaskError] = React.useState(null);
@@ -1365,7 +1443,7 @@ export default function RightPropertyPaneView({
     }
 
     if (currentKey !== prevSelectionKeyRef.current) {
-      const isTaskActive = !!(activePaneTab && activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed");
+      const isTaskActive = !!(activePaneTab && activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "collapsed");
 
       if (hasSelection) {
         // Element selected (wall, door, room, roof, etc.):
@@ -3271,60 +3349,73 @@ export default function RightPropertyPaneView({
         }}>
           {activePaneTab !== "summary" && activePaneTab !== "job_task" && explorerViewMode === "tree" ? (
             <TreeExplorerPanel
-              layerOrder={layerOrder}
-              activeLayerTab={activeLayerTab}
-              setActiveLayerTab={setActiveLayerTab}
-              treeSearchQuery={treeSearchQuery}
-              setTreeSearchQuery={setTreeSearchQuery}
-              handleAutoGroupWalls={handleAutoGroupWalls}
-              autoMergeCollinearWalls={autoMergeCollinearWalls}
-              cadRooms={cadRooms}
-              cadWalls={cadWalls}
-              cadDoors={cadDoors}
-              cadLintels={cadLintels}
-              cadRoofs={cadRoofs}
-              collapsedGroups={collapsedGroups}
-              setCollapsedGroups={setCollapsedGroups}
+              currentProjectName={currentProjectName}
+              explorerSearch={explorerSearch}
+              setExplorerSearch={setExplorerSearch}
+              expandAllNodes={expandAllNodes}
+              collapseAllNodes={collapseAllNodes}
+              hiddenItemIds={hiddenItemIds}
+              showAllHidden={showAllHidden}
+              expandedNodes={expandedNodes}
+              toggleNode={toggleNode}
+              pages={pages}
+              currentPage={currentPage}
+              wallsByPageProp={wallsByPageProp}
+              doorsByPageProp={doorsByPageProp}
+              roomsByPageProp={roomsByPageProp}
+              lintelsByPageProp={lintelsByPageProp}
+              roofsByPageProp={roofsByPageProp}
+              lintelsByPage={lintelsByPage}
+              roofsByPage={roofsByPage}
+              walls={walls}
+              doors={doors}
+              rooms={rooms}
+              realScale={realScale}
+              scaleValue={scaleValue}
               selectedId={selectedId}
               selectedType={selectedType}
-              selectedRoomIds={selectedRoomIds}
               selectedWallIds={selectedWallIds}
               selectedDoorIds={selectedDoorIds}
+              selectedRoomIds={selectedRoomIds}
               selectedLintelIds={selectedLintelIds}
               selectedRoofId={selectedRoofId}
-              setSelectedId={setSelectedId}
-              setSelectedType={setSelectedType}
-              setSelectedRoomIds={setSelectedRoomIds}
-              setSelectedWallIds={setSelectedWallIds}
-              setSelectedDoorIds={setSelectedDoorIds}
-              setSelectedLintelIds={setSelectedLintelIds}
-              setSelectedRoofId={setSelectedRoofId}
+              selectExclusiveWall={selectExclusiveWall}
+              selectExclusiveDoor={selectExclusiveDoor}
+              selectExclusiveRoom={selectExclusiveRoom}
+              selectExclusiveLintel={selectExclusiveLintel}
+              selectExclusiveRoof={selectExclusiveRoof}
               setExplorerViewMode={setExplorerViewMode}
-              setActivePaneTab={setActivePaneTab}
-              currentPage={currentPage}
+              handleRenameRoom={handleRenameRoom}
+              handleRenameFloor={handleRenameFloor}
+              setPages={setPages}
+              setRoomsByPage={setRoomsByPage}
               deleteWalls={deleteWalls}
               deleteDoor={deleteDoor}
               deleteRoof={deleteRoof}
               deleteItem={deleteItem}
-              showConfirm={showConfirm}
-              showPrompt={showPrompt}
-              updateWallsProperty={updateWallsProperty}
-              setRoofsByPage={setRoofsByPage}
-              setRoomsByPage={setRoomsByPage}
-              lintelController={lintelController}
-              scaleValue={scaleValue}
+              toggleItemVisibility={toggleItemVisibility}
+              setHiddenItemIds={setHiddenItemIds}
+              setActivePaneTab={setActivePaneTab}
+              autoMergeCollinearWalls={autoMergeCollinearWalls}
             />
           ) : activePaneTab === "job_task" ? (
             <TaskGroupsHwPanel
-              jobTaskSearchQuery={jobTaskSearchQuery}
-              setJobTaskSearchQuery={setJobTaskSearchQuery}
-              jobTaskSelectedType={jobTaskSelectedType}
-              setJobTaskSelectedType={setJobTaskSelectedType}
-              setActivePaneTab={setActivePaneTab}
-              taskListJobs={taskListJobs}
+              filteredTasks={filteredTasks}
+              taskLoading={taskLoading}
+              taskError={taskError}
+              taskSearch={taskSearch}
+              setTaskSearch={setTaskSearch}
+              taskFilter={taskFilter}
+              setTaskFilter={setTaskFilter}
+              staffScope={staffScope}
+              setStaffScope={setStaffScope}
               taskDisplayLimit={taskDisplayLimit}
               setTaskDisplayLimit={setTaskDisplayLimit}
-              onLoadJob={onLoadJob}
+              myStaffCode={myStaffCode}
+              fetchTasks={fetchTasks}
+              handleOpenJobTask={handleOpenJobTask}
+              loadingJobId={loadingJobId}
+              setActivePaneTab={setActivePaneTab}
             />
           ) : ((activePaneTab === "explorer" || isTaskModuleActive) && explorerViewMode === "properties") || activePaneTab === "properties" ? (
             /* ══════════════════════════════════════════════════════
@@ -3420,10 +3511,6 @@ export default function RightPropertyPaneView({
                     savedDefault={savedDefault}
                     getBaseWallId={getBaseWallId}
                     selectedWallMetrics={selectedWallMetrics}
-                    isSideAHidden={isSideAHidden}
-                    isSideBHidden={isSideBHidden}
-                    sideATitle={sideATitle}
-                    sideBTitle={sideBTitle}
                     getFinishTypeOptions={getFinishTypeOptions}
                   />
                 ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
