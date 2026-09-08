@@ -538,7 +538,7 @@ export const EXTRA_MODULE_TABS = [
   {
     id: "fixout",
     label: "Fixout",
-    title: "Fixout & Trims",
+    title: "Fixout",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />

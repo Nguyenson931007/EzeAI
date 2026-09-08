@@ -160,6 +160,64 @@ export default function LockupTask({
     "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
   ];
 
+  const FALLBACK_EXTERNAL_DOOR_TYPES = [
+    "BFR1 D/C CLEAR",
+    "BFR13 D/C",
+    "BFR14 D/C CLEAR",
+    "BFR14 D/C FROST",
+    "BFR15 D/C CLEAR",
+    "BFR15 D/C FROST",
+    "BFR16 D/C CLEAR",
+    "BFR16 D/C FROST",
+    "BFR17 D/C CLEAR",
+    "BFR17 D/C FROST",
+    "BFR18 D/C CLEAR",
+    "BFR18 D/C FROST",
+    "BFR19 D/C CLEAR",
+    "BFR19 D/C FROST",
+    "BFR2 D/C CLEAR",
+    "BFR20 D/C CLEAR",
+    "BFR20 D/C FROST",
+    "BFR21 D/C CLEAR",
+    "BFR21 D/C FROST",
+    "BFR22 D/C CLEAR",
+    "BFR22 D/C FROST",
+    "BFR23 D/C CLEAR",
+    "BFR23 D/C FROST",
+    "BFR4 D/C CLEAR",
+    "BFR4 D/C FROST",
+    "BFR5 D/C CLEAR",
+    "BFR6 D/C CLEAR",
+    "BFR7 D/C CLEAR",
+    "BFR7 D/C FROST",
+    "BFR8 D/C CLEAR",
+    "BFR8 D/C FROST",
+    "BFR9 D/C CLEAR",
+    "BFR9 D/C FROST",
+    "DURACOTE FLUSH SOLID",
+    "FLUSH SOLID CORE",
+    "HUME SOLID ENTRANCE",
+    "CORINTHIAN PMAD 104"
+  ];
+
+  const FALLBACK_INTERNAL_DOOR_TYPES = [
+    "FLUSH PANEL HONEYCOMB",
+    "REDICOTE FLUSH INTERNAL",
+    "DECO 1S",
+    "DECO 2S",
+    "DECO 3S",
+    "DECO 4S",
+    "MOTIVE MOT1",
+    "MOTIVE MOT2",
+    "ACCENT LINEAR HAG11",
+    "ACCENT LINEAR HAG12",
+    "REGENCY 4-PANEL",
+    "OAKFIELD 2-PANEL",
+    "COLONIAL 4-PANEL",
+    "CORINTHIAN INTERNAL FLUSH",
+    "HUME INTERNAL FLUSH"
+  ];
+
   const [doorTypeOptions, setDoorTypeOptions] = useState({ internal: [], external: [] });
   const [doorTypeLoading, setDoorTypeLoading] = useState(true);
   const [doorTypeError, setDoorTypeError] = useState("");
@@ -193,6 +251,245 @@ export default function LockupTask({
       cancelled = true;
     };
   }, []);
+
+  // ══════════════════════════════════════════════════════
+  // SEARCHABLE DROPDOWN COMPONENT (Select or search...)
+  // ══════════════════════════════════════════════════════
+  const SearchDropdown = ({
+    value,
+    options = [],
+    placeholder = "Select or search...",
+    onChange,
+    disabled = false,
+    style = {},
+    isYellow = true,
+    minWidth = "130px",
+  }) => {
+    const [open, setOpen] = useState(false);
+    const [openUp, setOpenUp] = useState(false);
+    const containerRef = useRef(null);
+
+    const isCommittedSelection = options.includes(value);
+
+    const filtered = useMemo(() => {
+      if (!open) return options;
+      const query = String(value || "").trim().toLowerCase();
+      if (!query || isCommittedSelection) return options;
+      return options.filter((opt) => String(opt).toLowerCase().includes(query));
+    }, [open, options, value, isCommittedSelection]);
+
+    useEffect(() => {
+      if (open && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        if (spaceBelow < 220 && spaceAbove > 160) {
+          setOpenUp(true);
+        } else {
+          setOpenUp(false);
+        }
+      }
+    }, [open]);
+
+    useEffect(() => {
+      const handleOutsideClick = (e) => {
+        if (containerRef.current && !containerRef.current.contains(e.target)) {
+          setOpen(false);
+        }
+      };
+      if (open) {
+        document.addEventListener("mousedown", handleOutsideClick);
+      }
+      return () => {
+        document.removeEventListener("mousedown", handleOutsideClick);
+      };
+    }, [open]);
+
+    return (
+      <div
+        ref={containerRef}
+        style={{
+          position: "relative",
+          width: "100%",
+          minWidth: minWidth,
+          zIndex: open ? 99999 : 1,
+          ...style,
+        }}
+      >
+        <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+          <input
+            type="text"
+            value={value || ""}
+            disabled={disabled}
+            onChange={(e) => {
+              onChange(e.target.value);
+              if (!open) setOpen(true);
+            }}
+            onFocus={(e) => {
+              setOpen(true);
+              e.target.select();
+            }}
+            onClick={(e) => {
+              if (!open) setOpen(true);
+            }}
+            style={{
+              width: "100%",
+              padding: value ? "5px 36px 5px 8px" : "5px 22px 5px 8px",
+              fontSize: "11px",
+              borderRadius: "4px",
+              border: isYellow ? "1px solid #fde047" : "1px solid #cbd5e1",
+              background: isYellow ? "#fffbeb" : "#ffffff",
+              boxSizing: "border-box",
+              outline: "none",
+              color: "#0f172a",
+              fontWeight: 600,
+              height: "28px",
+            }}
+            placeholder={placeholder}
+          />
+          <div style={{ position: "absolute", right: "4px", display: "flex", alignItems: "center", gap: "2px" }}>
+            {value ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange("");
+                  setOpen(true);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  padding: "1px 3px",
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "#ef4444";
+                  e.currentTarget.style.background = "#fee2e2";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "#94a3b8";
+                  e.currentTarget.style.background = "transparent";
+                }}
+                title="Xóa lựa chọn (Clear)"
+              >
+                ✕
+              </button>
+            ) : null}
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={disabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen((prev) => !prev);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#64748b",
+                fontSize: "8.5px",
+                cursor: "pointer",
+                padding: "3px 2px",
+                lineHeight: 1,
+              }}
+            >
+              {open ? "▲" : "▼"}
+            </button>
+          </div>
+        </div>
+
+        {open && (
+          <div
+            style={{
+              position: "absolute",
+              ...(openUp
+                ? { bottom: "calc(100% + 4px)", top: "auto" }
+                : { top: "calc(100% + 2px)", bottom: "auto" }),
+              left: 0,
+              right: 0,
+              minWidth: "100%",
+              background: "#ffffff",
+              border: "1px solid #cbd5e1",
+              borderRadius: "5px",
+              boxShadow: openUp
+                ? "0 -8px 20px rgba(0,0,0,0.18)"
+                : "0 8px 20px rgba(0,0,0,0.18)",
+              maxHeight: "190px",
+              overflowY: "auto",
+              zIndex: 999999,
+            }}
+          >
+            {value && (
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange("");
+                  setOpen(false);
+                }}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: "10.5px",
+                  cursor: "pointer",
+                  background: "#fef2f2",
+                  color: "#ef4444",
+                  fontWeight: 600,
+                  borderBottom: "1px solid #fee2e2",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#fee2e2";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "#fef2f2";
+                }}
+              >
+                <span>✕</span>
+                <span>-- Clear / Trống --</span>
+              </div>
+            )}
+            {filtered.map((opt, i) => (
+              <div
+                key={i}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  background: opt === value ? "#e0f2fe" : "#ffffff",
+                  color: opt === value ? "#0369a1" : "#1e293b",
+                  fontWeight: opt === value ? 700 : 400,
+                  borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#f8fafc";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = opt === value ? "#e0f2fe" : "#ffffff";
+                }}
+              >
+                {opt}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Prehung - External Door State
   const [preExtDoorName, setPreExtDoorName] = useState("");
@@ -275,6 +572,10 @@ export default function LockupTask({
     onSetEntries(prev => (prev || []).map(r => {
       if (r.id !== rowId) return r;
       const updated = { ...r, [field]: finalVal };
+      if (field === "door_type") {
+        updated.door = finalVal;
+        updated.product = finalVal;
+      }
       // Khi chọn mode là Loose -> tự động gán jamb_size là Loose Jamb, nếu không phải Loose (Prehung hoặc trống) -> gán null
       if (field === "mode") {
         if (finalVal === "Loose") {
@@ -659,7 +960,7 @@ export default function LockupTask({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: DOOR INFORMATION ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "visible" }}>
         <div
           onClick={() => setIsSection1Open(!isSection1Open)}
           style={{
@@ -686,7 +987,7 @@ export default function LockupTask({
         <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
           {/* GROUP 1: PREHUNG */}
-          <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "hidden" }}>
+          <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "visible" }}>
             <div
               onClick={() => setIsPrehungOpen(!isPrehungOpen)}
               style={{
@@ -712,7 +1013,7 @@ export default function LockupTask({
             {isPrehungOpen && (
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
               {/* SUBSECTION: Prehung - External Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
                 <div
                   onClick={() => setIsPreExtOpen(!isPreExtOpen)}
                   style={{
@@ -753,14 +1054,12 @@ export default function LockupTask({
 
                   <div style={{ flex: "2 1 150px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <select
+                    <SearchDropdown
                       value={preExtDoorProduct}
-                      onChange={(e) => setPreExtDoorProduct(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
-                    >
-                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
-                      {doorTypeOptions.external.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                      options={doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES}
+                      onChange={setPreExtDoorProduct}
+                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                    />
                   </div>
 
                   <div style={{ flex: "0.8 1 65px" }}>
@@ -859,7 +1158,7 @@ export default function LockupTask({
               </div>
 
               {/* SUBSECTION: Prehung - Internal Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
                 <div
                   onClick={() => setIsPreIntOpen(!isPreIntOpen)}
                   style={{
@@ -900,14 +1199,12 @@ export default function LockupTask({
 
                   <div style={{ flex: "1.8 1 140px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <select
+                    <SearchDropdown
                       value={preIntDoorProduct}
-                      onChange={(e) => setPreIntDoorProduct(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
-                    >
-                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
-                      {doorTypeOptions.internal.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                      options={doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES}
+                      onChange={setPreIntDoorProduct}
+                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                    />
                   </div>
 
                   <div style={{ flex: "0.8 1 65px" }}>
@@ -1022,7 +1319,7 @@ export default function LockupTask({
           </div>
 
           {/* GROUP 2: LOOSE JAMB */}
-          <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "hidden" }}>
+          <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "visible" }}>
             <div
               onClick={() => setIsLooseOpen(!isLooseOpen)}
               style={{
@@ -1048,7 +1345,7 @@ export default function LockupTask({
             {isLooseOpen && (
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
               {/* SUBSECTION: Loose Jamb - External Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
                 <div
                   onClick={() => setIsLooseExtOpen(!isLooseExtOpen)}
                   style={{
@@ -1089,14 +1386,12 @@ export default function LockupTask({
 
                   <div style={{ flex: "2 1 150px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <select
+                    <SearchDropdown
                       value={looseExtDoorProduct}
-                      onChange={(e) => setLooseExtDoorProduct(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
-                    >
-                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
-                      {doorTypeOptions.external.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                      options={doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES}
+                      onChange={setLooseExtDoorProduct}
+                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                    />
                   </div>
 
                   <div style={{ flex: "0.8 1 65px" }}>
@@ -1188,7 +1483,7 @@ export default function LockupTask({
               </div>
 
               {/* SUBSECTION: Loose Jamb - Internal Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "hidden" }}>
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
                 <div
                   onClick={() => setIsLooseIntOpen(!isLooseIntOpen)}
                   style={{
@@ -1229,14 +1524,12 @@ export default function LockupTask({
 
                   <div style={{ flex: "1.8 1 140px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <select
+                    <SearchDropdown
                       value={looseIntDoorProduct}
-                      onChange={(e) => setLooseIntDoorProduct(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
-                    >
-                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
-                      {doorTypeOptions.internal.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                      options={doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES}
+                      onChange={setLooseIntDoorProduct}
+                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                    />
                   </div>
 
                   <div style={{ flex: "0.8 1 65px" }}>
@@ -1583,16 +1876,18 @@ export default function LockupTask({
                               />
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                              <select
+                              <SearchDropdown
                                 value={editRowData.door_type || ""}
-                                onChange={(e) => setEditRowData({ ...editRowData, door_type: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "11px", width: "80px" }}
-                              >
-                                <option value="">Select...</option>
-                                {(doorTypeOptions[editRowData.scope === "external" ? "external" : "internal"] || []).map(opt => (
-                                  <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                              </select>
+                                options={
+                                  editRowData.scope === "external"
+                                    ? (doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES)
+                                    : (doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES)
+                                }
+                                onChange={(val) => setEditRowData({ ...editRowData, door_type: val })}
+                                placeholder="Select or search..."
+                                isYellow={false}
+                                minWidth="120px"
+                              />
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <input
@@ -1704,7 +1999,20 @@ export default function LockupTask({
                           <>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{categoryDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{locationDisplay}</td>
-                            <td style={{ padding: "6px 8px", color: isSelected ? "#1e3a8a" : "#334155", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{doorDisplay}</td>
+                            <td style={{ padding: "3px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }} onClick={(e) => e.stopPropagation()}>
+                              <SearchDropdown
+                                value={row.door_type || row.door || ""}
+                                options={
+                                  row.scope === "external" || row.isExternal
+                                    ? (doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES)
+                                    : (doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES)
+                                }
+                                onChange={(val) => handleRowFieldChange(row.id, "door_type", val)}
+                                placeholder="Select or search..."
+                                isYellow={false}
+                                minWidth="150px"
+                              />
+                            </td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{sizeDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{thicksDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambWallDisplay}</td>

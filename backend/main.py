@@ -39,6 +39,10 @@ from api.lockup_routes import router as lockout_router
 from api.insulation_routes import router as insulation_router
 from api.timber_posts_routes import router as timber_posts_router
 from api.catalog_routes import router as catalog_router
+from api.Fixout_routes import router as fixout_router
+from api.shelving_routes import router as shelving_router
+from api.fow_plumbing_routes import router as fow_plumbing_router
+from api.power_truss_routes import router as power_truss_router
 from services.roof_v3 import router as roof_v3_router
 from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
 from app.limiter import limiter
@@ -174,6 +178,10 @@ app.include_router(insulation_router, tags=["insulation"])
 app.include_router(lockout_router, tags=["lockout"])
 app.include_router(timber_posts_router, tags=["TimberPosts-router"])
 app.include_router(catalog_router, tags=["Catalog-router"])
+app.include_router(fixout_router, tags=["Fixout-router"])
+app.include_router(shelving_router, tags=["Shelving-router"])
+app.include_router(fow_plumbing_router, tags=["FOWPlumbing-router"])
+app.include_router(power_truss_router, tags=["PowerTrussBraces-router"])
 app.include_router(roof_v3_router)
 
 

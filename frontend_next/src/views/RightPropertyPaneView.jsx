@@ -540,12 +540,19 @@ export default function RightPropertyPaneView({
   };
 
   const handleResetModuleData = (moduleId) => {
+    if (moduleId === "shelving") setShelvingEntries([]);
+    if (moduleId === "fow_plumbing") setFowPlumbingEntries([]);
+    if (moduleId === "timber_posts") setTimberPostEntries([]);
+    if (moduleId === "fixout") setFixoutDoorEntries([]);
+    if (moduleId === "power_truss_braces") setPowerTrussEntries([]);
+    if (moduleId === "lockup" || moduleId === "lock_up") setLockupEntries([]);
     setModuleFormData(prev => ({
       ...prev,
       [moduleId]: {
         ...(moduleId === "cladding" || moduleId === "flooring_decking" ? { waste_allowance: "10" } : {}),
         ...(moduleId === "insulation" ? { stud_centres: "450" } : {}),
         ...(moduleId === "timber_posts" ? { height: "2700", quantity: "1" } : {}),
+        ...(moduleId === "power_truss_braces" ? { wall_height: "2700", length: "4500", type: "Column", qty: "1" } : {}),
         ...(moduleId === "doors_furniture" || moduleId === "fow_plumbing" ? { quantity: "1", count: "1" } : {})
       }
     }));
@@ -1026,11 +1033,33 @@ export default function RightPropertyPaneView({
       }
     } else if (moduleId === "fixout") {
       const skirtLm = skirtingSummaryMetrics?.totalSkirtingLm ? Number(skirtingSummaryMetrics.totalSkirtingLm.toFixed(2)) : (internalWallLength ? Number((internalWallLength * 2).toFixed(2)) : 0);
-      const doorCnt = curDoors.length || 0;
-      if (doorCnt > 0) {
-        setFixoutDoorEntries([
-          { id: "fix-ai-1-" + Date.now(), doorType: "Internal Swing Door", jambType: "Single Rebated Pine Jamb Set", architraveSpec: "67x18mm MDF Architrave", qty: doorCnt }
-        ]);
+      if (curDoors && curDoors.length > 0) {
+        const generated = curDoors.map((d, idx) => {
+          const dLabel = d.label || d.name || d.door_name || `D-${idx + 1}`;
+          const rawType = String(d.door_type || d.type || "").toLowerCase();
+          const isCavity = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
+          const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
+          const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+          return {
+            id: `fix-ai-${d.id || idx}-${Date.now()}`,
+            category: isCavity ? "cavity" : "prehung",
+            door_label: dLabel,
+            door_type: d.door_type || "ASC",
+            height: dHeight,
+            width: dWidth,
+            thicks: "35",
+            wall_width: String(d.wall_thickness || 90),
+            door_frame: "Timber Jamb",
+            lift_off_pivot: "",
+            handing: isCavity ? "" : "RH",
+            hole: isCavity ? "" : "HF",
+            finish: isCavity ? "" : "CHR",
+            door_furniture: isCavity ? "cavity-passage" : "passage",
+            door_stop: isCavity ? "none" : "cushion",
+            qty: 1
+          };
+        });
+        setFixoutDoorEntries(generated);
       } else {
         setFixoutDoorEntries([]);
       }
@@ -1097,16 +1126,38 @@ export default function RightPropertyPaneView({
         hinge_type: "100mm Stainless Steel Butt Hinge"
       };
     } else if (moduleId === "shelving") {
+      setShelvingEntries([
+        { id: "shv-ai-1-" + Date.now(), type: "Robe", size: "1800×450", qty: 2 },
+        { id: "shv-ai-2-" + Date.now(), type: "Linen", size: "1500×450", qty: 1 }
+      ]);
       aiValues = {
         shelf_material: "16mm White Melamine Board",
         shelf_depth: "450 mm",
         total_runs: "4"
       };
     } else if (moduleId === "fow_plumbing") {
+      setFowPlumbingEntries([
+        { id: "plumb-ai-1-" + Date.now(), itemName: "Toilet Suite", code: "TS-01", description: "Dual flush 4.5/3L back to wall toilet suite", qty: 2, note: "Ensuite & Main Bath" },
+        { id: "plumb-ai-2-" + Date.now(), itemName: "Basin Mixer", code: "BM-01", description: "Standard chrome finish, WELS 4 star", qty: 2, note: "Vanity basins" },
+        { id: "plumb-ai-3-" + Date.now(), itemName: "Shower Mixer", code: "SM-01", description: "Ceramic disc mixer with swivel spout", qty: 2, note: "Showers" },
+        { id: "plumb-ai-4-" + Date.now(), itemName: "Kitchen Mixer", code: "KM-01", description: "Standard chrome finish, WELS 4 star", qty: 1, note: "Kitchen sink" },
+        { id: "plumb-ai-5-" + Date.now(), itemName: "Laundry Tub & Cabinet", code: "LT-01", description: "45L Stainless steel tub with polymer cabinet", qty: 1, note: "Laundry room" },
+      ]);
       aiValues = {
         pipe_type: "PEX Flexible Water Pipe",
         drain_size: "100mm PVC DWV Pipe",
-        fixtures_count: String(curDoors.length ? Math.max(3, Math.floor(curDoors.length * 0.6)) : 5)
+        fixtures_count: "8"
+      };
+    } else if (moduleId === "power_truss_braces") {
+      setPowerTrussEntries([
+        { id: "ptb-ai-1-" + Date.now(), wallHeight: "2700", length: "4500", type: "Column", qty: 2 },
+        { id: "ptb-ai-2-" + Date.now(), wallHeight: "2700", length: "6000", type: "Brace", qty: 1 },
+      ]);
+      aiValues = {
+        wall_height: "2700",
+        length: "4500",
+        type: "Column",
+        qty: "2"
       };
     } else if (moduleId === "final_fit") {
       aiValues = {
@@ -2513,10 +2564,21 @@ export default function RightPropertyPaneView({
         setLockupEntries(generated);
         setFixoutDoorEntries(generated.map(g => ({
           id: `fix-${g.id}`,
-          doorType: g.door,
-          jambType: g.jambSize,
-          architraveSpec: "67x18mm MDF Single Rebate Architrave",
-          qty: g.qty
+          category: g.category === "Cavity" ? "cavity" : (g.mode === "Loose" ? "loose-jamb" : "prehung"),
+          door_label: g.doorLabel || g.door || "",
+          door_type: g.product || g.type || "ASC",
+          height: g.height || 2040,
+          width: g.width || 820,
+          thicks: String(g.thickness || 35),
+          wall_width: "90",
+          door_frame: g.jambWall || "Timber Jamb",
+          lift_off_pivot: "",
+          handing: g.hung || "",
+          hole: g.hfHo || "HF",
+          finish: g.color || "CHR",
+          door_furniture: "passage",
+          door_stop: g.stop || "cushion",
+          qty: g.qty || 1
         })));
       }
 
@@ -2653,6 +2715,15 @@ export default function RightPropertyPaneView({
       qty: q
     }]);
   };
+
+  // Shelving Entries
+  const [shelvingEntries, setShelvingEntries] = React.useState([]);
+
+  // FOW Plumbing Entries
+  const [fowPlumbingEntries, setFowPlumbingEntries] = React.useState([]);
+
+  // Power Truss Braces Entries
+  const [powerTrussEntries, setPowerTrussEntries] = React.useState([]);
 
   // 7. Lockup State & Custom Overrides
   const [lockupEntries, setLockupEntries] = React.useState([]);
@@ -3587,16 +3658,19 @@ export default function RightPropertyPaneView({
           title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"
           style={{
             position: "absolute",
-            left: 0,
+            left: "-4px",
             top: 0,
             bottom: 0,
-            width: "7px",
+            width: "9px",
             cursor: "ew-resize",
-            zIndex: 999,
-            background: isResizing ? "rgba(37,99,235,0.6)" : "transparent",
-            transition: "background 0.2s ease"
+            zIndex: 9999,
+            background: isResizing ? "rgba(37,99,235,0.7)" : "transparent",
+            transition: "background 0.15s ease",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
-          onMouseEnter={(e) => { if (!isResizing) e.currentTarget.style.background = "rgba(37,99,235,0.25)"; }}
+          onMouseEnter={(e) => { if (!isResizing) e.currentTarget.style.background = "rgba(37,99,235,0.3)"; }}
           onMouseLeave={(e) => { if (!isResizing) e.currentTarget.style.background = "transparent"; }}
         />
       )}
@@ -4012,6 +4086,12 @@ export default function RightPropertyPaneView({
           setTimberPostEntries={setTimberPostEntries}
           fixoutDoorEntries={fixoutDoorEntries}
           setFixoutDoorEntries={setFixoutDoorEntries}
+          shelvingEntries={shelvingEntries}
+          setShelvingEntries={setShelvingEntries}
+          fowPlumbingEntries={fowPlumbingEntries}
+          setFowPlumbingEntries={setFowPlumbingEntries}
+          powerTrussEntries={powerTrussEntries}
+          setPowerTrussEntries={setPowerTrussEntries}
           lockupEntries={lockupEntries}
           handleSetLockupEntries={handleSetLockupEntries}
           selectedWall={selectedWall}
