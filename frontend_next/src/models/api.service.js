@@ -966,6 +966,29 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  // ── Fixout Jobs (MSSQL ProcurementApp) ──
+  async fetchFixoutJobs(idJobHw = null, office = null) {
+    const params = new URLSearchParams();
+    if (idJobHw) params.append("id_job_hw", idJobHw);
+    if (office) params.append("office", office);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${BASE_URL}/api/fixout/jobs${qs}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveFixoutJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/fixout/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   // ── TimberPosts Jobs (MSSQL ProcurementApp) ──
   async fetchTimberPostsJobs(office = null) {
     const qs = office ? `?office=${encodeURIComponent(office)}` : "";
@@ -978,6 +1001,75 @@ export const ApiService = {
 
   async saveTimberPostsJobs(payload) {
     const res = await fetch(`${BASE_URL}/api/timber-posts/jobs/save`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  // ── Shelving Jobs (MSSQL ProcurementApp) ──
+  async fetchShelvingJobs(idJobHw = null, office = null) {
+    const params = new URLSearchParams();
+    if (idJobHw) params.append("id_job_hw", idJobHw);
+    if (office) params.append("office", office);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${BASE_URL}/api/shelving/jobs${qs}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveShelvingJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/shelving/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  // ── FOW Plumbing Jobs (MSSQL ProcurementApp) ──
+  async fetchFowPlumbingJobs(idJobHw = null, office = null) {
+    const params = new URLSearchParams();
+    if (idJobHw) params.append("id_job_hw", idJobHw);
+    if (office) params.append("office", office);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${BASE_URL}/api/fow-plumbing/jobs${qs}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async saveFowPlumbingJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/fow-plumbing/save-jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  // ── Power Truss Braces Jobs (MSSQL ProcurementApp) ──
+  async fetchPowerTrussJobs(idJobHw = null, office = null) {
+    const params = new URLSearchParams();
+    if (idJobHw) params.append("id_job_hw", idJobHw);
+    if (office) params.append("office", office);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${BASE_URL}/api/power-truss/jobs${qs}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async savePowerTrussJobs(payload) {
+    const res = await fetch(`${BASE_URL}/api/power-truss/save-jobs`, {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(payload),

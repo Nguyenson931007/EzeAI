@@ -54,6 +54,12 @@ export default function TaskModulesContainer({
   setTimberPostEntries,
   fixoutDoorEntries,
   setFixoutDoorEntries,
+  shelvingEntries,
+  setShelvingEntries,
+  fowPlumbingEntries,
+  setFowPlumbingEntries,
+  powerTrussEntries,
+  setPowerTrussEntries,
   lockupEntries,
   handleSetLockupEntries,
   hardiesFireWallEntries,
@@ -364,6 +370,7 @@ export default function TaskModulesContainer({
           onSetEntries={setFixoutDoorEntries}
           onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
+          activeJobNumber={currentProjectName || currentJobId}
         />
       )}
 
@@ -391,7 +398,10 @@ export default function TaskModulesContainer({
           formData={moduleFormData.shelving || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
+          entries={shelvingEntries}
+          onSetEntries={setShelvingEntries}
           onAddDataAI={handleAddDataAI}
+          activeJobNumber={currentProjectName || currentJobId}
         />
       )}
 
@@ -412,7 +422,10 @@ export default function TaskModulesContainer({
           formData={moduleFormData.fow_plumbing || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
+          entries={fowPlumbingEntries}
+          onSetEntries={setFowPlumbingEntries}
           onAddDataAI={handleAddDataAI}
+          activeJobNumber={currentProjectName || currentJobId}
         />
       )}
 
@@ -422,7 +435,10 @@ export default function TaskModulesContainer({
           formData={moduleFormData.power_truss_braces || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
+          entries={powerTrussEntries}
+          onSetEntries={setPowerTrussEntries}
           onAddDataAI={handleAddDataAI}
+          activeJobNumber={currentProjectName || currentJobId}
         />
       )}
 

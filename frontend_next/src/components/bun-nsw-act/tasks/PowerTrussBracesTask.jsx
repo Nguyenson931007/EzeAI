@@ -1,5 +1,197 @@
-import React, { useState } from "react";
-import TrussEngine, { TRUSS_TYPES, TRUSS_SPACINGS, BRACING_TYPES } from "@/engines/Truss";
+import React, { useState, useEffect, useRef } from "react";
+import { useAppModel } from "@/models/app.context";
+import { ApiService } from "@/models/api.service";
+
+// ══════════════════════════════════════════════════════
+// CONSTANTS & OPTIONS
+// ══════════════════════════════════════════════════════
+
+const POWER_TRUSS_TYPES = ["Column", "Brace"];
+
+// ══════════════════════════════════════════════════════
+// SHARED STYLES
+// ══════════════════════════════════════════════════════
+
+const S = {
+  card: {
+    background: "#ffffff",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    overflow: "visible",
+  },
+  cardTitle: {
+    padding: "10px 14px",
+    background: "#f8fafc",
+    borderBottom: "1px solid #e2e8f0",
+    fontWeight: 800,
+    fontSize: "13px",
+    color: "#0f2744",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  fieldWrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "3px",
+    minWidth: 0,
+  },
+  fieldLabel: {
+    fontSize: "11px",
+    color: "#475569",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+  },
+  unitTag: {
+    fontSize: "9px",
+    color: "#94a3b8",
+    fontWeight: 400,
+  },
+  input: (isYellow = false) => ({
+    padding: "7px 10px",
+    fontSize: "12px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "6px",
+    background: isYellow ? "#fefce8" : "#ffffff",
+    outline: "none",
+    boxSizing: "border-box",
+    minWidth: "60px",
+    height: "34px",
+    width: "100%",
+  }),
+  select: {
+    padding: "6px 10px",
+    fontSize: "12px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "6px",
+    background: "#ffffff",
+    outline: "none",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    minWidth: "60px",
+    height: "34px",
+    width: "100%",
+  },
+  addBtn: {
+    padding: "7px 18px",
+    background: "#0f2744",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    alignSelf: "flex-end",
+    flexShrink: 0,
+    height: "34px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.15s ease",
+  },
+  deleteBtn: {
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#ef4444",
+    cursor: "pointer",
+    fontWeight: 700,
+    fontSize: "12px",
+    borderRadius: "4px",
+    padding: "3px 8px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1,
+    transition: "all 0.15s ease",
+  },
+  editBtn: {
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    color: "#2563eb",
+    cursor: "pointer",
+    fontWeight: 700,
+    fontSize: "12px",
+    borderRadius: "4px",
+    padding: "3px 8px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 1,
+  },
+  note: {
+    fontSize: "11px",
+    color: "#94a3b8",
+    fontStyle: "italic",
+    padding: "6px 2px 2px",
+  },
+};
+
+
+// ══════════════════════════════════════════════════════
+// BASIC FIELD COMPONENT
+// ══════════════════════════════════════════════════════
+
+function InputField({ label, unit, value, flex, minWidth, isYellow, onChange, placeholder, numeric }) {
+  return (
+    <div
+      style={{
+        ...S.fieldWrap,
+        flex: flex || "1 1 auto",
+        minWidth: minWidth || "80px",
+      }}
+    >
+      {label && (
+        <span style={S.fieldLabel}>
+          {label}
+          {unit && <span style={S.unitTag}>{unit}</span>}
+        </span>
+      )}
+      <input
+        type={numeric ? "number" : "text"}
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={S.input(isYellow)}
+        placeholder={placeholder || label}
+      />
+    </div>
+  );
+}
+
+function SelectField({ label, value, options = [], flex, minWidth, onChange }) {
+  return (
+    <div
+      style={{
+        ...S.fieldWrap,
+        flex: flex || "1 1 auto",
+        minWidth: minWidth || "90px",
+      }}
+    >
+      {label && <span style={S.fieldLabel}>{label}</span>}
+      <select
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={S.select}
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+
+// ══════════════════════════════════════════════════════
+// MAIN POWER TRUSS BRACES TASK COMPONENT
+// ══════════════════════════════════════════════════════
 
 export default function PowerTrussBracesTask({
   formData = {},
@@ -8,392 +200,429 @@ export default function PowerTrussBracesTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  roofs = [],
-  scaleValue,
-  realScale
+  activeJobNumber,
 }) {
-  const [trussLabel, setTrussLabel] = useState("T01");
-  const [trussType, setTrussType] = useState(TRUSS_TYPES.COMMON);
-  const [trussSpan, setTrussSpan] = useState("");
-  const [runLength, setRunLength] = useState("");
-  const [trussSpacing, setTrussSpacing] = useState(600);
-  const [trussPitch, setTrussPitch] = useState(22.5);
-  const [trussQty, setTrussQty] = useState(1);
-  const [bracingType, setBracingType] = useState("Pryda Speedbrace Galvanised Strap");
-  const [isSection1Open, setIsSection1Open] = useState(false);
+  const { user, currentJobId, currentProjectName } = useAppModel();
+
+  const [isSection1Open, setIsSection1Open] = useState(true);
   const [isSection2Open, setIsSection2Open] = useState(true);
 
-  const calcTrussTimber = (span, pitch) => {
-    const s = parseFloat(span) || 8.0;
-    const p = parseFloat(pitch) || 22.5;
-    const rad = (p * Math.PI) / 180;
-    const rafter = (s / 2) / Math.cos(rad);
-    const total = s + (2 * rafter) + (s * 0.85);
-    return total.toFixed(2);
-  };
+  // Draft input state matching screenshot
+  const [wallHeightDraft, setWallHeightDraft] = useState("");
+  const [lengthDraft, setLengthDraft] = useState("");
+  const [typeDraft, setTypeDraft] = useState("Column");
+  const [qtyDraft, setQtyDraft] = useState("1");
 
-  const handleAddTrussSchedule = () => {
-    const spanM = parseFloat(trussSpan) || (cadMetrics.buildingWidth || 8.5);
-    const qty = parseInt(trussQty, 10) || 1;
-    const spacingMm = parseInt(trussSpacing, 10) || 600;
-    const pitchDeg = parseFloat(trussPitch) || 22.5;
-    const singleTimber = parseFloat(calcTrussTimber(spanM, pitchDeg)) || 12.0;
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const loadedJobRef = useRef(null);
 
-    const newTruss = {
-      id: `truss_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      label: trussLabel || `T0${(entries || []).length + 1}`,
-      trussType: typeof trussType === "string" ? trussType : (trussType?.label || "Common"),
-      spanM: spanM.toFixed(1),
-      spacingMm,
-      quantity: qty,
-      pitchDeg,
-      totalTimberLm: (singleTimber * qty).toFixed(1),
-      speedbraceRolls: Math.max(1, Math.ceil(qty / 10)),
-      bracingType
+  const totalCount = (entries || []).length;
+
+  // ── Auto-load saved Power Truss Braces entries from DB if empty on job load ──
+  useEffect(() => {
+    let isCancelled = false;
+    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
+    if (entries && entries.length > 0) return;
+    if (loadedJobRef.current === target) return;
+    loadedJobRef.current = target;
+
+    async function loadFromDb() {
+      try {
+        const res = await ApiService.fetchPowerTrussJobs(target);
+        if (isCancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const loaded = res.data
+            .filter((r) => r.wall_height || r.length || r.type)
+            .map((r, idx) => ({
+              id: `ptb-${r.id || Date.now()}-${idx}`,
+              wallHeight: r.wall_height || r.wallHeight || "",
+              length: r.length || "",
+              type: r.type || "Column",
+              qty: r.qty != null ? Number(r.qty) : 1,
+            }));
+          if (loaded.length > 0 && onSetEntries) {
+            onSetEntries(loaded);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load Power Truss Braces data from DB:", err);
+      }
+    }
+
+    loadFromDb();
+    return () => { isCancelled = true; };
+  }, [activeJobNumber, currentProjectName, currentJobId, entries, onSetEntries]);
+
+  const handleAdd = () => {
+    const wh = String(wallHeightDraft || "").trim();
+    const len = String(lengthDraft || "").trim();
+    const t = typeDraft || "Column";
+    const q = parseFloat(qtyDraft) || 1;
+
+    if (!wh && !len) return;
+
+    const newEntry = {
+      id: `ptb-${Date.now()}`,
+      wallHeight: wh,
+      length: len,
+      type: t,
+      qty: q,
     };
 
     if (onSetEntries) {
-      onSetEntries(prev => [...(prev || []), newTruss]);
+      onSetEntries((prev) => [...(prev || []), newEntry]);
     }
 
-    setTrussSpan("");
-    setTrussQty(1);
-    const nextIdx = (entries || []).length + 2;
-    setTrussLabel(`T0${nextIdx}`);
+    // Reset draft fields
+    setWallHeightDraft("");
+    setLengthDraft("");
+    setTypeDraft("Column");
+    setQtyDraft("1");
   };
 
-  const handleAddManualTruss = () => {
-    const spanM = parseFloat(trussSpan) || (cadMetrics.buildingWidth || 8.5);
-    const runM = parseFloat(runLength) || (cadMetrics.buildingLength || 12.0);
-    const spacingMm = parseInt(trussSpacing, 10) || 600;
-    const pitchDeg = parseFloat(trussPitch) || 22.5;
-
-    const startPoint = { x: 100, y: 100 };
-    const endPoint = { x: 100 + spanM * 50, y: 100 };
-
-    const newTruss = TrussEngine.generateParallelTrussLayout({
-      startPoint,
-      endPoint,
-      spanM,
-      runLengthM: runM,
-      spacingMm,
-      pitchDeg,
-      trussType,
-      label: trussLabel || "T01"
-    });
-
+  const handleRemove = (id) => {
     if (onSetEntries) {
-      onSetEntries(prev => [...(prev || []), newTruss]);
+      onSetEntries((prev) => (prev || []).filter((e) => e.id !== id));
     }
-
-    setTrussSpan("");
-    setRunLength("");
+    if (editingId === id) {
+      setEditingId(null);
+      setEditData({});
+    }
   };
 
-  const handleAutoGenerateFromRoof = () => {
-    if (!roofs || roofs.length === 0) {
-      // Dùng kích thước CAD mặc định
-      const spanM = cadMetrics.buildingWidth || 8.5;
-      const runM = cadMetrics.buildingLength || 14.0;
-      const newTruss = TrussEngine.generateParallelTrussLayout({
-        startPoint: { x: 100, y: 100 },
-        endPoint: { x: 100 + spanM * 50, y: 100 },
-        spanM,
-        runLengthM: runM,
-        spacingMm: 600,
-        pitchDeg: 22.5,
-        trussType: TRUSS_TYPES.COMMON,
-        label: "T01 (Auto-Plan)"
-      });
-      if (onSetEntries) {
-        onSetEntries(prev => [...(prev || []), newTruss]);
-      }
-      return;
-    }
-
-    // Tự động sinh từ từng mái vẽ
-    roofs.forEach((roof, idx) => {
-      const generated = TrussEngine.generateTrussesFromRoof(roof, scaleValue, realScale);
-      if (generated) {
-        generated.label = `T0${idx + 1} (Roof ${roof.id ? String(roof.id).slice(-4) : idx + 1})`;
-        if (onSetEntries) {
-          onSetEntries(prev => [...(prev || []), generated]);
-        }
-      }
-    });
+  const handleStartEdit = (item) => {
+    setEditingId(item.id);
+    setEditData({ ...item });
   };
 
-  const handleRemoveEntry = (id) => {
-    if (onSetEntries) {
-      onSetEntries(prev => (prev || []).filter(e => e.id !== id));
+  const handleSaveEdit = () => {
+    if (onSetEntries && editingId) {
+      onSetEntries((prev) =>
+        (prev || []).map((e) => (e.id === editingId ? { ...e, ...editData } : e))
+      );
+    }
+    setEditingId(null);
+    setEditData({});
+  };
+
+  const handleSaveToDatabase = async () => {
+    if (!entries || entries.length === 0) return;
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const items = (entries || []).map((item) => ({
+        wall_height: item.wallHeight || item.wall_height || "",
+        length: item.length || "",
+        type: item.type || "Column",
+        qty: item.qty != null ? Number(item.qty) : 1,
+      }));
+
+      const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
+      const payload = {
+        user_update: user?.username || user?.name || "EZE0098",
+        jobs: [
+          {
+            id_job_hw: String(targetJob),
+            items,
+          },
+        ],
+      };
+
+      const res = await ApiService.savePowerTrussJobs(payload);
+      if (res && res.success) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3500);
+      } else {
+        alert(res?.detail || res?.message || "Could not save Power Truss Braces records to database.");
+      }
+    } catch (err) {
+      console.error("Save Power Truss Braces error:", err);
+      alert("Error saving Power Truss Braces to database: " + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {/* ── CARD 1: POWER TRUSS & SPEEDBRACE SETUP ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div
-          onClick={() => setIsSection1Open(!isSection1Open)}
-          style={{
-            padding: "10px 14px",
-            background: "#f8fafc",
-            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
-            fontWeight: "800",
-            fontSize: "13px",
-            color: "#0f2744",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            cursor: "pointer",
-            userSelect: "none"
-          }}
-        >
+
+      {/* ═══ CARD 1: POWER TRUSS BRACES SETUP ═══ */}
+      <div style={S.card}>
+        <div onClick={() => setIsSection1Open(!isSection1Open)} style={S.cardTitle}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>⚡ 1. Roof Truss & Speedbrace Setup</span>
+            <span>▶ 1. Power truss braces</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAutoGenerateFromRoof();
-              }}
-              style={{
-                padding: "4px 8px",
-                background: "#2563eb",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "10px",
-                fontWeight: "700",
-                cursor: "pointer"
-              }}
-              title="Auto-calculate truss span and spacing from Roof polygon"
-            >
-              ⚡ Auto From Roof
-            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
           </div>
         </div>
+
         {isSection1Open && (
-          <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-              <div>
-                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Truss Label</span>
-                <input
-                  type="text"
-                  value={trussLabel}
-                  onChange={(e) => setTrussLabel(e.target.value)}
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-              <div>
-                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Truss Type</span>
-                <select
-                  value={trussType}
-                  onChange={(e) => setTrussType(e.target.value)}
-                  className="task-field-select"
-                >
-                  <option value="common">Common Truss</option>
-                  <option value="girder">Girder Truss</option>
-                  <option value="gable">Gable End Truss</option>
-                  <option value="jack">Jack Truss</option>
-                  <option value="hip">Hip Truss</option>
-                  <option value="truncated">Truncated Girder</option>
-                </select>
-              </div>
+          <div style={{ padding: "12px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
+              {/* Wall Height */}
+              <InputField
+                label="Wall Height"
+                unit="mm"
+                value={wallHeightDraft}
+                isYellow={true}
+                flex="1.5 1 140px"
+                minWidth="120px"
+                onChange={setWallHeightDraft}
+                placeholder="Wall Height"
+              />
+
+              {/* Length */}
+              <InputField
+                label="Length"
+                unit="mm"
+                value={lengthDraft}
+                isYellow={true}
+                flex="1.5 1 140px"
+                minWidth="120px"
+                onChange={setLengthDraft}
+                placeholder="Length"
+              />
+
+              {/* Type */}
+              <SelectField
+                label="Type"
+                value={typeDraft}
+                options={POWER_TRUSS_TYPES}
+                flex="1.2 1 120px"
+                minWidth="100px"
+                onChange={setTypeDraft}
+              />
+
+              {/* Quantity Field */}
+              <InputField
+                label="Qty"
+                value={qtyDraft}
+                isYellow={true}
+                numeric={true}
+                flex="0.8 1 70px"
+                minWidth="60px"
+                onChange={setQtyDraft}
+                placeholder="1"
+              />
+
+              {/* Add Button */}
+              <button
+                type="button"
+                onClick={handleAdd}
+                style={{ ...S.addBtn, flex: "0 0 auto" }}
+              >
+                + Add Power Truss
+              </button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Span</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m</span>
-                </div>
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="e.g. 8.5"
-                  value={trussSpan}
-                  onChange={(e) => setTrussSpan(e.target.value)}
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Pitch</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>deg (°)</span>
-                </div>
-                <select
-                  value={trussPitch}
-                  onChange={(e) => setTrussPitch(e.target.value)}
-                  className="task-field-select"
-                >
-                  <option value="22.5">22.5° (Standard)</option>
-                  <option value="25.0">25.0°</option>
-                  <option value="15.0">15.0° (Low Pitch)</option>
-                  <option value="30.0">30.0° (Steep)</option>
-                </select>
-              </div>
+            <div style={S.note}>
+              Standard Power Truss Braces specification from Bunnings workbook.
             </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-              <div>
-                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Truss Spacing</span>
-                <select
-                  value={trussSpacing}
-                  onChange={(e) => setTrussSpacing(e.target.value)}
-                  className="task-field-select"
-                >
-                  <option value="600">600mm (Standard)</option>
-                  <option value="900">900mm</option>
-                  <option value="450">450mm</option>
-                  <option value="1200">1200mm</option>
-                </select>
-              </div>
-              <div>
-                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Quantity (Trusses)</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={trussQty}
-                  onChange={(e) => setTrussQty(e.target.value)}
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", padding: "6px 8px", borderRadius: "4px", border: "1px solid #e2e8f0" }}>
-              <span style={{ fontSize: "10.5px", color: "#334155", fontWeight: 700 }}>Est. Timber Length:</span>
-              <span style={{ fontSize: "11px", color: "var(--blue)", fontWeight: 800 }}>{calcTrussTimber(parseFloat(trussSpan) || 8.0, parseFloat(trussPitch) || 22.5)} m / truss</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleAddTrussSchedule}
-              style={{
-                padding: "4px 8px",
-                background: "#0f2744",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "5px",
-                fontSize: "12px",
-                fontWeight: "700",
-                cursor: "pointer",
-                marginTop: "4px"
-              }}
-            >
-              + Add Truss Schedule
-            </button>
           </div>
         )}
       </div>
 
-      {/* ── CARD 2: ENTERED TRUSS SCHEDULE ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div
-          style={{
-            padding: "10px 14px",
-            background: "#f8fafc",
-            borderBottom: "1px solid #e2e8f0",
-            fontWeight: "800",
-            fontSize: "13px",
-            color: "#0f2744",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between"
-          }}
-        >
-          <span>📋 2. Entered Truss Schedules ({(entries || []).length})</span>
-        </div>
-        <div style={{ padding: "8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
-            <thead>
-              <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                <th style={{ padding: "4px" }}>#</th>
-                <th style={{ padding: "4px" }}>Label</th>
-                <th style={{ padding: "4px" }}>Type</th>
-                <th style={{ padding: "4px" }}>Span</th>
-                <th style={{ padding: "4px" }}>Spacing</th>
-                <th style={{ padding: "4px" }}>Qty</th>
-                <th style={{ padding: "4px" }}>Timber (m)</th>
-                <th style={{ padding: "4px" }}>Brace</th>
-                <th style={{ padding: "4px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(entries || []).map((item, idx) => (
-                <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                  <td style={{ padding: "4px", fontWeight: 700 }}>{idx + 1}</td>
-                  <td style={{ padding: "4px", fontWeight: 600 }}>{item.label || `T0${idx + 1}`}</td>
-                  <td style={{ padding: "4px", textTransform: "capitalize" }}>{item.trussType || "Common"}</td>
-                  <td style={{ padding: "4px" }}>{item.spanM ? `${item.spanM}m` : "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.spacingMm ? `${item.spacingMm}mm` : "600mm"}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "#1e3a8a" }}>{item.quantity ? `${item.quantity} pcs` : "-"}</td>
-                  <td style={{ padding: "4px", fontWeight: 700, color: "var(--blue)" }}>{item.totalTimberLm ? `${item.totalTimberLm} m` : "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.speedbraceRolls ? `${item.speedbraceRolls} roll(s)` : "1 roll"}</td>
-                  <td style={{ padding: "4px", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleRemoveEntry(item.id)}
-                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {(!entries || entries.length === 0) && (
-                <tr>
-                  <td colSpan={9} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No truss schedules entered yet. Fill the form above or click '⚡ Auto From Roof'.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* ═══ CARD 2: ENTERED POWER TRUSS TABLE ═══ */}
+      <div style={S.card}>
+        <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
+          <span>▼ 2. Entered power truss braces {totalCount > 0 ? `(${totalCount})` : ""}</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
-        {entries && entries.length > 0 && (
+        {isSection2Open && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", tableLayout: "auto" }}>
+              <thead>
+                <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
+                  <th style={{ padding: "8px 12px", fontWeight: 700, fontSize: "11px", width: "36px", textAlign: "center" }}>#</th>
+                  <th style={{ padding: "8px 12px", fontWeight: 700, fontSize: "11px", minWidth: "130px" }}>Wall Height (mm)</th>
+                  <th style={{ padding: "8px 12px", fontWeight: 700, fontSize: "11px", minWidth: "130px" }}>Length (mm)</th>
+                  <th style={{ padding: "8px 12px", fontWeight: 700, fontSize: "11px", minWidth: "110px" }}>Type</th>
+                  <th style={{ padding: "8px 12px", fontWeight: 700, fontSize: "11px", width: "65px", textAlign: "center" }}>Qty</th>
+                  <th style={{ padding: "8px 12px", width: "70px", textAlign: "center" }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {totalCount === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: "12px" }}>
+                      No power truss braces entered.
+                    </td>
+                  </tr>
+                ) : (
+                  (entries || []).map((item, idx) => {
+                    const isEditing = editingId === item.id;
+                    const current = isEditing ? editData : item;
+
+                    if (isEditing) {
+                      return (
+                        <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}>
+                          <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                          <td style={{ padding: "6px 8px" }}>
+                            <input
+                              type="text"
+                              value={current.wallHeight || ""}
+                              onChange={(e) => setEditData({ ...current, wallHeight: e.target.value })}
+                              style={{ ...S.input(true), height: "30px", fontSize: "11px", padding: "4px 8px" }}
+                            />
+                          </td>
+                          <td style={{ padding: "6px 8px" }}>
+                            <input
+                              type="text"
+                              value={current.length || ""}
+                              onChange={(e) => setEditData({ ...current, length: e.target.value })}
+                              style={{ ...S.input(true), height: "30px", fontSize: "11px", padding: "4px 8px" }}
+                            />
+                          </td>
+                          <td style={{ padding: "6px 8px" }}>
+                            <select
+                              value={current.type || "Column"}
+                              onChange={(e) => setEditData({ ...current, type: e.target.value })}
+                              style={{ ...S.select, height: "30px", fontSize: "11px", padding: "4px 8px" }}
+                            >
+                              {POWER_TRUSS_TYPES.map((t) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                            <input
+                              type="number"
+                              value={current.qty || 1}
+                              onChange={(e) => setEditData({ ...current, qty: e.target.value })}
+                              style={{ ...S.input(true), minWidth: "45px", height: "30px", fontSize: "11px", textAlign: "center", padding: "4px 6px" }}
+                            />
+                          </td>
+                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                            <div style={{ display: "inline-flex", gap: "4px" }}>
+                              <button
+                                type="button"
+                                onClick={handleSaveEdit}
+                                style={{ ...S.editBtn, background: "#dcfce7", color: "#16a34a", borderColor: "#86efac" }}
+                                title="Save"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingId(null); setEditData({}); }}
+                                style={S.deleteBtn}
+                                title="Cancel"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr
+                        key={item.id || idx}
+                        style={{
+                          borderBottom: "1px solid #f1f5f9",
+                          background: idx % 2 === 0 ? "#ffffff" : "#f8fafc",
+                        }}
+                      >
+                        {/* # */}
+                        <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
+                          {idx + 1}
+                        </td>
+
+                        {/* Wall Height */}
+                        <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1e293b" }}>
+                          {item.wallHeight || item.wall_height || "—"}
+                        </td>
+
+                        {/* Length */}
+                        <td style={{ padding: "8px 12px", color: "#334155" }}>
+                          {item.length || "—"}
+                        </td>
+
+                        {/* Type */}
+                        <td style={{ padding: "8px 12px", fontWeight: 600, color: item.type === "Brace" ? "#d97706" : "#2563eb" }}>
+                          {item.type || "Column"}
+                        </td>
+
+                        {/* Qty */}
+                        <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
+                          {item.qty || 1}
+                        </td>
+
+                        {/* Action Buttons */}
+                        <td style={{ padding: "8px 12px", textAlign: "center", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "inline-flex", gap: "5px", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(item)}
+                              style={S.editBtn}
+                              title="Edit power truss"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemove(item.id)}
+                              style={S.deleteBtn}
+                              title="Delete power truss"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Footer: Save to Database */}
+        {totalCount > 0 && (
           <div style={{
-            padding: "8px 12px",
+            padding: "10px 14px",
             background: "#f8fafc",
             borderTop: "1px solid #e2e8f0",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "8px"
           }}>
-            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {entries.length} {entries.length === 1 ? "truss item" : "truss items"} calculated
+            <span style={{ fontSize: "12px", color: "#475569", fontWeight: 600 }}>
+              {totalCount} {totalCount === 1 ? "power truss item" : "power truss items"} calculated
             </span>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  alert(`Saved truss schedules data (${entries.length} items)`);
-                }}
-                style={{
-                  padding: "4px 8px",
-                  background: "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
-                }}
-              >
-                💾 Save
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleSaveToDatabase}
+              disabled={isSaving}
+              style={{
+                padding: "8px 20px",
+                background: saveSuccess ? "#059669" : (isSaving ? "#64748b" : "#0f2744"),
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: isSaving ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                transition: "background 0.2s ease",
+              }}
+            >
+              {isSaving ? "⏳ Saving..." : saveSuccess ? "✅ Saved to DB!" : "💾 Save"}
+            </button>
           </div>
         )}
       </div>
