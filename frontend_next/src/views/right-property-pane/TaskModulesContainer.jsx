@@ -34,6 +34,7 @@ export default function TaskModulesContainer({
   PowerTrussBracesTask,
   FinalFitTask,
   SheetScheduleTask,
+  HardiesFireWallsTask,
   // Entry States & Setters
   frameWallEntries,
   handleSetFrameWallEntries,
@@ -55,6 +56,8 @@ export default function TaskModulesContainer({
   setFixoutDoorEntries,
   lockupEntries,
   handleSetLockupEntries,
+  hardiesFireWallEntries,
+  handleSetHardiesFireWallEntries,
   // Selection Props
   selectedWall,
   selectedWallIds,
@@ -440,6 +443,24 @@ export default function TaskModulesContainer({
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
           onAddDataAI={handleAddDataAI}
+        />
+      )}
+
+      {/* 16. Hardies Fire Walls */}
+      {activeModuleTab.id === "hardies_fire_walls" && HardiesFireWallsTask && (
+        <HardiesFireWallsTask
+          formData={moduleFormData.hardies_fire_walls || {}}
+          onChange={handleModuleFormChange}
+          cadMetrics={cadMetrics}
+          entries={hardiesFireWallEntries}
+          onSetEntries={handleSetHardiesFireWallEntries}
+          onAddDataAI={handleAddDataAI}
+          onSelectEntry={handleSelectEntry}
+          activeJobNumber={currentProjectName || currentJobId}
+          selectedWall={selectedWall}
+          selectedWallIds={selectedWallIds}
+          selectedId={selectedId}
+          selectedType={selectedType}
         />
       )}
     </div>

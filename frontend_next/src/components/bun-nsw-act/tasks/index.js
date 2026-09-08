@@ -13,3 +13,4 @@ export { default as FowPlumbingTask } from "./FowPlumbingTask";
 export { default as FixoutTask } from "./FixoutTask";
 export { default as FinalFitTask } from "./FinalFitTask";
 export { default as SheetScheduleTask } from "./SheetScheduleTask";
+export { default as HardiesFireWallsTask } from "./HardiesFireWallsTask";

@@ -25,7 +25,8 @@ export const CUSTOMER_TASK_PACKS = {
       "shelving",
       "timber_posts",
       "fow_plumbing",
-      "power_truss_braces"
+      "power_truss_braces",
+      "hardies_fire_walls"
     ],
     tasks: BunNswActTasks
   },
@@ -570,6 +571,17 @@ export const EXTRA_MODULE_TABS = [
         <polyline points="10 9 9 9 8 9" />
       </svg>
     )
+  },
+  {
+    id: "hardies_fire_walls",
+    label: "Fire Wall",
+    title: "Hardies Fire Walls",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M12 2c1.5 3 4 4.5 4 8a6 6 0 1 1-12 0c0-3.5 2.5-5 4-8 1 2 2 3 4 0z" />
+        <path d="M12 14v4M10 16h4" />
+      </svg>
+    )
   }
 ];
 
@@ -612,7 +624,7 @@ export const KATHERINE_STEP_TO_MODULE = {
   10: "timber_posts",
   11: "fow_plumbing",
   12: "power_truss_braces",
-  13: null, // Hardies Fire Walls — module pending
+  13: "hardies_fire_walls",
 };
 
 export const KATHERINE_STANDARD_MODULE_IDS = [
@@ -627,7 +639,8 @@ export const KATHERINE_STANDARD_MODULE_IDS = [
   "shelving",
   "timber_posts",
   "fow_plumbing",
-  "power_truss_braces"
+  "power_truss_braces",
+  "hardies_fire_walls"
 ];
 
 export function normalizeCustomerKey(value) {
@@ -762,7 +775,17 @@ export const MODULE_KEY_MAP = {
   "sheet-schedule": "sheet_schedule",
   "sheets": "sheet_schedule",
   "plasterboard": "sheet_schedule",
-  "gyprock": "sheet_schedule"
+  "gyprock": "sheet_schedule",
+  "hardies_fire_walls": "hardies_fire_walls",
+  "hardies fire walls": "hardies_fire_walls",
+  "hardies_fire_wall": "hardies_fire_walls",
+  "hardies fire wall": "hardies_fire_walls",
+  "fire wall": "hardies_fire_walls",
+  "fire walls": "hardies_fire_walls",
+  "firewall": "hardies_fire_walls",
+  "firewalls": "hardies_fire_walls",
+  "hardiefire": "hardies_fire_walls",
+  "hardie fire": "hardies_fire_walls"
 };
 
 export function normalizeModuleId(rawStr) {
@@ -782,17 +805,19 @@ export function isSubtaskChecked(item) {
   if (typeof item === "string") return true;
   if (typeof item !== "object") return false;
 
-  // Explicit false/0 flags
-  if (item.checked === false || item.checked === 0 || item.checked === "false" || item.checked === "0") return false;
-  if (item.enabled === false || item.enabled === 0 || item.enabled === "false" || item.enabled === "0") return false;
-  if (item.selected === false || item.selected === 0 || item.selected === "false" || item.selected === "0") return false;
-  if (item.is_selected === false || item.is_selected === 0 || item.is_selected === "false" || item.is_selected === "0") return false;
-  if (item.is_checked === false || item.is_checked === 0 || item.is_checked === "false" || item.is_checked === "0") return false;
-  if (item.active === false || item.active === 0 || item.active === "false" || item.active === "0") return false;
+  // Selection and work progress are different concepts. A selected TaskList
+  // row normally starts at 0%, so percent/progress must never disable it.
+  const selectionFlags = [
+    "is_visible", "checked", "enabled", "selected", "is_selected",
+    "is_checked", "active"
+  ];
+  for (const flag of selectionFlags) {
+    if (!Object.prototype.hasOwnProperty.call(item, flag)) continue;
+    const value = item[flag];
+    if (value === false || value === 0 || value === "false" || value === "0") return false;
+    if (value === true || value === 1 || value === "true" || value === "1") return true;
+  }
   if (item.status === false || item.status === 0 || item.status === "0" || item.status === "false" || item.status === "inactive" || item.status === "unchecked") return false;
-  if (typeof item.percent === "number" && item.percent === 0) return false;
-  if (typeof item.percentage === "number" && item.percentage === 0) return false;
-  if (typeof item.progress === "number" && item.progress === 0 && item.checked === undefined && item.status === undefined) return false;
 
   return true;
 }
@@ -810,15 +835,16 @@ export function resolveTaskModules(taskContext) {
       }
       return null;
     }).filter(Boolean);
-    return list.length > 0 ? Array.from(new Set(list)) : null;
+    // An array is an explicit selection container; [] means select none.
+    return Array.from(new Set(list));
   }
 
   if (typeof taskContext === "string") {
     try {
       const parsed = JSON.parse(taskContext);
-      if (parsed) {
+      if (parsed !== null) {
         const res = resolveTaskModules(parsed);
-        if (res && res.length > 0) return res;
+        if (res !== null) return res;
       }
     } catch (_) { }
     const items = taskContext.split(/[,;|]/).map(s => normalizeModuleId(s)).filter(Boolean);
@@ -831,11 +857,12 @@ export function resolveTaskModules(taskContext) {
       "subtasks", "tasks", "items", "scopes", "task_list", "checklist", "active_modules", "data"
     ];
     for (const f of candidateFields) {
-      if (taskContext[f]) {
+      if (Object.prototype.hasOwnProperty.call(taskContext, f) && taskContext[f] !== null && taskContext[f] !== undefined) {
         const res = resolveTaskModules(taskContext[f]);
-        if (res && res.length > 0) return res;
+        if (res !== null) return res;
       }
     }
+    if (taskContext.task_modules_configured === true) return [];
     const matched = [];
     for (const [k, v] of Object.entries(taskContext)) {
       if (v === true || v === 1 || v === "1" || v === "true" || (typeof v === "object" && isSubtaskChecked(v))) {
@@ -860,8 +887,13 @@ export function getInitialEnabledModules(customerKey = null) {
         const emsNum = String(pendingJob?.job_number || pendingJob?.hw_id || pendingJob?.id_job_ems || "").trim().toLowerCase();
         const activeName = activeProjName.trim().toLowerCase();
         const isMatch = !activeName || !emsNum || emsNum === activeName || activeName.startsWith(emsNum) || emsNum.startsWith(activeName);
-        if (isMatch && Array.isArray(pendingJob?.task_modules)) {
-          return pendingJob.task_modules;
+        if (isMatch) {
+          if (pendingJob.task_modules_configured === true && Array.isArray(pendingJob.selected_modules)) {
+            return pendingJob.selected_modules;
+          }
+          if (Array.isArray(pendingJob?.task_modules)) {
+            return pendingJob.task_modules;
+          }
         }
       }
     } catch (_) { }

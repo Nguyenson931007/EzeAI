@@ -23,8 +23,7 @@ router = APIRouter()
 
 # ── Katherine (EZE0098) standard HW contract ──
 # Cairns keeps its existing separate workflow. Every other Katherine customer
-# uses the common 13-step contract. Step 13 has no EzeFloor form yet, so it is
-# returned in selected_steps but intentionally has no task_modules mapping.
+# uses the common 13-step contract.
 KATHERINE_STANDARD_STEPS = {
     1: "Cladding",
     2: "Eaves Soffit",
@@ -54,11 +53,96 @@ KATHERINE_STEP_TO_MODULE = {
     10: "timber_posts",
     11: "fow_plumbing",
     12: "power_truss_braces",
-    13: None,
+    13: "hardies_fire_walls",
 }
+
+TASKLIST_STEP_MODULE_IDS = KATHERINE_STEP_TO_MODULE
 
 def _is_cairns_customer(customer: str) -> bool:
     return "CAIRNS" in str(customer or "").strip().upper()
+
+
+def _load_tasklist_module_selections(hw_ids):
+    """Read explicit TaskList module visibility for several HW groups.
+
+    This helper is deliberately read-only. A group is considered configured
+    only when at least one step has a non-NULL ``is_visible`` value. Older
+    groups whose visibility has never been configured therefore keep the
+    frontend's legacy fallback instead of being interpreted as "select none".
+    """
+    normalized_ids = []
+    seen_ids = set()
+    for value in hw_ids or []:
+        key = str(value or "").strip()
+        if key and key not in seen_ids:
+            seen_ids.add(key)
+            normalized_ids.append(key)
+
+    if not normalized_ids:
+        return {}
+
+    from app.mssql_db import get_mssql_connection
+
+    selections = {}
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+
+        # Stay safely below SQL Server's 2,100 parameter limit.
+        for start in range(0, len(normalized_ids), 500):
+            batch = normalized_ids[start:start + 500]
+            placeholders = ", ".join(["%s"] * len(batch))
+            cursor.execute(
+                f"""
+                SELECT
+                    CAST(steps.task_group_hw_id AS nvarchar(100)) AS hw_id,
+                    steps.step_number,
+                    steps.is_visible
+                FROM [emsflow].[dbo].[task_group_hw_steps] steps WITH (NOLOCK)
+                WHERE steps.task_group_hw_id IN ({placeholders})
+                  AND steps.step_number BETWEEN 1 AND 13
+                ORDER BY steps.task_group_hw_id, steps.step_number
+                """,
+                tuple(batch),
+            )
+
+            for row in cursor.fetchall():
+                hw_id = str(row.get("hw_id") or "").strip()
+                if not hw_id:
+                    continue
+                entry = selections.setdefault(hw_id, {
+                    "configured": False,
+                    "selected_modules": [],
+                    "_step_numbers": set(),
+                })
+                step_number = int(row.get("step_number") or 0)
+                entry["_step_numbers"].add(step_number)
+                is_visible = row.get("is_visible")
+                if is_visible is not None:
+                    entry["configured"] = True
+                if is_visible in (True, 1, "1"):
+                    module_id = TASKLIST_STEP_MODULE_IDS.get(step_number)
+                    if module_id and module_id not in entry["selected_modules"]:
+                        entry["selected_modules"].append(module_id)
+    except Exception as exc:
+        # Selection sync must not make the whole job list unavailable on an
+        # older TaskList schema. The frontend will use its legacy fallback.
+        logger.warning("[task-selection] Không thể đọc task_group_hw_steps: %s", exc)
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+    # Other TaskList managers use unrelated 1-3 step contracts. Only interpret
+    # the standard HW contract, which contains step 12 or 13, with the mapping above.
+    for entry in selections.values():
+        steps_present = entry.pop("_step_numbers", set())
+        if 12 not in steps_present and 13 not in steps_present:
+            entry["configured"] = False
+            entry["selected_modules"] = []
+
+    return selections
 
 # ── Pydantic Schemas (Mô hình dữ liệu đầu vào và đầu ra) ──
 
@@ -512,6 +596,20 @@ async def get_tasklist_jobs(
                 "total_area": item.get("total_area")
             } if has_local else None
         })
+
+    # Read current TaskList visibility directly so selection outside remains
+    # in sync when the same job is opened in EzeFloor.
+    module_selections = _load_tasklist_module_selections(
+        [item.get("hw_id") for item in results]
+    )
+    for item in results:
+        selection = module_selections.get(str(item.get("hw_id") or ""))
+        configured = bool(selection and selection.get("configured"))
+        selected_modules = list(selection.get("selected_modules") or []) if configured else None
+        item["task_modules_configured"] = configured
+        item["selected_modules"] = selected_modules
+        item["task_modules"] = selected_modules
+        item["selected_task_count"] = len(selected_modules) if configured else None
 
     return {
         "status": "success",
@@ -1025,70 +1123,15 @@ async def get_job_by_ems_id(ems_id: str):
         result["manager_code"] = manager_code
         result["customer"] = customer
 
-        # Query task_group_hw_steps for any job that has configured task steps
-        try:
-            cursor.execute(
-                """
-                SELECT step_number, is_visible
-                FROM [emsflow].[dbo].[task_group_hw_steps]
-                WHERE task_group_hw_id = %s
-                ORDER BY step_number ASC
-                """,
-                (result.get("hw_id"),)
-            )
-            step_rows = cursor.fetchall() or []
-
-            if len(step_rows) > 0:
-                selected_steps = [
-                    int(r.get("step_number"))
-                    for r in step_rows
-                    if r.get("is_visible")
-                    and int(r.get("step_number") or 0) in KATHERINE_STANDARD_STEPS
-                ]
-                task_modules = []
-                selected_modules = []
-                for step_number in selected_steps:
-                    module_id = KATHERINE_STEP_TO_MODULE.get(step_number)
-                    task_name = KATHERINE_STANDARD_STEPS.get(step_number, "")
-                    if module_id and module_id not in task_modules:
-                        task_modules.append(module_id)
-                    selected_modules.append({
-                        "step_number": step_number,
-                        "task_name": task_name,
-                        "module_id": module_id,
-                        "is_visible": True
-                    })
-
-                # Query succeeded => authoritative response
-                result["task_modules_configured"] = True
-                result["selected_task_count"] = len(selected_steps)
-                result["selected_modules"] = selected_modules
-                result["selected_steps"] = selected_steps
-                result["selected_task_names"] = [KATHERINE_STANDARD_STEPS[n] for n in selected_steps]
-                result["task_modules"] = task_modules
-                result["unmapped_steps"] = [
-                    n for n in selected_steps if KATHERINE_STEP_TO_MODULE.get(n) is None
-                ]
-            else:
-                result["task_modules_configured"] = False
-                result["selected_task_count"] = 0
-                result["selected_modules"] = []
-                result["selected_steps"] = None
-                result["selected_task_names"] = None
-                result["task_modules"] = None
-                result["unmapped_steps"] = None
-        except Exception as step_err:
-            logger.error(f"[open-by-ems] Lỗi truy vấn task_group_hw_steps: {step_err}")
-            result["task_modules_configured"] = False
-            result["selected_task_count"] = 0
-            result["selected_modules"] = []
-            result["selected_steps"] = None
-            result["selected_task_names"] = None
-            result["task_modules"] = None
-            result["unmapped_steps"] = None
-            result["selected_task_names"] = None
-            result["task_modules"] = None
-            result["unmapped_steps"] = None
+        # Load TaskList module selections for this job
+        module_selections = _load_tasklist_module_selections([result.get("hw_id")])
+        selection = module_selections.get(str(result.get("hw_id") or ""))
+        configured = bool(selection and selection.get("configured"))
+        selected_modules = list(selection.get("selected_modules") or []) if configured else None
+        result["task_modules_configured"] = configured
+        result["selected_modules"] = selected_modules
+        result["task_modules"] = selected_modules
+        result["selected_task_count"] = len(selected_modules) if configured else None
 
         # Tra cứu xem trong CSDL bản vẽ nội bộ (SQLite/MySQL) đã có project nào lưu theo job_number chưa
         local_job = None

@@ -576,18 +576,16 @@ export default function App() {
           console.warn("[SSO] Không thể lưu pendingEmsJob vào Storage:", storageErr);
         }
 
-        const authoritativeModules = Array.isArray(jobInfo.task_modules)
-          ? jobInfo.task_modules
-          : (Array.isArray(jobInfo.selected_modules)
-            ? jobInfo.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
-            : null);
-
-        if (Array.isArray(authoritativeModules)) {
-          const authStr = JSON.stringify(authoritativeModules);
-          try {
-            sessionStorage.setItem("selectedModules", authStr);
-            localStorage.removeItem("selectedModules");
-          } catch (_) {}
+        // Use the exact TaskList "Sheets to work" selection returned by the
+        // backend. Persist [] as a valid selection and clear data left by a
+        // previously opened job when this job has no explicit configuration.
+        if (jobInfo.task_modules_configured === true && Array.isArray(jobInfo.selected_modules)) {
+          const serializedModules = JSON.stringify(jobInfo.selected_modules);
+          sessionStorage.setItem("selectedModules", serializedModules);
+          try { localStorage.setItem("selectedModules", serializedModules); } catch (_) {}
+        } else {
+          sessionStorage.removeItem("selectedModules");
+          try { localStorage.removeItem("selectedModules"); } catch (_) {}
         }
 
         if (typeof window !== "undefined") {

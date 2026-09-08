@@ -373,7 +373,8 @@ export default function RightPropertyPaneView({
       FowPlumbingTask: pack.FowPlumbingTask || fallback.FowPlumbingTask || fallback2.FowPlumbingTask,
       PowerTrussBracesTask: pack.PowerTrussBracesTask || fallback.PowerTrussBracesTask || fallback2.PowerTrussBracesTask,
       FinalFitTask: pack.FinalFitTask || fallback.FinalFitTask || fallback2.FinalFitTask,
-      SheetScheduleTask: pack.SheetScheduleTask || fallback.SheetScheduleTask || fallback2.SheetScheduleTask
+      SheetScheduleTask: pack.SheetScheduleTask || fallback.SheetScheduleTask || fallback2.SheetScheduleTask,
+      HardiesFireWallsTask: pack.HardiesFireWallsTask || fallback.HardiesFireWallsTask || fallback2.HardiesFireWallsTask
     };
   }, [selectedCustomerClient]);
 
@@ -392,7 +393,8 @@ export default function RightPropertyPaneView({
     FowPlumbingTask,
     PowerTrussBracesTask,
     FinalFitTask,
-    SheetScheduleTask
+    SheetScheduleTask,
+    HardiesFireWallsTask
   } = activeCustomerTasks;
 
   // Dynamic sync: pending EMS customer is authoritative; module state is always
@@ -524,7 +526,8 @@ export default function RightPropertyPaneView({
     doors_furniture: { category: "", finish: "", dimensions: "", quantity: "1" },
     timber_posts: { location: "", timber_size: "", height: "2700", quantity: "1" },
     fow_plumbing: { fixture: "", pipe_spec: "", length: "", count: "1" },
-    power_truss_braces: { truss_area: "", brace_type: "", length: "", hardware: "" }
+    power_truss_braces: { truss_area: "", brace_type: "", length: "", hardware: "" },
+    hardies_fire_walls: { location: "", wall_length: "", wall_height: "2.70", system_type: "", lining_spec: "" }
   });
 
   const [aiGeneratedSuccess, setAiGeneratedSuccess] = React.useState(null);
@@ -2713,6 +2716,10 @@ export default function RightPropertyPaneView({
   }, [activePaneTab, currentPage, doors, doorsByPageProp]);
 
   const [trussEntries, setTrussEntries] = React.useState([]);
+  const [hardiesFireWallEntries, setHardiesFireWallEntries] = React.useState([]);
+  const handleSetHardiesFireWallEntries = React.useCallback((actionOrEntries) => {
+    setHardiesFireWallEntries(prev => (typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries));
+  }, []);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
   const [lckReveal, setLckReveal] = React.useState("100mm Timber Reveal");
@@ -3994,6 +4001,7 @@ export default function RightPropertyPaneView({
           PowerTrussBracesTask={PowerTrussBracesTask}
           FinalFitTask={FinalFitTask}
           SheetScheduleTask={SheetScheduleTask}
+          HardiesFireWallsTask={HardiesFireWallsTask}
           frameWallEntries={frameWallEntries}
           handleSetFrameWallEntries={handleSetFrameWallEntries}
           eavesEntries={eavesEntries}
@@ -4014,6 +4022,8 @@ export default function RightPropertyPaneView({
           setFixoutDoorEntries={setFixoutDoorEntries}
           lockupEntries={lockupEntries}
           handleSetLockupEntries={handleSetLockupEntries}
+          hardiesFireWallEntries={hardiesFireWallEntries}
+          handleSetHardiesFireWallEntries={handleSetHardiesFireWallEntries}
           selectedWall={selectedWall}
           selectedWallIds={selectedWallIds}
           selectedDoor={selectedDoor}
