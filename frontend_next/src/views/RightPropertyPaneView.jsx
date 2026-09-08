@@ -1437,8 +1437,20 @@ export default function RightPropertyPaneView({
       }
     }
 
-    // Lưu thông tin pendingEmsJob vào sessionStorage để đồng bộ SQL
-    sessionStorage.setItem("pendingEmsJob", JSON.stringify(currentTask));
+    // Lưu thông tin pendingEmsJob vào sessionStorage để đồng bộ SQL (loại bỏ data bản vẽ nặng)
+    try {
+      const { local_job, ...metaWithoutDrawing } = currentTask;
+      const cleanTaskMeta = {
+        ...metaWithoutDrawing,
+        local_job: local_job ? {
+          id: local_job.id,
+          project_name: local_job.project_name,
+          room_count: local_job.room_count,
+          total_area: local_job.total_area
+        } : null
+      };
+      sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta));
+    } catch (_) {}
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: currentTask }));
     }

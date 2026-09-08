@@ -144,8 +144,19 @@ export const ApiService = {
       if (typeof window !== "undefined" && result?.status === "success" && result?.data) {
         try {
           const jobInfo = result.data;
-          sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
-          localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+          const { local_job, ...metaWithoutDrawing } = jobInfo;
+          const cleanJobMeta = {
+            ...metaWithoutDrawing,
+            local_job: local_job ? {
+              id: local_job.id,
+              project_name: local_job.project_name,
+              room_count: local_job.room_count,
+              total_area: local_job.total_area
+            } : null
+          };
+          const metaStr = JSON.stringify(cleanJobMeta);
+          sessionStorage.setItem("pendingEmsJob", metaStr);
+          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) {}
           const authoritativeModules = Array.isArray(jobInfo.task_modules)
             ? jobInfo.task_modules
             : (Array.isArray(jobInfo.selected_modules)
@@ -156,7 +167,7 @@ export const ApiService = {
             sessionStorage.setItem("selectedModules", authStr);
             try { localStorage.removeItem("selectedModules"); } catch (_) {}
           }
-          window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: jobInfo }));
+          window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: cleanJobMeta }));
         } catch (_) {}
       }
       return result;

@@ -554,9 +554,24 @@ export default function App() {
         const jobInfo = emsResult.data;
         console.log("[SSO] Thông tin Job nhận được:", jobInfo);
 
-        // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
-        sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
-        localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+        // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng (bỏ data bản vẽ nặng để không vượt 5MB quota)
+        try {
+          const { local_job, ...metaWithoutDrawing } = jobInfo;
+          const cleanJobMeta = {
+            ...metaWithoutDrawing,
+            local_job: local_job ? {
+              id: local_job.id,
+              project_name: local_job.project_name,
+              room_count: local_job.room_count,
+              total_area: local_job.total_area
+            } : null
+          };
+          const metaStr = JSON.stringify(cleanJobMeta);
+          sessionStorage.setItem("pendingEmsJob", metaStr);
+          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) {}
+        } catch (storageErr) {
+          console.warn("[SSO] Không thể lưu pendingEmsJob vào Storage:", storageErr);
+        }
 
         const authoritativeModules = Array.isArray(jobInfo.task_modules)
           ? jobInfo.task_modules
@@ -566,8 +581,10 @@ export default function App() {
 
         if (Array.isArray(authoritativeModules)) {
           const authStr = JSON.stringify(authoritativeModules);
-          sessionStorage.setItem("selectedModules", authStr);
-          try { localStorage.removeItem("selectedModules"); } catch (_) {}
+          try {
+            sessionStorage.setItem("selectedModules", authStr);
+            localStorage.removeItem("selectedModules");
+          } catch (_) {}
         }
 
         if (typeof window !== "undefined") {
