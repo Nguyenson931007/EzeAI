@@ -5,7 +5,7 @@ Module xử lý xác thực người dùng (Authentication), quản lý phiên l
 và cơ chế bảo mật (như chống Brute Force, Khóa tài khoản và gửi Email thông báo).
 """
 
-from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header, Request, Query
+from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header, Request, Query, Body
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, Tuple
@@ -255,9 +255,9 @@ def get_mssql_account_user(username_or_manv: str):
             LEFT JOIN dbo.NhanVien nv ON a.MaNV = nv.MaNV 
             LEFT JOIN dbo.roles r_nv ON nv.MaChucVu = r_nv.id 
             LEFT JOIN dbo.roles r_acc ON a.IsManagement = r_acc.id 
-            WHERE a.UserID = %s OR a.MaNV = %s
+            WHERE a.UserID = %s OR a.MaNV = %s OR CAST(a.ID AS VARCHAR) = %s
         """
-        cursor.execute(query, (username_or_manv, username_or_manv))
+        cursor.execute(query, (username_or_manv, username_or_manv, username_or_manv))
         row = cursor.fetchone()
         conn.close()
         return row
@@ -697,8 +697,7 @@ def validate_session(
     finally:
         conn.close()
 
-@router.post("/api/auth/tasklist-sso")
-def _execute_tasklist_sso(token: Optional[str], raw_username_param: Optional[str] = None):
+def _execute_tasklist_sso(token: Optional[str] = None, raw_username_param: Optional[str] = None):
     """
     Xử lý logic lõi SSO: xác thực token Tasklist hoặc username, trích xuất thông tin
     người dùng từ MSSQL, và đồng bộ session vào cơ sở dữ liệu SQLite cục bộ.
@@ -715,49 +714,49 @@ def _execute_tasklist_sso(token: Optional[str], raw_username_param: Optional[str
     user_data = None
 
     if token and token != "direct_url":
-        # 1. Thử xác thực qua các endpoint máy chủ Tasklist khả dụng
-        candidate_urls = [
-            TASKLIST_AUTH_URL,
-            "http://14.241.197.188:7749/api/auth/me",
-            "http://14.241.197.188:5000/api/auth/me",
-            "https://103.77.167.69:8081/api/auth/me",
-            "http://14.241.197.188:8081/api/auth/me",
-            "http://127.0.0.1:5000/api/auth/me",
-            "http://127.0.0.1:7749/api/auth/me",
-        ]
-        seen = set()
-        urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
+        # 1. Giải mã trực tiếp JWT payload trước (nếu token là JWT) để phản hồi tức thì (< 1ms)
+        try:
+            parts = token.strip().split(".")
+            if len(parts) >= 2:
+                padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                decoded_bytes = base64.urlsafe_b64decode(padded.encode("utf-8"))
+                jwt_payload = json.loads(decoded_bytes.decode("utf-8"))
+                if isinstance(jwt_payload, dict) and any(k in jwt_payload for k in ["ma_nv", "manv", "MaNV", "username", "UserID", "user_id", "sub", "email", "id", "name"]):
+                    user_data = jwt_payload
+                    logger.info(f"[SSO] Giải mã trực tiếp Tasklist JWT token thành công: {jwt_payload}")
+        except Exception as jwt_err:
+            logger.debug(f"[SSO] Không thể parse JWT payload: {jwt_err}")
 
-        for url in urls_to_try:
-            try:
-                with httpx.Client(verify=False, timeout=3.0) as client:
-                    res = client.get(
-                        url,
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if res.status_code == 200:
-                        res_json = res.json()
-                        user_data = res_json.get("data") or res_json
-                        logger.info(f"[SSO] Xác thực Tasklist thành công qua endpoint: {url}")
-                        break
-            except Exception:
-                continue
-
-        # 2. Nếu API không phản hồi hoặc token là JWT tự sinh từ Tasklist -> Giải mã JWT Payload trực tiếp
+        # 2. Nếu chưa có user_data, thử xác thực qua các endpoint máy chủ Tasklist khả dụng
         if not user_data:
-            try:
-                parts = token.strip().split(".")
-                if len(parts) >= 2:
-                    padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
-                    decoded_bytes = base64.urlsafe_b64decode(padded.encode("utf-8"))
-                    jwt_payload = json.loads(decoded_bytes.decode("utf-8"))
-                    if isinstance(jwt_payload, dict) and any(k in jwt_payload for k in ["ma_nv", "manv", "MaNV", "username", "UserID", "user_id", "sub", "email"]):
-                        user_data = jwt_payload
-                        logger.info("[SSO] Giải mã trực tiếp Tasklist JWT token thành công.")
-            except Exception as jwt_err:
-                logger.debug(f"[SSO] Không thể parse JWT payload: {jwt_err}")
+            candidate_urls = [
+                TASKLIST_AUTH_URL,
+                "http://14.241.197.188:7749/api/auth/me",
+                "http://14.241.197.188:5000/api/auth/me",
+                "https://103.77.167.69:8081/api/auth/me",
+                "http://14.241.197.188:8081/api/auth/me",
+                "http://127.0.0.1:5000/api/auth/me",
+                "http://127.0.0.1:7749/api/auth/me",
+            ]
+            seen = set()
+            urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
 
-    # 3. Fallback khi không có token nhưng có username trực tiếp
+            for url in urls_to_try:
+                try:
+                    with httpx.Client(verify=False, timeout=1.5) as client:
+                        res = client.get(
+                            url,
+                            headers={"Authorization": f"Bearer {token}"}
+                        )
+                        if res.status_code == 200:
+                            res_json = res.json()
+                            user_data = res_json.get("data") or res_json
+                            logger.info(f"[SSO] Xác thực Tasklist thành công qua endpoint: {url}")
+                            break
+                except Exception:
+                    continue
+
+    # 3. Fallback khi không có token hoặc token không chứa claims nhưng có username từ caller
     if not user_data and raw_username_param:
         user_data = {"username": raw_username_param, "ma_nv": raw_username_param}
 
@@ -767,13 +766,18 @@ def _execute_tasklist_sso(token: Optional[str], raw_username_param: Optional[str
 
     # 4. Trích xuất thông tin user từ Tasklist / MSSQL
     manv = str(user_data.get("ma_nv") or user_data.get("manv") or user_data.get("MaNV") or "").strip()
-    raw_username = str(user_data.get("username") or user_data.get("UserID") or user_data.get("user_id") or user_data.get("sub") or "").strip()
+    raw_username = str(user_data.get("username") or user_data.get("UserID") or user_data.get("user_id") or user_data.get("sub") or user_data.get("name") or "").strip()
+    user_id_val = str(user_data.get("id") or "").strip()
 
     mssql_user = None
     if manv:
         mssql_user = get_mssql_account_user(manv)
     if not mssql_user and raw_username:
         mssql_user = get_mssql_account_user(raw_username)
+    if not mssql_user and user_id_val:
+        mssql_user = get_mssql_account_user(user_id_val)
+    if not mssql_user and raw_username_param:
+        mssql_user = get_mssql_account_user(raw_username_param)
 
     bophanlogin = ""
     if mssql_user:
@@ -834,13 +838,34 @@ def _execute_tasklist_sso(token: Optional[str], raw_username_param: Optional[str
 
 @router.post("/api/auth/tasklist-sso")
 @router.post("/tasklist-sso")
-async def tasklist_sso(payload: dict, response: Response):
+async def tasklist_sso(
+    request: Request,
+    response: Response,
+    payload: Optional[dict] = Body(default=None),
+    token: Optional[str] = Query(None),
+    username: Optional[str] = Query(None)
+):
     """
-    Xác thực đăng nhập một lần (SSO) từ TaskList Web3 qua POST payload.
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3 qua POST payload hoặc query params.
     """
-    token = payload.get("token")
-    raw_user = payload.get("username") or payload.get("user") or payload.get("UserID")
-    username, manv, role, role_name, bophanlogin, new_token, user_data = _execute_tasklist_sso(token, raw_user)
+    if payload is None:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+    t = (payload.get("token") or token or "").strip()
+    raw_user = (
+        payload.get("username")
+        or payload.get("user")
+        or payload.get("UserID")
+        or payload.get("user_id")
+        or username
+    )
+    if isinstance(raw_user, dict):
+        raw_user = raw_user.get("username") or raw_user.get("UserID") or raw_user.get("user_id") or raw_user.get("name")
+
+    username_res, manv, role, role_name, bophanlogin, new_token, user_data = _execute_tasklist_sso(t, raw_user)
 
     response.set_cookie(
         key="session_token",
@@ -853,7 +878,7 @@ async def tasklist_sso(payload: dict, response: Response):
 
     return {
         "status": "success",
-        "username": username,
+        "username": username_res,
         "manv": manv,
         "role": role,
         "role_name": role_name,
