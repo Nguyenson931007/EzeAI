@@ -18,9 +18,49 @@ export default function PowerTrussBracesTask({
   const [runLength, setRunLength] = useState("");
   const [trussSpacing, setTrussSpacing] = useState(600);
   const [trussPitch, setTrussPitch] = useState(22.5);
+  const [trussQty, setTrussQty] = useState(1);
   const [bracingType, setBracingType] = useState("Pryda Speedbrace Galvanised Strap");
   const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
+
+  const calcTrussTimber = (span, pitch) => {
+    const s = parseFloat(span) || 8.0;
+    const p = parseFloat(pitch) || 22.5;
+    const rad = (p * Math.PI) / 180;
+    const rafter = (s / 2) / Math.cos(rad);
+    const total = s + (2 * rafter) + (s * 0.85);
+    return total.toFixed(2);
+  };
+
+  const handleAddTrussSchedule = () => {
+    const spanM = parseFloat(trussSpan) || (cadMetrics.buildingWidth || 8.5);
+    const qty = parseInt(trussQty, 10) || 1;
+    const spacingMm = parseInt(trussSpacing, 10) || 600;
+    const pitchDeg = parseFloat(trussPitch) || 22.5;
+    const singleTimber = parseFloat(calcTrussTimber(spanM, pitchDeg)) || 12.0;
+
+    const newTruss = {
+      id: `truss_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      label: trussLabel || `T0${(entries || []).length + 1}`,
+      trussType: typeof trussType === "string" ? trussType : (trussType?.label || "Common"),
+      spanM: spanM.toFixed(1),
+      spacingMm,
+      quantity: qty,
+      pitchDeg,
+      totalTimberLm: (singleTimber * qty).toFixed(1),
+      speedbraceRolls: Math.max(1, Math.ceil(qty / 10)),
+      bracingType
+    };
+
+    if (onSetEntries) {
+      onSetEntries(prev => [...(prev || []), newTruss]);
+    }
+
+    setTrussSpan("");
+    setTrussQty(1);
+    const nextIdx = (entries || []).length + 2;
+    setTrussLabel(`T0${nextIdx}`);
+  };
 
   const handleAddManualTruss = () => {
     const spanM = parseFloat(trussSpan) || (cadMetrics.buildingWidth || 8.5);

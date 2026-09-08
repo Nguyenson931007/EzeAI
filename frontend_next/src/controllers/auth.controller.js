@@ -69,6 +69,7 @@ export const useAuthController = (user, setUser, setIsLoggedIn) => {
     }
 
     // 5. Xóa IndexedDB workspace (không cần await — reload sẽ clean up)
+
     clearWorkspaceState().catch(() => { });
 
     // 6. Reload trang để về màn hình đăng nhập

@@ -562,10 +562,10 @@ export default function FrameHardwareTask({
                 />
               </div>
 
-              {/* Spacing */}
+              {/* Tiedown Spacing */}
               <div style={{ flex: "1 1 100px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Spacing</span>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Tiedown Spacing</span>
                   <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
                 </div>
                 <input
@@ -683,10 +683,10 @@ export default function FrameHardwareTask({
                 />
               </div>
 
-              {/* Spacing */}
+              {/* Tiedown Spacing */}
               <div style={{ flex: "1 1 100px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Spacing</span>
+                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Tiedown Spacing</span>
                   <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
                 </div>
                 <input
@@ -801,7 +801,7 @@ export default function FrameHardwareTask({
                 <th style={{ padding: "6px 8px" }}>The Wall Above</th>
                 <th style={{ padding: "6px 8px" }}>Wall Height</th>
                 <th style={{ padding: "6px 8px" }}>Wall Length</th>
-                <th style={{ padding: "6px 8px" }}>Spacing</th>
+                <th style={{ padding: "6px 8px" }}>Tiedown Spacing</th>
                 <th style={{ padding: "6px 8px" }}>Rod size</th>
                 <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
               </tr>

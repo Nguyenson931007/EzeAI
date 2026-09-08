@@ -193,7 +193,10 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     activeTab,
     pdfOffsetsByPage, setPdfOffsetsByPage,
     scalesByPage, setScalesByPage,
-    lintelsByPage, setLintelsByPage
+    lintelsByPage, setLintelsByPage,
+    activeAnnotationTool, setActiveAnnotationTool, setSelectedAnnotationId,
+    annotationsHistory = [], annotationsFuture = [],
+    undoAnnotation, redoAnnotation
   } = useAppModel();
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
@@ -493,8 +496,26 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   // Key Listeners
   useEffect(() => {
     const down = (e) => {
-      const activeTag = document.activeElement?.tagName;
-      const isInputFocused = activeTag === "INPUT" || activeTag === "TEXTAREA";
+      const activeEl = document.activeElement;
+      const targetEl = e.target;
+      const isInputFocused = Boolean(
+        (activeEl && (
+          ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName) ||
+          activeEl.isContentEditable ||
+          activeEl.getAttribute?.("contenteditable") === "true" ||
+          activeEl.getAttribute?.("contenteditable") === "" ||
+          activeEl.closest?.('[contenteditable="true"]') ||
+          activeEl.closest?.('[contenteditable=""]')
+        )) ||
+        (targetEl && (
+          ["INPUT", "TEXTAREA", "SELECT"].includes(targetEl.tagName) ||
+          targetEl.isContentEditable ||
+          targetEl.getAttribute?.("contenteditable") === "true" ||
+          targetEl.getAttribute?.("contenteditable") === "" ||
+          targetEl.closest?.('[contenteditable="true"]') ||
+          targetEl.closest?.('[contenteditable=""]')
+        ))
+      );
 
       if (isInputFocused) return;
       if (doorController.showTypeSelector) return;
@@ -543,6 +564,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         setPullStepInfo(null);
         setPullStepPreview(null);
         setInteractionMode("select");
+        if (setActiveAnnotationTool) setActiveAnnotationTool(null);
+        if (setSelectedAnnotationId) setSelectedAnnotationId(null);
       }
 
       // (Ctrl+H, Ctrl+V, H hotkeys removed — replaced by click-based vertex menu)
@@ -647,18 +670,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         if (isDrawingRoof && currentPoly.length > 0) {
           setCurrentPoly(prev => prev.slice(0, -1));
         } else if (e.shiftKey) {
-          if (roofFuture.length > 0) redoRoof();
-          else redo();
+          redo();
         } else {
-          if (roofHistory.length > 0) undoRoof();
-          else undo();
+          undo();
         }
       }
 
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || e.key === "y")) {
         e.preventDefault();
-        if (roofFuture.length > 0) redoRoof();
-        else redo();
+        redo();
       }
     };
 
@@ -675,7 +695,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentMouse, currentPage, doorController]);
+  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentPage, doorController]);
 
   // Zoom Handler
   useEffect(() => {
@@ -764,7 +784,30 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function undo() {
-    if (!history.length) return;
+    // 1. PDF Tools Tab or Annotation history
+    if (activeTab === "PDF Tools" || (annotationsHistory && annotationsHistory.length > 0)) {
+      if (annotationsHistory && annotationsHistory.length > 0) {
+        if (typeof undoAnnotation === "function") {
+          undoAnnotation();
+          return;
+        }
+      }
+    }
+    // 2. Roof history
+    if (roofHistory && roofHistory.length > 0) {
+      undoRoof();
+      return;
+    }
+    // 3. Fallback: if CAD history is empty, check if annotations history exists
+    if (!history.length) {
+      if (annotationsHistory && annotationsHistory.length > 0) {
+        if (typeof undoAnnotation === "function") {
+          undoAnnotation();
+          return;
+        }
+      }
+      return;
+    }
     const prev = JSON.parse(history[history.length - 1]);
     setFuture(f => [JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage }), ...f]);
     setRoomsByPage(prev.roomsByPage || {});
@@ -779,7 +822,30 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function redo() {
-    if (!future.length) return;
+    // 1. PDF Tools Tab or Annotation future
+    if (activeTab === "PDF Tools" || (annotationsFuture && annotationsFuture.length > 0)) {
+      if (annotationsFuture && annotationsFuture.length > 0) {
+        if (typeof redoAnnotation === "function") {
+          redoAnnotation();
+          return;
+        }
+      }
+    }
+    // 2. Roof future
+    if (roofFuture && roofFuture.length > 0) {
+      redoRoof();
+      return;
+    }
+    // 3. Fallback: if CAD future is empty, check if annotations future exists
+    if (!future.length) {
+      if (annotationsFuture && annotationsFuture.length > 0) {
+        if (typeof redoAnnotation === "function") {
+          redoAnnotation();
+          return;
+        }
+      }
+      return;
+    }
     const next = JSON.parse(future[0]);
     setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage })]);
     setRoomsByPage(next.roomsByPage || {});
@@ -899,23 +965,40 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           if (value === "block_wall" || value === "block") {
             class_name = "block_wall";
             wall_type = "block";
+            newWall.is_lbw = false;
+            newWall.is_ext = false;
+            newWall.is_exterior = false;
           } else if (value === "exterior_wall" || value === "ext") {
             class_name = "exterior_wall";
             wall_type = "ext";
+            newWall.is_lbw = false;
+            newWall.is_ext = true;
+            newWall.is_exterior = true;
           } else if (value === "interior_wall" || value === "int") {
             class_name = "interior_wall";
             wall_type = "int";
             newWall.is_lbw = true;
+            newWall.is_ext = false;
+            newWall.is_exterior = false;
           } else if (value === "partition_wall" || value === "part") {
             class_name = "partition_wall";
             wall_type = "part";
             newWall.is_lbw = false;
+            newWall.is_ext = false;
+            newWall.is_exterior = false;
           } else {
             class_name = value;
             wall_type = value;
+            const isExtVal = value === "exterior_wall" || value === "ext";
+            newWall.is_ext = isExtVal;
+            newWall.is_exterior = isExtVal;
           }
           newWall.class_name = class_name;
           newWall.wall_type = wall_type;
+          newWall.user_modified = true;
+          newWall.manual_type = true;
+          newWall.is_manual = true;
+          newWall.is_manually_set = true;
 
           const thicknessPx = mmToPx(thicknessMm, realScale);
           newWall.thickness = thicknessMm;
@@ -3694,12 +3777,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const p = getMouse(e);
     let snappedP = p;
 
-    if (isShiftDown || isSnapMode) {
+    const hasShift = isShiftDown || !!e.shiftKey;
+    if (hasShift || isSnapMode) {
       if (isDrawingRoof && currentPoly.length > 0) {
         const orthoRes = computeRoofOrthoAndAlignment(p, currentPoly, true, 20 / scale);
         snappedP = orthoRes.pos;
       } else if (drawing && currentPoly.length > 0) {
-        if (isShiftDown) {
+        if (hasShift) {
           snappedP = snap(currentPoly[currentPoly.length - 1], p);
         } else {
           snappedP = p;
@@ -4531,6 +4615,56 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     setScale(newScale);
   }
 
+  function zoomIn() {
+    cancelActiveZoomAnimation();
+    const factor = 1.25;
+    const newScale = Math.min(scale * factor, 20);
+    if (!svgRef?.current) {
+      setScale(newScale);
+      return;
+    }
+    const svgRect = svgRef.current.getBoundingClientRect();
+    const centerX = svgRect.width / 2;
+    const centerY = svgRect.height / 2;
+    const worldX = (centerX - offset.x) / scale;
+    const worldY = (centerY - offset.y) / scale;
+    setOffset({ x: centerX - worldX * newScale, y: centerY - worldY * newScale });
+    setScale(newScale);
+  }
+
+  function zoomOut() {
+    cancelActiveZoomAnimation();
+    const factor = 0.8;
+    const newScale = Math.max(scale * factor, 0.05);
+    if (!svgRef?.current) {
+      setScale(newScale);
+      return;
+    }
+    const svgRect = svgRef.current.getBoundingClientRect();
+    const centerX = svgRect.width / 2;
+    const centerY = svgRect.height / 2;
+    const worldX = (centerX - offset.x) / scale;
+    const worldY = (centerY - offset.y) / scale;
+    setOffset({ x: centerX - worldX * newScale, y: centerY - worldY * newScale });
+    setScale(newScale);
+  }
+
+  function zoom100() {
+    cancelActiveZoomAnimation();
+    const newScale = 1.0;
+    if (!svgRef?.current) {
+      setScale(newScale);
+      return;
+    }
+    const svgRect = svgRef.current.getBoundingClientRect();
+    const centerX = svgRect.width / 2;
+    const centerY = svgRect.height / 2;
+    const worldX = (centerX - offset.x) / scale;
+    const worldY = (centerY - offset.y) / scale;
+    setOffset({ x: centerX - worldX * newScale, y: centerY - worldY * newScale });
+    setScale(newScale);
+  }
+
   function snapAllDoorsToWalls() {
     const currentDoors = doorsByPage[currentPage] || [];
     const currentWalls = wallsByPage[currentPage] || [];
@@ -4570,6 +4704,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     scale, setScale,
     offset, setOffset,
     isPanning,
+    zoomIn, zoomOut, zoom100,
     // Cleaned up duplicates
     drawing, setDrawing,
     isDrawingDoor, setIsDrawingDoor,

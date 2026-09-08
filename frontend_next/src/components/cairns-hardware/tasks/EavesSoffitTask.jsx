@@ -113,18 +113,25 @@ export default function EavesSoffitTask({
         console.warn("Chưa chọn Job để lưu Eaves Soffit");
       }
 
+      const effectiveBrand = (entries && entries[0]?.brand) || sheetBrand || "FC";
+      const effectiveThickness = (entries && entries[0]?.thickness) || sheetThickness || "4.5mm";
+      const effectiveBatten = (entries && entries[0]?.batten) || soffitBatten || (SOFFIT_BATTEN_OPTIONS.length > 0 ? SOFFIT_BATTEN_OPTIONS[0] : "42x19 H3 Treated Pine Batten");
+      const effectiveBead = (entries && entries[0]?.bead) || soffitBead || (SOFFIT_BEAD_OPTIONS.length > 0 ? SOFFIT_BEAD_OPTIONS[0] : "4.5mm PVC Joint Mould");
+
       const payload = {
         user_update: currentUsername || "admin",
         jobs: [
           {
             id_job_hw: savedJobId || appModel?.currentProjectName || "default",
-            eaves: entries.map(e => ({
-              sheet_brand: e.brand || e.sheetBrand || sheetBrand || "FC",
-              sheet_thickness: e.thickness || e.sheetThickness || sheetThickness || "4.5mm",
-              sofit_batten: e.batten || e.soffitBatten || soffitBatten || "",
-              sofit_bead: e.bead || e.soffitBead || soffitBead || "",
-              short_name: activeCustomerShortName || "CAIRNS-HARDWARE"
-            }))
+            eaves: [
+              {
+                sheet_brand: effectiveBrand,
+                sheet_thickness: effectiveThickness,
+                sofit_batten: effectiveBatten,
+                sofit_bead: effectiveBead,
+                short_name: activeCustomerShortName || "CAIRNS-HARDWARE"
+              }
+            ]
           }
         ]
       };

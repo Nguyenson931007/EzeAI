@@ -20,6 +20,8 @@ import WallVertexMenu from "../components/WallVertexMenu";
 import RoofContextMenu from "../components/RoofContextMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
+import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
+import { getBrushCursor } from "@/utils/cursorUtils";
 import {
   distancePointToSegment,
   pointInPolygon,
@@ -32,13 +34,14 @@ import {
   getWallClass,
   getWallType,
   getWallSideOffsets,
+  classifyWallsTouchingExtEndpoints,
   ADD_POINT_SNAP_DISTANCE,
   findBestRoomInsertionPoint,
   mirrorPolygonAcrossLine,
   mirrorPolygonAcrossPerpendicular
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
-import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall } from "@/engines/DoorGeometryEngine";
+import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall, scaleDoorWidth } from "@/engines/DoorGeometryEngine";
 import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
 
 
@@ -701,7 +704,8 @@ const WallLayer = React.memo(({
   const mouseDownPos = React.useRef({ x: 0, y: 0 });
   // Group walls into chains by class_name (ext, int, part) and thickness
   const chains = [];
-  const validWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
+  const rawValidWalls = (walls || []).filter(w => w.centerline && w.centerline.length === 2);
+  const validWalls = classifyWallsTouchingExtEndpoints(rawValidWalls);
   const visited = new Set();
 
   // Calculate junctions where int_wall or part_wall touches ext_wall centerline
@@ -1311,9 +1315,13 @@ const WallHandlesLayer = React.memo(({
     return strId;
   }
 
+  const handleWalls = React.useMemo(() => {
+    return typeof classifyWallsTouchingExtEndpoints === 'function' ? classifyWallsTouchingExtEndpoints(walls || []) : (walls || []);
+  }, [walls]);
+
   return (
     <g id="WallHandlesLayer">
-      {(walls || []).map((w, idx) => {
+      {handleWalls.map((w, idx) => {
         if (!w.centerline || w.centerline.length !== 2) return null;
         const isSelected = selectedWallIds.includes(w.id) || selectedId === w.id;
         const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
@@ -2942,7 +2950,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage } = useAppModel();
+  const { activeAnnotationTool, annotationColor, setSelectedAnnotationId, roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -3467,20 +3475,39 @@ export default function CanvasView({
   const handleDoorEditSave = (updatedDoor, applyToAll) => {
     if (!updateDoor) return;
     if (applyToAll) {
-      // Apply to all doors of same type
+      // Apply to all doors of same type in a single atomic batch
       const originalType = doorEditDialog.door?.class || 'single_door';
-      (doors || []).forEach(d => {
+      const targetId = updatedDoor.id;
+      const newDoors = (doors || []).map(d => {
+        if (d.id === targetId) {
+          return updatedDoor;
+        }
         if ((d.class || 'single_door') === originalType) {
-          updateDoor({
+          let updatedItem = {
             ...d,
             penetration_type: updatedDoor.penetration_type,
             hardware_type: updatedDoor.hardware_type,
             height_mm: updatedDoor.height_mm,
             width_mm: updatedDoor.width_mm,
-            width_source: 'manual'
-          });
+            width_source: 'manual',
+            modifiedAt: new Date().toISOString()
+          };
+          if (updatedDoor.width_mm) {
+            const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
+            const newWidthPx = updatedDoor.width_mm / effScale;
+            updatedItem = scaleDoorWidth(updatedItem, newWidthPx);
+          }
+          return updatedItem;
         }
+        return d;
       });
+
+      if (setDoorsByPage) {
+        setDoorsByPage(prev => ({ ...prev, [currentPage]: newDoors }));
+      }
+      if (pushHistory) {
+        pushHistory(null, walls, newDoors);
+      }
     } else {
       updateDoor(updatedDoor);
     }
@@ -4044,10 +4071,12 @@ export default function CanvasView({
             cursor: (isPanning || interactionMode === "pan") ? "grab"
               : (drawing || isDrawingRoof || isDistancing || isMeasuring || isAddingPoint || interactionMode === "draw-ext-rect" || interactionMode === "draw-wall" || interactionMode === "fill-room") ? "crosshair"
               : interactionMode === "align-pdf" ? "move"
+              : activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor)
+              : activeAnnotationTool ? "crosshair"
               : "default"
           }}
           onClick={(e) => {
-            if (editingRoomId) return;
+            if (editingRoomId || activeAnnotationTool) return;
             if (handleClick) handleClick(e);
             closeDoorContextMenu();
             closeWallContextMenu();
@@ -4070,6 +4099,7 @@ export default function CanvasView({
               if (setSelectedLintelIds) setSelectedLintelIds([]);
               if (setSelectedRoofId) setSelectedRoofId(null);
               if (setSelectedWallVertex) setSelectedWallVertex(null);
+              if (setSelectedAnnotationId) setSelectedAnnotationId(null);
             }
           }}
           onDoubleClick={(e) => {
@@ -4090,7 +4120,7 @@ export default function CanvasView({
             }
           }}
           onMouseDown={(e) => {
-            if (editingRoomId) return;
+            if (editingRoomId || activeAnnotationTool) return;
             if (onMouseDown) onMouseDown(e);
           }}
           onContextMenu={(e) => {
@@ -4875,7 +4905,7 @@ export default function CanvasView({
             )}
 
             {/* Distance Tool Overlay */}
-            {distanceResults.map((seg, idx) => {
+            {Array.isArray(distanceResults) && distanceResults.map((seg, idx) => {
               const d1 = seg.dimP1 || seg.p1;
               const d2 = seg.dimP2 || seg.p2;
               const isHov = hoveredDistIdx === idx;
@@ -4920,7 +4950,7 @@ export default function CanvasView({
                   onClick={(e) => {
                     if (!isDistancing || distancePoints.length > 0) return;
                     e.stopPropagation();
-                    setDistanceResults(prev => prev.filter((_, i) => i !== idx));
+                    setDistanceResults(prev => (Array.isArray(prev) ? prev : []).filter((_, i) => i !== idx));
                     setHoveredDistIdx(null);
                   }}
                 >
@@ -5842,6 +5872,26 @@ export default function CanvasView({
                 </g>
               );
             })()}
+
+            {/* ── PDF MARKUP / ANNOTATION LAYER ── */}
+            <AnnotationCanvasLayer
+              scale={scale}
+              getCanvasPoint={(e) => {
+                if (e && typeof e.clientX === "number" && svgRef?.current) {
+                  const rect = svgRef.current.getBoundingClientRect();
+                  return {
+                    x: (e.clientX - rect.left - offset.x) / scale,
+                    y: (e.clientY - rect.top - offset.y) / scale
+                  };
+                }
+                return currentMouse || { x: 0, y: 0 };
+              }}
+              containerRef={containerRef}
+              realScale={realScale}
+              scaleValue={scaleValue}
+              isShiftDown={isShiftDown}
+              setInteractionMode={setInteractionMode}
+            />
 
           </g>
         </svg>

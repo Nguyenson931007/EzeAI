@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 
@@ -38,6 +38,7 @@ export default function LockupTask({
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const loadedJobRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [editingRowId, setEditingRowId] = useState(null);
@@ -60,7 +61,7 @@ export default function LockupTask({
       mode: row.mode || (isExt ? "Prehung" : "Loose"),
       scope: row.scope || (isExt ? "external" : "internal"),
       location: row.location || (isExt ? "External Patio / Balcony" : "Internal Room"),
-      label: row.label || row.door_name || row.door || "D-1",
+      label: row.label || row.door || "D-1",
       height: row.height || 2040,
       width: row.width || 820,
       size: row.size || `${row.height || 2040} × ${row.width || 820}`,
@@ -69,7 +70,8 @@ export default function LockupTask({
       jamb_or_wall: row.jamb_or_wall || row.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
       jamb_size: row.jamb_size || row.jambSize || (isExt ? "135mm" : "110mm"),
       hung: row.hung || (isExt ? "LH Prehung" : "RH Loose"),
-      door_type: row.door_type || row.type || "Hinged",
+      door_type: row.door_type || row.product || "",
+      type: row.type || "Type A",
       internal_type: row.internal_type || row.hfHo || (isExt ? "HO" : "HF"),
       color: row.color || "Primed White",
       door_stop: row.door_stop || row.stop || "Cushion Rubber Stop",
@@ -84,12 +86,11 @@ export default function LockupTask({
       return {
         ...item,
         ...editRowData,
-        door_name: editRowData.label || editRowData.door_name || item.door_name,
-        door: editRowData.label || editRowData.door || item.door,
+        door: editRowData.door_type || item.door,
         category: editRowData.mode === "Prehung" ? "Prehung" : "Loose Jamb",
         jambWall: editRowData.jamb_or_wall,
         jambSize: editRowData.jamb_size,
-        type: editRowData.door_type,
+        type: editRowData.type,
         hfHo: editRowData.internal_type,
         stop: editRowData.door_stop,
         qty: editRowData.default_qty
@@ -159,18 +160,43 @@ export default function LockupTask({
     "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
   ];
 
-  const DOOR_PRODUCT_OPTIONS = [
-    "Select or search...",
-    "FLUSH PANEL HONEYCOMB CORE 2040X820X35MM",
-    "SOLID CORE TIMBER DOOR 2040X820X40MM",
-    "ROBEMASTER CAVITY SLIDER 2040X820X35MM",
-    "CORINTHIAN MOTIVE PREHUNG 2040X820X35MM",
-    "HUME PROGRES PREHUNG 2040X820X35MM"
-  ];
+  const [doorTypeOptions, setDoorTypeOptions] = useState({ internal: [], external: [] });
+  const [doorTypeLoading, setDoorTypeLoading] = useState(true);
+  const [doorTypeError, setDoorTypeError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/lockout/door-types")
+      .then(async response => {
+        if (!response.ok) throw new Error("Could not load LockUp door types.");
+        return response.json();
+      })
+      .then(result => {
+        if (cancelled) return;
+        setDoorTypeOptions({
+          internal: Array.isArray(result?.data?.internal) ? result.data.internal : [],
+          external: Array.isArray(result?.data?.external) ? result.data.external : []
+        });
+        setDoorTypeError("");
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setDoorTypeOptions({ internal: [], external: [] });
+        setDoorTypeError(error?.message || "Could not load LockUp door types.");
+      })
+      .finally(() => {
+        if (!cancelled) setDoorTypeLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Prehung - External Door State
   const [preExtDoorName, setPreExtDoorName] = useState("");
-  const [preExtDoorProduct, setPreExtDoorProduct] = useState("Select or search...");
+  const [preExtDoorProduct, setPreExtDoorProduct] = useState("");
   const [preExtHeight, setPreExtHeight] = useState("2040");
   const [preExtWidth, setPreExtWidth] = useState("820");
   const [preExtThick, setPreExtThick] = useState("35");
@@ -182,7 +208,7 @@ export default function LockupTask({
 
   // Prehung - Internal Door State
   const [preIntDoorName, setPreIntDoorName] = useState("");
-  const [preIntDoorProduct, setPreIntDoorProduct] = useState("Select or search...");
+  const [preIntDoorProduct, setPreIntDoorProduct] = useState("");
   const [preIntHeight, setPreIntHeight] = useState("2040");
   const [preIntWidth, setPreIntWidth] = useState("820");
   const [preIntThick, setPreIntThick] = useState("35");
@@ -196,7 +222,7 @@ export default function LockupTask({
 
   // Loose Jamb - External Door State
   const [looseExtDoorName, setLooseExtDoorName] = useState("");
-  const [looseExtDoorProduct, setLooseExtDoorProduct] = useState("Select or search...");
+  const [looseExtDoorProduct, setLooseExtDoorProduct] = useState("");
   const [looseExtHeight, setLooseExtHeight] = useState("2040");
   const [looseExtWidth, setLooseExtWidth] = useState("820");
   const [looseExtThick, setLooseExtThick] = useState("38");
@@ -207,7 +233,7 @@ export default function LockupTask({
 
   // Loose Jamb - Internal Door State
   const [looseIntDoorName, setLooseIntDoorName] = useState("");
-  const [looseIntDoorProduct, setLooseIntDoorProduct] = useState("Select or search...");
+  const [looseIntDoorProduct, setLooseIntDoorProduct] = useState("");
   const [looseIntHeight, setLooseIntHeight] = useState("2040");
   const [looseIntWidth, setLooseIntWidth] = useState("820");
   const [looseIntThick, setLooseIntThick] = useState("38");
@@ -267,14 +293,14 @@ export default function LockupTask({
       mode: null,
       scope: "internal",
       label: null,
-      door_name: null,
+      door_type: null,
       height: 2040,
       width: 820,
       thickness: 35,
       jamb_or_wall: "90mm Wall",
       jamb_size: "112×19mm 5.4m",
       hung: "Hung A",
-      door_type: "Type A",
+      type: "Type A",
       door_stop: "Cushion",
       internal_type: "HF",
       color: "CHR",
@@ -327,7 +353,7 @@ export default function LockupTask({
       const enrichedDoors = targetDoors.map((d, idx) => {
         const pWall = allWalls.find(w => w.id === d.parentWallId);
         const wallThick = pWall?.thickness || pWall?.thickness_mm || d.thickness_mm || d.wall_thickness || 90;
-        const dName = (d.label || d.name || d.door_name || `D${idx + 1}`).trim();
+        const dName = (d.label || d.name || `D${idx + 1}`).trim();
         const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
         const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
         const isExt = Boolean(d.isExternal || /entry|front|sliding|patio|balcony|garage|external/i.test(dName));
@@ -336,7 +362,7 @@ export default function LockupTask({
           mode: isExt ? "Prehung" : "Loose",
           scope: isExt ? "external" : "internal",
           label: dName,
-          door_name: dName,
+          door_type: d.lockup_door_type || d.product || null,
           width: dWidth,
           height: dHeight,
           thickness: isExt ? 40 : 35,
@@ -344,7 +370,7 @@ export default function LockupTask({
           jamb_or_wall: `${wallThick}mm Wall`,
           jamb_size: isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m",
           hung: isExt ? "LH Prehung" : "RH Loose",
-          door_type: isExt ? "Type CG" : "Type A",
+          type: isExt ? "Type CG" : "Type A",
           door_stop: isExt ? "DS2 with Riser" : "Cushion",
           internal_type: isExt ? null : "HF",
           color: isExt ? null : "CHR",
@@ -363,25 +389,26 @@ export default function LockupTask({
 
       // Map rows to entries (same mapping as LockoutJobsModal)
       const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
-        const isExt = r.scope === "external" || r.isExternal;
+        const origDoor = enrichedDoors[idx] || targetDoors[idx] || {};
+        const isExt = r.scope === "external" || r.isExternal || origDoor.isExternal;
         return {
           id: `door-ai-${Date.now()}-${idx}`,
-          doorId: r.doorId || r.id,
+          doorId: r.doorId || r.id || origDoor.doorId || origDoor.id,
           mode: r.mode || (isExt ? "Prehung" : "Loose"),
           scope: r.scope || (isExt ? "external" : "internal"),
-          label: r.label || r.door_name || `D${idx + 1}`,
-          door_name: r.door_name || r.label || `D${idx + 1}`,
-          height: r.height || 2040,
-          width: r.width || 820,
-          thickness: r.thickness || (isExt ? 40 : 35),
-          jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-          jamb_size: r.jamb_size || (isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m"),
-          hung: r.hung || (isExt ? "LH Prehung" : "RH Loose"),
-          door_type: r.door_type || (isExt ? "Type CG" : "Type A"),
-          door_stop: r.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
-          internal_type: r.internal_type !== undefined ? r.internal_type : (isExt ? null : "HF"),
-          color: r.color !== undefined ? r.color : (isExt ? null : "CHR"),
-          default_qty: r.default_qty || 1
+          label: r.label || origDoor.label || `D${idx + 1}`,
+          door_type: r.door_type || origDoor.door_type || null,
+          height: r.height || origDoor.height || 2040,
+          width: r.width || origDoor.width || 820,
+          thickness: r.thickness || origDoor.thickness || (isExt ? 40 : 35),
+          jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || "90mm Wall",
+          jamb_size: r.jamb_size || origDoor.jamb_size || (isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m"),
+          hung: r.hung || origDoor.hung || (isExt ? "LH Prehung" : "RH Loose"),
+          type: r.type || origDoor.type || (isExt ? "Type CG" : "Type A"),
+          door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
+          internal_type: r.internal_type !== undefined ? r.internal_type : (origDoor.internal_type !== undefined ? origDoor.internal_type : (isExt ? null : "HF")),
+          color: r.color !== undefined ? r.color : (origDoor.color !== undefined ? origDoor.color : (isExt ? null : "CHR")),
+          default_qty: r.default_qty || origDoor.default_qty || 1
         };
       });
 
@@ -404,15 +431,15 @@ export default function LockupTask({
           id: `door-sync-${Date.now()}-${idx}`,
           mode: r.mode || null,
           scope: r.scope || "internal",
-          label: r.label || r.door_name || `D-${idx + 1}`,
-          door_name: r.door_name || r.label || `D-${idx + 1}`,
+          label: r.label || `D-${idx + 1}`,
+          door_type: r.door_type || null,
           height: r.height || 2040,
           width: r.width || 820,
           thickness: r.thickness || 35,
           jamb_or_wall: r.jamb_or_wall || "90mm Wall",
           jamb_size: r.jamb_size || "112×19mm 5.4m",
           hung: r.hung || "Hung A",
-          door_type: r.door_type || "Type A",
+          type: r.type || "Type A",
           door_stop: r.door_stop || "Cushion",
           internal_type: r.internal_type || "HF",
           color: r.color || "CHR",
@@ -450,14 +477,14 @@ export default function LockupTask({
         mode: parseStr(item.mode),
         scope: parseStr(item.scope),
         label: parseStr(item.label),
-        door_name: parseStr(item.door_name),
+        door_type: parseStr(item.door_type),
         height: parseNum(item.height),
         width: parseNum(item.width),
         thickness: parseNum(item.thickness),
         jamb_or_wall: parseStr(item.jamb_or_wall),
         jamb_size: parseStr(item.jamb_size),
         hung: parseStr(item.hung),
-        door_type: parseStr(item.door_type),
+        type: parseStr(item.type),
         door_stop: parseStr(item.door_stop),
         internal_type: parseStr(item.internal_type),
         color: parseStr(item.color),
@@ -515,8 +542,14 @@ export default function LockupTask({
         return;
       }
 
+      // Guard: only fetch once per target to avoid server connection exhaustion
+      if (loadedJobRef.current === target) {
+        return;
+      }
+      loadedJobRef.current = target;
+
       try {
-        const res = await ApiService.fetchLockoutJobs();
+        const res = await ApiService.fetchLockoutJobs(target);
         if (isCancelled) return;
         if (res && res.data) {
           const matchedRows = res.data.filter(j => {
@@ -524,21 +557,21 @@ export default function LockupTask({
             const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
             return (jn && jn === target) || (hw && hw === target);
           });
-          const validRows = matchedRows.filter(r => r.door_name || r.height || r.width || r.jamb_or_wall || r.label);
+          const validRows = matchedRows.filter(r => r.door_type || r.height || r.width || r.jamb_or_wall || r.label);
           if (validRows.length > 0 && onSetEntries) {
             const loaded = validRows.map((r, idx) => ({
               id: `door-loaded-${Date.now()}-${idx}`,
               mode: r.mode || null,
               scope: r.scope || null,
               label: r.label || null,
-              door_name: r.door_name || null,
+              door_type: r.door_type || null,
               height: r.height || null,
               width: r.width || null,
               thickness: r.thickness || null,
               jamb_or_wall: r.jamb_or_wall || null,
               jamb_size: r.jamb_size || null,
               hung: r.hung || null,
-              door_type: r.door_type || null,
+              type: r.type || null,
               door_stop: r.door_stop || null,
               internal_type: r.internal_type || null,
               color: r.color || null,
@@ -719,13 +752,14 @@ export default function LockupTask({
                   </div>
 
                   <div style={{ flex: "2 1 150px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door name</span>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
                     <select
                       value={preExtDoorProduct}
                       onChange={(e) => setPreExtDoorProduct(e.target.value)}
                       style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
                     >
-                      {DOOR_PRODUCT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
+                      {doorTypeOptions.external.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
 
@@ -796,20 +830,21 @@ export default function LockupTask({
                     type="button"
                     onClick={() => {
                       handleAddDoor({
-                        category: "Prehung",
-                        location: "External Door",
-                        door: preExtDoorName || "Entry Door",
-                        product: preExtDoorProduct !== "Select or search..." ? preExtDoorProduct : "Standard Prehung Door",
-                        size: `${preExtHeight} × ${preExtWidth}`,
-                        thicks: `${preExtThick}mm`,
-                        jambWall: preExtJambWall || "-",
-                        jambSize: "-",
+                        mode: "Prehung",
+                        scope: "external",
+                        label: preExtDoorName || "Entry Door",
+                        door_type: preExtDoorProduct || null,
+                        height: Number(preExtHeight),
+                        width: Number(preExtWidth),
+                        thickness: Number(preExtThick),
+                        jamb_or_wall: preExtJambWall || null,
+                        jamb_size: null,
                         hung: preExtHung,
                         type: preExtType,
-                        hfHo: "-",
-                        color: "-",
-                        stop: preExtStop,
-                        qty: preExtQty || "1"
+                        door_stop: preExtStop,
+                        internal_type: null,
+                        color: null,
+                        default_qty: Number(preExtQty) || 1
                       });
                       setPreExtDoorName("");
                     }}
@@ -818,7 +853,7 @@ export default function LockupTask({
                     + Add door
                   </button>
                 </div>
-                <div style={{ fontSize: "9.5px", color: "#94a3b8", marginTop: "3px" }}>Door name options loaded from List_Prehung.</div>
+                <div style={{ fontSize: "9.5px", color: doorTypeError ? "#dc2626" : "#94a3b8", marginTop: "3px" }}>{doorTypeError || "External door types loaded from ProcurementApp."}</div>
                 </div>
                 )}
               </div>
@@ -864,13 +899,14 @@ export default function LockupTask({
                   </div>
 
                   <div style={{ flex: "1.8 1 140px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door name</span>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
                     <select
                       value={preIntDoorProduct}
                       onChange={(e) => setPreIntDoorProduct(e.target.value)}
                       style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
                     >
-                      {DOOR_PRODUCT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
+                      {doorTypeOptions.internal.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
 
@@ -955,20 +991,21 @@ export default function LockupTask({
                     type="button"
                     onClick={() => {
                       handleAddDoor({
-                        category: "Prehung",
-                        location: "Internal Door",
-                        door: preIntDoorName || "Internal Door",
-                        product: preIntDoorProduct !== "Select or search..." ? preIntDoorProduct : "Standard Prehung Door",
-                        size: `${preIntHeight} × ${preIntWidth}`,
-                        thicks: `${preIntThick}mm`,
-                        jambWall: preIntJambWall || "-",
-                        jambSize: "-",
+                        mode: "Prehung",
+                        scope: "internal",
+                        label: preIntDoorName || "Internal Door",
+                        door_type: preIntDoorProduct || null,
+                        height: Number(preIntHeight),
+                        width: Number(preIntWidth),
+                        thickness: Number(preIntThick),
+                        jamb_or_wall: preIntJambWall || null,
+                        jamb_size: null,
                         hung: preIntHung,
                         type: preIntType,
-                        hfHo: preIntInternalType,
+                        internal_type: preIntInternalType,
                         color: preIntColor,
-                        stop: preIntStop,
-                        qty: preIntQty || "1"
+                        door_stop: preIntStop,
+                        default_qty: Number(preIntQty) || 1
                       });
                       setPreIntDoorName("");
                     }}
@@ -1051,13 +1088,14 @@ export default function LockupTask({
                   </div>
 
                   <div style={{ flex: "2 1 150px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door name</span>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
                     <select
                       value={looseExtDoorProduct}
                       onChange={(e) => setLooseExtDoorProduct(e.target.value)}
                       style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
                     >
-                      {DOOR_PRODUCT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
+                      {doorTypeOptions.external.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
 
@@ -1121,20 +1159,21 @@ export default function LockupTask({
                     type="button"
                     onClick={() => {
                       handleAddDoor({
-                        category: "Loose Jamb",
-                        location: "External Door",
-                        door: looseExtDoorName || "Entry Door",
-                        product: looseExtDoorProduct !== "Select or search..." ? looseExtDoorProduct : "Loose Jamb Door",
-                        size: `${looseExtHeight} × ${looseExtWidth}`,
-                        thicks: `${looseExtThick}mm`,
-                        jambWall: looseExtJambWall || "-",
-                        jambSize: looseExtJambSize,
-                        hung: "-",
-                        type: "-",
-                        hfHo: "-",
-                        color: "-",
-                        stop: looseExtStop,
-                        qty: looseExtQty || "1"
+                        mode: "Loose",
+                        scope: "external",
+                        label: looseExtDoorName || "Entry Door",
+                        door_type: looseExtDoorProduct || null,
+                        height: Number(looseExtHeight),
+                        width: Number(looseExtWidth),
+                        thickness: Number(looseExtThick),
+                        jamb_or_wall: looseExtJambWall || null,
+                        jamb_size: looseExtJambSize,
+                        hung: null,
+                        type: null,
+                        internal_type: null,
+                        color: null,
+                        door_stop: looseExtStop,
+                        default_qty: Number(looseExtQty) || 1
                       });
                       setLooseExtDoorName("");
                     }}
@@ -1143,7 +1182,7 @@ export default function LockupTask({
                     + Add door
                   </button>
                 </div>
-                <div style={{ fontSize: "9.5px", color: "#94a3b8", marginTop: "3px" }}>Door name options loaded from List_LooseJamb.</div>
+                <div style={{ fontSize: "9.5px", color: doorTypeError ? "#dc2626" : "#94a3b8", marginTop: "3px" }}>{doorTypeError || "External door types loaded from ProcurementApp."}</div>
                 </div>
                 )}
               </div>
@@ -1189,13 +1228,14 @@ export default function LockupTask({
                   </div>
 
                   <div style={{ flex: "1.8 1 140px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door name</span>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
                     <select
                       value={looseIntDoorProduct}
                       onChange={(e) => setLooseIntDoorProduct(e.target.value)}
                       style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb" }}
                     >
-                      {DOOR_PRODUCT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      <option value="">{doorTypeLoading ? "Loading..." : "Select or search..."}</option>
+                      {doorTypeOptions.internal.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
 
@@ -1273,20 +1313,21 @@ export default function LockupTask({
                     type="button"
                     onClick={() => {
                       handleAddDoor({
-                        category: "Loose Jamb",
-                        location: "Internal Door",
-                        door: looseIntDoorName || "Internal Door",
-                        product: looseIntDoorProduct !== "Select or search..." ? looseIntDoorProduct : "Loose Jamb Door",
-                        size: `${looseIntHeight} × ${looseIntWidth}`,
-                        thicks: `${looseIntThick}mm`,
-                        jambWall: looseIntJambWall || "-",
-                        jambSize: looseIntJambSize,
-                        hung: "-",
-                        type: "-",
-                        hfHo: looseIntInternalType,
+                        mode: "Loose",
+                        scope: "internal",
+                        label: looseIntDoorName || "Internal Door",
+                        door_type: looseIntDoorProduct || null,
+                        height: Number(looseIntHeight),
+                        width: Number(looseIntWidth),
+                        thickness: Number(looseIntThick),
+                        jamb_or_wall: looseIntJambWall || null,
+                        jamb_size: looseIntJambSize,
+                        hung: null,
+                        type: null,
+                        internal_type: looseIntInternalType,
                         color: looseIntColor,
-                        stop: looseIntStop,
-                        qty: looseIntQty || "1"
+                        door_stop: looseIntStop,
+                        default_qty: Number(looseIntQty) || 1
                       });
                       setLooseIntDoorName("");
                     }}
@@ -1413,14 +1454,14 @@ export default function LockupTask({
                     const effType = selectedTypeProp || selectedType;
                     const effHovered = hoveredDoorId;
 
-                    const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+                    const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1).trim() === String(id2).trim();
                     const hasDoorMatch = (targetId) => {
                       if (!targetId) return false;
-                      return matchId(row.doorId, targetId) || matchId(row.id, targetId);
+                      return matchId(row.doorId, targetId) || matchId(row.id, targetId) || matchId(row.door_id, targetId);
                     };
 
                     const isSelected = selectedEntryId === row.id ||
-                      (effDoor && hasDoorMatch(effDoor.id)) ||
+                      (effDoor && (hasDoorMatch(effDoor.id) || hasDoorMatch(effDoor.doorId))) ||
                       (effDoorIds.length > 0 && effDoorIds.some(sId => hasDoorMatch(sId))) ||
                       (effType === "door" && hasDoorMatch(effId));
                     const isHovered = effHovered && hasDoorMatch(effHovered);
@@ -1430,14 +1471,14 @@ export default function LockupTask({
                     const isExt = row.scope === "external" || row.isExternal;
                     const categoryDisplay = row.mode === "Prehung" ? "Prehung" : (row.mode === "Loose" ? "Loose Jamb" : (row.category || (isExt ? "Prehung" : "Loose Jamb")));
                     const locationDisplay = row.location || (isExt ? "External Patio / Balcony" : (row.scope ? (row.scope.toLowerCase().includes("ext") ? "External Door" : `Internal Room ${idx + 1}`) : `Internal Room ${idx + 1}`));
-                    const labelDisplay = row.label || row.door_name || row.door || `D-${idx + 1}`;
-                    const doorDisplay = row.door_name || row.door || row.label || `D-${idx + 1}`;
+                    const labelDisplay = row.label || `D-${idx + 1}`;
+                    const doorDisplay = row.door_type || row.door || "-";
                     const sizeDisplay = row.size || `${row.height || 2040} × ${row.width || 820}`;
                     const thicksDisplay = row.thicks || (row.thickness ? `${String(row.thickness).replace("mm", "")}mm` : (isExt ? "40mm" : "35mm"));
                     const jambWallDisplay = row.jambWall || row.jamb_or_wall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud");
                     const jambSizeDisplay = row.jambSize || (row.jamb_size ? String(row.jamb_size).replace("5.4m Loose Jamb", "110mm").replace("5.4m", "110mm").trim() : (isExt ? "135mm" : "110mm"));
                     const hungDisplay = row.hung || (isExt ? "LH Prehung" : "RH Loose");
-                    const typeDisplay = row.type || (row.door_type === "Type A" || !row.door_type ? "Hinged" : row.door_type);
+                    const typeDisplay = row.type || "-";
                     const hfHoDisplay = row.hfHo || row.internal_type || (isExt ? "HO" : "HF");
                     const colorDisplay = row.color === "CHR" || !row.color ? "Primed White" : row.color;
                     const stopDisplay = row.stop || row.door_stop || "Cushion Rubber Stop";
@@ -1446,6 +1487,11 @@ export default function LockupTask({
                     return (
                       <tr
                         key={row.id || idx}
+                        ref={(el) => {
+                          if (isSelected && el) {
+                            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                          }
+                        }}
                         onClick={() => {
                           if (!isRowEditing) {
                             setSelectedEntryId(row.id);
@@ -1455,8 +1501,9 @@ export default function LockupTask({
                         style={{
                           background: rowBg,
                           cursor: isRowEditing ? "default" : "pointer",
-                          outline: isSelected ? "2px solid #3b82f6" : "none",
+                          outline: isSelected ? "2px solid #2563eb" : "none",
                           outlineOffset: "-1px",
+                          boxShadow: isSelected ? "inset 0 0 0 1px #3b82f6" : "none",
                           transition: "background 0.15s ease"
                         }}
                       >
@@ -1465,15 +1512,16 @@ export default function LockupTask({
                           position: "sticky",
                           left: 0,
                           zIndex: 2,
-                          background: rowBg,
+                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "6px 8px",
-                          fontWeight: 700,
+                          fontWeight: isSelected ? 800 : 700,
                           textAlign: "center",
-                          color: "#64748b",
+                          color: isSelected ? "#1e40af" : "#64748b",
                           width: "32px",
                           minWidth: "32px",
                           maxWidth: "32px",
-                          borderBottom: "1px solid #e2e8f0"
+                          borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                          borderLeft: isSelected ? "4px solid #2563eb" : "4px solid transparent"
                         }}>{idx + 1}</td>
 
                         {/* Sticky Label column (Primary Identifier) */}
@@ -1481,14 +1529,14 @@ export default function LockupTask({
                           position: "sticky",
                           left: "32px",
                           zIndex: 2,
-                          background: rowBg,
+                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "6px 8px",
                           fontWeight: 800,
-                          color: "#1e40af",
+                          color: isSelected ? "#1e3a8a" : "#1e40af",
                           width: "95px",
                           minWidth: "95px",
-                          borderBottom: "1px solid #e2e8f0",
-                          borderRight: "2px solid #cbd5e1",
+                          borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                          borderRight: isSelected ? "2px solid #60a5fa" : "2px solid #cbd5e1",
                           boxShadow: "3px 0 5px -2px rgba(0,0,0,0.12)"
                         }}>
                           {isRowEditing ? (
@@ -1500,13 +1548,14 @@ export default function LockupTask({
                             />
                           ) : (
                             <span style={{
-                              background: "#eff6ff",
-                              color: "#1d4ed8",
-                              padding: "2px 6px",
+                              background: isSelected ? "#2563eb" : "#eff6ff",
+                              color: isSelected ? "#ffffff" : "#1d4ed8",
+                              padding: "2px 7px",
                               borderRadius: "4px",
-                              border: "1px solid #bfdbfe",
+                              border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
                               display: "inline-block",
-                              fontWeight: 700
+                              fontWeight: 800,
+                              boxShadow: isSelected ? "0 1px 3px rgba(37,99,235,0.3)" : "none"
                             }}>
                               {labelDisplay}
                             </span>
@@ -1534,12 +1583,16 @@ export default function LockupTask({
                               />
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                              <input
-                                type="text"
-                                value={editRowData.door_name || editRowData.label || ""}
-                                onChange={(e) => setEditRowData({ ...editRowData, door_name: e.target.value })}
+                              <select
+                                value={editRowData.door_type || ""}
+                                onChange={(e) => setEditRowData({ ...editRowData, door_type: e.target.value })}
                                 style={{ padding: "2px 4px", fontSize: "11px", width: "80px" }}
-                              />
+                              >
+                                <option value="">Select...</option>
+                                {(doorTypeOptions[editRowData.scope === "external" ? "external" : "internal"] || []).map(opt => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <input
@@ -1587,11 +1640,10 @@ export default function LockupTask({
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
-                                value={editRowData.door_type || "Hinged"}
-                                onChange={(e) => setEditRowData({ ...editRowData, door_type: e.target.value })}
+                                value={editRowData.type || ""}
+                                onChange={(e) => setEditRowData({ ...editRowData, type: e.target.value })}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
                               >
-                                <option value="Hinged">Hinged</option>
                                 {DOOR_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                               </select>
                             </td>
@@ -1650,20 +1702,20 @@ export default function LockupTask({
                           </>
                         ) : (
                           <>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{categoryDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{locationDisplay}</td>
-                            <td style={{ padding: "6px 8px", color: "#334155", borderBottom: "1px solid #e2e8f0" }}>{doorDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{sizeDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{thicksDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{jambWallDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{jambSizeDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{hungDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{typeDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{hfHoDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{colorDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #e2e8f0" }}>{stopDisplay}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>{qtyDisplay}</td>
-                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{categoryDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{locationDisplay}</td>
+                            <td style={{ padding: "6px 8px", color: isSelected ? "#1e3a8a" : "#334155", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{doorDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{sizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{thicksDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambWallDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambSizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hungDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{typeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hfHoDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{colorDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{stopDisplay}</td>
+                            <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{qtyDisplay}</td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
                               <button
                                 type="button"
                                 onClick={(e) => {

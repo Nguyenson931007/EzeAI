@@ -535,6 +535,17 @@ export default function App() {
         // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
         localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+        const authoritativeModules = Array.isArray(jobInfo.task_modules)
+          ? jobInfo.task_modules
+          : (Array.isArray(jobInfo.selected_modules)
+            ? jobInfo.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
+            : null);
+
+        if (Array.isArray(authoritativeModules)) {
+          const authStr = JSON.stringify(authoritativeModules);
+          sessionStorage.setItem("selectedModules", authStr);
+          try { localStorage.removeItem("selectedModules"); } catch (_) {}
+        }
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("task-modules-updated"));
         }
@@ -561,6 +572,60 @@ export default function App() {
       console.warn("[SSO] Không thể nạp Job từ TaskList:", emsErr);
     }
   }, [handleLoadJob, setCurrentProjectName, setActiveTab, setCurrentJobId]);
+
+  // Expose global window helper for easy console / integration testing
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.openEmsJob = (emsId) => loadEmsJob(emsId);
+    return () => {
+      if (typeof window !== "undefined" && window.openEmsJob) {
+        delete window.openEmsJob;
+      }
+    };
+  }, [loadEmsJob]);
+
+  // Global fetch interceptor: Any fetch to /jobs/open-by-ems/* automatically syncs tasks to UI
+  useEffect(() => {
+    if (typeof window === "undefined" || window.__ezeFetchInterceptorInstalled) return;
+    window.__ezeFetchInterceptorInstalled = true;
+    const originalFetch = window.fetch;
+
+    window.fetch = async function (...args) {
+      const response = await originalFetch.apply(this, args);
+      try {
+        const rawUrl = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");
+        if (typeof rawUrl === "string" && rawUrl.includes("/jobs/open-by-ems/")) {
+          response.clone().json().then((res) => {
+            if (res?.status === "success" && res?.data) {
+              const jobInfo = res.data;
+              console.log("[EzeFloor-AutoSync] Nhận diện /jobs/open-by-ems, tự động kích hoạt task:", jobInfo);
+              sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+              localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+
+              const authoritativeModules = Array.isArray(jobInfo.task_modules)
+                ? jobInfo.task_modules
+                : (Array.isArray(jobInfo.selected_modules)
+                  ? jobInfo.selected_modules.map((m) => (typeof m === "string" ? m : m.module_id)).filter(Boolean)
+                  : null);
+
+              if (Array.isArray(authoritativeModules)) {
+                const authStr = JSON.stringify(authoritativeModules);
+                sessionStorage.setItem("selectedModules", authStr);
+                try { localStorage.removeItem("selectedModules"); } catch (_) {}
+              }
+
+              if (jobInfo.job_number) {
+                setCurrentProjectName(jobInfo.job_number);
+              }
+
+              window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: jobInfo }));
+            }
+          }).catch(() => {});
+        }
+      } catch (_) {}
+      return response;
+    };
+  }, [setCurrentProjectName]);
 
   // Kiểm tra tham số ?job=, ?token=, ?user=, ?modules= trên URL khi load trang
   useEffect(() => {
@@ -589,6 +654,7 @@ export default function App() {
               username: finalUsername,
               role: data.role || "admin",
               ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
+              bophanlogin: data.bophanlogin || data.bophan || "",
               session_token: data.session_token,
               tasklist_token: urlToken || "",
             };
@@ -608,10 +674,8 @@ export default function App() {
       return;
     }
 
-    if (isLoggedIn && idJobEms) {
+    if (idJobEms) {
       loadEmsJob(idJobEms);
-      const cleanUrl = window.location.pathname;
-      window.history.replaceState({}, document.title, cleanUrl);
     }
   }, [isLoggedIn, loadEmsJob, setIsLoggedIn, setUser]);
 
@@ -901,6 +965,7 @@ export default function App() {
           username: finalUsername,
           role: data.role || "admin",
           ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
+          bophanlogin: data.bophanlogin || data.bophan || (event.data.user && (event.data.user.bophanlogin || event.data.user.bophan)) || "",
           session_token: data.session_token,
           tasklist_token: rawToken,
         };

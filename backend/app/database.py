@@ -140,8 +140,37 @@ def get_db_connection():
         conn.row_factory = sqlite3.Row
         # Bật WAL Mode (Write-Ahead Logging) cho SQLite để tối ưu hóa hiệu năng đọc/ghi đồng thời
         conn.execute("PRAGMA temp_store = 2")
-        conn.execute("PRAGMA journal_mode = WAL")
         return DBConnection(conn, "sqlite")
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def get_db_session(auto_commit: bool = True):
+    """
+    Context manager tự động:
+    1. Mở kết nối Database (SQLite/MySQL)
+    2. Thao tác dữ liệu
+    3. Tự động commit / rollback
+    4. Luôn luôn đóng kết nối (conn.close()) giải phóng tài nguyên
+    """
+    conn = get_db_connection()
+    try:
+        yield conn
+        if auto_commit:
+            conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise e
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def init_db():
@@ -169,7 +198,8 @@ def init_db():
                 age INT,
                 position VARCHAR(255),
                 team VARCHAR(255),
-                phone VARCHAR(50)
+                phone VARCHAR(50),
+                bophanlogin VARCHAR(100)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ''')
         cursor.execute('''
@@ -261,6 +291,8 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN team TEXT")
         if 'phone' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        if 'bophanlogin' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN bophanlogin TEXT")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS jobs (

@@ -446,7 +446,15 @@ export default function ThreeDView({
       const updated = pageWalls.map(w => {
         const wBase = getBaseWallId ? getBaseWallId(w.id) : w.id.split('-A-')[0].split('-B-')[0];
         if (w.id === wallId || wBase === baseId) {
-          return { ...w, wall_type: newType, class_name };
+          return {
+            ...w,
+            wall_type: newType,
+            class_name,
+            is_ext: newType === "ext",
+            is_exterior: newType === "ext",
+            user_modified: true,
+            manual_type: true
+          };
         }
         return w;
       });

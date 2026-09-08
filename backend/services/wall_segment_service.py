@@ -110,13 +110,17 @@ def _run_yolo_inference(
                 class_name = model.names.get(class_id, f"wall_{class_id}")
 
                 # Normalize YOLO class names to canonical names used in frontend/backend
-                _CLASS_NAME_MAP = {
-                    "ext_wall": "exterior_wall",
-                    "int_wall": "interior_wall",
-                    "part_wall": "partition_wall",
-                    "block_wall": "block_wall",
-                }
-                class_name = _CLASS_NAME_MAP.get(class_name, class_name)
+                _norm = str(class_name).lower().strip()
+                if "ext" in _norm or "external" in _norm or "exterior" in _norm:
+                    class_name = "exterior_wall"
+                elif "part" in _norm or "parternal" in _norm or "partition" in _norm:
+                    class_name = "partition_wall"
+                elif "block" in _norm:
+                    class_name = "block_wall"
+                elif "int" in _norm or "internal" in _norm or "interior" in _norm:
+                    class_name = "interior_wall"
+                else:
+                    class_name = "exterior_wall"
 
                 # Class-specific confidence filtering
                 if conf < confidence:
@@ -896,6 +900,133 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
     return keep_walls
 
 
+def _classify_walls_touching_ext_endpoints(walls: List[dict], snap_thresh: float = 30.0) -> List[dict]:
+    """
+    Kiểm tra và chuẩn hóa phân loại tường:
+    Khi một tường tiếp xúc với các tường ext (ở điểm cuối hoặc cắt qua điểm cuối của tường ext),
+    đoạn tường nằm giữa 2 điểm tiếp xúc của 2 tường ext sẽ được tách ra và thuộc external wall.
+    """
+    if not walls:
+        return walls
+
+    # 1. Thu thập tất cả các điểm cuối của tường exterior_wall
+    ext_endpoints = []
+    for w in walls:
+        cls_name = (w.get("class_name") or w.get("wall_type") or "").lower()
+        if cls_name in ["exterior_wall", "ext_wall", "ext"] or "exterior" in cls_name or "ext" in cls_name:
+            c = w.get("centerline")
+            if c and len(c) == 2:
+                ext_endpoints.append((float(c[0][0]), float(c[0][1]), w.get("id")))
+                ext_endpoints.append((float(c[1][0]), float(c[1][1]), w.get("id")))
+
+    if not ext_endpoints:
+        return walls
+
+    result_walls = []
+
+    for w in walls:
+        cls_name = (w.get("class_name") or w.get("wall_type") or "").lower()
+        if cls_name in ["exterior_wall", "ext_wall", "ext"] or "exterior" in cls_name or not w.get("centerline") or len(w.get("centerline")) != 2:
+            result_walls.append(w)
+            continue
+
+        c = w.get("centerline")
+        x1, y1 = float(c[0][0]), float(c[0][1])
+        x2, y2 = float(c[1][0]), float(c[1][1])
+
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.hypot(dx, dy)
+        if length < 5.0:
+            result_walls.append(w)
+            continue
+
+        # Tìm tất cả các điểm tiếp xúc từ các đầu mút tường ext lên đoạn thẳng này
+        touch_points = []
+        for ep_x, ep_y, _ in ext_endpoints:
+            t = ((ep_x - x1) * dx + (ep_y - y1) * dy) / (length * length)
+            if -0.05 <= t <= 1.05:
+                proj_x = x1 + t * dx
+                proj_y = y1 + t * dy
+                dist = math.hypot(ep_x - proj_x, ep_y - proj_y)
+                if dist <= snap_thresh:
+                    clamped_t = max(0.0, min(1.0, t))
+                    touch_points.append(clamped_t)
+
+        if len(touch_points) < 2:
+            result_walls.append(w)
+            continue
+
+        touch_points.sort()
+        unique_t = []
+        for t in touch_points:
+            if not unique_t or (t - unique_t[-1]) * length > 15.0:
+                unique_t.append(t)
+
+        if len(unique_t) < 2:
+            result_walls.append(w)
+            continue
+
+        t_min = unique_t[0]
+        t_max = unique_t[-1]
+
+        thick_px = w.get("thickness_px", 20.0)
+        thick_mm = w.get("thickness", 90.0)
+
+        def make_poly(p_start, p_end):
+            seg_dx = p_end[0] - p_start[0]
+            seg_dy = p_end[1] - p_start[1]
+            seg_len = math.hypot(seg_dx, seg_dy) or 1.0
+            nx = -seg_dy / seg_len
+            ny = seg_dx / seg_len
+            half = thick_px / 2.0
+            return [
+                [p_start[0] + nx * half, p_start[1] + ny * half],
+                [p_end[0] + nx * half, p_end[1] + ny * half],
+                [p_end[0] - nx * half, p_end[1] - ny * half],
+                [p_start[0] - nx * half, p_start[1] - ny * half]
+            ]
+
+        # Đoạn 1: từ đầu tường tới t_min
+        if t_min * length >= 15.0:
+            p_s = [x1, y1]
+            p_e = [x1 + t_min * dx, y1 + t_min * dy]
+            w_int1 = dict(w)
+            w_int1["id"] = f"{w.get('id')}_int1"
+            w_int1["centerline"] = [p_s, p_e]
+            w_int1["polygon"] = make_poly(p_s, p_e)
+            result_walls.append(w_int1)
+
+        # Đoạn 2: Nối giữa 2 điểm tiếp xúc ext (ĐOẠN EXTERNAL MỚI)
+        if (t_max - t_min) * length >= 15.0:
+            p_s = [x1 + t_min * dx, y1 + t_min * dy]
+            p_e = [x1 + t_max * dx, y1 + t_max * dy]
+            w_ext = dict(w)
+            w_ext["id"] = w.get("id") if (t_min * length < 15.0 and (1.0 - t_max) * length < 15.0) else f"{w.get('id')}_ext"
+            w_ext["class_name"] = "exterior_wall"
+            w_ext["wall_type"] = "ext"
+            w_ext["is_ext"] = True
+            w_ext["is_exterior"] = True
+            w_ext["centerline"] = [p_s, p_e]
+            w_ext["polygon"] = make_poly(p_s, p_e)
+            result_walls.append(w_ext)
+            logger.info(
+                f"[wall_segment_service] Tách đoạn tường {w.get('id')} ({p_s} -> {p_e}) chuyển thành 'exterior_wall'"
+            )
+
+        # Đoạn 3: từ t_max tới cuối tường
+        if (1.0 - t_max) * length >= 15.0:
+            p_s = [x1 + t_max * dx, y1 + t_max * dy]
+            p_e = [x2, y2]
+            w_int2 = dict(w)
+            w_int2["id"] = f"{w.get('id')}_int2"
+            w_int2["centerline"] = [p_s, p_e]
+            w_int2["polygon"] = make_poly(p_s, p_e)
+            result_walls.append(w_int2)
+
+    return result_walls
+
+
 def _save_wall_prior_debug_artifacts(
     img_np: np.ndarray,
     prob_map: Optional[np.ndarray],
@@ -1273,6 +1404,10 @@ class WallSegmentService:
 
             if not overlap:
                 filtered_walls.append(w)
+
+        # Step 5.5: Automatically classify walls touching 2 ext endpoints as exterior_wall
+        snap_thresh = (250.0 / real_scale) if (real_scale and real_scale != 1.0) else 25.0
+        filtered_walls = _classify_walls_touching_ext_endpoints(filtered_walls, snap_thresh=snap_thresh)
 
         # Reassign sequential IDs to filtered walls
         for idx, w in enumerate(filtered_walls):

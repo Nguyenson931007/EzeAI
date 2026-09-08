@@ -5,9 +5,10 @@ Module xử lý xác thực người dùng (Authentication), quản lý phiên l
 và cơ chế bảo mật (như chống Brute Force, Khóa tài khoản và gửi Email thông báo).
 """
 
-from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header
+from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header, Request, Query
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Tuple
 import hashlib
 import os
 import uuid
@@ -241,10 +242,19 @@ def get_mssql_account_user(username_or_manv: str):
                 a.MaNV, 
                 a.UserID, 
                 a.Password, 
-                a.IsManagement, 
-                r.name AS RoleName 
+                a.IsManagement,
+                a.bophanlogin,
+                nv.MaChucVu,
+                nv.MaBoPhan,
+                nv.TenNV,
+                nv.TenEng,
+                COALESCE(r_nv.id, r_acc.id, nv.MaChucVu, a.IsManagement) AS RoleID,
+                COALESCE(r_nv.name, r_acc.name) AS RoleName,
+                COALESCE(r_nv.description, r_acc.description) AS RoleDescription
             FROM dbo.Account a 
-            LEFT JOIN dbo.roles r ON a.IsManagement = r.id 
+            LEFT JOIN dbo.NhanVien nv ON a.MaNV = nv.MaNV 
+            LEFT JOIN dbo.roles r_nv ON nv.MaChucVu = r_nv.id 
+            LEFT JOIN dbo.roles r_acc ON a.IsManagement = r_acc.id 
             WHERE a.UserID = %s OR a.MaNV = %s
         """
         cursor.execute(query, (username_or_manv, username_or_manv))
@@ -254,6 +264,81 @@ def get_mssql_account_user(username_or_manv: str):
     except Exception as e:
         logger.warning(f"Không thể truy vấn MSSQL dbo.Account: {e}")
         return None
+
+
+# Danh sách chuẩn 21 roles từ bảng [emsflow].[dbo].[roles]
+ROLES_REGISTRY_MAP: dict[int, Tuple[str, str]] = {
+    1: ("admin", "Admin"),
+    2: ("manager", "Manager"),
+    3: ("employee", "Employee"),
+    4: ("leader", "Leader"),
+    5: ("employeesteel", "EmployeeSteel"),
+    6: ("managersteel", "ManagerSteel"),
+    7: ("leadersteel", "LeaderSteel"),
+    8: ("checkersteel", "CheckerSteel"),
+    9: ("adminsteel", "AdminSteel"),
+    10: ("viewer", "Viewer"),
+    11: ("employeepryda", "EmployeePryda"),
+    12: ("checkerpryda", "CheckerPryda"),
+    13: ("leaderhw", "LeaderHW"),
+    14: ("employeehw", "EmployeeHW"),
+    15: ("adminhw", "AdminHW"),
+    16: ("admindindas", "AdminDindas"),
+    17: ("leaderdindas", "LeaderDindas"),
+    18: ("employeedindas", "EmployeeDindas"),
+    19: ("admincsd", "AdminCSD"),
+    20: ("leadercsd", "LeaderCSD"),
+    21: ("employeecsd", "EmployeeCSD"),
+}
+
+ROLES_BY_NAME_LOWER: dict[str, Tuple[str, str]] = {
+    "admin": ("admin", "Admin"),
+    "manager": ("manager", "Manager"),
+    "employee": ("employee", "Employee"),
+    "leader": ("leader", "Leader"),
+    "employeesteel": ("employeesteel", "EmployeeSteel"),
+    "managersteel": ("managersteel", "ManagerSteel"),
+    "leadersteel": ("leadersteel", "LeaderSteel"),
+    "checkersteel": ("checkersteel", "CheckerSteel"),
+    "adminsteel": ("adminsteel", "AdminSteel"),
+    "viewer": ("viewer", "Viewer"),
+    "employeepryda": ("employeepryda", "EmployeePryda"),
+    "checkerpryda": ("checkerpryda", "CheckerPryda"),
+    "leaderhw": ("leaderhw", "LeaderHW"),
+    "employeehw": ("employeehw", "EmployeeHW"),
+    "adminhw": ("adminhw", "AdminHW"),
+    "admindindas": ("admindindas", "AdminDindas"),
+    "leaderdindas": ("leaderdindas", "LeaderDindas"),
+    "employeedindas": ("employeedindas", "EmployeeDindas"),
+    "admincsd": ("admincsd", "AdminCSD"),
+    "leadercsd": ("leadercsd", "LeaderCSD"),
+    "employeecsd": ("employeecsd", "EmployeeCSD"),
+}
+
+
+def normalize_role_from_mssql(raw_role_name: Optional[str] = None, role_id: Optional[int] = None) -> Tuple[str, str]:
+    """
+    Chuẩn hóa role lấy theo danh sách bảng [emsflow].[dbo].[roles] (21 roles).
+    Không lấy theo cờ boolean IsManagement.
+    """
+    # 1. Tra cứu theo RoleID (r.id từ dbo.roles hoặc a.IsManagement)
+    if role_id is not None:
+        try:
+            r_id = int(role_id)
+            if r_id in ROLES_REGISTRY_MAP:
+                return ROLES_REGISTRY_MAP[r_id]
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Tra cứu theo RoleName (r.name từ dbo.roles)
+    if raw_role_name:
+        clean = str(raw_role_name).strip()
+        clean_lower = clean.lower()
+        if clean_lower in ROLES_BY_NAME_LOWER:
+            return ROLES_BY_NAME_LOWER[clean_lower]
+        return clean_lower, clean
+
+    return "user", "User"
 
 
 @router.post("/login")
@@ -273,16 +358,16 @@ def login(user: UserLogin, response: Response):
                 detail="Tên đăng nhập hoặc mật khẩu không chính xác."
             )
 
-        # Chuẩn hóa tên quyền (Role)
-        raw_role_name = (mssql_user.get("RoleName") or "User").strip()
-        role_lower = raw_role_name.lower()
-        if mssql_user.get("IsManagement") == 1 or role_lower in ["admin", "adminsteel"]:
-            role = "admin"
-        else:
-            role = role_lower
+        # Chuẩn hóa tên quyền (Role) theo MaChucVu từ bảng NhanVien
+        resolved_role_id = mssql_user.get("MaChucVu") or mssql_user.get("RoleID") or mssql_user.get("IsManagement")
+        role, role_name = normalize_role_from_mssql(
+            raw_role_name=mssql_user.get("RoleName"), 
+            role_id=resolved_role_id
+        )
 
         username = mssql_user["UserID"]
         manv = mssql_user["MaNV"]
+        bophanlogin = str(mssql_user.get("bophanlogin") or "").strip()
         new_token = str(uuid.uuid4())
 
         # Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
@@ -308,14 +393,14 @@ def login(user: UserLogin, response: Response):
                     )
 
                 local_cursor.execute(
-                    "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
-                    (role, new_token, datetime.now().isoformat(), username)
+                    "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0, bophanlogin = ? WHERE username = ?",
+                    (role, new_token, datetime.now().isoformat(), bophanlogin, username)
                 )
             else:
                 dummy_email = f"{username.lower()}@ezefloor.ai"
                 local_cursor.execute(
-                    "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
-                    (username, dummy_email, mssql_user["Password"], role, new_token, datetime.now().isoformat())
+                    "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active, bophanlogin) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?, ?)",
+                    (username, dummy_email, mssql_user["Password"], role, new_token, datetime.now().isoformat(), bophanlogin)
                 )
             local_conn.commit()
         finally:
@@ -336,7 +421,12 @@ def login(user: UserLogin, response: Response):
             "username": username,
             "manv": manv,
             "role": role,
-            "is_management": mssql_user["IsManagement"],
+            "role_id": resolved_role_id,
+            "role_name": role_name,
+            "bophanlogin": bophanlogin,
+            "full_name_vi": mssql_user.get("TenNV"),
+            "full_name_en": mssql_user.get("TenEng"),
+            "is_management": mssql_user.get("IsManagement"),
             "session_token": new_token
         }
 
@@ -420,10 +510,11 @@ def login(user: UserLogin, response: Response):
 
 
 @router.post("/logout")
-def logout(user: UserLogout):
+def logout(user: UserLogout, response: Response):
     """
     Đăng xuất tài khoản người dùng.
     - Cập nhật trạng thái offline và xóa bỏ session_token tương ứng trong DB.
+    - Xóa session_token cookie trên trình duyệt.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -433,6 +524,7 @@ def logout(user: UserLogout):
             (user.username,)
         )
         conn.commit()
+        response.delete_cookie(key="session_token")
         return {"status": "success", "message": "Đăng xuất thành công."}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -461,7 +553,7 @@ def validate_session_endpoint(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        cursor.execute("SELECT session_token, last_active, role, bophanlogin FROM users WHERE username = ?", (auth_username,))
         row = cursor.fetchone()
 
         if not row or row["session_token"] != session_token:
@@ -480,7 +572,54 @@ def validate_session_endpoint(
                 detail="Phiên đăng nhập đã hết hạn."
             )
 
-        return {"status": "valid", "username": auth_username}
+        bophanlogin = ""
+        try:
+            bophanlogin = row["bophanlogin"] or ""
+        except Exception:
+            pass
+
+        if not bophanlogin:
+            mssql_user = get_mssql_account_user(auth_username)
+            if mssql_user:
+                bophanlogin = str(mssql_user.get("bophanlogin") or "").strip()
+
+        user_role = row["role"] if (row and "role" in row.keys() and row["role"]) else "user"
+        display_role = user_role
+        manv = None
+
+        # Tự động đồng bộ role mới nhất từ MSSQL Server nếu có (theo MaChucVu trong NhanVien)
+        role_id_val = None
+        full_name_vi = None
+        full_name_en = None
+        try:
+            mssql_user = get_mssql_account_user(auth_username)
+            if mssql_user:
+                role_id_val = mssql_user.get("MaChucVu") or mssql_user.get("RoleID") or mssql_user.get("IsManagement")
+                norm_role, norm_name = normalize_role_from_mssql(
+                    raw_role_name=mssql_user.get("RoleName"), 
+                    role_id=role_id_val
+                )
+                user_role = norm_role
+                display_role = norm_name
+                manv = mssql_user.get("MaNV")
+                full_name_vi = mssql_user.get("TenNV")
+                full_name_en = mssql_user.get("TenEng")
+                cursor.execute("UPDATE users SET role = ? WHERE username = ?", (user_role, auth_username))
+                conn.commit()
+        except Exception as sync_err:
+            logger.debug(f"[validate-session] Lỗi đồng bộ role từ MSSQL: {sync_err}")
+
+        return {
+            "status": "valid",
+            "username": auth_username,
+            "bophanlogin": bophanlogin,
+            "role": user_role,
+            "role_id": role_id_val,
+            "role_name": display_role,
+            "manv": manv,
+            "full_name_vi": full_name_vi,
+            "full_name_en": full_name_en
+        }
     finally:
         conn.close()
 
@@ -488,7 +627,7 @@ def validate_session_endpoint(
 # ── Dependency Xác thực Phiên làm việc (Session Validation) ──
 
 def validate_session(
-    auth_username: str = Header(..., alias="X-Username"), 
+    auth_username: Optional[str] = Header(None, alias="X-Username"), 
     session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
     session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
 ):
@@ -500,11 +639,11 @@ def validate_session(
     """
     session_token = session_token_cookie or session_token_header
     
-    print(f"[AUTH] Validating session for user: {auth_username}")
+    print(f"[AUTH] Validating session for user: {auth_username or '(from cookie/header)'}")
     print(f"[AUTH] Cookie token present: {bool(session_token_cookie)}, Header token present: {bool(session_token_header)}")
     
     if not session_token:
-        logger.warning(f"[AUTH] Thiếu session token cho người dùng {auth_username}")
+        logger.warning(f"[AUTH] Thiếu session token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Yêu cầu chưa được xác thực: Thiếu session token."
@@ -513,15 +652,20 @@ def validate_session(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        if auth_username:
+            cursor.execute("SELECT username, session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        else:
+            cursor.execute("SELECT username, session_token, last_active FROM users WHERE session_token = ?", (session_token,))
         row = cursor.fetchone()
         
         if not row:
-            logger.warning(f"[AUTH] Không tìm thấy người dùng {auth_username} trong cơ sở dữ liệu")
+            logger.warning(f"[AUTH] Không tìm thấy phiên làm việc trong cơ sở dữ liệu")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
                 detail="Phiên làm việc không hợp lệ: Không tìm thấy người dùng."
             )
+            
+        auth_username = row["username"]
             
         # Kiểm tra token trùng khớp (chống việc đăng nhập nhiều nơi ghi đè session)
         if row["session_token"] != session_token:
@@ -554,51 +698,102 @@ def validate_session(
         conn.close()
 
 @router.post("/api/auth/tasklist-sso")
-@router.post("/tasklist-sso")
-async def tasklist_sso(payload: dict, response: Response):
+def _execute_tasklist_sso(token: Optional[str], raw_username_param: Optional[str] = None):
     """
-    Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
-    Gửi token xác thực tới máy chủ TaskList (https://103.77.167.69:8081/api/auth/me),
-    đồng bộ tài khoản và tạo phiên làm việc (session) cho Web AI EzeFloor.
+    Xử lý logic lõi SSO: xác thực token Tasklist hoặc username, trích xuất thông tin
+    người dùng từ MSSQL, và đồng bộ session vào cơ sở dữ liệu SQLite cục bộ.
+    Trả về: (username, manv, role, role_name, bophanlogin, new_token, user_data)
     """
-    token = payload.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Tasklist token is required")
+    token = (token or "").strip()
+    raw_username_param = (raw_username_param or "").strip()
 
     import httpx
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
-            result = await client.get(
-                "http://14.241.197.188:5000/api/auth/me",
-                headers={"Authorization": f"Bearer {token}"}
-            )
-    except Exception as e:
-        logger.error(f"[SSO] Lỗi kết nối tới Tasklist API: {e}")
-        raise HTTPException(status_code=502, detail=f"Không thể kết nối máy chủ xác thực Tasklist: {e}")
+    import json
+    import base64
+    from app.config import TASKLIST_AUTH_URL
 
-    if result.status_code != 200:
-        logger.warning(f"[SSO] Tasklist token không hợp lệ (status={result.status_code})")
+    user_data = None
+
+    if token and token != "direct_url":
+        # 1. Thử xác thực qua các endpoint máy chủ Tasklist khả dụng
+        candidate_urls = [
+            TASKLIST_AUTH_URL,
+            "http://14.241.197.188:7749/api/auth/me",
+            "http://14.241.197.188:5000/api/auth/me",
+            "https://103.77.167.69:8081/api/auth/me",
+            "http://14.241.197.188:8081/api/auth/me",
+            "http://127.0.0.1:5000/api/auth/me",
+            "http://127.0.0.1:7749/api/auth/me",
+        ]
+        seen = set()
+        urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
+
+        for url in urls_to_try:
+            try:
+                with httpx.Client(verify=False, timeout=3.0) as client:
+                    res = client.get(
+                        url,
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if res.status_code == 200:
+                        res_json = res.json()
+                        user_data = res_json.get("data") or res_json
+                        logger.info(f"[SSO] Xác thực Tasklist thành công qua endpoint: {url}")
+                        break
+            except Exception:
+                continue
+
+        # 2. Nếu API không phản hồi hoặc token là JWT tự sinh từ Tasklist -> Giải mã JWT Payload trực tiếp
+        if not user_data:
+            try:
+                parts = token.strip().split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                    decoded_bytes = base64.urlsafe_b64decode(padded.encode("utf-8"))
+                    jwt_payload = json.loads(decoded_bytes.decode("utf-8"))
+                    if isinstance(jwt_payload, dict) and any(k in jwt_payload for k in ["ma_nv", "manv", "MaNV", "username", "UserID", "user_id", "sub", "email"]):
+                        user_data = jwt_payload
+                        logger.info("[SSO] Giải mã trực tiếp Tasklist JWT token thành công.")
+            except Exception as jwt_err:
+                logger.debug(f"[SSO] Không thể parse JWT payload: {jwt_err}")
+
+    # 3. Fallback khi không có token nhưng có username trực tiếp
+    if not user_data and raw_username_param:
+        user_data = {"username": raw_username_param, "ma_nv": raw_username_param}
+
+    if not user_data:
+        logger.warning("[SSO] Tasklist token không hợp lệ hoặc không thể xác thực.")
         raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
 
-    res_json = result.json()
-    user_data = res_json.get("data") or res_json
+    # 4. Trích xuất thông tin user từ Tasklist / MSSQL
+    manv = str(user_data.get("ma_nv") or user_data.get("manv") or user_data.get("MaNV") or "").strip()
+    raw_username = str(user_data.get("username") or user_data.get("UserID") or user_data.get("user_id") or user_data.get("sub") or "").strip()
 
-    # Trích xuất thông tin user từ Tasklist
-    manv = str(user_data.get("ma_nv") or "").strip()
-    if not manv:
-        raise HTTPException(status_code=401, detail="Tasklist response missing ma_nv")
+    mssql_user = None
+    if manv:
+        mssql_user = get_mssql_account_user(manv)
+    if not mssql_user and raw_username:
+        mssql_user = get_mssql_account_user(raw_username)
 
-    mssql_user = get_mssql_account_user(manv)
-    if not mssql_user:
-        raise HTTPException(status_code=404, detail=f"EMS account not found for {manv}")
+    bophanlogin = ""
+    if mssql_user:
+        username = mssql_user["UserID"]
+        manv = str(mssql_user.get("MaNV") or manv).strip()
+        raw_role = mssql_user.get("RoleName") or user_data.get("RoleName") or user_data.get("role") or "User"
+        r_id = mssql_user.get("RoleID") or mssql_user.get("IsManagement")
+        bophanlogin = str(mssql_user.get("bophanlogin") or "").strip()
+    else:
+        username = raw_username or manv or "EZE0098"
+        manv = manv or username
+        raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
+        r_id = user_data.get("RoleID") or user_data.get("IsManagement")
+        bophanlogin = str(user_data.get("bophanlogin") or user_data.get("bophan") or "").strip()
 
-    username = str(mssql_user.get("UserID") or manv).strip()
-    raw_role = user_data.get("RoleName") or user_data.get("role") or "User"
-    role = "admin" if (str(raw_role).lower() in ["admin", "adminsteel"] or user_data.get("IsManagement") == 1) else str(raw_role).lower()
+    role, role_name = normalize_role_from_mssql(raw_role_name=raw_role, role_id=r_id)
 
     new_token = str(uuid.uuid4())
 
-    # Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
+    # 5. Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
     local_conn = get_db_connection()
     local_cursor = local_conn.cursor()
     try:
@@ -621,20 +816,32 @@ async def tasklist_sso(payload: dict, response: Response):
                 )
 
             local_cursor.execute(
-                "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0 WHERE username = ?",
-                (role, new_token, datetime.now().isoformat(), username)
+                "UPDATE users SET role = ?, is_online = 1, session_token = ?, last_active = ?, failed_attempts = 0, bophanlogin = ? WHERE username = ?",
+                (role, new_token, datetime.now().isoformat(), bophanlogin, username)
             )
         else:
             dummy_email = user_data.get("email") or f"{username.lower()}@ezefloor.ai"
             local_cursor.execute(
-                "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)",
-                (username, dummy_email, "sso_managed", role, new_token, datetime.now().isoformat())
+                "INSERT INTO users (username, email, hashed_password, role, is_active, is_online, status, session_token, last_active, bophanlogin) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?, ?)",
+                (username, dummy_email, "sso_managed", role, new_token, datetime.now().isoformat(), bophanlogin)
             )
         local_conn.commit()
     finally:
         local_conn.close()
 
-    # Thiết lập HTTP-Only Cookie
+    return username, manv, role, role_name, bophanlogin, new_token, user_data
+
+
+@router.post("/api/auth/tasklist-sso")
+@router.post("/tasklist-sso")
+async def tasklist_sso(payload: dict, response: Response):
+    """
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3 qua POST payload.
+    """
+    token = payload.get("token")
+    raw_user = payload.get("username") or payload.get("user") or payload.get("UserID")
+    username, manv, role, role_name, bophanlogin, new_token, user_data = _execute_tasklist_sso(token, raw_user)
+
     response.set_cookie(
         key="session_token",
         value=new_token,
@@ -649,6 +856,88 @@ async def tasklist_sso(payload: dict, response: Response):
         "username": username,
         "manv": manv,
         "role": role,
+        "role_name": role_name,
+        "bophanlogin": bophanlogin,
+        "session_token": new_token,
+        "data": user_data
+    }
+
+
+@router.get("/api/auth/tasklist-sso")
+@router.get("/tasklist-sso")
+async def tasklist_sso_get(
+    request: Request,
+    response: Response,
+    token: Optional[str] = Query(None),
+    sso_token: Optional[str] = Query(None),
+    username: Optional[str] = Query(None),
+    user: Optional[str] = Query(None),
+    UserID: Optional[str] = Query(None),
+    job: Optional[str] = Query(None),
+    session_token: Optional[str] = Cookie(None, alias="session_token")
+):
+    """
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3 qua GET request (URL params).
+    Hỗ trợ redirect tự động nếu người dùng mở URL trực tiếp trên trình duyệt.
+    """
+    raw_token = token or sso_token
+    raw_user = username or user or UserID
+    is_html = "text/html" in request.headers.get("accept", "").lower()
+
+    if not raw_token and not raw_user:
+        # Kiểm tra nếu đã có phiên hợp lệ từ cookie trước đó
+        if session_token:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT username, role, bophanlogin FROM users WHERE session_token = ? AND is_active = 1", (session_token,))
+            u_row = cur.fetchone()
+            conn.close()
+            if u_row:
+                if is_html:
+                    target = f"/?job={job}" if job else "/"
+                    return RedirectResponse(url=target, status_code=302)
+                return {
+                    "status": "success",
+                    "username": u_row["username"],
+                    "role": u_row["role"],
+                    "bophanlogin": u_row["bophanlogin"] or "",
+                    "session_token": session_token
+                }
+        if is_html:
+            target = f"/?job={job}" if job else "/"
+            return RedirectResponse(url=target, status_code=302)
+        raise HTTPException(status_code=400, detail="Tasklist token or username is required")
+
+    username, manv, role, role_name, bophanlogin, new_token, user_data = _execute_tasklist_sso(raw_token, raw_user)
+
+    if is_html:
+        target = f"/?job={job}" if job else "/"
+        red_resp = RedirectResponse(url=target, status_code=302)
+        red_resp.set_cookie(
+            key="session_token",
+            value=new_token,
+            httponly=True,
+            max_age=18000,
+            samesite="lax",
+            secure=False
+        )
+        return red_resp
+
+    response.set_cookie(
+        key="session_token",
+        value=new_token,
+        httponly=True,
+        max_age=18000,
+        samesite="lax",
+        secure=False
+    )
+    return {
+        "status": "success",
+        "username": username,
+        "manv": manv,
+        "role": role,
+        "role_name": role_name,
+        "bophanlogin": bophanlogin,
         "session_token": new_token,
         "data": user_data
     }

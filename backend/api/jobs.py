@@ -21,6 +21,45 @@ logger = logging.getLogger("ezefloor.jobs")
 # Khởi tạo APIRouter cho các API liên quan đến quản lý dự án
 router = APIRouter()
 
+# ── Katherine (EZE0098) standard HW contract ──
+# Cairns keeps its existing separate workflow. Every other Katherine customer
+# uses the common 13-step contract. Step 13 has no EzeFloor form yet, so it is
+# returned in selected_steps but intentionally has no task_modules mapping.
+KATHERINE_STANDARD_STEPS = {
+    1: "Cladding",
+    2: "Eaves Soffit",
+    3: "Flooring & Decking",
+    4: "Frame Hardware",
+    5: "Insulation",
+    6: "Lockup",
+    7: "Fixout",
+    8: "Final Fit",
+    9: "Shelving",
+    10: "Timber Post",
+    11: "FOW Plumbing",
+    12: "Power Truss Braces",
+    13: "Hardies Fire Walls",
+}
+
+KATHERINE_STEP_TO_MODULE = {
+    1: "cladding",
+    2: "eaves_soffit",
+    3: "flooring_decking",
+    4: "frame_hardware",
+    5: "insulation",
+    6: "lock_up",
+    7: "fixout",
+    8: "final_fit",
+    9: "shelving",
+    10: "timber_posts",
+    11: "fow_plumbing",
+    12: "power_truss_braces",
+    13: None,
+}
+
+def _is_cairns_customer(customer: str) -> bool:
+    return "CAIRNS" in str(customer or "").strip().upper()
+
 # ── Pydantic Schemas (Mô hình dữ liệu đầu vào và đầu ra) ──
 
 class JobCreate(BaseModel):
@@ -919,7 +958,7 @@ def get_shared_job(token: str):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs/open-by-ems/{ems_id}")
-async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_session)):
+async def get_job_by_ems_id(ems_id: str):
     """
     Tra cứu thông tin HW Job từ MSSQL theo id_job_ems (UUID từ TaskList).
     Sử dụng khi người dùng SSO từ TaskList Web3 với tham số ?job=<ems_uuid>.
@@ -939,25 +978,30 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
                 tghw.id_assign_ems,
                 lj.JobNumber AS job_number,
                 lj.Client AS client,
+                UPPER(LTRIM(RTRIM(COALESCE(NULLIF(lc.ShortName, ''), lj.Client)))) AS customer_short_name,
                 lj.Builder AS builder,
                 aj.MaNV AS ma_nv
             FROM [emsflow].[dbo].[task_group_hw] tghw
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
                 AND ISNULL(lj.IsDelete, 0) = 0
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] lc
+                ON lc.ClientName = lj.Client
+                AND ISNULL(lc.IsDelete, 0) = 0
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
                 ON tghw.id_assign_ems = aj.ID
                 AND ISNULL(aj.IsDelete, 0) = 0
             WHERE
-                tghw.id_job_ems = %s
+                (tghw.id_job_ems = %s OR tghw.id = %s)
                 AND ISNULL(tghw.is_delete, 0) = 0
+            ORDER BY tghw.created_at DESC
         """
 
-        cursor.execute(sql, (ems_id,))
+        cursor.execute(sql, (ems_id, ems_id))
         row = cursor.fetchone()
 
         if not row:
-            logger.warning(f"[open-by-ems] Không tìm thấy HW Job với id_job_ems={ems_id}")
+            logger.warning(f"[open-by-ems] Không tìm thấy HW Job với id_job_ems/id={ems_id}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Không tìm thấy Job EMS với ID: {ems_id}"
@@ -974,6 +1018,77 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
                 result[key] = str(val)
 
         logger.info(f"[open-by-ems] Tìm thấy HW Job: hw_id={result.get('hw_id')}, job_number={result.get('job_number')}")
+
+        # TaskList is authoritative for Katherine non-Cairns task visibility.
+        manager_code = str(result.get("ma_nv") or "").strip().upper()
+        customer = result.get("customer_short_name") or result.get("client") or ""
+        result["manager_code"] = manager_code
+        result["customer"] = customer
+
+        # Query task_group_hw_steps for any job that has configured task steps
+        try:
+            cursor.execute(
+                """
+                SELECT step_number, is_visible
+                FROM [emsflow].[dbo].[task_group_hw_steps]
+                WHERE task_group_hw_id = %s
+                ORDER BY step_number ASC
+                """,
+                (result.get("hw_id"),)
+            )
+            step_rows = cursor.fetchall() or []
+
+            if len(step_rows) > 0:
+                selected_steps = [
+                    int(r.get("step_number"))
+                    for r in step_rows
+                    if r.get("is_visible")
+                    and int(r.get("step_number") or 0) in KATHERINE_STANDARD_STEPS
+                ]
+                task_modules = []
+                selected_modules = []
+                for step_number in selected_steps:
+                    module_id = KATHERINE_STEP_TO_MODULE.get(step_number)
+                    task_name = KATHERINE_STANDARD_STEPS.get(step_number, "")
+                    if module_id and module_id not in task_modules:
+                        task_modules.append(module_id)
+                    selected_modules.append({
+                        "step_number": step_number,
+                        "task_name": task_name,
+                        "module_id": module_id,
+                        "is_visible": True
+                    })
+
+                # Query succeeded => authoritative response
+                result["task_modules_configured"] = True
+                result["selected_task_count"] = len(selected_steps)
+                result["selected_modules"] = selected_modules
+                result["selected_steps"] = selected_steps
+                result["selected_task_names"] = [KATHERINE_STANDARD_STEPS[n] for n in selected_steps]
+                result["task_modules"] = task_modules
+                result["unmapped_steps"] = [
+                    n for n in selected_steps if KATHERINE_STEP_TO_MODULE.get(n) is None
+                ]
+            else:
+                result["task_modules_configured"] = False
+                result["selected_task_count"] = 0
+                result["selected_modules"] = []
+                result["selected_steps"] = None
+                result["selected_task_names"] = None
+                result["task_modules"] = None
+                result["unmapped_steps"] = None
+        except Exception as step_err:
+            logger.error(f"[open-by-ems] Lỗi truy vấn task_group_hw_steps: {step_err}")
+            result["task_modules_configured"] = False
+            result["selected_task_count"] = 0
+            result["selected_modules"] = []
+            result["selected_steps"] = None
+            result["selected_task_names"] = None
+            result["task_modules"] = None
+            result["unmapped_steps"] = None
+            result["selected_task_names"] = None
+            result["task_modules"] = None
+            result["unmapped_steps"] = None
 
         # Tra cứu xem trong CSDL bản vẽ nội bộ (SQLite/MySQL) đã có project nào lưu theo job_number chưa
         local_job = None
@@ -1018,13 +1133,32 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
 
 @router.post("/jobs/export-procurement")
 @router.post("/api/jobs/export-procurement")
-async def export_procurement(payload: dict):
+async def export_procurement(payload: dict, x_username: Optional[str] = Header(None, alias="X-Username")):
     """
     Chuyển tiếp gói dữ liệu Job từ EzeFloor sang dịch vụ Procurement.
+    Chỉ cho phép tài khoản Admin hoặc nhóm Hardware (AdminHW, LeaderHW, EmployeeHW) thực hiện.
     Tự động truy xuất và đính kèm toàn bộ 12 cột của Job từ CSDL SQLite (ezefloor.db):
     id, user_id, project_name, room_count, total_area, data (JSON CAD/BIM), thumbnail,
     is_trained, is_corrected, share_token, is_exported, created_at.
     """
+    if x_username:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT role FROM users WHERE username = ?", (x_username,))
+            u_row = cur.fetchone()
+            if u_row:
+                u_role = (u_row["role"] or "").lower()
+                is_hw_or_admin = u_role in ["admin", "administrator", "adminhw", "leaderhw", "employeehw"] or u_role.endswith("hw") or "hardware" in u_role
+                if not is_hw_or_admin:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Tài khoản của bạn không thuộc nhóm Hardware (HW Progress) để xuất dữ liệu Procurement."
+                    )
+        finally:
+            if conn:
+                conn.close()
     import httpx
 
     # 1. Truy xuất bản ghi đầy đủ 12 cột từ bảng jobs trong CSDL
