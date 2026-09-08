@@ -87,7 +87,12 @@ export default function ManageModulesPopup({
                 if (setEnabledModuleIds) setEnabledModuleIds(next);
                 try {
                   sessionStorage.setItem("selectedModules", JSON.stringify(next));
-                  localStorage.setItem("selectedModules", JSON.stringify(next));
+                  const pendingStr = sessionStorage.getItem("pendingEmsJob");
+                  if (pendingStr) {
+                    const pJob = JSON.parse(pendingStr);
+                    pJob.task_modules = next;
+                    sessionStorage.setItem("pendingEmsJob", JSON.stringify(pJob));
+                  }
                 } catch (_) {}
               }}
               style={{
@@ -171,7 +176,22 @@ export default function ManageModulesPopup({
               sessionStorage.removeItem("selectedModules");
               localStorage.removeItem("selectedModules");
             } catch (_) {}
-            if (setEnabledModuleIds) setEnabledModuleIds(customerModuleIds);
+            let defaultMods = customerModuleIds;
+            try {
+              const pendingStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+              if (pendingStr) {
+                const parsed = JSON.parse(pendingStr);
+                const parsedMods = Array.isArray(parsed?.task_modules)
+                  ? parsed.task_modules
+                  : (Array.isArray(parsed?.selected_modules)
+                    ? parsed.selected_modules.map((m) => (typeof m === "string" ? m : m.module_id)).filter(Boolean)
+                    : null);
+                if (Array.isArray(parsedMods) && parsedMods.length > 0) {
+                  defaultMods = parsedMods;
+                }
+              }
+            } catch (_) {}
+            if (setEnabledModuleIds) setEnabledModuleIds(defaultMods);
           }}
           style={{
             flex: 1,

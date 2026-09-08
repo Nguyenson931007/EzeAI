@@ -184,7 +184,8 @@ export default function RightPropertyPaneView({
     setTextBold,
     setTextItalic,
     setTextUnderline,
-    setTextStrikethrough
+    setTextStrikethrough,
+    setCalloutStrokeWidth
   } = useAppModel();
 
   const selectedAnnotation = React.useMemo(() => {
@@ -224,6 +225,9 @@ export default function RightPropertyPaneView({
       if (typeof patch.isItalic === "boolean" && setTextItalic) setTextItalic(patch.isItalic);
       if (typeof patch.isUnderline === "boolean" && setTextUnderline) setTextUnderline(patch.isUnderline);
       if (typeof patch.isStrikethrough === "boolean" && setTextStrikethrough) setTextStrikethrough(patch.isStrikethrough);
+      if (typeof patch.strokeWidth === "number" && target && target.type === "callout" && setCalloutStrokeWidth) {
+        setCalloutStrokeWidth(patch.strokeWidth);
+      }
     } else {
       // Persist ONLY to drawing defaults (does not affect text tools)
       if (patch.color && setAnnotationColor) setAnnotationColor(patch.color);
@@ -236,7 +240,7 @@ export default function RightPropertyPaneView({
     currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage,
     setAnnotationColor, setAnnotationStrokeWidth, setAnnotationOpacity, setAnnotationFillOpacity,
     setAnnotationFillMode, setAnnotationFontSize, setTextColor, setTextOpacity, setTextFontSize,
-    setTextBold, setTextItalic, setTextUnderline, setTextStrikethrough
+    setTextBold, setTextItalic, setTextUnderline, setTextStrikethrough, setCalloutStrokeWidth
   ]);
 
   const handleDeleteAnnotation = React.useCallback((annId) => {
@@ -384,7 +388,14 @@ export default function RightPropertyPaneView({
         if (pendingJobStr) pendingJob = JSON.parse(pendingJobStr);
       } catch (_) { }
 
-      const pendingCustomer = getCustomerFromPendingEmsJob();
+      // Kiểm tra xem pendingJob có trùng khớp với project đang mở hay không
+      const isMatchingEmsJob = pendingJob && currentProjectName && (
+        String(pendingJob.job_number || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
+        String(pendingJob.hw_id || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
+        String(pendingJob.id_job_ems || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase()
+      );
+
+      const pendingCustomer = isMatchingEmsJob ? getCustomerFromPendingEmsJob() : null;
       const storedCustomer =
         resolveCustomerPackKey(sessionStorage.getItem("selectedCustomerClient")) ||
         resolveCustomerPackKey(localStorage.getItem("selectedCustomerClient"));
@@ -399,14 +410,41 @@ export default function RightPropertyPaneView({
         localStorage.setItem("selectedCustomerClient", nextCustomer);
       } catch (_) { }
 
-      // Authoritative task_modules from API (even if empty [])
-      if (pendingJob && Array.isArray(pendingJob.task_modules)) {
+      // 1. Nếu là EMS Job đang mở và có cấu hình task_modules từ API -> ƯU TIÊN HÀNG ĐẦU
+      const authMods = Array.isArray(pendingJob?.task_modules)
+        ? pendingJob.task_modules
+        : (Array.isArray(pendingJob?.selected_modules)
+          ? pendingJob.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
+          : null);
+
+      if (Array.isArray(authMods)) {
+        const sanitizedAuth = sanitizeModuleIds(authMods, nextCustomer);
         setEnabledModuleIds(prev =>
-          JSON.stringify(prev) === JSON.stringify(pendingJob.task_modules) ? prev : pendingJob.task_modules
+          JSON.stringify(prev) === JSON.stringify(sanitizedAuth) ? prev : sanitizedAuth
         );
         return;
       }
 
+      // 2. Kiểm tra cấu hình task tùy chỉnh người dùng đã chọn (selectedModules) trong sessionStorage
+      let customModules = null;
+      try {
+        const storedModules = sessionStorage.getItem("selectedModules");
+        if (storedModules) {
+          const parsed = JSON.parse(storedModules);
+          if (Array.isArray(parsed)) {
+            customModules = sanitizeModuleIds(parsed, nextCustomer);
+          }
+        }
+      } catch (_) { }
+
+      if (Array.isArray(customModules)) {
+        setEnabledModuleIds(prev =>
+          JSON.stringify(prev) === JSON.stringify(customModules) ? prev : customModules
+        );
+        return;
+      }
+
+      // 3. Mặc định cho project thông thường: nạp toàn bộ module theo gói khách hàng
       const resolved = getInitialEnabledModules(nextCustomer);
       setEnabledModuleIds(prev =>
         JSON.stringify(prev) === JSON.stringify(resolved) ? prev : resolved
@@ -423,28 +461,18 @@ export default function RightPropertyPaneView({
     };
   }, [currentProjectName, user, selectedCustomerClient]);
 
+  // Đảm bảo activePaneTab hợp lệ khi đổi gói khách hàng
   React.useEffect(() => {
-    setEnabledModuleIds(prev => {
-      // If pendingEmsJob explicitly provides authoritative task_modules, keep it authoritative!
-      if (typeof window !== "undefined") {
-        try {
-          const pendingStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
-          if (pendingStr) {
-            const parsed = JSON.parse(pendingStr);
-            if (Array.isArray(parsed?.task_modules)) {
-              return sanitizeModuleIds(parsed.task_modules, selectedCustomerClient);
-            }
-          }
-        } catch (_) { }
-      }
-      const next = sanitizeModuleIds(prev, selectedCustomerClient);
-      return next.length > 0 ? next : customerModuleIds;
-    });
-
-    if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed" && !customerModuleIds.includes(activePaneTab)) {
+    if (
+      activePaneTab !== "explorer" &&
+      activePaneTab !== "summary" &&
+      activePaneTab !== "job_task" &&
+      activePaneTab !== "collapsed" &&
+      !customerModuleIds.includes(activePaneTab)
+    ) {
       setActivePaneTab("explorer");
     }
-  }, [selectedCustomerClient, customerModuleIds, activePaneTab]);
+  }, [customerModuleIds, activePaneTab]);
 
   // Close Add Module popup on outside click
   React.useEffect(() => {
@@ -1372,10 +1400,11 @@ export default function RightPropertyPaneView({
   const handleOpenJobTask = async (task) => {
     if (!task) return;
     const targetName = task.job_number || task.hw_id || "Project";
+    if (setCurrentProjectName) setCurrentProjectName(targetName);
 
     let currentTask = task;
-    const emsId = task.id_job_ems || task.ems_id;
-    if (emsId && !Array.isArray(task.task_modules)) {
+    const emsId = task.id_job_ems || task.ems_id || task.hw_id || task.id;
+    if (emsId) {
       try {
         const emsRes = await ApiService.getJobByEmsId(emsId);
         if (emsRes?.status === "success" && emsRes.data) {
@@ -1386,12 +1415,17 @@ export default function RightPropertyPaneView({
       }
     }
 
-    // 0. Sử dụng task_modules từ API làm nguồn chân lý cao nhất
-    if (Array.isArray(currentTask.task_modules)) {
-      setEnabledModuleIds(currentTask.task_modules);
+    // 0. Sử dụng task_modules / selected_modules từ API làm nguồn chân lý cao nhất
+    const authoritativeMods = Array.isArray(currentTask.task_modules)
+      ? currentTask.task_modules
+      : (Array.isArray(currentTask.selected_modules)
+        ? currentTask.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
+        : null);
+
+    if (Array.isArray(authoritativeMods)) {
+      setEnabledModuleIds(authoritativeMods);
       try {
-        sessionStorage.setItem("selectedModules", JSON.stringify(currentTask.task_modules));
-        localStorage.setItem("selectedModules", JSON.stringify(currentTask.task_modules));
+        sessionStorage.setItem("selectedModules", JSON.stringify(authoritativeMods));
       } catch (_) { }
     } else {
       const taskModules = sanitizeModuleIds(resolveTaskModules(currentTask), selectedCustomerClient);
@@ -1399,16 +1433,14 @@ export default function RightPropertyPaneView({
         setEnabledModuleIds(taskModules);
         try {
           sessionStorage.setItem("selectedModules", JSON.stringify(taskModules));
-          localStorage.setItem("selectedModules", JSON.stringify(taskModules));
         } catch (_) { }
       }
     }
 
-    // Lưu thông tin pendingEmsJob vào sessionStorage và localStorage để đồng bộ SQL
+    // Lưu thông tin pendingEmsJob vào sessionStorage để đồng bộ SQL
     sessionStorage.setItem("pendingEmsJob", JSON.stringify(currentTask));
-    localStorage.setItem("pendingEmsJob", JSON.stringify(currentTask));
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("task-modules-updated"));
+      window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: currentTask }));
     }
 
     // 1. Nếu Job đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor

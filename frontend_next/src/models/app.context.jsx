@@ -74,6 +74,7 @@ export const AppProvider = ({ children }) => {
   const [textOpacity, setTextOpacity] = useState(1.0);
   const [textFontSize, setTextFontSize] = useState(20);
   const [annotationFontSize, setAnnotationFontSize] = useState(20);
+  const [calloutStrokeWidth, setCalloutStrokeWidth] = useState(3.5);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
 
   // Text Formatting States (B, I, U, S)
@@ -173,6 +174,7 @@ export const AppProvider = ({ children }) => {
     textColor, setTextColor,
     textOpacity, setTextOpacity,
     textFontSize, setTextFontSize,
+    calloutStrokeWidth, setCalloutStrokeWidth,
     selectedAnnotationId, setSelectedAnnotationId,
 
     textBold, setTextBold,

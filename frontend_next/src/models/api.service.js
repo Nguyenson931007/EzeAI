@@ -131,11 +131,39 @@ export const ApiService = {
   },
 
   async getJobByEmsId(emsId) {
-    const res = await fetch(`${BASE_URL}/jobs/open-by-ems/${encodeURIComponent(emsId)}`, {
-      headers: getHeaders(),
-      credentials: "include",
-    });
-    return handleResponse(res);
+    try {
+      const res = await fetch(`${BASE_URL}/jobs/open-by-ems/${encodeURIComponent(emsId)}`, {
+        headers: getHeaders(),
+        credentials: "include",
+      });
+      if (res.status === 401) {
+        console.warn("[getJobByEmsId] 401 Unauthorized khi tải Job EMS:", emsId);
+        return null;
+      }
+      const result = await handleResponse(res);
+      if (typeof window !== "undefined" && result?.status === "success" && result?.data) {
+        try {
+          const jobInfo = result.data;
+          sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+          localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+          const authoritativeModules = Array.isArray(jobInfo.task_modules)
+            ? jobInfo.task_modules
+            : (Array.isArray(jobInfo.selected_modules)
+              ? jobInfo.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
+              : null);
+          if (Array.isArray(authoritativeModules)) {
+            const authStr = JSON.stringify(authoritativeModules);
+            sessionStorage.setItem("selectedModules", authStr);
+            try { localStorage.removeItem("selectedModules"); } catch (_) {}
+          }
+          window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: jobInfo }));
+        } catch (_) {}
+      }
+      return result;
+    } catch (err) {
+      console.warn("[getJobByEmsId] Lỗi khi tải Job EMS:", err);
+      return null;
+    }
   },
 
   async getTaskListJobs(maNv = null, search = null, limit = 2000, forceRefresh = false) {

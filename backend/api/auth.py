@@ -5,7 +5,8 @@ Module xử lý xác thực người dùng (Authentication), quản lý phiên l
 và cơ chế bảo mật (như chống Brute Force, Khóa tài khoản và gửi Email thông báo).
 """
 
-from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header
+from fastapi import APIRouter, HTTPException, status, Response, Cookie, Header, Request, Query
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, Tuple
 import hashlib
@@ -626,7 +627,7 @@ def validate_session_endpoint(
 # ── Dependency Xác thực Phiên làm việc (Session Validation) ──
 
 def validate_session(
-    auth_username: str = Header(..., alias="X-Username"), 
+    auth_username: Optional[str] = Header(None, alias="X-Username"), 
     session_token_cookie: Optional[str] = Cookie(None, alias="session_token"),
     session_token_header: Optional[str] = Header(None, alias="X-Session-Token")
 ):
@@ -638,11 +639,11 @@ def validate_session(
     """
     session_token = session_token_cookie or session_token_header
     
-    print(f"[AUTH] Validating session for user: {auth_username}")
+    print(f"[AUTH] Validating session for user: {auth_username or '(from cookie/header)'}")
     print(f"[AUTH] Cookie token present: {bool(session_token_cookie)}, Header token present: {bool(session_token_header)}")
     
     if not session_token:
-        logger.warning(f"[AUTH] Thiếu session token cho người dùng {auth_username}")
+        logger.warning(f"[AUTH] Thiếu session token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Yêu cầu chưa được xác thực: Thiếu session token."
@@ -651,15 +652,20 @@ def validate_session(
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        if auth_username:
+            cursor.execute("SELECT username, session_token, last_active FROM users WHERE username = ?", (auth_username,))
+        else:
+            cursor.execute("SELECT username, session_token, last_active FROM users WHERE session_token = ?", (session_token,))
         row = cursor.fetchone()
         
         if not row:
-            logger.warning(f"[AUTH] Không tìm thấy người dùng {auth_username} trong cơ sở dữ liệu")
+            logger.warning(f"[AUTH] Không tìm thấy phiên làm việc trong cơ sở dữ liệu")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
                 detail="Phiên làm việc không hợp lệ: Không tìm thấy người dùng."
             )
+            
+        auth_username = row["username"]
             
         # Kiểm tra token trùng khớp (chống việc đăng nhập nhiều nơi ghi đè session)
         if row["session_token"] != session_token:
@@ -692,16 +698,14 @@ def validate_session(
         conn.close()
 
 @router.post("/api/auth/tasklist-sso")
-@router.post("/tasklist-sso")
-async def tasklist_sso(payload: dict, response: Response):
+def _execute_tasklist_sso(token: Optional[str], raw_username_param: Optional[str] = None):
     """
-    Xác thực đăng nhập một lần (SSO) từ TaskList Web3.
-    Hỗ trợ xác thực qua TaskList API (7749 / 5000 / 8081) hoặc giải mã JWT token trực tiếp.
-    Đồng bộ tài khoản và tạo phiên làm việc (session) cho EzeFloor.
+    Xử lý logic lõi SSO: xác thực token Tasklist hoặc username, trích xuất thông tin
+    người dùng từ MSSQL, và đồng bộ session vào cơ sở dữ liệu SQLite cục bộ.
+    Trả về: (username, manv, role, role_name, bophanlogin, new_token, user_data)
     """
-    token = payload.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Tasklist token is required")
+    token = (token or "").strip()
+    raw_username_param = (raw_username_param or "").strip()
 
     import httpx
     import json
@@ -710,54 +714,58 @@ async def tasklist_sso(payload: dict, response: Response):
 
     user_data = None
 
-    # 1. Thử xác thực qua các endpoint máy chủ Tasklist khả dụng
-    candidate_urls = [
-        TASKLIST_AUTH_URL,
-        "http://14.241.197.188:7749/api/auth/me",
-        "http://14.241.197.188:5000/api/auth/me",
-        "https://103.77.167.69:8081/api/auth/me",
-        "http://14.241.197.188:8081/api/auth/me",
-        "http://127.0.0.1:5000/api/auth/me",
-        "http://127.0.0.1:7749/api/auth/me",
-    ]
-    # Lọc trùng lặp nhưng giữ nguyên thứ tự ưu tiên
-    seen = set()
-    urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
+    if token and token != "direct_url":
+        # 1. Thử xác thực qua các endpoint máy chủ Tasklist khả dụng
+        candidate_urls = [
+            TASKLIST_AUTH_URL,
+            "http://14.241.197.188:7749/api/auth/me",
+            "http://14.241.197.188:5000/api/auth/me",
+            "https://103.77.167.69:8081/api/auth/me",
+            "http://14.241.197.188:8081/api/auth/me",
+            "http://127.0.0.1:5000/api/auth/me",
+            "http://127.0.0.1:7749/api/auth/me",
+        ]
+        seen = set()
+        urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
 
-    for url in urls_to_try:
-        try:
-            async with httpx.AsyncClient(verify=False, timeout=3.0) as client:
-                res = await client.get(
-                    url,
-                    headers={"Authorization": f"Bearer {token}"}
-                )
-                if res.status_code == 200:
-                    res_json = res.json()
-                    user_data = res_json.get("data") or res_json
-                    logger.info(f"[SSO] Xác thực Tasklist thành công qua endpoint: {url}")
-                    break
-        except Exception:
-            continue
+        for url in urls_to_try:
+            try:
+                with httpx.Client(verify=False, timeout=3.0) as client:
+                    res = client.get(
+                        url,
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if res.status_code == 200:
+                        res_json = res.json()
+                        user_data = res_json.get("data") or res_json
+                        logger.info(f"[SSO] Xác thực Tasklist thành công qua endpoint: {url}")
+                        break
+            except Exception:
+                continue
 
-    # 2. Nếu API không phản hồi hoặc token là JWT tự sinh từ Tasklist -> Giải mã JWT Payload trực tiếp
-    if not user_data:
-        try:
-            parts = token.strip().split(".")
-            if len(parts) >= 2:
-                padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
-                decoded_bytes = base64.urlsafe_b64decode(padded.encode("utf-8"))
-                jwt_payload = json.loads(decoded_bytes.decode("utf-8"))
-                if isinstance(jwt_payload, dict) and any(k in jwt_payload for k in ["ma_nv", "manv", "MaNV", "username", "UserID", "user_id", "sub", "email"]):
-                    user_data = jwt_payload
-                    logger.info("[SSO] Giải mã trực tiếp Tasklist JWT token thành công.")
-        except Exception as jwt_err:
-            logger.debug(f"[SSO] Không thể parse JWT payload: {jwt_err}")
+        # 2. Nếu API không phản hồi hoặc token là JWT tự sinh từ Tasklist -> Giải mã JWT Payload trực tiếp
+        if not user_data:
+            try:
+                parts = token.strip().split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                    decoded_bytes = base64.urlsafe_b64decode(padded.encode("utf-8"))
+                    jwt_payload = json.loads(decoded_bytes.decode("utf-8"))
+                    if isinstance(jwt_payload, dict) and any(k in jwt_payload for k in ["ma_nv", "manv", "MaNV", "username", "UserID", "user_id", "sub", "email"]):
+                        user_data = jwt_payload
+                        logger.info("[SSO] Giải mã trực tiếp Tasklist JWT token thành công.")
+            except Exception as jwt_err:
+                logger.debug(f"[SSO] Không thể parse JWT payload: {jwt_err}")
+
+    # 3. Fallback khi không có token nhưng có username trực tiếp
+    if not user_data and raw_username_param:
+        user_data = {"username": raw_username_param, "ma_nv": raw_username_param}
 
     if not user_data:
         logger.warning("[SSO] Tasklist token không hợp lệ hoặc không thể xác thực.")
         raise HTTPException(status_code=401, detail="Tasklist token không hợp lệ")
 
-    # 3. Trích xuất thông tin user từ Tasklist
+    # 4. Trích xuất thông tin user từ Tasklist / MSSQL
     manv = str(user_data.get("ma_nv") or user_data.get("manv") or user_data.get("MaNV") or "").strip()
     raw_username = str(user_data.get("username") or user_data.get("UserID") or user_data.get("user_id") or user_data.get("sub") or "").strip()
 
@@ -785,7 +793,7 @@ async def tasklist_sso(payload: dict, response: Response):
 
     new_token = str(uuid.uuid4())
 
-    # 4. Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
+    # 5. Đồng bộ tài khoản vào CSDL cục bộ (SQLite / MySQL) để duy trì phiên làm việc
     local_conn = get_db_connection()
     local_cursor = local_conn.cursor()
     try:
@@ -821,7 +829,19 @@ async def tasklist_sso(payload: dict, response: Response):
     finally:
         local_conn.close()
 
-    # 5. Thiết lập HTTP-Only Cookie
+    return username, manv, role, role_name, bophanlogin, new_token, user_data
+
+
+@router.post("/api/auth/tasklist-sso")
+@router.post("/tasklist-sso")
+async def tasklist_sso(payload: dict, response: Response):
+    """
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3 qua POST payload.
+    """
+    token = payload.get("token")
+    raw_user = payload.get("username") or payload.get("user") or payload.get("UserID")
+    username, manv, role, role_name, bophanlogin, new_token, user_data = _execute_tasklist_sso(token, raw_user)
+
     response.set_cookie(
         key="session_token",
         value=new_token,
@@ -831,6 +851,86 @@ async def tasklist_sso(payload: dict, response: Response):
         secure=False
     )
 
+    return {
+        "status": "success",
+        "username": username,
+        "manv": manv,
+        "role": role,
+        "role_name": role_name,
+        "bophanlogin": bophanlogin,
+        "session_token": new_token,
+        "data": user_data
+    }
+
+
+@router.get("/api/auth/tasklist-sso")
+@router.get("/tasklist-sso")
+async def tasklist_sso_get(
+    request: Request,
+    response: Response,
+    token: Optional[str] = Query(None),
+    sso_token: Optional[str] = Query(None),
+    username: Optional[str] = Query(None),
+    user: Optional[str] = Query(None),
+    UserID: Optional[str] = Query(None),
+    job: Optional[str] = Query(None),
+    session_token: Optional[str] = Cookie(None, alias="session_token")
+):
+    """
+    Xác thực đăng nhập một lần (SSO) từ TaskList Web3 qua GET request (URL params).
+    Hỗ trợ redirect tự động nếu người dùng mở URL trực tiếp trên trình duyệt.
+    """
+    raw_token = token or sso_token
+    raw_user = username or user or UserID
+    is_html = "text/html" in request.headers.get("accept", "").lower()
+
+    if not raw_token and not raw_user:
+        # Kiểm tra nếu đã có phiên hợp lệ từ cookie trước đó
+        if session_token:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT username, role, bophanlogin FROM users WHERE session_token = ? AND is_active = 1", (session_token,))
+            u_row = cur.fetchone()
+            conn.close()
+            if u_row:
+                if is_html:
+                    target = f"/?job={job}" if job else "/"
+                    return RedirectResponse(url=target, status_code=302)
+                return {
+                    "status": "success",
+                    "username": u_row["username"],
+                    "role": u_row["role"],
+                    "bophanlogin": u_row["bophanlogin"] or "",
+                    "session_token": session_token
+                }
+        if is_html:
+            target = f"/?job={job}" if job else "/"
+            return RedirectResponse(url=target, status_code=302)
+        raise HTTPException(status_code=400, detail="Tasklist token or username is required")
+
+    username, manv, role, role_name, bophanlogin, new_token, user_data = _execute_tasklist_sso(raw_token, raw_user)
+
+    if is_html:
+        target = f"/?job={job}" if job else "/"
+        red_resp = RedirectResponse(url=target, status_code=302)
+        red_resp.set_cookie(
+            key="session_token",
+            value=new_token,
+            httponly=True,
+            max_age=18000,
+            samesite="lax",
+            secure=False
+        )
+        return red_resp
+
+    response.set_cookie(
+        key="session_token",
+        value=new_token,
+        httponly=True,
+        max_age=18000,
+        samesite="lax",
+        secure=False
+    )
     return {
         "status": "success",
         "username": username,

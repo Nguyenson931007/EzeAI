@@ -108,6 +108,8 @@ export default function AnnotationCanvasLayer({
     textColor = "#0f172a",
     textOpacity = 1.0,
     textFontSize = 20,
+    calloutStrokeWidth = 3.5,
+    setCalloutStrokeWidth,
     selectedAnnotationId,
     setSelectedAnnotationId,
     currentPage,
@@ -447,7 +449,7 @@ export default function AnnotationCanvasLayer({
       currentPt: pt,
       type: activeAnnotationTool,
       color: isCallout ? (textColor || "#0f172a") : annotationColor,
-      strokeWidth: isCallout ? 2 : (annotationStrokeWidth || 4),
+      strokeWidth: isCallout ? (calloutStrokeWidth || 3.5) : (annotationStrokeWidth || 4),
       fillMode: annotationFillMode || "stroke",
       opacity: isCallout ? (textOpacity != null ? textOpacity : 1.0) : annotationOpacity,
       fillOpacity: annotationFillOpacity
@@ -720,7 +722,7 @@ export default function AnnotationCanvasLayer({
         if (type === "callout") {
           newAnn.text = "Callout";
           newAnn.color = textColor || "#0f172a";
-          newAnn.strokeWidth = 2;
+          newAnn.strokeWidth = calloutStrokeWidth || 3.5;
           newAnn.fontSize = textFontSize >= 14 ? textFontSize : (annotationFontSize >= 14 ? annotationFontSize : 20);
           newAnn.opacity = textOpacity != null ? textOpacity : 1.0;
           newAnn.boxX = isSmallClick ? startPt.x + 60 : endPt.x;
@@ -1704,14 +1706,14 @@ export default function AnnotationCanvasLayer({
                   <defs>
                     <marker
                       id={`callout-marker-${ann.id}`}
-                      markerWidth="12"
-                      markerHeight="9"
-                      refX="11"
-                      refY="4.5"
+                      markerWidth="15"
+                      markerHeight="11"
+                      refX="14"
+                      refY="5.5"
                       orient="auto"
                       markerUnits="userSpaceOnUse"
                     >
-                      <polygon points="0 0, 12 4.5, 0 9" fill={color} />
+                      <polygon points="0 0, 15 5.5, 0 11" fill={color} />
                     </marker>
                   </defs>
                   <line
@@ -1720,7 +1722,7 @@ export default function AnnotationCanvasLayer({
                     x2={tipX}
                     y2={tipY}
                     stroke={color}
-                    strokeWidth={2}
+                    strokeWidth={typeof ann.strokeWidth === "number" && ann.strokeWidth > 2 ? ann.strokeWidth : 3.5}
                     opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
                     markerEnd={`url(#callout-marker-${ann.id})`}
                   />

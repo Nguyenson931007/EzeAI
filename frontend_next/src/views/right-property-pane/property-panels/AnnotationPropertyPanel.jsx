@@ -87,14 +87,15 @@ export default function AnnotationPropertyPanel({
   const typeName = typeLabels[annotation.type] || annotation.type || "Annotation";
 
   const isTextLike = ["text", "callout", "sticky-note"].includes(annotation.type);
+  const isCallout = annotation.type === "callout";
   const isHighlight = annotation.type?.startsWith("highlight");
   const isFillable = ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(annotation.type);
-  const hasStroke = !["sticky-note", "text", "callout"].includes(annotation.type);
+  const hasStroke = !["sticky-note", "text"].includes(annotation.type);
 
   const currentColor = annotation.color || (isHighlight ? "#facc15" : "#3b82f6");
   const currentOpacity = typeof annotation.opacity === "number" ? annotation.opacity : (isHighlight ? 0.45 : 1.0);
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
-  const currentStrokeWidth = annotation.strokeWidth || (isHighlight ? 24 : 3);
+  const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
   const currentFillMode = annotation.fillMode || (isHighlight ? "both" : "stroke");
   const currentFontSize = annotation.fontSize || (annotation.type === "text" ? 32 : 20);
 
@@ -276,7 +277,7 @@ export default function AnnotationPropertyPanel({
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-              Stroke Width
+              {isCallout ? "Pointer Line Width" : "Stroke Width"}
             </label>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "#31456E" }}>
               {currentStrokeWidth} px
@@ -285,15 +286,15 @@ export default function AnnotationPropertyPanel({
           <input
             type="range"
             min={isHighlight ? "6" : "1"}
-            max={isHighlight ? "60" : "36"}
-            step="1"
+            max={isHighlight ? "60" : (isCallout ? "12" : "36")}
+            step={isCallout ? "0.5" : "1"}
             value={currentStrokeWidth}
-            onChange={(e) => handleUpdate("strokeWidth", parseInt(e.target.value, 10))}
+            onChange={(e) => handleUpdate("strokeWidth", parseFloat(e.target.value))}
             style={{ width: "100%", cursor: "pointer", accentColor: "#31456E" }}
           />
           {/* Quick preset buttons */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-            {(isHighlight ? [12, 18, 24, 32, 44, 56] : STROKE_WIDTH_OPTIONS).map((w) => (
+            {(isHighlight ? [12, 18, 24, 32, 44, 56] : (isCallout ? [2, 3, 3.5, 5, 8] : STROKE_WIDTH_OPTIONS)).map((w) => (
               <button
                 key={w}
                 type="button"

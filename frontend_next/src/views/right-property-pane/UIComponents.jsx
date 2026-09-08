@@ -850,13 +850,17 @@ export function resolveTaskModules(taskContext) {
 }
 
 export function getInitialEnabledModules(customerKey = null) {
-  // 0. Pending EMS job task_modules is the highest-priority authoritative source
+  // 0. Pending EMS job task_modules is authoritative ONLY IF it matches active project
   if (typeof window !== "undefined") {
     try {
+      const activeProjName = localStorage.getItem("ezefloor_last_active_project_name") || "";
       const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
       if (pendingJobStr) {
         const pendingJob = JSON.parse(pendingJobStr);
-        if (Array.isArray(pendingJob?.task_modules)) {
+        const emsNum = String(pendingJob?.job_number || pendingJob?.hw_id || pendingJob?.id_job_ems || "").trim().toLowerCase();
+        const activeName = activeProjName.trim().toLowerCase();
+        const isMatch = !activeName || !emsNum || emsNum === activeName || activeName.startsWith(emsNum) || emsNum.startsWith(activeName);
+        if (isMatch && Array.isArray(pendingJob?.task_modules)) {
           return pendingJob.task_modules;
         }
       }
