@@ -64,32 +64,32 @@ export default function AnnotationPropertyPanel({
 
   // Type labels and badges
   const typeLabels = {
-    "highlight": "Cọ tô sáng (Highlight Brush)",
-    "highlight-brush": "Cọ tô sáng (Highlight Brush)",
-    "highlight-poly": "Vùng tô sáng (Highlight Area)",
-    "text": "Văn bản ghi chú (Text Note)",
-    "sticky-note": "Ghi chú dán (Sticky Note)",
-    "callout": "Hộp chú thích (Callout)",
-    "measure-area-poly": "Vùng đo diện tích (Area Polygon)",
-    "measure-area": "Vùng đo diện tích (Area Box)",
-    "measure-perimeter": "Đo chu vi (Perimeter)",
-    "rect": "Hình chữ nhật (Rectangle)",
-    "oval": "Hình elip / tròn (Oval)",
-    "cloud": "Đám mây (Cloud)",
-    "polygon": "Đa giác (Polygon)",
-    "line": "Đường thẳng (Line)",
-    "arrow": "Mũi tên (Arrow)",
-    "underline": "Gạch chân (Underline)",
-    "strikethrough": "Gạch ngang (Strikethrough)",
-    "stamp": "Hình đóng dấu (Stamp)"
+    "highlight": "Highlight Brush",
+    "highlight-brush": "Highlight Brush",
+    "highlight-poly": "Highlight Area",
+    "text": "Text Note",
+    "sticky-note": "Sticky Note",
+    "callout": "Callout Box",
+    "measure-area-poly": "Area Polygon",
+    "measure-area": "Area Box",
+    "measure-perimeter": "Perimeter",
+    "rect": "Rectangle",
+    "oval": "Oval / Circle",
+    "cloud": "Cloud",
+    "polygon": "Polygon",
+    "line": "Line",
+    "arrow": "Arrow",
+    "underline": "Underline",
+    "strikethrough": "Strikethrough",
+    "stamp": "Stamp"
   };
 
-  const typeName = typeLabels[annotation.type] || annotation.type || "Nét vẽ";
+  const typeName = typeLabels[annotation.type] || annotation.type || "Annotation";
 
   const isTextLike = ["text", "callout", "sticky-note"].includes(annotation.type);
   const isHighlight = annotation.type?.startsWith("highlight");
   const isFillable = ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(annotation.type);
-  const hasStroke = !["sticky-note"].includes(annotation.type);
+  const hasStroke = !["sticky-note", "text", "callout"].includes(annotation.type);
 
   const currentColor = annotation.color || (isHighlight ? "#facc15" : "#3b82f6");
   const currentOpacity = typeof annotation.opacity === "number" ? annotation.opacity : (isHighlight ? 0.45 : 1.0);
@@ -118,7 +118,7 @@ export default function AnnotationPropertyPanel({
       }}>
         <div>
           <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", color: "#64748b", fontWeight: 700 }}>
-            Thuộc tính đối tượng
+            OBJECT PROPERTIES
           </div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#1e293b", marginTop: "2px" }}>
             {typeName}
@@ -129,7 +129,7 @@ export default function AnnotationPropertyPanel({
             <button
               type="button"
               onClick={() => onDuplicateAnnotation(annotation.id)}
-              title="Nhân bản (Duplicate)"
+              title="Duplicate"
               style={{
                 background: "#f1f5f9",
                 border: "1px solid #cbd5e1",
@@ -151,7 +151,7 @@ export default function AnnotationPropertyPanel({
             <button
               type="button"
               onClick={() => onDeleteAnnotation(annotation.id)}
-              title="Xóa đối tượng (Delete)"
+              title="Delete"
               style={{
                 background: "#fee2e2",
                 border: "1px solid #fca5a5",
@@ -173,7 +173,7 @@ export default function AnnotationPropertyPanel({
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-            Màu sắc (Color)
+            Color
           </label>
           <span style={{ fontSize: "11px", fontFamily: "monospace", color: "#64748b", fontWeight: 600 }}>
             {currentColor}
@@ -220,7 +220,7 @@ export default function AnnotationPropertyPanel({
                 opacity: 0,
                 cursor: "pointer"
               }}
-              title="Chọn màu khác tùy chỉnh..."
+              title="Choose custom color..."
             />
             <div
               style={{
@@ -245,11 +245,11 @@ export default function AnnotationPropertyPanel({
         </div>
       </div>
 
-      {/* 3. Opacity (Độ đậm nhạt / Alpha) */}
+      {/* 3. Opacity (Alpha) */}
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-            Độ đậm nhạt (Opacity)
+            Opacity
           </label>
           <span style={{ fontSize: "12px", fontWeight: 700, color: "#31456E" }}>
             {Math.round(currentOpacity * 100)}%
@@ -265,18 +265,18 @@ export default function AnnotationPropertyPanel({
           style={{ width: "100%", cursor: "pointer", accentColor: "#31456E" }}
         />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#94a3b8" }}>
-          <span>10% (Rất mờ)</span>
+          <span>10% (Light)</span>
           <span>50%</span>
-          <span>100% (Đậm đặc)</span>
+          <span>100% (Solid)</span>
         </div>
       </div>
 
-      {/* 4. Stroke Width (Độ dày nét vẽ) */}
+      {/* 4. Stroke Width */}
       {hasStroke && (
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-              Độ dày nét (Stroke Width)
+              Stroke Width
             </label>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "#31456E" }}>
               {currentStrokeWidth} px
@@ -316,17 +316,17 @@ export default function AnnotationPropertyPanel({
         </div>
       )}
 
-      {/* 5. Fill Mode & Fill Opacity (For shapes & areas) */}
+      {/* 5. Fill Mode & Fill Opacity */}
       {isFillable && (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-            Chế độ tô màu (Fill Mode)
+            Fill Mode
           </label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px" }}>
             {[
-              { id: "stroke", label: "Viền nét" },
-              { id: "fill", label: "Tô màu" },
-              { id: "both", label: "Cả viền & tô" }
+              { id: "stroke", label: "Stroke" },
+              { id: "fill", label: "Fill" },
+              { id: "both", label: "Both" }
             ].map((m) => {
               const active = currentFillMode === m.id;
               return (
@@ -355,7 +355,7 @@ export default function AnnotationPropertyPanel({
           {currentFillMode !== "stroke" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#64748b" }}>
-                <span>Độ mờ phần tô (Fill Opacity):</span>
+                <span>Fill Opacity:</span>
                 <span style={{ fontWeight: 700, color: "#31456E" }}>{Math.round(currentFillOpacity * 100)}%</span>
               </div>
               <input
@@ -379,7 +379,7 @@ export default function AnnotationPropertyPanel({
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-                Cỡ chữ (Font Size)
+                Font Size
               </label>
               <span style={{ fontSize: "12px", fontWeight: 700, color: "#31456E" }}>
                 {currentFontSize} px
@@ -421,7 +421,7 @@ export default function AnnotationPropertyPanel({
           {annotation.type !== "sticky-note" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-                Kiểu chữ (Font Style)
+                Font Style
               </label>
               <div style={{ display: "flex", gap: "6px" }}>
                 <button
@@ -503,7 +503,7 @@ export default function AnnotationPropertyPanel({
           {/* Editable Text Content */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-              Nội dung văn bản (Text Content)
+              Text Content
             </label>
             <textarea
               rows={3}
@@ -517,7 +517,7 @@ export default function AnnotationPropertyPanel({
                   });
                 }
               }}
-              placeholder="Nhập nội dung ghi chú..."
+              placeholder="Enter note content..."
               style={{
                 width: "100%",
                 padding: "8px 10px",
@@ -545,29 +545,29 @@ export default function AnnotationPropertyPanel({
           gap: "6px"
         }}>
           <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#64748b" }}>
-            Thông số đo đạc (Measurements)
+            Measurements
           </div>
           {geometryInfo.areaM2 && (
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px" }}>
-              <span style={{ color: "#475569" }}>Diện tích:</span>
+              <span style={{ color: "#475569" }}>Area:</span>
               <span style={{ fontWeight: 800, color: "#0f172a" }}>{geometryInfo.areaM2} m²</span>
             </div>
           )}
           {geometryInfo.perimM && (
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px" }}>
-              <span style={{ color: "#475569" }}>Chu vi:</span>
+              <span style={{ color: "#475569" }}>Perimeter:</span>
               <span style={{ fontWeight: 700, color: "#0f172a" }}>{geometryInfo.perimM} m</span>
             </div>
           )}
           {geometryInfo.pointsCount && (
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Số đỉnh (Nodes):</span>
-              <span style={{ fontWeight: 600, color: "#334155" }}>{geometryInfo.pointsCount} đỉnh</span>
+              <span style={{ color: "#64748b" }}>Nodes:</span>
+              <span style={{ fontWeight: 600, color: "#334155" }}>{geometryInfo.pointsCount} nodes</span>
             </div>
           )}
           {geometryInfo.wM && (
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Kích thước:</span>
+              <span style={{ color: "#64748b" }}>Dimensions:</span>
               <span style={{ fontWeight: 600, color: "#334155" }}>{geometryInfo.wM}m × {geometryInfo.hM}m</span>
             </div>
           )}

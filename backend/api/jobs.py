@@ -1,10 +1,10 @@
 """
 backend/api/jobs.py
 ===================
-Module xá»­ lÃ½ quáº£n lÃ½ dá»± Ã¡n (Jobs) cá»§a EzeFloor.
-Bao gá»“m cÃ¡c chá»©c nÄƒng: LÆ°u dá»± Ã¡n, Äá»c danh sÃ¡ch dá»± Ã¡n cá»§a ngÆ°á»i dÃ¹ng, Äá»c dá»¯ liá»‡u chi tiáº¿t,
-KhÃ´i phá»¥c, Äá»•i tÃªn, XÃ³a dá»± Ã¡n, TrÃ­ch xuáº¥t & thu nhá» áº£nh thu nhá» (Thumbnail Base64) Ä‘á»ƒ tá»‘i Æ°u dung lÆ°á»£ng DB,
-Xem lá»‹ch sá»­ chá»‰nh sá»­a chÃ©o, vÃ  Chia sáº» dá»± Ã¡n cÃ´ng khai qua Token báº£o máº­t.
+Module xử lý quản lý dự án (Jobs) của EzeFloor.
+Bao gồm các chức năng: Lưu dự án, Đọc danh sách dự án của người dùng, Đọc dữ liệu chi tiết,
+Khôi phục, Đổi tên, Xóa dự án, Trích xuất & thu nhỏ ảnh thu nhỏ (Thumbnail Base64) để tối ưu dung lượng DB,
+Xem lịch sử chỉnh sửa chéo, và Chia sẻ dự án công khai qua Token bảo mật.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Response, Header, Query
@@ -18,13 +18,13 @@ import json
 
 logger = logging.getLogger("ezefloor.jobs")
 
-# Khá»Ÿi táº¡o APIRouter cho cÃ¡c API liÃªn quan Ä‘áº¿n quáº£n lÃ½ dá»± Ã¡n
+# Khởi tạo APIRouter cho các API liên quan đến quản lý dự án
 router = APIRouter()
 
-# ── Katherine (EZE0098) 13-Task Standard HW Contract ──
-# Every NON-Cairns customer under manager EZE0098 uses this standard set.
-# Cairns keeps its existing separate workflow.
-
+# ── Katherine (EZE0098) standard HW contract ──
+# Cairns keeps its existing separate workflow. Every other Katherine customer
+# uses the common 13-step contract. Step 13 has no EzeFloor form yet, so it is
+# returned in selected_steps but intentionally has no task_modules mapping.
 KATHERINE_STANDARD_STEPS = {
     1: "Cladding",
     2: "Eaves Soffit",
@@ -41,60 +41,38 @@ KATHERINE_STANDARD_STEPS = {
     13: "Hardies Fire Walls",
 }
 
-# Map step names → EzeFloor frontend module IDs
 KATHERINE_STEP_TO_MODULE = {
-    "Cladding": "cladding",
-    "Eaves Soffit": "eaves_soffit",
-    "Flooring & Decking": "flooring_decking",
-    "Frame Hardware": "frame_hardware",
-    "Insulation": "insulation",
-    "Lockup": "lock_up",
-    "Fixout": "fixout",
-    "Final Fit": "final_fit",
-    "Shelving": "shelving",
-    "Timber Post": "timber_posts",
-    "FOW Plumbing": "fow_plumbing",
-    "Power Truss Braces": "power_truss_braces",
-    "Hardies Fire Walls": None,  # No EzeFloor module yet — pending
+    1: "cladding",
+    2: "eaves_soffit",
+    3: "flooring_decking",
+    4: "frame_hardware",
+    5: "insulation",
+    6: "lock_up",
+    7: "fixout",
+    8: "final_fit",
+    9: "shelving",
+    10: "timber_posts",
+    11: "fow_plumbing",
+    12: "power_truss_braces",
+    13: None,
 }
 
+def _is_cairns_customer(customer: str) -> bool:
+    return "CAIRNS" in str(customer or "").strip().upper()
 
-def is_cairns(customer: str) -> bool:
-    """Check if a customer string indicates a Cairns customer."""
-    value = str(customer or "").strip().upper()
-    return "CAIRNS" in value
-
-
-def get_expected_hw_steps(manager_code: str, customer: str):
-    """
-    Return the expected HW steps dict for the given manager/customer combo.
-    - EZE0098 + non-Cairns → 13-task standard set
-    - EZE0098 + Cairns → None (keep existing Cairns workflow)
-    - Other managers → None (keep existing legacy behavior)
-    """
-    manager = str(manager_code or "").strip().upper()
-
-    if manager == "EZE0098":
-        if is_cairns(customer):
-            return None  # keep EzeFloor's existing Cairns workflow
-        return KATHERINE_STANDARD_STEPS
-
-    return None  # keep existing legacy behavior for other managers
-
-
-# ── Pydantic Schemas (MÃ´ hÃ¬nh dá»¯ liá»‡u Ä‘áº§u vÃ o vÃ  Ä‘áº§u ra) ──
+# ── Pydantic Schemas (Mô hình dữ liệu đầu vào và đầu ra) ──
 
 class JobCreate(BaseModel):
-    """MÃ´ hÃ¬nh dá»¯ liá»‡u gá»­i lÃªn khi táº¡o má»›i hoáº·c cáº­p nháº­t má»™t dá»± Ã¡n."""
+    """Mô hình dữ liệu gửi lên khi tạo mới hoặc cập nhật một dự án."""
     username: str
     project_name: str
     room_count: Optional[int] = 0
     total_area: Optional[float] = 0.0
-    data: str  # Chuá»—i JSON chá»©a toÃ n bá»™ tráº¡ng thÃ¡i váº½ (phÃ²ng, tÆ°á»ng, cá»­a, tá»· lá»‡ váº½)
+    data: str  # Chuỗi JSON chứa toàn bộ trạng thái vẽ (phòng, tường, cửa, tỷ lệ vẽ)
 
 
 class JobResponse(BaseModel):
-    """MÃ´ hÃ¬nh pháº£n há»“i thÃ´ng tin tÃ³m táº¯t dá»± Ã¡n cá»§a má»™t ngÆ°á»i dÃ¹ng cá»¥ thá»ƒ."""
+    """Mô hình phản hồi thông tin tóm tắt dự án của một người dùng cụ thể."""
     id: int
     project_name: str
     room_count: Optional[int] = 0
@@ -107,7 +85,7 @@ class JobResponse(BaseModel):
 
 
 class JobAllResponse(BaseModel):
-    """MÃ´ hÃ¬nh pháº£n há»“i thÃ´ng tin tÃ³m táº¯t dá»± Ã¡n dÃ nh cho mÃ n hÃ¬nh giÃ¡m sÃ¡t toÃ n há»‡ thá»‘ng (Admin)."""
+    """Mô hình phản hồi thông tin tóm tắt dự án dành cho màn hình giám sát toàn hệ thống (Admin)."""
     id: int
     project_name: str
     room_count: Optional[int] = 0
@@ -120,13 +98,13 @@ class JobAllResponse(BaseModel):
     share_token: Optional[str] = None
 
 
-# â”€â”€ Helper Functions (HÃ m bá»• trá»£ xá»­ lÃ½ áº£nh vÃ  trÃ­ch xuáº¥t dá»¯ liá»‡u) â”€â”€
+# ── Helper Functions (Hàm bổ trợ xử lý ảnh và trích xuất dữ liệu) ──
 
 def resize_image(b64_str: str, size=(200, 200)) -> str:
     """
-    Thu nhá» kÃ­ch thÆ°á»›c hÃ¬nh áº£nh dÆ°á»›i dáº¡ng chuá»—i Base64.
-    Má»¥c Ä‘Ã­ch: Chuyá»ƒn Ä‘á»•i báº£n váº½ dung lÆ°á»£ng lá»›n thÃ nh áº£nh thumbnail siÃªu nháº¹ Ä‘á»ƒ lÆ°u vÃ o database
-    mÃ  khÃ´ng lÃ m ngháº½n hiá»‡u nÄƒng truy váº¥n DB. Sá»­ dá»¥ng nÃ©n JPEG cháº¥t lÆ°á»£ng 70%.
+    Thu nhỏ kích thước hình ảnh dưới dạng chuỗi Base64.
+    Mục đích: Chuyển đổi bản vẽ dung lượng lớn thành ảnh thumbnail siêu nhẹ để lưu vào database
+    mà không làm nghẽn hiệu năng truy vấn DB. Sử dụng nén JPEG chất lượng 70%.
     """
     if not b64_str or "," not in b64_str:
         return b64_str
@@ -136,26 +114,26 @@ def resize_image(b64_str: str, size=(200, 200)) -> str:
         import io
         from PIL import Image
         
-        # TÃ¡ch pháº§n header Ä‘á»‹nh dáº¡ng dá»¯ liá»‡u ra khá»i chuá»—i Base64 mÃ£ hÃ³a
+        # Tách phần header định dạng dữ liệu ra khỏi chuỗi Base64 mã hóa
         header, encoded = b64_str.split(",", 1)
         image_data = base64.b64decode(encoded)
         img = Image.open(io.BytesIO(image_data))
         
-        # Thá»±c hiá»‡n thu nhá» áº£nh giá»¯ nguyÃªn tá»· lá»‡ khung hÃ¬nh (Aspect Ratio) sá»­ dá»¥ng thuáº­t toÃ¡n nÃ©n LANCZOS cháº¥t lÆ°á»£ng cao
+        # Thực hiện thu nhỏ ảnh giữ nguyên tỷ lệ khung hình (Aspect Ratio) sử dụng thuật toán nén LANCZOS chất lượng cao
         img.thumbnail(size, Image.Resampling.LANCZOS)
         
         buffered = io.BytesIO()
-        img.save(buffered, format="JPEG", quality=70)  # NÃ©n Ä‘á»‹nh dáº¡ng JPEG cháº¥t lÆ°á»£ng 70 Ä‘á»ƒ Ä‘áº¡t dung lÆ°á»£ng tá»‘i Æ°u
+        img.save(buffered, format="JPEG", quality=70)  # Nén định dạng JPEG chất lượng 70 để đạt dung lượng tối ưu
         new_encoded = base64.b64encode(buffered.getvalue()).decode("utf-8")
         return f"data:image/jpeg;base64,{new_encoded}"
     except Exception as e:
-        print(f"Lá»—i khi nÃ©n áº£nh thumbnail: {e}")
+        print(f"Lỗi khi nén ảnh thumbnail: {e}")
         return b64_str
 
 
 def _extract_thumbnail(data_str: str) -> Optional[str]:
     """
-    TrÃ­ch xuáº¥t áº£nh ná»n tá»« trang Ä‘áº§u tiÃªn (Page 0) cá»§a dá»± Ã¡n Ä‘á»ƒ táº¡o áº£nh thumbnail.
+    Trích xuất ảnh nền từ trang đầu tiên (Page 0) của dự án để tạo ảnh thumbnail.
     """
     try:
         job_data = json.loads(data_str)
@@ -169,34 +147,34 @@ def _extract_thumbnail(data_str: str) -> Optional[str]:
     return None
 
 
-# â”€â”€ API Endpoints (CÃ¡c Ä‘á»‹nh tuyáº¿n giao tiáº¿p dá»± Ã¡n) â”€â”€
+# ── API Endpoints (Các định tuyến giao tiếp dự án) ──
 
 @router.post("/jobs")
 def create_job(job: JobCreate, username: str = Depends(validate_session)):
     """
-    LÆ°u dá»± Ã¡n váº½ sÃ n (Táº¡o má»›i hoáº·c Cáº­p nháº­t ghi Ä‘Ã¨ báº£n cÅ©).
-    - Há»— trá»£ Ä‘á»•i chá»§ sá»Ÿ há»¯u dá»± Ã¡n (Ownership) náº¿u má»™t ngÆ°á»i dÃ¹ng khÃ¡c lÆ°u Ä‘Ã¨ lÃªn tÃªn dá»± Ã¡n cÅ©.
-    - LÆ°u váº¿t lá»‹ch sá»­ chá»‰nh sá»­a chÃ©o vÃ o báº£ng `job_history`.
-    - TrÃ­ch xuáº¥t tá»± Ä‘á»™ng vÃ  nÃ©n áº£nh Ä‘áº¡i diá»‡n (Thumbnail) Ä‘á»ƒ tá»‘i Æ°u lÆ°u trá»¯.
+    Lưu dự án vẽ sàn (Tạo mới hoặc Cập nhật ghi đè bản cũ).
+    - Hỗ trợ đổi chủ sở hữu dự án (Ownership) nếu một người dùng khác lưu đè lên tên dự án cũ.
+    - Lưu vết lịch sử chỉnh sửa chéo vào bảng `job_history`.
+    - Trích xuất tự động và nén ảnh đại diện (Thumbnail) để tối ưu lưu trữ.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Chuáº©n hÃ³a tÃªn dá»± Ã¡n (bá» khoáº£ng tráº¯ng thá»«a á»Ÿ hai Ä‘áº§u)
+        # Chuẩn hóa tên dự án (bỏ khoảng trắng thừa ở hai đầu)
         job.project_name = job.project_name.strip()
 
-        # TÃ¬m ID cá»§a ngÆ°á»i dÃ¹ng thá»±c hiá»‡n yÃªu cáº§u dá»±a trÃªn username Ä‘Ã£ Ä‘Æ°á»£c xÃ¡c thá»±c
+        # Tìm ID của người dùng thực hiện yêu cầu dựa trên username đã được xác thực
         cursor.execute("SELECT id FROM users WHERE username = ?", (job.username,))
         user_row = cursor.fetchone()
         if not user_row:
-            raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y thÃ´ng tin ngÆ°á»i dÃ¹ng trong há»‡ thá»‘ng.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy thông tin người dùng trong hệ thống.")
         
         user_id = user_row["id"]
         
-        # Tá»± Ä‘á»™ng trÃ­ch xuáº¥t vÃ  nÃ©n hÃ¬nh áº£nh trang Ä‘áº§u lÃ m thumbnail
+        # Tự động trích xuất và nén hình ảnh trang đầu làm thumbnail
         thumbnail = _extract_thumbnail(job.data)
         
-        # Kiá»ƒm tra xem tÃªn dá»± Ã¡n Ä‘Ã£ tá»“n táº¡i hay chÆ°a (khÃ´ng phÃ¢n biá»‡t hoa thÆ°á»ng)
+        # Kiểm tra xem tên dự án đã tồn tại hay chưa (không phân biệt hoa thường)
         cursor.execute(
             "SELECT id, user_id FROM jobs WHERE LOWER(project_name) = LOWER(?)", 
             (job.project_name,)
@@ -206,14 +184,14 @@ def create_job(job: JobCreate, username: str = Depends(validate_session)):
         if existing_job:
             old_user_id = existing_job["user_id"]
             
-            # Ghi nháº­n lá»‹ch sá»­ bÃ n giao/ghi Ä‘Ã¨ náº¿u ngÆ°á»i lÆ°u hiá»‡n táº¡i khÃ¡c vá»›i ngÆ°á»i táº¡o ban Ä‘áº§u
+            # Ghi nhận lịch sử bàn giao/ghi đè nếu người lưu hiện tại khác với người tạo ban đầu
             if old_user_id != user_id:
                 cursor.execute(
                     "INSERT INTO job_history (job_id, project_name, old_user_id, new_user_id) VALUES (?, ?, ?, ?)",
                     (existing_job["id"], job.project_name, old_user_id, user_id)
                 )
 
-            # Thá»±c hiá»‡n cáº­p nháº­t ghi Ä‘Ã¨ ná»™i dung báº£n váº½, tá»•ng diá»‡n tÃ­ch, thumbnail vÃ  chuyá»ƒn quyá»n sá»Ÿ há»¯u
+            # Thực hiện cập nhật ghi đè nội dung bản vẽ, tổng diện tích, thumbnail và chuyển quyền sở hữu
             cursor.execute(
                 """UPDATE jobs SET user_id = ?, project_name = ?, room_count = ?, 
                    total_area = ?, data = ?, thumbnail = ?, is_corrected = 1, 
@@ -231,7 +209,7 @@ def create_job(job: JobCreate, username: str = Depends(validate_session)):
                 
             return {"status": "updated", "job_id": existing_job["id"]}
         else:
-            # Táº¡o má»›i hoÃ n toÃ n má»™t báº£n váº½ dá»± Ã¡n
+            # Tạo mới hoàn toàn một bản vẽ dự án
             cursor.execute(
                 "INSERT INTO jobs (user_id, project_name, room_count, total_area, data, thumbnail) VALUES (?, ?, ?, ?, ?, ?)",
                 (user_id, job.project_name, job.room_count, job.total_area, job.data, thumbnail)
@@ -249,9 +227,9 @@ def create_job(job: JobCreate, username: str = Depends(validate_session)):
 @router.get("/jobs/count")
 def get_jobs_count(username: Optional[str] = None):
     """
-    Láº¥y sá»‘ lÆ°á»£ng tá»•ng sá»‘ dá»± Ã¡n Ä‘Ã£ lÆ°u trong há»‡ thá»‘ng.
-    - Náº¿u cung cáº¥p `username`: Äáº¿m sá»‘ lÆ°á»£ng dá»± Ã¡n thuá»™c sá»Ÿ há»¯u cá»§a ngÆ°á»i dÃ¹ng Ä‘Ã³.
-    - Náº¿u khÃ´ng: Tráº£ vá» sá»‘ lÆ°á»£ng toÃ n bá»™ dá»± Ã¡n trÃªn há»‡ thá»‘ng.
+    Lấy số lượng tổng số dự án đã lưu trong hệ thống.
+    - Nếu cung cấp `username`: Đếm số lượng dự án thuộc sở hữu của người dùng đó.
+    - Nếu không: Trả về số lượng toàn bộ dự án trên hệ thống.
     """
     try:
         conn = get_db_connection()
@@ -274,15 +252,15 @@ def get_jobs_count(username: Optional[str] = None):
             except Exception:
                 pass
     except Exception as e:
-        logger.warning(f"Lá»—i khi Ä‘áº¿m sá»‘ dá»± Ã¡n (tráº£ vá» 0 máº·c Ä‘á»‹nh): {e}")
+        logger.warning(f"Lỗi khi đếm số dự án (trả về 0 mặc định): {e}")
         return {"count": 0}
 
 
 @router.get("/jobs/history")
 def get_job_history():
     """
-    Láº¥y lá»‹ch sá»­ hoáº¡t Ä‘á»™ng ghi Ä‘Ã¨ hoáº·c chá»‰nh sá»­a dá»± Ã¡n chÃ©o giá»¯a cÃ¡c ngÆ°á»i dÃ¹ng.
-    Há»— trá»£ Admin kiá»ƒm soÃ¡t váº¿t truy cáº­p vÃ  bÃ n giao cÃ´ng viá»‡c báº£n váº½. Giá»›i háº¡n tráº£ vá» tá»‘i Ä‘a 100 dÃ²ng má»›i nháº¥t.
+    Lấy lịch sử hoạt động ghi đè hoặc chỉnh sửa dự án chéo giữa các người dùng.
+    Hỗ trợ Admin kiểm soát vết truy cập và bàn giao công việc bản vẽ. Giới hạn trả về tối đa 100 dòng mới nhất.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -298,15 +276,15 @@ def get_job_history():
         rows = cursor.fetchall()
         return [{"project_name": r["project_name"], "old_user": r["old_user"], "new_user": r["new_user"], "changed_at": str(r["changed_at"])} for r in rows]
     except Exception as e:
-        logger.error(f"Lá»—i khi Ä‘á»c lá»‹ch sá»­ báº£n váº½: {e}")
+        logger.error(f"Lỗi khi đọc lịch sử bản vẽ: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════
 # TASK GROUPS HW (LOCAL CACHE TABLE READ - SUPER FAST)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════
 
 import threading
 _is_syncing_hw = False
@@ -314,8 +292,8 @@ _last_hw_sync_time = 0
 
 def sync_task_groups_hw_to_local_db(limit_val: Optional[int] = None):
     """
-    HÃ m cháº¡y ngáº§m Ä‘á»“ng bá»™ TOÃ€N Bá»˜ danh sÃ¡ch Task Groups HW tá»« TaskList Web3 (MSSQL)
-    vá» báº£ng cá»¥c bá»™ `task_group_hw_cache` (MySQL / SQLite).
+    Hàm chạy ngầm đồng bộ TOÀN BỘ danh sách Task Groups HW từ TaskList Web3 (MSSQL)
+    về bảng cục bộ `task_group_hw_cache` (MySQL / SQLite).
     """
     global _is_syncing_hw, _last_hw_sync_time
     if _is_syncing_hw:
@@ -327,8 +305,8 @@ def sync_task_groups_hw_to_local_db(limit_val: Optional[int] = None):
         from app.mssql_db import get_mssql_connection
         from app.database import DB_TYPE
 
-        limit_desc = f"{limit_val} Task" if limit_val else "TOÃ€N Bá»˜ Task"
-        logger.info(f"[task-sync] Báº¯t Ä‘áº§u Ä‘á»“ng bá»™ ngáº§m {limit_desc} HW tá»« MSSQL sang Local DB...")
+        limit_desc = f"{limit_val} Task" if limit_val else "TOÀN BỘ Task"
+        logger.info(f"[task-sync] Bắt đầu đồng bộ ngầm {limit_desc} HW từ MSSQL sang Local DB...")
         t0 = time.time()
 
         mconn = get_mssql_connection()
@@ -364,7 +342,7 @@ def sync_task_groups_hw_to_local_db(limit_val: Optional[int] = None):
         mconn.close()
 
         if not rows:
-            logger.warning("[task-sync] KhÃ´ng tÃ¬m tháº¥y báº£n ghi Task HW tá»« MSSQL.")
+            logger.warning("[task-sync] Không tìm thấy bản ghi Task HW từ MSSQL.")
             return
 
         lconn = get_db_connection()
@@ -394,7 +372,7 @@ def sync_task_groups_hw_to_local_db(limit_val: Optional[int] = None):
                     r['client'], r['builder'], r['ma_nv'], float(r['progress'] or 0),
                     1 if r['is_done'] else 0, r['created_at']
                 ))
-            # Thá»±c thi batch
+            # Thực thi batch
             for item in batch_data:
                 lcursor.execute(insert_sql, item)
         else:
@@ -414,50 +392,50 @@ def sync_task_groups_hw_to_local_db(limit_val: Optional[int] = None):
         lconn.close()
 
         _last_hw_sync_time = time.time()
-        logger.info(f"[task-sync] Äá»“ng bá»™ thÃ nh cÃ´ng {len(rows)} Task HW vÃ o Local DB trong {round((time.time()-t0)*1000)}ms")
+        logger.info(f"[task-sync] Đồng bộ thành công {len(rows)} Task HW vào Local DB trong {round((time.time()-t0)*1000)}ms")
 
     except Exception as sync_err:
-        logger.error(f"[task-sync] Lá»—i Ä‘á»“ng bá»™ ngáº§m Task HW: {sync_err}")
+        logger.error(f"[task-sync] Lỗi đồng bộ ngầm Task HW: {sync_err}")
     finally:
         _is_syncing_hw = False
 
 
 @router.get("/jobs/tasklist-jobs")
 async def get_tasklist_jobs(
-    ma_nv: Optional[str] = Query(None, description="Lá»c theo mÃ£ nhÃ¢n viÃªn e.g. EZE0098"),
-    search: Optional[str] = Query(None, description="TÃ¬m kiáº¿m mÃ£ Job, Client, Builder"),
-    limit: int = Query(2000, ge=1, le=20000, description="Sá»‘ lÆ°á»£ng job tá»‘i Ä‘a"),
-    force_refresh: bool = Query(False, description="Äá»“ng bá»™ láº¡i tá»« MSSQL")
+    ma_nv: Optional[str] = Query(None, description="Lọc theo mã nhân viên e.g. EZE0098"),
+    search: Optional[str] = Query(None, description="Tìm kiếm mã Job, Client, Builder"),
+    limit: int = Query(2000, ge=1, le=20000, description="Số lượng job tối đa"),
+    force_refresh: bool = Query(False, description="Đồng bộ lại từ MSSQL")
 ):
     """
-    Láº¥y danh sÃ¡ch Task Groups HW trá»±c tiáº¿p tá»« CSDL Cá»¥c Bá»™ (MySQL / SQLite),
-    káº¿t há»£p Ä‘á»‘i chiáº¿u tá»©c thÃ¬ vá»›i báº£ng `jobs` Ä‘á»ƒ gáº¯n tÃ­ch xanh âœ… (< 5ms).
+    Lấy danh sách Task Groups HW trực tiếp từ CSDL Cục Bộ (MySQL / SQLite),
+    kết hợp đối chiếu tức thì với bảng `jobs` để gắn tích xanh ✅ (< 5ms).
     """
     import time
     from app.database import DB_TYPE
 
     global _last_hw_sync_time
 
-    # Náº¿u yÃªu cáº§u force_refresh, kÃ­ch hoáº¡t Ä‘á»“ng bá»™ ngáº§m toÃ n bá»™
+    # Nếu yêu cầu force_refresh, kích hoạt đồng bộ ngầm toàn bộ
     if force_refresh:
         threading.Thread(target=sync_task_groups_hw_to_local_db, daemon=True).start()
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Kiá»ƒm tra náº¿u báº£ng cache chÆ°a cÃ³ dá»¯ liá»‡u hoáº·c Ä‘Ã£ quÃ¡ 10 phÃºt chÆ°a Ä‘á»“ng bá»™
+    # Kiểm tra nếu bảng cache chưa có dữ liệu hoặc đã quá 10 phút chưa đồng bộ
     cursor.execute("SELECT COUNT(*) AS cnt FROM task_group_hw_cache")
     cnt_row = cursor.fetchone()
     cache_count = cnt_row["cnt"] if isinstance(cnt_row, dict) else (cnt_row[0] if cnt_row else 0)
 
     if cache_count == 0 or (time.time() - _last_hw_sync_time > 600):
-        # Äá»“ng bá»™ Ä‘á»“ng bá»™ láº§n Ä‘áº§u náº¿u cache rá»—ng
+        # Đồng bộ đồng bộ lần đầu nếu cache rỗng
         if cache_count == 0:
             sync_task_groups_hw_to_local_db()
         else:
             threading.Thread(target=sync_task_groups_hw_to_local_db, daemon=True).start()
 
-    # XÃ¢y dá»±ng cÃ¢u truy váº¥n Ä‘á»c siÃªu tá»‘c tá»« Local DB
+    # Xây dựng câu truy vấn đọc siêu tốc từ Local DB
     where_clauses = []
     params = []
 
@@ -547,17 +525,17 @@ async def get_tasklist_jobs(
 @router.get("/jobs/progress-report")
 @router.get("/api/jobs/progress-report")
 def get_jobs_progress_report(
-    start_date: Optional[str] = Query(None, description="Tá»« ngÃ y YYYY-MM-DD"),
-    end_date: Optional[str] = Query(None, description="Äáº¿n ngÃ y YYYY-MM-DD"),
-    username: Optional[str] = Query(None, description="Lá»c theo nhÃ¢n viÃªn/User"),
-    search: Optional[str] = Query(None, description="TÃ¬m tÃªn job / project name"),
+    start_date: Optional[str] = Query(None, description="Từ ngày YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="Đến ngày YYYY-MM-DD"),
+    username: Optional[str] = Query(None, description="Lọc theo nhân viên/User"),
+    search: Optional[str] = Query(None, description="Tìm tên job / project name"),
     status: Optional[str] = Query(None, description="all | completed | pending"),
     limit: int = Query(2000, ge=1, le=10000),
     offset: int = Query(0, ge=0)
 ):
     """
-    BÃ¡o cÃ¡o tiáº¿n Ä‘á»™ cÃ´ng viá»‡c tá»•ng há»£p (Job Progress & Productivity Report).
-    Bao gá»“m toÃ n bá»™ Task nhÃ³m HW vÃ  cÃ¡c Job váº½ trÃªn há»‡ thá»‘ng EzeFloor.
+    Báo cáo tiến độ công việc tổng hợp (Job Progress & Productivity Report).
+    Bao gồm toàn bộ Task nhóm HW và các Job vẽ trên hệ thống EzeFloor.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -689,9 +667,9 @@ def get_jobs_progress_report(
 @router.get("/jobs/{username}", response_model=List[JobResponse])
 def get_user_jobs(username: str, limit: int = 20, offset: int = 0, current_user: str = Depends(validate_session)):
     """
-    Láº¥y danh sÃ¡ch cÃ¡c dá»± Ã¡n thuá»™c quyá»n sá»Ÿ há»¯u cá»§a má»™t ngÆ°á»i dÃ¹ng cá»¥ thá»ƒ.
-    - Há»— trá»£ phÃ¢n trang báº±ng `limit` vÃ  `offset`.
-    - YÃªu cáº§u xÃ¡c thá»±c phiÃªn Ä‘Äƒng nháº­p há»£p lá»‡.
+    Lấy danh sách các dự án thuộc quyền sở hữu của một người dùng cụ thể.
+    - Hỗ trợ phân trang bằng `limit` và `offset`.
+    - Yêu cầu xác thực phiên đăng nhập hợp lệ.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -716,8 +694,8 @@ def get_user_jobs(username: str, limit: int = 20, offset: int = 0, current_user:
 @router.get("/all-jobs", response_model=List[JobAllResponse])
 def get_all_jobs(limit: int = 50, offset: int = 0):
     """
-    Láº¥y danh sÃ¡ch toÃ n bá»™ cÃ¡c dá»± Ã¡n cá»§a má»i ngÆ°á»i dÃ¹ng trong há»‡ thá»‘ng (dÃ nh cho Admin quáº£n trá»‹).
-    - Há»— trá»£ phÃ¢n trang vÃ  sáº¯p xáº¿p theo má»‘c thá»i gian táº¡o giáº£m dáº§n (má»›i nháº¥t hiá»ƒn thá»‹ Ä‘áº§u tiÃªn).
+    Lấy danh sách toàn bộ các dự án của mọi người dùng trong hệ thống (dành cho Admin quản trị).
+    - Hỗ trợ phân trang và sắp xếp theo mốc thời gian tạo giảm dần (mới nhất hiển thị đầu tiên).
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -757,8 +735,8 @@ def get_all_jobs(limit: int = 50, offset: int = 0):
 @router.get("/jobs/data/{job_id}")
 def get_job_data(job_id: int, username: str = Depends(validate_session)):
     """
-    Láº¥y chi tiáº¿t chuá»—i dá»¯ liá»‡u tráº¡ng thÃ¡i báº£n váº½ cá»§a má»™t dá»± Ã¡n thÃ´ng qua ID.
-    - YÃªu cáº§u xÃ¡c thá»±c phiÃªn Ä‘Äƒng nháº­p há»£p lá»‡.
+    Lấy chi tiết chuỗi dữ liệu trạng thái bản vẽ của một dự án thông qua ID.
+    - Yêu cầu xác thực phiên đăng nhập hợp lệ.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -766,7 +744,7 @@ def get_job_data(job_id: int, username: str = Depends(validate_session)):
         cursor.execute("SELECT data FROM jobs WHERE id = ?", (job_id,))
         row = cursor.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y dá»± Ã¡n Ä‘Æ°á»£c yÃªu cáº§u.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy dự án được yêu cầu.")
         return {"status": "success", "data": row["data"]}
     except Exception as e:
         if isinstance(e, HTTPException):
@@ -780,9 +758,9 @@ def get_job_data(job_id: int, username: str = Depends(validate_session)):
 @router.get("/api/jobs/find")
 def find_job(query: str):
     """
-    TÃ¬m kiáº¿m vÃ  náº¡p dá»¯ liá»‡u dá»± Ã¡n theo:
-    - ID sá»‘ nguyÃªn (vÃ­ dá»¥: 123)
-    - Hoáº·c TÃªn dá»± Ã¡n / MÃ£ Job Number (vÃ­ dá»¥: 'JOB-2024-001', 'P-101', ...)
+    Tìm kiếm và nạp dữ liệu dự án theo:
+    - ID số nguyên (ví dụ: 123)
+    - Hoặc Tên dự án / Mã Job Number (ví dụ: 'JOB-2024-001', 'P-101', ...)
     """
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="Query is required")
@@ -792,7 +770,7 @@ def find_job(query: str):
     cursor = conn.cursor()
     try:
         row = None
-        # 1. Thá»­ tÃ¬m theo ID sá»‘ nguyÃªn
+        # 1. Thử tìm theo ID số nguyên
         if clean_query.isdigit():
             cursor.execute(
                 "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE id = ?",
@@ -800,7 +778,7 @@ def find_job(query: str):
             )
             row = cursor.fetchone()
 
-        # 2. Náº¿u khÃ´ng tháº¥y, tÃ¬m chÃ­nh xÃ¡c theo project_name (khÃ´ng phÃ¢n biá»‡t hoa thÆ°á»ng)
+        # 2. Nếu không thấy, tìm chính xác theo project_name (không phân biệt hoa thường)
         if not row:
             cursor.execute(
                 "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(project_name) = LOWER(?) ORDER BY created_at DESC LIMIT 1",
@@ -808,7 +786,7 @@ def find_job(query: str):
             )
             row = cursor.fetchone()
 
-        # 3. Náº¿u váº«n khÃ´ng tháº¥y, thá»­ tÃ¬m LIKE '%query%'
+        # 3. Nếu vẫn không thấy, thử tìm LIKE '%query%'
         if not row:
             cursor.execute(
                 "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(project_name) LIKE LOWER(?) ORDER BY created_at DESC LIMIT 1",
@@ -842,21 +820,21 @@ def find_job(query: str):
 
 
 class RenameJobRequest(BaseModel):
-    """MÃ´ hÃ¬nh dá»¯ liá»‡u Ä‘á»ƒ Ä‘á»•i tÃªn dá»± Ã¡n."""
+    """Mô hình dữ liệu để đổi tên dự án."""
     new_name: str
 
 
 @router.put("/jobs/{job_id}/rename")
 def rename_job(job_id: int, req: RenameJobRequest):
     """
-    Äá»•i tÃªn má»™t dá»± Ã¡n báº£n váº½ dá»±a vÃ o ID.
+    Đổi tên một dự án bản vẽ dựa vào ID.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("UPDATE jobs SET project_name = ? WHERE id = ?", (req.new_name, job_id))
         conn.commit()
-        return {"status": "success", "message": "ÄÃ£ Ä‘á»•i tÃªn dá»± Ã¡n thÃ nh cÃ´ng."}
+        return {"status": "success", "message": "Đã đổi tên dự án thành công."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -866,7 +844,7 @@ def rename_job(job_id: int, req: RenameJobRequest):
 @router.delete("/jobs/{job_id}")
 def delete_job(job_id: int):
     """
-    XÃ³a bá» hoÃ n toÃ n má»™t dá»± Ã¡n khá»i há»‡ thá»‘ng.
+    Xóa bỏ hoàn toàn một dự án khỏi hệ thống.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -880,7 +858,7 @@ def delete_job(job_id: int):
         except Exception:
             pass
             
-        return {"status": "success", "message": "XÃ³a dá»± Ã¡n thÃ nh cÃ´ng."}
+        return {"status": "success", "message": "Xóa dự án thành công."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -888,7 +866,7 @@ def delete_job(job_id: int):
 
 
 class MarkTrainedRequest(BaseModel):
-    """MÃ´ hÃ¬nh dá»¯ liá»‡u Ä‘Ã¡nh dáº¥u dá»± Ã¡n Ä‘Ã£ Ä‘Æ°á»£c huáº¥n luyá»‡n AI."""
+    """Mô hình dữ liệu đánh dấu dự án đã được huấn luyện AI."""
     project_name: str
     username: str
 
@@ -896,27 +874,27 @@ class MarkTrainedRequest(BaseModel):
 @router.post("/jobs/mark-trained")
 def mark_job_trained(req: MarkTrainedRequest, username: str = Depends(validate_session)):
     """
-    ÄÃ¡nh dáº¥u dá»± Ã¡n Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng dá»¯ liá»‡u Ä‘á»ƒ huáº¥n luyá»‡n láº¡i cÃ¡c mÃ´ hÃ¬nh AI YOLO/OCR.
-    Äiá»u nÃ y giÃºp theo dÃµi vÃ²ng Ä‘á»i dá»¯ liá»‡u pháº£n há»“i tá»« thá»±c táº¿ cá»§a ngÆ°á»i dÃ¹ng.
+    Đánh dấu dự án đã được sử dụng dữ liệu để huấn luyện lại các mô hình AI YOLO/OCR.
+    Điều này giúp theo dõi vòng đời dữ liệu phản hồi từ thực tế của người dùng.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Láº¥y user_id dá»±a trÃªn username gá»­i lÃªn
+        # Lấy user_id dựa trên username gửi lên
         cursor.execute("SELECT id FROM users WHERE username = ?", (req.username,))
         user_row = cursor.fetchone()
         if not user_row:
-            raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y ngÆ°á»i dÃ¹ng trong há»‡ thá»‘ng.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy người dùng trong hệ thống.")
         
         user_id = user_row["id"]
         
-        # Cáº­p nháº­t trÆ°á»ng dá»¯ liá»‡u is_trained = 1
+        # Cập nhật trường dữ liệu is_trained = 1
         cursor.execute("""
             UPDATE jobs SET is_trained = 1 
             WHERE project_name = ? AND user_id = ?
         """, (req.project_name, user_id))
         conn.commit()
-        return {"status": "success", "message": "ÄÃ£ cáº­p nháº­t tráº¡ng thÃ¡i huáº¥n luyá»‡n thÃ nh cÃ´ng."}
+        return {"status": "success", "message": "Đã cập nhật trạng thái huấn luyện thành công."}
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
@@ -928,9 +906,9 @@ def mark_job_trained(req: MarkTrainedRequest, username: str = Depends(validate_s
 @router.put("/jobs/{job_id}/share")
 def toggle_share(job_id: int, active: bool, username: str = Depends(validate_session)):
     """
-    Báº­t hoáº·c táº¯t tÃ­nh nÄƒng chia sáº» dá»± Ã¡n cÃ´ng khai cho ngÆ°á»i ngoÃ i há»‡ thá»‘ng xem.
-    - Náº¿u báº­t (`active = True`): Táº¡o ra má»™t Token báº£o máº­t duy nháº¥t ngáº«u nhiÃªn.
-    - Náº¿u táº¯t (`active = False`): XÃ³a Token chia sáº» (khiáº¿n Ä‘Æ°á»ng dáº«n cÅ© bá»‹ vÃ´ hiá»‡u hÃ³a tá»©c thÃ¬).
+    Bật hoặc tắt tính năng chia sẻ dự án công khai cho người ngoài hệ thống xem.
+    - Nếu bật (`active = True`): Tạo ra một Token bảo mật duy nhất ngẫu nhiên.
+    - Nếu tắt (`active = False`): Xóa Token chia sẻ (khiến đường dẫn cũ bị vô hiệu hóa tức thì).
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -948,8 +926,8 @@ def toggle_share(job_id: int, active: bool, username: str = Depends(validate_ses
 @router.get("/jobs/share/{token}")
 def get_shared_job(token: str):
     """
-    Xem báº£n váº½ dá»± Ã¡n cÃ´ng khai khÃ´ng cáº§n Ä‘Äƒng nháº­p thÃ´ng qua Token báº£o máº­t.
-    Má»¥c Ä‘Ã­ch: Cho phÃ©p ngÆ°á»i dÃ¹ng gá»­i báº£n váº½ dá»± Ã¡n trá»±c tiáº¿p cho khÃ¡ch hÃ ng xem qua má»™t Ä‘Æ°á»ng dáº«n Ä‘á»™c nháº¥t.
+    Xem bản vẽ dự án công khai không cần đăng nhập thông qua Token bảo mật.
+    Mục đích: Cho phép người dùng gửi bản vẽ dự án trực tiếp cho khách hàng xem qua một đường dẫn độc nhất.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -962,7 +940,7 @@ def get_shared_job(token: str):
         if not row:
             raise HTTPException(
                 status_code=404, 
-                detail="LiÃªn káº¿t chia sáº» dá»± Ã¡n khÃ´ng tá»“n táº¡i hoáº·c Ä‘Ã£ háº¿t hiá»‡u lá»±c."
+                detail="Liên kết chia sẻ dự án không tồn tại hoặc đã hết hiệu lực."
             )
         return {
             "status": "success", 
@@ -975,12 +953,17 @@ def get_shared_job(token: str):
         conn.close()
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# LOOKUP JOB BY EMS ID (SSO deep-link tá»« TaskList Web3)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ══════════════════════════════════════════════════════
+# LOOKUP JOB BY EMS ID (SSO deep-link từ TaskList Web3)
+# ══════════════════════════════════════════════════════
 
 @router.get("/jobs/open-by-ems/{ems_id}")
 async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_session)):
+    """
+    Tra cứu thông tin HW Job từ MSSQL theo id_job_ems (UUID từ TaskList).
+    Sử dụng khi người dùng SSO từ TaskList Web3 với tham số ?job=<ems_uuid>.
+    Trả về thông tin task_group_hw + job_number từ ListJobs.
+    """
     from app.mssql_db import get_mssql_connection
 
     conn = None
@@ -995,12 +978,7 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
                 tghw.id_assign_ems,
                 lj.JobNumber AS job_number,
                 lj.Client AS client,
-                UPPER(LTRIM(RTRIM(
-    CASE
-        WHEN lj.Client LIKE 'Bunnings NSW%' THEN 'BUN-NSW-ACT'
-        ELSE COALESCE(NULLIF(lc.ShortName, ''), lj.Client)
-    END
-))) AS customer_short_name,
+                UPPER(LTRIM(RTRIM(COALESCE(NULLIF(lc.ShortName, ''), lj.Client)))) AS customer_short_name,
                 lj.Builder AS builder,
                 aj.MaNV AS ma_nv
             FROM [emsflow].[dbo].[task_group_hw] tghw
@@ -1022,13 +1000,13 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
         row = cursor.fetchone()
 
         if not row:
-            logger.warning(f"[open-by-ems] KhÃ´ng tÃ¬m tháº¥y HW Job vá»›i id_job_ems={ems_id}")
+            logger.warning(f"[open-by-ems] Không tìm thấy HW Job với id_job_ems={ems_id}")
             raise HTTPException(
                 status_code=404,
-                detail=f"KhÃ´ng tÃ¬m tháº¥y Job EMS vá»›i ID: {ems_id}"
+                detail=f"Không tìm thấy Job EMS với ID: {ems_id}"
             )
 
-        # Serialize káº¿t quáº£
+        # Serialize kết quả
         result = {}
         for key, val in row.items():
             if val is None:
@@ -1038,9 +1016,60 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
             else:
                 result[key] = str(val)
 
-        logger.info(f"[open-by-ems] TÃ¬m tháº¥y HW Job: hw_id={result.get('hw_id')}, job_number={result.get('job_number')}")
+        logger.info(f"[open-by-ems] Tìm thấy HW Job: hw_id={result.get('hw_id')}, job_number={result.get('job_number')}")
 
-        # Tra cá»©u xem trong CSDL báº£n váº½ ná»™i bá»™ (SQLite/MySQL) Ä‘Ã£ cÃ³ project nÃ o lÆ°u theo job_number chÆ°a
+        # TaskList is authoritative for Katherine non-Cairns task visibility.
+        manager_code = str(result.get("ma_nv") or "").strip().upper()
+        customer = result.get("customer_short_name") or result.get("client") or ""
+        result["manager_code"] = manager_code
+        result["customer"] = customer
+
+        if manager_code == "EZE0098" and not _is_cairns_customer(customer):
+            try:
+                cursor.execute(
+                    """
+                    SELECT step_number, is_visible
+                    FROM [emsflow].[dbo].[task_group_hw_steps]
+                    WHERE task_group_hw_id = %s
+                    ORDER BY step_number ASC
+                    """,
+                    (result.get("hw_id"),)
+                )
+                step_rows = cursor.fetchall() or []
+
+                selected_steps = [
+                    int(r.get("step_number"))
+                    for r in step_rows
+                    if r.get("is_visible")
+                    and int(r.get("step_number") or 0) in KATHERINE_STANDARD_STEPS
+                ]
+                task_modules = []
+                for step_number in selected_steps:
+                    module_id = KATHERINE_STEP_TO_MODULE.get(step_number)
+                    if module_id and module_id not in task_modules:
+                        task_modules.append(module_id)
+
+                # Query succeeded => [] is authoritative and must not trigger FE fallback.
+                result["selected_steps"] = selected_steps
+                result["selected_task_names"] = [KATHERINE_STANDARD_STEPS[n] for n in selected_steps]
+                result["task_modules"] = task_modules
+                result["unmapped_steps"] = [
+                    n for n in selected_steps if KATHERINE_STEP_TO_MODULE.get(n) is None
+                ]
+            except Exception as step_err:
+                logger.error(f"[open-by-ems] Lỗi truy vấn task_group_hw_steps: {step_err}")
+                result["selected_steps"] = None
+                result["selected_task_names"] = None
+                result["task_modules"] = None
+                result["unmapped_steps"] = None
+        else:
+            # Cairns and other managers keep existing behavior.
+            result["selected_steps"] = None
+            result["selected_task_names"] = None
+            result["task_modules"] = None
+            result["unmapped_steps"] = None
+
+        # Tra cứu xem trong CSDL bản vẽ nội bộ (SQLite/MySQL) đã có project nào lưu theo job_number chưa
         local_job = None
         job_number = result.get("job_number")
         if job_number:
@@ -1062,56 +1091,9 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
                     }
                 local_conn.close()
             except Exception as ex:
-                logger.warning(f"[open-by-ems] KhÃ´ng thá»ƒ kiá»ƒm tra local jobs: {ex}")
+                logger.warning(f"[open-by-ems] Không thể kiểm tra local jobs: {ex}")
 
         result["local_job"] = local_job
-
-        # Resolve manager code and customer
-        manager_code = str(result.get("ma_nv") or "").strip().upper()
-        customer = result.get("customer_short_name") or result.get("client") or ""
-        result["manager_code"] = manager_code
-        result["customer"] = customer
-
-        # Resolve HW steps and visible task modules
-        expected_steps = get_expected_hw_steps(manager_code, customer)
-        if expected_steps is not None:
-            # EZE0098 non-Cairns: query task_group_hw_steps for authoritative step visibility
-            try:
-                hw_id = result.get("hw_id")
-                cursor.execute("""
-                    SELECT step_number, is_visible
-                    FROM [emsflow].[dbo].[task_group_hw_steps]
-                    WHERE task_group_hw_id = %s
-                    ORDER BY step_number ASC
-                """, (hw_id,))
-                step_rows = cursor.fetchall()
-
-                if step_rows:
-                    selected_steps = [
-                        int(r["step_number"]) for r in step_rows
-                        if r.get("is_visible") and int(r.get("step_number") or 0) in expected_steps
-                    ]
-                    task_modules = []
-                    for s in selected_steps:
-                        step_name = expected_steps.get(s)
-                        mod_id = KATHERINE_STEP_TO_MODULE.get(step_name)
-                        if mod_id and mod_id not in task_modules:
-                            task_modules.append(mod_id)
-
-                    result["selected_steps"] = selected_steps
-                    result["task_modules"] = task_modules
-                else:
-                    # Query thành công nhưng không có row => lựa chọn rỗng có thẩm quyền.
-                    result["selected_steps"] = []
-                    result["task_modules"] = []
-            except Exception as step_err:
-                logger.warning(f"[open-by-ems] Lỗi truy vấn task_group_hw_steps: {step_err}")
-                result["selected_steps"] = None
-                result["task_modules"] = None
-        else:
-            # Cairns or other managers keep legacy behavior
-            result["selected_steps"] = None
-            result["task_modules"] = None
 
         return {
             "status": "success",
@@ -1121,8 +1103,8 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[open-by-ems] Lá»—i truy váº¥n MSSQL: {e}")
-        raise HTTPException(status_code=500, detail=f"Lá»—i truy váº¥n MSSQL: {str(e)}")
+        logger.error(f"[open-by-ems] Lỗi truy vấn MSSQL: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn MSSQL: {str(e)}")
     finally:
         if conn:
             conn.close()
@@ -1130,16 +1112,35 @@ async def get_job_by_ems_id(ems_id: str, username: str = Depends(validate_sessio
 
 @router.post("/jobs/export-procurement")
 @router.post("/api/jobs/export-procurement")
-async def export_procurement(payload: dict):
+async def export_procurement(payload: dict, x_username: Optional[str] = Header(None, alias="X-Username")):
     """
-    Chuyá»ƒn tiáº¿p gÃ³i dá»¯ liá»‡u Job tá»« EzeFloor sang dá»‹ch vá»¥ Procurement.
-    Tá»± Ä‘á»™ng truy xuáº¥t vÃ  Ä‘Ã­nh kÃ¨m toÃ n bá»™ 12 cá»™t cá»§a Job tá»« CSDL SQLite (ezefloor.db):
+    Chuyển tiếp gói dữ liệu Job từ EzeFloor sang dịch vụ Procurement.
+    Chỉ cho phép tài khoản Admin hoặc nhóm Hardware (AdminHW, LeaderHW, EmployeeHW) thực hiện.
+    Tự động truy xuất và đính kèm toàn bộ 12 cột của Job từ CSDL SQLite (ezefloor.db):
     id, user_id, project_name, room_count, total_area, data (JSON CAD/BIM), thumbnail,
     is_trained, is_corrected, share_token, is_exported, created_at.
     """
+    if x_username:
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT role FROM users WHERE username = ?", (x_username,))
+            u_row = cur.fetchone()
+            if u_row:
+                u_role = (u_row["role"] or "").lower()
+                is_hw_or_admin = u_role in ["admin", "administrator", "adminhw", "leaderhw", "employeehw"] or u_role.endswith("hw") or "hardware" in u_role
+                if not is_hw_or_admin:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Tài khoản của bạn không thuộc nhóm Hardware (HW Progress) để xuất dữ liệu Procurement."
+                    )
+        finally:
+            if conn:
+                conn.close()
     import httpx
 
-    # 1. Truy xuáº¥t báº£n ghi Ä‘áº§y Ä‘á»§ 12 cá»™t tá»« báº£ng jobs trong CSDL
+    # 1. Truy xuất bản ghi đầy đủ 12 cột từ bảng jobs trong CSDL
     db_job_record = None
     try:
         conn = get_db_connection()
@@ -1160,7 +1161,7 @@ async def export_procurement(payload: dict):
         row = cursor.fetchone()
         if row:
             db_job_record = dict(row)
-            # Cáº­p nháº­t cá» is_exported = 1
+            # Cập nhật cờ is_exported = 1
             try:
                 cursor.execute("UPDATE jobs SET is_exported = 1 WHERE id = ?", (row["id"],))
                 conn.commit()
@@ -1168,9 +1169,9 @@ async def export_procurement(payload: dict):
                 pass
         conn.close()
     except Exception as e:
-        logger.warning(f"[export_procurement] Lá»—i trÃ­ch xuáº¥t báº£n ghi SQLite job: {e}")
+        logger.warning(f"[export_procurement] Lỗi trích xuất bản ghi SQLite job: {e}")
 
-    # 2. ÄÃ­nh kÃ¨m thÃ´ng tin báº£n ghi DB vÃ o payload gá»­i Ä‘i
+    # 2. Đính kèm thông tin bản ghi DB vào payload gửi đi
     if db_job_record:
         payload["job_record"] = db_job_record
         payload["db_job"] = {
@@ -1212,13 +1213,11 @@ async def export_procurement(payload: dict):
                     "job_record": db_job_record
                 }
     except Exception as e:
-        logger.info(f"[Procurement] Chuyá»ƒn tiáº¿p qua giao thá»©c Client-side SSO: {e}")
+        logger.info(f"[Procurement] Chuyển tiếp qua giao thức Client-side SSO: {e}")
         return {
             "status": "success",
             "mode": "client_sso",
             "message": "Client-side SSO active",
             "job_record": db_job_record
         }
-
-
 

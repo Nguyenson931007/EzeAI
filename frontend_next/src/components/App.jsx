@@ -195,8 +195,7 @@ export default function App() {
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId,
     lintelsByPage, setLintelsByPage,
-    scalesByPage, setScalesByPage,
-    annotationsByPage, setAnnotationsByPage
+    scalesByPage, setScalesByPage
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -381,8 +380,7 @@ export default function App() {
     separateJunction,
     selectedVertices,
     setSelectedVertices,
-    startVertexMove,
-    zoomIn, zoomOut, zoom100
+    startVertexMove
   } = useInteractionController(svgRef, layerVisibility);
 
   useEffect(() => {
@@ -538,8 +536,9 @@ export default function App() {
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
         localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
         if (Array.isArray(jobInfo.task_modules)) {
-          sessionStorage.setItem("selectedModules", JSON.stringify(jobInfo.task_modules));
-          localStorage.setItem("selectedModules", JSON.stringify(jobInfo.task_modules));
+          const authoritativeModules = JSON.stringify(jobInfo.task_modules);
+          sessionStorage.setItem("selectedModules", authoritativeModules);
+          localStorage.setItem("selectedModules", authoritativeModules);
         }
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("task-modules-updated"));
@@ -1280,7 +1279,7 @@ export default function App() {
   }
 
   // === DOCUMENT CONTROLLER ===
-  const { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, rotatePlanCCW, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
+  const { loadPDF, currentPdfFile, isExportingPdfText, exportPDFNativeText, rotatePlan90, updateRoom, addTrain, addTrainPages, exportPDF, exportWallLabels, exportDoorWindowLabels, exportRoomLabels } = useDocumentController({
     image, setImage,
     imgSize, setImgSize,
     pages, setPages,
@@ -1394,8 +1393,7 @@ export default function App() {
         confirmImport={confirmImport}
         isAddingPagesMode={isAddingPagesMode}
         setIsAddingPagesMode={setIsAddingPagesMode}
-        fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} rotatePlanCCW={rotatePlanCCW} goPage={goPage}
-        zoomIn={zoomIn} zoomOut={zoomOut} zoom100={zoom100}
+        fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} goPage={goPage}
         loadPDF={loadPDF} setImage={setImage} setImgSize={setImgSize}
         searchResultsVisible={searchResultsVisible}
         setSearchResultsVisible={setSearchResultsVisible}
@@ -1857,7 +1855,6 @@ export default function App() {
                 setIsAddingPagesMode={setIsAddingPagesMode}
                 setShowImportPageSelector={setShowImportPageSelector}
                 pages={pages}
-                setPages={setPages}
                 currentPage={currentPage}
                 setCurrentPage={goPage}
                 goPage={goPage}

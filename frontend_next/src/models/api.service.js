@@ -898,8 +898,9 @@ export const ApiService = {
   },
 
   // ── LockOut Jobs (MSSQL emsflow) ──
-  async fetchLockoutJobs() {
-    const res = await fetch(`${BASE_URL}/api/lockout/jobs`, {
+  async fetchLockoutJobs(jobNumber = null) {
+    const qs = jobNumber ? `?job_number=${encodeURIComponent(jobNumber)}` : "";
+    const res = await fetch(`${BASE_URL}/api/lockout/jobs${qs}`, {
       headers: getHeaders(),
       credentials: "include"
     });

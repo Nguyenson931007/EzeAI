@@ -595,7 +595,7 @@ export default function PdfToolsRibbon({
           <button
             className={`ribbon-btn ${isHighlightToolActive ? "active" : ""}`}
             onClick={() => handleSelectTool("highlight")}
-            title="Cọ tô màu Highlight (Nhấn và kéo chuột để tô màu trên bản vẽ)"
+            title="Highlight Brush (Click and drag to highlight on drawing)"
           >
             <span className="icon"><PDF_ICONS.Highlight /></span>
             <span className="label">Highlight</span>

@@ -90,8 +90,8 @@ async def lifespan(app: FastAPI):
     logger.info("Khởi chạy hệ thống EzeFloor Backend, đang khởi tạo cơ sở dữ liệu...")
     init_db()
     
-    # Giữ session hợp lệ qua restart/reload.
-    # validate_session đã tự kiểm tra timeout 5 giờ.
+    # Giữ nguyên các session hợp lệ khi backend restart/reload.
+    # validate_session đã tự kiểm tra timeout 5 giờ và vô hiệu token hết hạn.
     logger.info("Giữ nguyên session hợp lệ khi backend khởi động/reload.")
     # ── Pre-warm AI models & Background Task Sync in background thread ──
     import threading

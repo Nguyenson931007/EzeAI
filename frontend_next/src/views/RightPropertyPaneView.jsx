@@ -171,7 +171,20 @@ export default function RightPropertyPaneView({
     setAnnotationsByPage,
     selectedAnnotationId,
     setSelectedAnnotationId,
-    pushAnnotationHistory
+    pushAnnotationHistory,
+    setAnnotationColor,
+    setAnnotationStrokeWidth,
+    setAnnotationOpacity,
+    setAnnotationFillOpacity,
+    setAnnotationFillMode,
+    setAnnotationFontSize,
+    setTextColor,
+    setTextOpacity,
+    setTextFontSize,
+    setTextBold,
+    setTextItalic,
+    setTextUnderline,
+    setTextStrikethrough
   } = useAppModel();
 
   const selectedAnnotation = React.useMemo(() => {
@@ -193,7 +206,38 @@ export default function RightPropertyPaneView({
         };
       });
     }
-  }, [currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage]);
+
+    // Determine whether this is a text annotation or a drawing shape
+    const currentList = annotationsByPage[currentPage] || [];
+    const target = currentList.find((a) => a.id === annId);
+    const isTextAnnotation = target && (target.type === "text" || target.type === "callout" || target.type === "sticky-note");
+
+    if (isTextAnnotation) {
+      // Persist ONLY to text defaults (does not affect drawing tools)
+      if (patch.color && setTextColor) setTextColor(patch.color);
+      if (typeof patch.opacity === "number" && setTextOpacity) setTextOpacity(patch.opacity);
+      if (typeof patch.fontSize === "number") {
+        if (setTextFontSize) setTextFontSize(patch.fontSize);
+        if (setAnnotationFontSize) setAnnotationFontSize(patch.fontSize);
+      }
+      if (typeof patch.isBold === "boolean" && setTextBold) setTextBold(patch.isBold);
+      if (typeof patch.isItalic === "boolean" && setTextItalic) setTextItalic(patch.isItalic);
+      if (typeof patch.isUnderline === "boolean" && setTextUnderline) setTextUnderline(patch.isUnderline);
+      if (typeof patch.isStrikethrough === "boolean" && setTextStrikethrough) setTextStrikethrough(patch.isStrikethrough);
+    } else {
+      // Persist ONLY to drawing defaults (does not affect text tools)
+      if (patch.color && setAnnotationColor) setAnnotationColor(patch.color);
+      if (typeof patch.strokeWidth === "number" && setAnnotationStrokeWidth) setAnnotationStrokeWidth(patch.strokeWidth);
+      if (typeof patch.opacity === "number" && setAnnotationOpacity) setAnnotationOpacity(patch.opacity);
+      if (typeof patch.fillOpacity === "number" && setAnnotationFillOpacity) setAnnotationFillOpacity(patch.fillOpacity);
+      if (patch.fillMode && setAnnotationFillMode) setAnnotationFillMode(patch.fillMode);
+    }
+  }, [
+    currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage,
+    setAnnotationColor, setAnnotationStrokeWidth, setAnnotationOpacity, setAnnotationFillOpacity,
+    setAnnotationFillMode, setAnnotationFontSize, setTextColor, setTextOpacity, setTextFontSize,
+    setTextBold, setTextItalic, setTextUnderline, setTextStrikethrough
+  ]);
 
   const handleDeleteAnnotation = React.useCallback((annId) => {
     if (typeof pushAnnotationHistory === "function") {

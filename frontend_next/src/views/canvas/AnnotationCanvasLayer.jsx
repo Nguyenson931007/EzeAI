@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useAppModel } from "@/models/app.context";
+import { getBrushCursor } from "@/utils/cursorUtils";
 
 // Geometry helpers
 const calcPolygonArea = (pts) => {
@@ -100,6 +101,13 @@ export default function AnnotationCanvasLayer({
     setActiveAnnotationTool,
     annotationColor = "#facc15",
     annotationStrokeWidth = 4,
+    annotationOpacity = 1.0,
+    annotationFillOpacity = 0.25,
+    annotationFillMode = "stroke",
+    annotationFontSize = 20,
+    textColor = "#0f172a",
+    textOpacity = 1.0,
+    textFontSize = 20,
     selectedAnnotationId,
     setSelectedAnnotationId,
     currentPage,
@@ -160,6 +168,11 @@ export default function AnnotationCanvasLayer({
   const movingStateRef = useRef(null);
   movingStateRef.current = movingState;
 
+  // Callout Arrow Tip Dragging State
+  const [calloutTipDrag, setCalloutTipDrag] = useState(null);
+  const calloutTipDragRef = useRef(null);
+  calloutTipDragRef.current = calloutTipDrag;
+
   // Inline Text Box & Note Editing
   const [editingTextId, setEditingTextId] = useState(null);
   const [editingTextValue, setEditingTextValue] = useState("");
@@ -206,10 +219,10 @@ export default function AnnotationCanvasLayer({
           const currentVal = prop === "isBold" ? (a.isBold !== false) : !!a[prop];
           const nextVal = !currentVal;
           const labels = {
-            isBold: nextVal ? "In đậm (Bold ON)" : "Chữ thường (Bold OFF)",
-            isItalic: nextVal ? "In nghiêng (Italic ON)" : "Thẳng đứng (Italic OFF)",
-            isUnderline: nextVal ? "Gạch chân (Underline ON)" : "Bỏ gạch chân (Underline OFF)",
-            isStrikethrough: nextVal ? "Gạch ngang chữ (Strike ON)" : "Bỏ gạch ngang (Strike OFF)"
+            isBold: nextVal ? "Bold ON" : "Bold OFF",
+            isItalic: nextVal ? "Italic ON" : "Italic OFF",
+            isUnderline: nextVal ? "Underline ON" : "Underline OFF",
+            isStrikethrough: nextVal ? "Strikethrough ON" : "Strikethrough OFF"
           };
           msg = `🔤 ${labels[prop] || prop}`;
           return { ...a, [prop]: nextVal };
@@ -238,9 +251,9 @@ export default function AnnotationCanvasLayer({
           // Cycle: stroke -> fill -> both -> stroke
           const nextMode = currentMode === "stroke" ? "fill" : currentMode === "fill" ? "both" : "stroke";
           const modeLabels = {
-            stroke: "Nét viền (Stroke only)",
-            fill: "Tô màu (Fill only)",
-            both: "Cả viền & tô (Stroke + Fill)"
+            stroke: "Stroke only",
+            fill: "Fill only",
+            both: "Stroke + Fill"
           };
           modeMsg = `🔄 ${modeLabels[nextMode]}`;
           return { ...a, fillMode: nextMode };
@@ -298,7 +311,9 @@ export default function AnnotationCanvasLayer({
         height: bounds.height,
         color: annotationColor,
         strokeWidth: annotationStrokeWidth || 4,
-        fillMode: "stroke"
+        fillMode: annotationFillMode || "stroke",
+        opacity: annotationOpacity,
+        fillOpacity: annotationFillOpacity
       };
     }
 
@@ -401,8 +416,9 @@ export default function AnnotationCanvasLayer({
         y: pt.y,
         text: "",
         html: "",
-        color: annotationColor === "#facc15" ? "#0f172a" : annotationColor,
-        fontSize: 32,
+        color: textColor || "#0f172a",
+        fontSize: textFontSize >= 14 ? textFontSize : (annotationFontSize >= 14 ? annotationFontSize : 32),
+        opacity: textOpacity != null ? textOpacity : 1.0,
         isBold: textBold,
         isItalic: textItalic,
         isUnderline: textUnderline,
@@ -425,13 +441,16 @@ export default function AnnotationCanvasLayer({
     }
 
     // 4. Standard Drag/Click Tools (rect, oval, cloud, line, arrow, underline, strike, snapshot, etc.)
+    const isCallout = activeAnnotationTool === "callout";
     const newDrawing = {
       startPt: pt,
       currentPt: pt,
       type: activeAnnotationTool,
-      color: annotationColor,
-      strokeWidth: annotationStrokeWidth || 4,
-      fillMode: "stroke"
+      color: isCallout ? (textColor || "#0f172a") : annotationColor,
+      strokeWidth: isCallout ? 2 : (annotationStrokeWidth || 4),
+      fillMode: annotationFillMode || "stroke",
+      opacity: isCallout ? (textOpacity != null ? textOpacity : 1.0) : annotationOpacity,
+      fillOpacity: annotationFillOpacity
     };
     setDrawingState(newDrawing);
   };
@@ -564,6 +583,24 @@ export default function AnnotationCanvasLayer({
           };
         });
       }
+
+      // Live callout arrow-tip dragging (Option A)
+      if (calloutTipDragRef.current) {
+        const ctd = calloutTipDragRef.current;
+        setAnnotationsByPage((prev) => {
+          const list = prev[currentPage] || [];
+          return {
+            ...prev,
+            [currentPage]: list.map((a) => {
+              if (a.id !== ctd.annId) return a;
+              return {
+                ...a,
+                startPt: { x: pt.x, y: pt.y }
+              };
+            })
+          };
+        });
+      }
     };
 
     const handlePointerUp = (e) => {
@@ -604,6 +641,14 @@ export default function AnnotationCanvasLayer({
           pushAnnotationHistory(vds.initialSnapshot);
         }
         setVertexDragState(null);
+      }
+
+      // 0.2 Finish Callout Tip Dragging
+      if (calloutTipDragRef.current) {
+        if (typeof pushAnnotationHistory === "function") {
+          pushAnnotationHistory(annotationsByPage);
+        }
+        setCalloutTipDrag(null);
       }
 
       // 1. Finish standard Dragging
@@ -666,13 +711,18 @@ export default function AnnotationCanvasLayer({
           width,
           height,
           color,
-          fillMode: fillMode || "stroke",
-          strokeWidth: strokeWidth || 2
+          fillMode: fillMode || annotationFillMode || "stroke",
+          strokeWidth: strokeWidth || 2,
+          opacity: annotationOpacity,
+          fillOpacity: annotationFillOpacity
         };
 
         if (type === "callout") {
           newAnn.text = "Callout";
-          newAnn.fontSize = 20;
+          newAnn.color = textColor || "#0f172a";
+          newAnn.strokeWidth = 2;
+          newAnn.fontSize = textFontSize >= 14 ? textFontSize : (annotationFontSize >= 14 ? annotationFontSize : 20);
+          newAnn.opacity = textOpacity != null ? textOpacity : 1.0;
           newAnn.boxX = isSmallClick ? startPt.x + 60 : endPt.x;
           newAnn.boxY = isSmallClick ? startPt.y - 40 : endPt.y;
           newAnn.isBold = textBold;
@@ -759,7 +809,7 @@ export default function AnnotationCanvasLayer({
               await navigator.clipboard.write([
                 new window.ClipboardItem({ "image/png": blob })
               ]);
-              alert("Đã chụp ảnh vùng chọn và sao chép vào Clipboard (Ctrl+V để dán)!");
+              alert("Selection copied to clipboard (Ctrl+V to paste)!");
             } else {
               downloadSnapshot(blob);
             }
@@ -996,7 +1046,7 @@ export default function AnnotationCanvasLayer({
         setDrawingState(null);
         setActiveAnnotationTool(null);
         if (setInteractionMode) setInteractionMode("select");
-        setStatusMessage("↩ Chế độ Chọn (Select)");
+        setStatusMessage("↩ Select Mode");
         setTimeout(() => setStatusMessage(null), 1800);
       }
     };
@@ -1085,6 +1135,7 @@ export default function AnnotationCanvasLayer({
           refX="11"
           refY="4.5"
           orient="auto"
+          markerUnits="userSpaceOnUse"
         >
           <polygon points="0 0, 12 4.5, 0 9" fill={annotationColor || "#ef4444"} />
         </marker>
@@ -1095,6 +1146,7 @@ export default function AnnotationCanvasLayer({
           refX="1"
           refY="4.5"
           orient="auto-start-reverse"
+          markerUnits="userSpaceOnUse"
         >
           <polygon points="12 0, 0 4.5, 12 9" fill={annotationColor || "#ef4444"} />
         </marker>
@@ -1111,7 +1163,7 @@ export default function AnnotationCanvasLayer({
             key={ann.id}
             style={{
               pointerEvents: isMarkupActive ? "none" : "all",
-              cursor: isMarkupActive ? "crosshair" : "move"
+              cursor: isMarkupActive ? (activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor) : "crosshair") : "move"
             }}
             onMouseDown={(e) => {
               if (ann.type !== "text") {
@@ -1602,7 +1654,7 @@ export default function AnnotationCanvasLayer({
               );
             })()}
 
-            {/* 16. CALLOUT (Bigger box, 20px font, dynamic auto width) */}
+            {/* 16. CALLOUT (Multiline, reversed arrowhead, draggable tip) */}
             {ann.type === "callout" && (() => {
               const isBeingEdited = editingTextId === ann.id;
               const isBold = ann.isBold !== false;
@@ -1617,8 +1669,19 @@ export default function AnnotationCanvasLayer({
               const boxX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const boxY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
               const fontSize = ann.fontSize || 20;
-              const textW = Math.max((ann.text || "Callout").length * (fontSize * 0.65) + 24, 100);
-              const boxH = Math.max(fontSize * 1.6, 38);
+              const tipX = ann.startPt?.x || ann.x;
+              const tipY = ann.startPt?.y || ann.y;
+
+              // Multiline support: split by \n
+              const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : (isBeingEdited ? "" : "Callout");
+              const textLines = (rawText || "").split("\n");
+              const lineCount = Math.max(textLines.length, 1);
+              const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
+              const textW = Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
+              const lineHeight = fontSize * 1.35;
+              const boxH = Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
+              const boxTop = boxY - boxH / 2;
+              const startY = boxTop + (boxH - (lineCount - 1) * lineHeight) / 2 + (fontSize * 0.35);
 
               return (
                 <g
@@ -1637,18 +1700,31 @@ export default function AnnotationCanvasLayer({
                     setEditingTextValue(ann.text || "");
                   }}
                 >
-                  {/* Arrow line */}
+                  {/* Arrow line — arrowhead now points AT the tip (startPt) */}
+                  <defs>
+                    <marker
+                      id={`callout-marker-${ann.id}`}
+                      markerWidth="12"
+                      markerHeight="9"
+                      refX="11"
+                      refY="4.5"
+                      orient="auto"
+                      markerUnits="userSpaceOnUse"
+                    >
+                      <polygon points="0 0, 12 4.5, 0 9" fill={color} />
+                    </marker>
+                  </defs>
                   <line
-                    x1={ann.startPt?.x || ann.x}
-                    y1={ann.startPt?.y || ann.y}
-                    x2={boxX}
-                    y2={boxY}
+                    x1={boxX + textW / 2 - 8}
+                    y1={boxY}
+                    x2={tipX}
+                    y2={tipY}
                     stroke={color}
-                    strokeWidth={Math.max(strokeW, 2.5)}
+                    strokeWidth={2}
                     opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
-                    markerStart="url(#pdf-arrowhead-start)"
+                    markerEnd={`url(#callout-marker-${ann.id})`}
                   />
-                  {/* Text box */}
+                  {/* Text box (multiline) */}
                   {!isBeingEdited && (
                     <>
                       <rect
@@ -1666,7 +1742,7 @@ export default function AnnotationCanvasLayer({
                       />
                       <text
                         x={boxX - 8 + textW / 2}
-                        y={boxY + fontSize * 0.35}
+                        y={startY}
                         fill={color}
                         fontSize={fontSize}
                         fontWeight={isBold ? "700" : "400"}
@@ -1675,9 +1751,39 @@ export default function AnnotationCanvasLayer({
                         opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
                         style={{ fontStyle: isItalic ? "italic" : "normal", textDecoration: textDecorations }}
                       >
-                        {ann.text || "Callout"}
+                        {textLines.map((line, i) => (
+                          <tspan
+                            key={i}
+                            x={boxX - 8 + textW / 2}
+                            y={startY + i * lineHeight}
+                          >
+                            {line || "\u00A0"}
+                          </tspan>
+                        ))}
                       </text>
                     </>
+                  )}
+                  {/* Draggable arrow-tip handle (only when selected, not editing) */}
+                  {isSelected && !isBeingEdited && (
+                    <circle
+                      cx={tipX}
+                      cy={tipY}
+                      r={6}
+                      fill="#2563eb"
+                      stroke="#ffffff"
+                      strokeWidth="2"
+                      style={{ cursor: "crosshair", pointerEvents: "all" }}
+                      filter="drop-shadow(0 1px 3px rgba(0,0,0,0.3))"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setCalloutTipDrag({
+                          annId: ann.id,
+                          startMouse: getPointFromEvent(e),
+                          origStartPt: { x: tipX, y: tipY }
+                        });
+                      }}
+                    />
                   )}
                 </g>
               );
@@ -1688,8 +1794,13 @@ export default function AnnotationCanvasLayer({
               const cbX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const cbY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
               const fontSize = ann.fontSize || 20;
-              const textWidth = Math.max((ann.text || "Callout").length * (fontSize * 0.65) + 24, 100);
-              const boxH = Math.max(fontSize * 1.6, 38);
+              const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "Callout";
+              const textLines = (rawText || "").split("\n");
+              const lineCount = Math.max(textLines.length, 1);
+              const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
+              const textWidth = Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
+              const lineHeight = fontSize * 1.35;
+              const boxH = Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
               return (
                 <g
                   transform={`translate(${cbX - 8 + textWidth + 6}, ${cbY - boxH / 2 - 2})`}
@@ -1735,11 +1846,11 @@ export default function AnnotationCanvasLayer({
                         e.stopPropagation();
                         toggleFillStroke(ann.id);
                       }}
-                      title="Chuyển đổi Tô màu / Nét viền (Ctrl+R)"
+                      title="Toggle Fill / Stroke (Ctrl+R)"
                     >
                       <rect x="-4" y="-10" width="56" height="20" rx="4" fill="#0f172a" opacity="0.9" />
                       <text x="24" y="4" fill="#ffffff" fontSize="10" fontWeight="600" textAnchor="middle">
-                        {ann.fillMode === "fill" ? "Tô màu" : ann.fillMode === "both" ? "Cả hai" : "Viền"}
+                        {ann.fillMode === "fill" ? "Fill" : ann.fillMode === "both" ? "Both" : "Stroke"}
                       </text>
                     </g>
                   )}
@@ -1751,7 +1862,7 @@ export default function AnnotationCanvasLayer({
                       e.stopPropagation();
                       deleteAnnotation(ann.id);
                     }}
-                    title="Xóa hình này (Delete)"
+                    title="Delete (Delete)"
                   >
                     <circle r="10" fill="#ef4444" stroke="#ffffff" strokeWidth="1.8" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))" />
                     <text x="0" y="3.5" fill="#ffffff" fontSize="11" fontWeight="800" textAnchor="middle">✕</text>
@@ -1786,7 +1897,7 @@ export default function AnnotationCanvasLayer({
                         transform={`translate(${mx}, ${my})`}
                         style={{ cursor: "copy" }}
                         onMouseDown={(e) => insertVertexAtMidpoint(e, ann, i)}
-                        title="Click hoặc kéo để thêm đỉnh mới (Thêm node)"
+                        title="Click or drag to add vertex (Add node)"
                       >
                         <circle
                           r={Math.max(4.5 / scale, 4)}
@@ -1816,7 +1927,7 @@ export default function AnnotationCanvasLayer({
                           style={{ cursor: "move" }}
                           onMouseDown={(e) => startVertexDrag(e, ann, i)}
                           onContextMenu={(e) => deleteVertex(e, ann, i)}
-                          title="Kéo để chỉnh sửa đỉnh / Chuột phải để xóa đỉnh (Right-click delete)"
+                          title="Drag to move vertex / Right-click to delete vertex"
                         />
                         <circle
                           cx={p.x}
@@ -1950,7 +2061,7 @@ export default function AnnotationCanvasLayer({
                 strokeWidth="1"
               />
               <text x="6" y="2" fill="#ffffff" fontSize="11" fontWeight="600" fontFamily="Inter, sans-serif">
-                {`Điểm ${polyPoints.length + 1} • Nhấn Enter để tạo vùng${isShift ? " [Shift: 90°]" : ""}`}
+                {`Point ${polyPoints.length + 1} • Press Enter to complete${isShift ? " [Shift: 90°]" : ""}`}
               </text>
             </g>
           )}
@@ -1966,7 +2077,14 @@ export default function AnnotationCanvasLayer({
           height="400000"
           fill="#000000"
           opacity="0.0001"
-          style={{ cursor: "crosshair", pointerEvents: "all" }}
+          style={{
+            cursor: activeAnnotationTool === "highlight"
+              ? getBrushCursor(annotationColor)
+              : activeAnnotationTool === "text"
+              ? "text"
+              : "crosshair",
+            pointerEvents: "all"
+          }}
           onMouseDown={handleCanvasMouseDown}
           onPointerDown={handleCanvasMouseDown}
           onDoubleClick={(e) => {
@@ -2474,7 +2592,7 @@ function InlineRichTextEditor({
           }}
           onKeyDown={(e) => {
             e.stopPropagation();
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
               handleFinish();
             } else if (e.key === "Escape") {

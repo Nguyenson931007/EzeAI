@@ -21,6 +21,7 @@ import RoofContextMenu from "../components/RoofContextMenu";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
+import { getBrushCursor } from "@/utils/cursorUtils";
 import {
   distancePointToSegment,
   pointInPolygon,
@@ -2949,7 +2950,7 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { activeAnnotationTool, setSelectedAnnotationId, roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
+  const { activeAnnotationTool, annotationColor, setSelectedAnnotationId, roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -4070,6 +4071,8 @@ export default function CanvasView({
             cursor: (isPanning || interactionMode === "pan") ? "grab"
               : (drawing || isDrawingRoof || isDistancing || isMeasuring || isAddingPoint || interactionMode === "draw-ext-rect" || interactionMode === "draw-wall" || interactionMode === "fill-room") ? "crosshair"
               : interactionMode === "align-pdf" ? "move"
+              : activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor)
+              : activeAnnotationTool ? "crosshair"
               : "default"
           }}
           onClick={(e) => {

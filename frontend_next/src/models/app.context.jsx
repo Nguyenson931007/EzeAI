@@ -62,8 +62,18 @@ export const AppProvider = ({ children }) => {
   }, [annotationsFuture, annotationsByPage]);
 
   const [activeAnnotationTool, setActiveAnnotationTool] = useState(null); // 'highlight' | 'sticky-note' | 'text' | 'callout' | 'rect' | 'oval' | 'cloud' | 'line' | 'arrow' | 'polygon' | 'stamp'
+  // Drawing / Shape Tool Defaults (rect, oval, cloud, line, arrow, polygon, measure-area, highlight)
   const [annotationColor, setAnnotationColor] = useState("#facc15");
   const [annotationStrokeWidth, setAnnotationStrokeWidth] = useState(2);
+  const [annotationOpacity, setAnnotationOpacity] = useState(1.0);
+  const [annotationFillOpacity, setAnnotationFillOpacity] = useState(0.25);
+  const [annotationFillMode, setAnnotationFillMode] = useState("stroke");
+
+  // Text / Callout Tool Defaults (text, callout, sticky-note)
+  const [textColor, setTextColor] = useState("#0f172a");
+  const [textOpacity, setTextOpacity] = useState(1.0);
+  const [textFontSize, setTextFontSize] = useState(20);
+  const [annotationFontSize, setAnnotationFontSize] = useState(20);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
 
   // Text Formatting States (B, I, U, S)
@@ -156,6 +166,13 @@ export const AppProvider = ({ children }) => {
     activeAnnotationTool, setActiveAnnotationTool,
     annotationColor, setAnnotationColor,
     annotationStrokeWidth, setAnnotationStrokeWidth,
+    annotationOpacity, setAnnotationOpacity,
+    annotationFillOpacity, setAnnotationFillOpacity,
+    annotationFillMode, setAnnotationFillMode,
+    annotationFontSize, setAnnotationFontSize,
+    textColor, setTextColor,
+    textOpacity, setTextOpacity,
+    textFontSize, setTextFontSize,
     selectedAnnotationId, setSelectedAnnotationId,
 
     textBold, setTextBold,

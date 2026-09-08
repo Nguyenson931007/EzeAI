@@ -29,14 +29,14 @@ class LockoutItemSchema(BaseModel):
     mode: Optional[str] = Field(None, description="Mode (e.g. Prehung, Loose...)")
     scope: Optional[str] = Field(None, description="Scope (e.g. external, internal...)")
     label: Optional[str] = Field(None, description="Nhãn cửa (e.g. Entry Door, Bedroom Door...)")
-    door_name: Optional[str] = Field(None, description="Tên cửa (e.g. D-101, D-201...)")
+    door_type: Optional[str] = Field(None, description="Loại/model cửa từ dropdown (e.g. SCX1 PCM, HAG9...)")
     height: Optional[Union[float, int]] = Field(None, description="Chiều cao cửa (mm)")
     width: Optional[Union[float, int]] = Field(None, description="Chiều rộng cửa (mm)")
     thickness: Optional[Union[float, int]] = Field(None, description="Độ dày cửa (mm)")
     jamb_or_wall: Optional[str] = Field(None, description="Jamb or Wall (e.g. 90mm Wall, Steel Frame...)")
     jamb_size: Optional[str] = Field(None, description="Kích thước Jamb (e.g. 112x19mm...)")
     hung: Optional[str] = Field(None, description="Hướng mở hung (Hung A, Hung B...)")
-    door_type: Optional[str] = Field(None, description="Loại cửa (Type A, Type CG...)")
+    type: Optional[str] = Field(None, description="Kiểu khung/cấu hình cũ (Type A, Type CG...)")
     door_stop: Optional[str] = Field(None, description="Chặn cửa door_stop (Cushion, DS2 with Riser...)")
     internal_type: Optional[str] = Field(None, description="Internal type (HF, HO...)")
     color: Optional[str] = Field(None, description="Màu sắc color (CHR, SCH...)")
@@ -55,11 +55,66 @@ class SaveLockoutJobsPayloadSchema(BaseModel):
 
 
 # ══════════════════════════════════════════════════════
+# DROPDOWN DOOR TYPE (READ-ONLY)
+# ══════════════════════════════════════════════════════
+
+@router.get("/door-types")
+async def get_lockout_door_types():
+    """Đọc door_type từ catalog và tách riêng Internal/External."""
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("""
+            SELECT DISTINCT
+                LOWER(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.category')))) AS category,
+                LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))) AS door_type
+            FROM [ProcurementApp].[dbo].[data_find_items] AS d
+            CROSS APPLY OPENJSON(
+                CASE
+                    WHEN ISJSON(d.parameters_json) = 1 THEN d.parameters_json
+                    ELSE N'{}'
+                END,
+                '$.selector_variants'
+            ) AS v
+            WHERE d.customer_id = 'BUN-NSW-ACT'
+              AND JSON_VALUE(v.[value], '$.task_key') = 'lock-up'
+              AND JSON_VALUE(v.[value], '$.formula_key') = 'door-selection'
+              AND NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))), N'') IS NOT NULL
+            ORDER BY category, door_type;
+        """)
+
+        options = {"internal": set(), "external": set()}
+        for row in cursor.fetchall():
+            category = str(row.get("category") or "").strip().lower()
+            door_type = str(row.get("door_type") or "").strip()
+            if category in options and door_type:
+                options[category].add(door_type)
+
+        return {
+            "success": True,
+            "data": {
+                "internal": sorted(options["internal"]),
+                "external": sorted(options["external"]),
+            },
+        }
+    except Exception as e:
+        logger.error(f"Error fetching LockUp door types: {e}")
+        raise HTTPException(status_code=500, detail=f"Không thể tải dropdown LockUp: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# ══════════════════════════════════════════════════════
 # 1. TRUY VẤN CÁC JOB LOCKUP HIỆN TẠI (GET /api/lockout/jobs)
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+async def get_lockout_jobs(
+    office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
+    job_number: Optional[str] = Query(None, description="Filter by specific JobNumber or hw_id")
+):
     """
     Truy vấn danh sách LockUp jobs từ MSSQL [ProcurementApp].[dbo].[LockUp].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(lock.IsOldData, 0) = 0.
@@ -69,7 +124,14 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
-        sql = """
+        where_clauses = ["ISNULL(tghw.is_delete, 0) = 0", "aj.MaNV = 'EZE0098'"]
+        params = []
+        if job_number and job_number.strip():
+            jn = job_number.strip()
+            where_clauses.append("(lj.JobNumber = %s OR tghw.id = %s)")
+            params.extend([jn, jn])
+
+        sql = f"""
             SELECT
                 lock.ID AS lockout_id,
                 tghw.id AS IdJob_HW,
@@ -80,14 +142,14 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
                 lock.[mode],
                 lock.[scope],
                 lock.label,
-                lock.door_name,
+                lock.door_type,
                 lock.height,
                 lock.width,
                 lock.thickness,
                 lock.jamb_or_wall,
                 lock.jamb_size,
                 lock.hung,
-                lock.door_type,
+                lock.[type],
                 lock.door_stop,
                 lock.internal_type,
                 lock.color,
@@ -114,13 +176,15 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
                 AND ISNULL(aj.IsDelete, 0) = 0
 
             WHERE
-                ISNULL(tghw.is_delete, 0) = 0
-                AND aj.MaNV = 'EZE0098'
+                {' AND '.join(where_clauses)}
 
             ORDER BY tghw.id DESC, lock.ID DESC;
         """
 
-        cursor.execute(sql)
+        if params:
+            cursor.execute(sql, tuple(params))
+        else:
+            cursor.execute(sql)
         rows = cursor.fetchall()
 
         formatted_rows = []
@@ -133,14 +197,14 @@ async def get_lockout_jobs(office: Optional[str] = Query(None, description="Filt
                 "mode": r.get("mode"),
                 "scope": r.get("scope"),
                 "label": r.get("label"),
-                "door_name": r.get("door_name"),
+                "door_type": r.get("door_type"),
                 "height": float(r["height"]) if r.get("height") is not None else None,
                 "width": float(r["width"]) if r.get("width") is not None else None,
                 "thickness": float(r["thickness"]) if r.get("thickness") is not None else None,
                 "jamb_or_wall": r.get("jamb_or_wall"),
                 "jamb_size": str(r["jamb_size"]) if r.get("jamb_size") is not None else None,
                 "hung": r.get("hung"),
-                "door_type": r.get("door_type"),
+                "type": r.get("type"),
                 "door_stop": r.get("door_stop"),
                 "internal_type": r.get("internal_type"),
                 "color": r.get("color"),
@@ -201,14 +265,14 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                 [mode],
                 [scope],
                 label,
-                door_name,
+                door_type,
                 height,
                 width,
                 thickness,
                 jamb_or_wall,
                 jamb_size,
                 hung,
-                door_type,
+                [type],
                 door_stop,
                 internal_type,
                 color,
@@ -286,14 +350,14 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                         item.mode,
                         item.scope,
                         item.label,
-                        item.door_name,
+                        item.door_type,
                         item.height,
                         item.width,
                         item.thickness,
                         item.jamb_or_wall,
                         item.jamb_size,
                         item.hung,
-                        item.door_type,
+                        item.type,
                         item.door_stop,
                         item.internal_type,
                         item.color,
@@ -366,22 +430,29 @@ async def calculate_lockout(payload: DoorCalcPayload):
         if raw_mat and raw_mat not in ["timber", "wood", "wood_timber", "default", ""] and "timber" not in raw_mat:
             continue
 
-        d_name = d.get("door_name") or d.get("doorName") or f"D-{idx + 1}"
+        d_label = str(d.get("label") or d.get("name") or f"D-{idx + 1}").strip()
+        selected_door_type = str(
+            d.get("door_type")
+            or d.get("lockup_door_type")
+            or d.get("product")
+            or ""
+        ).strip() or None
         d_width = float(d.get("width_mm") or d.get("width") or 820.0)
         d_height = float(d.get("height_mm") or d.get("height") or 2040.0)
 
         # 1. Scope: Lấy theo Door Type (External vs Internal Penetrations)
+        explicit_scope = str(d.get("scope") or "").strip().lower()
         raw_type = str(
-            d.get("door_type") or 
-            d.get("doorType") or 
+            d.get("doorType") or
             d.get("doorTypeId") or 
             d.get("label") or 
-            d.get("type") or 
             d.get("classification") or ""
         ).lower()
 
         ext_keywords = ["external", "ext_", "garage"]
-        if any(kw in raw_type for kw in ext_keywords):
+        if explicit_scope in {"internal", "external"}:
+            scope_val = explicit_scope
+        elif any(kw in raw_type for kw in ext_keywords):
             scope_val = "external"
         else:
             scope_val = "internal"
@@ -424,23 +495,22 @@ async def calculate_lockout(payload: DoorCalcPayload):
         else:
             hung_val = None
 
-        d_label = str(d.get("label") or d.get("name") or d_name).strip()
         is_ext = scope_val == "external"
 
-        key = f"{d_name}_{d_width}_{d_height}_{scope_val}_{jamb_or_wall_val}_{hung_val}"
+        key = f"{d_label}_{selected_door_type}_{d_width}_{d_height}_{scope_val}_{jamb_or_wall_val}_{hung_val}"
         if key not in grouped:
             grouped[key] = {
                 "mode": None,
                 "scope": scope_val,
                 "label": d_label,
-                "door_name": d_name,
+                "door_type": selected_door_type,
                 "height": d_height,
                 "width": d_width,
                 "thickness": float(d.get("thickness") or d.get("thickness_mm") or (40.0 if is_ext else 35.0)),
                 "jamb_or_wall": jamb_or_wall_val,
                 "jamb_size": d.get("jamb_size") or "112×19mm 5.4m",
                 "hung": hung_val or "Hung A",
-                "door_type": d.get("door_type") or ("Type CG" if is_ext else "Type A"),
+                "type": d.get("type") or ("Type CG" if is_ext else "Type A"),
                 "door_stop": d.get("door_stop") or ("DS2 with Riser" if is_ext else "Cushion"),
                 "internal_type": d.get("internal_type") or (None if is_ext else "HF"),
                 "color": d.get("color") or (None if is_ext else "CHR"),
