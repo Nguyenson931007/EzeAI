@@ -34,17 +34,9 @@ export const useProjectController = (
         pAcc + (scaleValue ? polygonAreaM2(room.polygon, scaleValue) : 0), 0);
     }, 0);
     
-    let currentSelectedMods = null;
-    try {
-      const stored = sessionStorage.getItem("selectedModules") || localStorage.getItem("selectedModules");
-      if (stored) currentSelectedMods = JSON.parse(stored);
-    } catch (_) { }
+    const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
-    const jobData = {
-      roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale,
-      scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage,
-      selectedModules: currentSelectedMods
-    };
+    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage };
 
     try {
       const payload = {
@@ -226,36 +218,6 @@ export const useProjectController = (
     if (name) {
       localStorage.setItem("ezefloor_last_active_project_name", String(name));
     }
-
-    // Đồng bộ Task Modules cho dự án đang mở
-    if (typeof window !== "undefined") {
-      try {
-        const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
-        let isMatchingEms = false;
-        if (pendingJobStr) {
-          const pJob = JSON.parse(pendingJobStr);
-          const emsNum = String(pJob?.job_number || pJob?.hw_id || pJob?.id_job_ems || "").trim().toLowerCase();
-          const targetNum = String(name || "").trim().toLowerCase();
-          if (emsNum && targetNum && (emsNum === targetNum || targetNum.startsWith(emsNum) || emsNum.startsWith(targetNum))) {
-            isMatchingEms = true;
-          }
-        }
-        // Nếu chuyển sang mở 1 dự án khác không phải EMS Job hiện tại
-        if (!isMatchingEms) {
-          sessionStorage.removeItem("pendingEmsJob");
-          localStorage.removeItem("pendingEmsJob");
-          if (Array.isArray(jobData?.selectedModules)) {
-            sessionStorage.setItem("selectedModules", JSON.stringify(jobData.selectedModules));
-            localStorage.setItem("selectedModules", JSON.stringify(jobData.selectedModules));
-          } else {
-            sessionStorage.removeItem("selectedModules");
-            localStorage.removeItem("selectedModules");
-          }
-        }
-        window.dispatchEvent(new CustomEvent("task-modules-updated"));
-      } catch (_) { }
-    }
-
     setActiveTab("Home");
   };
 

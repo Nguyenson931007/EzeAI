@@ -523,9 +523,31 @@ export default function App() {
   }, [loadSharedProject]);
 
   // ── 2. Tự động mở đúng Job từ TaskList Web3 (deep-link theo EMS UUID) ──
-  const loadEmsJob = useCallback(async (idJobEms) => {
+  const handleLoadJobRef = useRef(handleLoadJob);
+  handleLoadJobRef.current = handleLoadJob;
+
+  const setCurrentProjectNameRef = useRef(setCurrentProjectName);
+  setCurrentProjectNameRef.current = setCurrentProjectName;
+
+  const setActiveTabRef = useRef(setActiveTab);
+  setActiveTabRef.current = setActiveTab;
+
+  const setCurrentJobIdRef = useRef(setCurrentJobId);
+  setCurrentJobIdRef.current = setCurrentJobId;
+
+  const lastLoadedEmsIdRef = useRef(null);
+  const isLoadingEmsRef = useRef(false);
+
+  const loadEmsJob = useCallback(async (idJobEms, force = false) => {
     if (!idJobEms) return;
+    if (!force && (isLoadingEmsRef.current || lastLoadedEmsIdRef.current === idJobEms)) {
+      console.log("[SSO] Bỏ qua gọi lặp loadEmsJob cho:", idJobEms);
+      return;
+    }
+
     try {
+      isLoadingEmsRef.current = true;
+      lastLoadedEmsIdRef.current = idJobEms;
       console.log("[SSO] Đang nạp thông tin Job từ TaskList theo EMS ID:", idJobEms);
       const emsResult = await ApiService.getJobByEmsId(idJobEms);
       if (emsResult?.status === "success" && emsResult.data) {
@@ -535,6 +557,7 @@ export default function App() {
         // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
         localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
+
         const authoritativeModules = Array.isArray(jobInfo.task_modules)
           ? jobInfo.task_modules
           : (Array.isArray(jobInfo.selected_modules)
@@ -546,6 +569,7 @@ export default function App() {
           sessionStorage.setItem("selectedModules", authStr);
           try { localStorage.removeItem("selectedModules"); } catch (_) {}
         }
+
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("task-modules-updated"));
         }
@@ -558,77 +582,42 @@ export default function App() {
           const parsedData = typeof jobInfo.local_job.data === "string"
             ? JSON.parse(jobInfo.local_job.data)
             : jobInfo.local_job.data;
-          handleLoadJob(parsedData, jobInfo.local_job.project_name || targetProjectName, jobInfo.local_job.id);
+          handleLoadJobRef.current(parsedData, jobInfo.local_job.project_name || targetProjectName, jobInfo.local_job.id);
         } else {
           // Nếu là job mới chưa có bản vẽ trên EzeFloor
           console.log("[SSO] Job mới từ TaskList chưa có bản vẽ. Đặt tên dự án:", targetProjectName);
-          setCurrentProjectName(targetProjectName);
-          if (setCurrentJobId) setCurrentJobId(null);
+          setCurrentProjectNameRef.current(targetProjectName);
+          if (setCurrentJobIdRef.current) setCurrentJobIdRef.current(null);
         }
 
-        setActiveTab("Home");
+        setActiveTabRef.current("Home");
       }
     } catch (emsErr) {
       console.warn("[SSO] Không thể nạp Job từ TaskList:", emsErr);
+    } finally {
+      isLoadingEmsRef.current = false;
     }
-  }, [handleLoadJob, setCurrentProjectName, setActiveTab, setCurrentJobId]);
+  }, []);
 
-  // Expose global window helper for easy console / integration testing
+  // Expose loadEmsJob to window for debug and external integration
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.openEmsJob = (emsId) => loadEmsJob(emsId);
+    window.openEmsJob = (emsId, force = true) => loadEmsJob(emsId, force);
+    window.loadEmsJob = (emsId, force = true) => loadEmsJob(emsId, force);
     return () => {
-      if (typeof window !== "undefined" && window.openEmsJob) {
+      try {
         delete window.openEmsJob;
-      }
+        delete window.loadEmsJob;
+      } catch (_) {}
     };
   }, [loadEmsJob]);
 
-  // Global fetch interceptor: Any fetch to /jobs/open-by-ems/* automatically syncs tasks to UI
-  useEffect(() => {
-    if (typeof window === "undefined" || window.__ezeFetchInterceptorInstalled) return;
-    window.__ezeFetchInterceptorInstalled = true;
-    const originalFetch = window.fetch;
-
-    window.fetch = async function (...args) {
-      const response = await originalFetch.apply(this, args);
-      try {
-        const rawUrl = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");
-        if (typeof rawUrl === "string" && rawUrl.includes("/jobs/open-by-ems/")) {
-          response.clone().json().then((res) => {
-            if (res?.status === "success" && res?.data) {
-              const jobInfo = res.data;
-              console.log("[EzeFloor-AutoSync] Nhận diện /jobs/open-by-ems, tự động kích hoạt task:", jobInfo);
-              sessionStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
-              localStorage.setItem("pendingEmsJob", JSON.stringify(jobInfo));
-
-              const authoritativeModules = Array.isArray(jobInfo.task_modules)
-                ? jobInfo.task_modules
-                : (Array.isArray(jobInfo.selected_modules)
-                  ? jobInfo.selected_modules.map((m) => (typeof m === "string" ? m : m.module_id)).filter(Boolean)
-                  : null);
-
-              if (Array.isArray(authoritativeModules)) {
-                const authStr = JSON.stringify(authoritativeModules);
-                sessionStorage.setItem("selectedModules", authStr);
-                try { localStorage.removeItem("selectedModules"); } catch (_) {}
-              }
-
-              if (jobInfo.job_number) {
-                setCurrentProjectName(jobInfo.job_number);
-              }
-
-              window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: jobInfo }));
-            }
-          }).catch(() => {});
-        }
-      } catch (_) {}
-      return response;
-    };
-  }, [setCurrentProjectName]);
-
   // Kiểm tra tham số ?job=, ?token=, ?user=, ?modules= trên URL khi load trang
+  const hasProcessedUrlSsoRef = useRef(false);
+
   useEffect(() => {
+    if (hasProcessedUrlSsoRef.current) return;
+
     const params = new URLSearchParams(window.location.search);
     const idJobEms = params.get("job");
     const urlToken = params.get("token") || params.get("sso_token");
@@ -644,6 +633,11 @@ export default function App() {
     }
 
     if (urlToken || urlUser) {
+      hasProcessedUrlSsoRef.current = true;
+      // Dọn sạch URL ngay lập tức để ngăn ngừa vòng lặp khi reload/re-render
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+
       console.log("[SSO] Đang xác thực user từ URL params:", { urlToken, urlUser });
       ApiService.tasklistSSO({ token: urlToken || "direct_url", username: urlUser })
         .then(res => res.json())
@@ -674,7 +668,10 @@ export default function App() {
       return;
     }
 
-    if (idJobEms) {
+    if (isLoggedIn && idJobEms) {
+      hasProcessedUrlSsoRef.current = true;
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
       loadEmsJob(idJobEms);
     }
   }, [isLoggedIn, loadEmsJob, setIsLoggedIn, setUser]);
@@ -902,9 +899,9 @@ export default function App() {
   }, [wallsByPage, processedDoorsByPage, roomsByPage, roofsByPage, pages, currentPage, realScale, imgSize, currentProjectName]);
 
   // ── 3. TASK_LIST_WEB3_SSO Listener tốc độ cao (Tức thì < 50ms) ──
-  useEffect(() => {
-    let handled = false;
+  const postMessageHandledRef = useRef(false);
 
+  useEffect(() => {
     const allowedOrigins = new Set([
       "https://103.77.167.69:8081",
       "http://103.77.167.69:8081",
@@ -928,9 +925,9 @@ export default function App() {
       if (!allowedOrigins.has(event.origin) && !event.origin?.includes("14.241.197.188") && !event.origin?.includes("103.77.167.69")) return;
       if (event.data?.type !== "TASK_LIST_WEB3_SSO") return;
       if (!event.data?.token) return;
-      if (handled) return;
+      if (postMessageHandledRef.current) return;
 
-      handled = true;
+      postMessageHandledRef.current = true;
 
       try {
         console.log("[SSO] Đang xác thực SSO token từ TaskList...", event.data);
@@ -948,14 +945,14 @@ export default function App() {
         if (!response.ok) {
           const errText = await response.text();
           console.warn("[SSO] TaskList SSO thất bại:", response.status, errText);
-          handled = false;
+          postMessageHandledRef.current = false;
           return;
         }
 
         const data = await response.json();
         if (data.status !== "success") {
           console.error("[SSO] Phản hồi SSO không hợp lệ:", data);
-          handled = false;
+          postMessageHandledRef.current = false;
           return;
         }
 
@@ -982,13 +979,13 @@ export default function App() {
 
         const idJobEms = new URLSearchParams(window.location.search).get("job");
         if (idJobEms) {
-          loadEmsJob(idJobEms);
           const cleanUrl = window.location.pathname;
           window.history.replaceState({}, document.title, cleanUrl);
+          loadEmsJob(idJobEms);
         }
       } catch (err) {
         console.error("[SSO] Lỗi trong quá trình xử lý SSO:", err);
-        handled = false;
+        postMessageHandledRef.current = false;
       }
     };
 
@@ -1017,7 +1014,7 @@ export default function App() {
       window.removeEventListener("message", receiveSSO);
       readyTimers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [setIsLoggedIn, setUser, loadEmsJob]);
+  }, [loadEmsJob, setIsLoggedIn, setUser]);
 
   // Pass down context for global access
   const contextValue = {
