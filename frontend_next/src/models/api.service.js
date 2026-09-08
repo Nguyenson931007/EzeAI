@@ -33,7 +33,8 @@ const handleResponse = async (res) => {
     }
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    // Reload về trang chủ (app dùng isLoggedIn state, không có route /login riêng)
+    window.location.reload();
     return { detail: "Unauthorized" };
   }
 
@@ -64,13 +65,24 @@ const handleResponse = async (res) => {
 
 export const ApiService = {
   async login(authData) {
-    const res = await fetch(`${BASE_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(authData),
-      credentials: "include"
-    });
-    return res.json();
+    try {
+      const res = await fetch(`${BASE_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authData)
+      });
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        return await res.json();
+      }
+      return {
+        detail: "Không thể kết nối đến Backend Server (Port 8090). Vui lòng kiểm tra Backend đã được khởi động chưa!"
+      };
+    } catch (err) {
+      return {
+        detail: `Lỗi kết nối Backend: ${err.message}. Vui lòng khởi động Backend trên cổng 8090.`
+      };
+    }
   },
 
   async signup(authData) {
@@ -83,13 +95,20 @@ export const ApiService = {
   },
 
   async logout(username) {
-    const res = await fetch(`${BASE_URL}/logout`, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify({ username }),
-      credentials: "include"
-    });
-    return handleResponse(res);
+    try {
+      // Không dùng handleResponse ở đây vì kể cả backend lỗi, ta vẫn phải logout được
+      const res = await fetch(`${BASE_URL}/logout`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ username }),
+        credentials: "include"
+      });
+      const data = await res.json().catch(() => ({}));
+      return data;
+    } catch (err) {
+      console.warn("[Logout] Backend không phản hồi, vẫn tiếp tục logout client-side:", err);
+      return {};
+    }
   },
 
   async validateSession() {
