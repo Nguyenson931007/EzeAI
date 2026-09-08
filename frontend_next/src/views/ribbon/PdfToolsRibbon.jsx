@@ -184,6 +184,8 @@ export default function PdfToolsRibbon({
     setAnnotationStrokeWidth,
     selectedAnnotationId,
     setSelectedAnnotationId,
+    selectedAnnotationIds,
+    setSelectedAnnotationIds,
     annotationsByPage = {},
     setAnnotationsByPage,
     pushAnnotationHistory,
@@ -378,7 +380,11 @@ export default function PdfToolsRibbon({
   };
 
   const handleDelete = () => {
-    if (selectedAnnotationId) {
+    const idsToDelete = (selectedAnnotationIds && selectedAnnotationIds.length > 0)
+      ? selectedAnnotationIds
+      : (selectedAnnotationId ? [selectedAnnotationId] : []);
+
+    if (idsToDelete.length > 0) {
       if (typeof pushAnnotationHistory === "function") {
         pushAnnotationHistory(annotationsByPage);
       }
@@ -386,10 +392,11 @@ export default function PdfToolsRibbon({
         const pageAnns = prev[currentPage] || [];
         return {
           ...prev,
-          [currentPage]: pageAnns.filter((a) => a.id !== selectedAnnotationId),
+          [currentPage]: pageAnns.filter((a) => !idsToDelete.includes(a.id)),
         };
       });
       if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+      if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     } else if (deleteItem) {
       deleteItem();
     }
@@ -822,7 +829,7 @@ export default function PdfToolsRibbon({
           <button
             className="ribbon-btn"
             onClick={() => {
-              if (selectedAnnotationId) {
+              if (selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) {
                 window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", ctrlKey: true }));
               } else {
                 alert("Select a shape on the drawing to toggle Fill / Stroke (or press Ctrl+R)");

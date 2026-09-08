@@ -349,6 +349,9 @@ export default function App() {
     selectWall,
     deleteWalls,
     updateWallsProperty,
+    selectDoor,
+    updateDoorsProperty,
+    deleteDoors,
     pxToMm,
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
@@ -1668,6 +1671,7 @@ export default function App() {
                     selectedLintelIds={selectedLintelIds}
                     setSelectedLintelIds={setSelectedLintelIds}
                     selectWall={selectWall}
+                    selectDoor={selectDoor}
                     cutPreviewPoint={cutPreviewPoint}
                     interactionMode={interactionMode}
                     setInteractionMode={setInteractionMode}
@@ -1862,12 +1866,13 @@ export default function App() {
               <RightPropertyPaneView
                 selectedRoom={rooms.find(r => r.id === selectedId)}
                 selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId || getBaseWallId(w.id) === getBaseWallId(selectedId))}
-                selectedDoor={(processedDoorsByPage[currentPage] || []).find(d => d.id === selectedId)}
+                selectedDoor={(processedDoorsByPage[currentPage] || []).find(d => d.id === selectedId) || (processedDoorsByPage[currentPage] || []).find(d => (selectedDoorIds || []).includes(d.id))}
                 selectedType={selectedType}
                 selectedPointIndex={selectedPointIndex}
                 updateRoom={updateRoom}
                 updateDoor={updateDoor}
                 deleteDoor={deleteDoor}
+                deleteDoors={deleteDoors}
                 scaleValue={scaleValue}
                 realScale={realScale}
                 rooms={rooms}
@@ -1883,6 +1888,8 @@ export default function App() {
                 setSelectedLintelIds={setSelectedLintelIds}
                 setSelectedType={setSelectedType}
                 setSelectedId={setSelectedId}
+                selectDoor={selectDoor}
+                updateDoorsProperty={updateDoorsProperty}
                 updateWallsProperty={updateWallsProperty}
                 deleteWalls={deleteWalls}
                 interactionMode={interactionMode}

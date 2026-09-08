@@ -72,10 +72,11 @@ export const AppProvider = ({ children }) => {
   // Text / Callout Tool Defaults (text, callout, sticky-note)
   const [textColor, setTextColor] = useState("#0f172a");
   const [textOpacity, setTextOpacity] = useState(1.0);
-  const [textFontSize, setTextFontSize] = useState(20);
-  const [annotationFontSize, setAnnotationFontSize] = useState(20);
+  const [textFontSize, setTextFontSize] = useState(36);
+  const [annotationFontSize, setAnnotationFontSize] = useState(36);
   const [calloutStrokeWidth, setCalloutStrokeWidth] = useState(3.5);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
+  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState([]);
 
   // Text Formatting States (B, I, U, S)
   const [textBold, setTextBold] = useState(true);
@@ -176,6 +177,7 @@ export const AppProvider = ({ children }) => {
     textFontSize, setTextFontSize,
     calloutStrokeWidth, setCalloutStrokeWidth,
     selectedAnnotationId, setSelectedAnnotationId,
+    selectedAnnotationIds, setSelectedAnnotationIds,
 
     textBold, setTextBold,
     textItalic, setTextItalic,

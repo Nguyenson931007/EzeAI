@@ -13,7 +13,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
 import { distancePointToSegment, pointInPolygon, calcDimOffset, centroid, cutWallsByDoors, calculateWallPolygon, calculateWallPolygonWithJunctions, mergeCollinearWalls as originalMergeCollinearWalls, snapDoorToWalls, recalculateAllWallsPolygons, nearestVertex, nearestEdge, insertVertex, removeVertex, translatePolygon, getBoundingBox, validateRoofPolygon, getBaseWallId, restoreBaseWalls, getWallClass, getWallType, updateSharedRoofVertices, insertSharedRoofVertex, removeSharedRoofVertex, ADD_POINT_SNAP_DISTANCE, findBestRoomInsertionPoint, snapRoomPolygonToWalls, getRoofPlane, getHeightOnPlane, intersectTwoPlanes, intersectThreePlanes, buildRoofAdjacency } from "@/utils/geometry";
-import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints } from "@/engines/DoorGeometryEngine";
+import { constrainDoorToParentWall, recalculateDoorAfterWallChange, getWallEndpoints, getDoorPoints, scaleDoorWidth } from "@/engines/DoorGeometryEngine";
 import { animateZoomToHinge, cancelActiveZoomAnimation } from "@/engines/SmartDoorCropEngine";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
 import { useDialog } from "@/components/DialogContext";
@@ -195,6 +195,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     scalesByPage, setScalesByPage,
     lintelsByPage, setLintelsByPage,
     activeAnnotationTool, setActiveAnnotationTool, setSelectedAnnotationId,
+    selectedAnnotationIds, setSelectedAnnotationIds,
+    annotationsByPage,
     annotationsHistory = [], annotationsFuture = [],
     undoAnnotation, redoAnnotation
   } = useAppModel();
@@ -904,6 +906,88 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       setSelectedWallIds([wallId]);
       setSelectedId(wallId);
     }
+  }
+
+  function selectDoor(doorId, isAppend = false, targetType = "door") {
+    setSelectedType(targetType);
+    setSelectedPointIndex(null);
+    setSelectedWallIds([]);
+    setSelectedRoomIds([]);
+    setSelectedLintelIds([]);
+    setSelectedRoofId(null);
+    if (isAppend) {
+      setSelectedDoorIds(prev => {
+        const isAlreadySelected = prev.includes(doorId);
+        let next;
+        if (isAlreadySelected) {
+          next = prev.filter(id => id !== doorId);
+        } else {
+          next = [...prev, doorId];
+        }
+
+        if (next.length === 1) {
+          setSelectedId(next[0]);
+        } else if (next.length === 0) {
+          setSelectedId(null);
+          setSelectedType(null);
+        } else {
+          setSelectedId(next[next.length - 1]);
+        }
+        return next;
+      });
+    } else {
+      setSelectedDoorIds([doorId]);
+      setSelectedId(doorId);
+    }
+  }
+
+  function updateDoorsProperty(doorIds = [], patchOrField, value) {
+    if (!doorIds || doorIds.length === 0) return;
+    const pageDoors = doorsByPage[currentPage] || [];
+    const patch = typeof patchOrField === "object" ? patchOrField : { [patchOrField]: value };
+
+    const updatedDoors = pageDoors.map(d => {
+      if (!doorIds.includes(d.id)) return d;
+
+      let updated = { ...d, ...patch, modifiedAt: new Date().toISOString() };
+
+      // Geometry adjustments if width_mm or height_mm changed
+      if (patch.width_mm !== undefined && patch.width_mm !== d.width_mm) {
+        const effScale = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : 18.0;
+        const newWidthPx = Number(patch.width_mm) / effScale;
+        try {
+          if (typeof scaleDoorWidth === 'function') {
+            updated = scaleDoorWidth(updated, newWidthPx);
+          }
+        } catch (err) {}
+      }
+
+      const effW = updated.width_mm || d.width_mm || 820;
+      const effH = updated.height_mm || d.height_mm || 2040;
+      updated.area_mm2 = effW * effH;
+      updated.perimeter_mm = 2 * (effW + effH);
+
+      return updated;
+    });
+
+    setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
+    const pageWalls = wallsByPage[currentPage] || [];
+    pushHistory(null, pageWalls, updatedDoors);
+  }
+
+  function deleteDoors(doorIds = []) {
+    const ids = Array.isArray(doorIds) ? doorIds : [doorIds];
+    if (ids.length === 0) return;
+    const pageDoors = doorsByPage[currentPage] || [];
+    const remainingDoors = pageDoors.filter(d => !ids.includes(d.id));
+    setDoorsByPage(prev => ({ ...prev, [currentPage]: remainingDoors }));
+    setSelectedDoorIds(prev => prev.filter(id => !ids.includes(id)));
+    if (ids.includes(selectedId)) {
+      setSelectedId(null);
+      setSelectedType(null);
+    }
+    const pageWalls = wallsByPage[currentPage] || [];
+    pushHistory(null, pageWalls, remainingDoors);
   }
 
   function deleteWalls(wallIds) {
@@ -4412,6 +4496,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             setSelectedId(null);
             setSelectedType(null);
             setSelectedWallVertex(null);
+            if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+            if (setSelectedAnnotationId) setSelectedAnnotationId(null);
           }
           setRect(null);
           return;
@@ -4525,23 +4611,60 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           return false;
         });
 
+        // 6. Matched Annotations (Area, Polygon, Shapes, Rect, etc.)
+        const pageAnns = (annotationsByPage && annotationsByPage[currentPage]) ? annotationsByPage[currentPage] : [];
+        const matchedAnns = pageAnns.filter(ann => {
+          if (ann.points && ann.points.length >= 3) {
+            return polyIntersectsBox(ann.points);
+          }
+          if (ann.points && ann.points.length === 2) {
+            return segIntersectsBox(ann.points[0], ann.points[1]);
+          }
+          if (typeof ann.x === "number" && typeof ann.y === "number") {
+            const w = ann.width || 0;
+            const h = ann.height || 0;
+            if (w > 0 && h > 0) {
+              const annPoly = [
+                { x: ann.x, y: ann.y },
+                { x: ann.x + w, y: ann.y },
+                { x: ann.x + w, y: ann.y + h },
+                { x: ann.x, y: ann.y + h }
+              ];
+              return polyIntersectsBox(annPoly);
+            }
+            return inBox(ann.x, ann.y);
+          }
+          return false;
+        });
+
         const matchedDoorIds = matchedDoors.map(d => d.id);
         const matchedRoomIds = matchedRooms.map(r => r.id);
         const matchedLintelIds = matchedLintels.map(l => l.id);
+        const matchedAnnotationIds = matchedAnns.map(a => a.id);
 
         if (isAppend) {
           if (matchedWallIds.length > 0) setSelectedWallIds(prev => Array.from(new Set([...prev, ...matchedWallIds])));
           if (matchedDoorIds.length > 0) setSelectedDoorIds(prev => Array.from(new Set([...prev, ...matchedDoorIds])));
           if (matchedRoomIds.length > 0) setSelectedRoomIds(prev => Array.from(new Set([...prev, ...matchedRoomIds])));
           if (matchedLintelIds.length > 0) setSelectedLintelIds(prev => Array.from(new Set([...prev, ...matchedLintelIds])));
+          if (matchedAnnotationIds.length > 0 && setSelectedAnnotationIds) {
+            setSelectedAnnotationIds(prev => Array.from(new Set([...(prev || []), ...matchedAnnotationIds])));
+          }
         } else {
           setSelectedWallIds(matchedWallIds);
           setSelectedDoorIds(matchedDoorIds);
           setSelectedRoomIds(matchedRoomIds);
           setSelectedLintelIds(matchedLintelIds);
+          if (setSelectedAnnotationIds) {
+            setSelectedAnnotationIds(matchedAnnotationIds);
+          }
         }
 
-        const totalMatched = matchedWallIds.length + matchedDoorIds.length + matchedRoomIds.length + matchedLintelIds.length + matchedRoofs.length;
+        if (matchedAnnotationIds.length > 0 && setSelectedAnnotationId) {
+          setSelectedAnnotationId(matchedAnnotationIds[matchedAnnotationIds.length - 1]);
+        }
+
+        const totalMatched = matchedWallIds.length + matchedDoorIds.length + matchedRoomIds.length + matchedLintelIds.length + matchedRoofs.length + matchedAnnotationIds.length;
         if (totalMatched > 0) {
           if (matchedWallIds.length > 0) {
             setSelectedId(matchedWallIds[matchedWallIds.length - 1]);
@@ -4560,6 +4683,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           } else if (matchedRoofs.length > 0) {
             setSelectedRoofId(matchedRoofs[matchedRoofs.length - 1].id);
             setSelectedType("roof");
+          } else if (matchedAnnotationIds.length > 0) {
+            setSelectedId(null);
+            setSelectedType(null);
           }
           if (matchedRoofs.length === 0) setSelectedRoofId(null);
         } else {
@@ -4571,6 +4697,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             setSelectedId(null);
             setSelectedType(null);
             setSelectedRoofId(null);
+            if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+            if (setSelectedAnnotationId) setSelectedAnnotationId(null);
           }
         }
         setRect(null);
@@ -4760,6 +4888,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     lintelPreview,
     startDrag, dragging, onMouseMove, onMouseDown, onMouseUp, onWheel,
     selectWall, deleteWalls, updateWallsProperty, pxToMm, mmToPx, autoMergeCollinearWalls,
+    selectDoor, updateDoorsProperty, deleteDoors,
     handleWallDoubleClick,
     snapAllDoorsToWalls,
     selectedWallVertex, setSelectedWallVertex,

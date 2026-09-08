@@ -19,6 +19,8 @@ const FONT_SIZE_OPTIONS = [14, 18, 22, 28, 32, 40, 48, 64];
 
 export default function AnnotationPropertyPanel({
   annotation,
+  selectedAnnotationIds = [],
+  annotations = [],
   onUpdateAnnotation,
   onDeleteAnnotation,
   onDuplicateAnnotation,
@@ -29,37 +31,75 @@ export default function AnnotationPropertyPanel({
 
   const mmPerPx = (typeof realScale === "number" && realScale > 0) ? realScale : 20;
 
-  // Geometry calculations
+  const isMulti = Boolean(selectedAnnotationIds && selectedAnnotationIds.length > 1);
+  const selectedList = isMulti
+    ? (annotations || []).filter((a) => selectedAnnotationIds.includes(a.id))
+    : [annotation];
+
+  // If multi-selected, sum up total area and perimeter across all area shapes
+  let multiTotalAreaM2 = 0;
+  let multiTotalPerimM = 0;
+  let multiAreaCount = 0;
+
+  if (isMulti) {
+    selectedList.forEach((ann) => {
+      if (ann.points && ann.points.length >= 3) {
+        let a = 0;
+        let p = 0;
+        const pts = ann.points;
+        for (let i = 0; i < pts.length; i++) {
+          const j = (i + 1) % pts.length;
+          a += pts[i].x * pts[j].y;
+          a -= pts[j].x * pts[i].y;
+          p += Math.hypot(pts[j].x - pts[i].x, pts[j].y - pts[i].y);
+        }
+        const areaMm2 = (Math.abs(a) / 2) * (mmPerPx ** 2);
+        multiTotalAreaM2 += areaMm2 / 1000000;
+        multiTotalPerimM += (p * mmPerPx) / 1000;
+        multiAreaCount++;
+      } else if (ann.width && ann.height) {
+        const wM = (ann.width * mmPerPx) / 1000;
+        const hM = (ann.height * mmPerPx) / 1000;
+        multiTotalAreaM2 += wM * hM;
+        multiTotalPerimM += 2 * (wM + hM);
+        multiAreaCount++;
+      }
+    });
+  }
+
+  // Geometry calculations for single selection
   let geometryInfo = null;
-  if (annotation.points && annotation.points.length >= 3) {
-    let area = 0;
-    let perimeter = 0;
-    const pts = annotation.points;
-    for (let i = 0; i < pts.length; i++) {
-      const j = (i + 1) % pts.length;
-      area += pts[i].x * pts[j].y;
-      area -= pts[j].x * pts[i].y;
-      perimeter += Math.hypot(pts[j].x - pts[i].x, pts[j].y - pts[i].y);
+  if (!isMulti) {
+    if (annotation.points && annotation.points.length >= 3) {
+      let area = 0;
+      let perimeter = 0;
+      const pts = annotation.points;
+      for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        area += pts[i].x * pts[j].y;
+        area -= pts[j].x * pts[i].y;
+        perimeter += Math.hypot(pts[j].x - pts[i].x, pts[j].y - pts[i].y);
+      }
+      const areaMm2 = (Math.abs(area) / 2) * (mmPerPx ** 2);
+      const areaM2 = areaMm2 / 1000000;
+      const perimM = (perimeter * mmPerPx) / 1000;
+      geometryInfo = {
+        areaM2: areaM2.toFixed(2),
+        perimM: perimM.toFixed(2),
+        pointsCount: pts.length
+      };
+    } else if (annotation.width && annotation.height) {
+      const wM = (annotation.width * mmPerPx) / 1000;
+      const hM = (annotation.height * mmPerPx) / 1000;
+      const areaM2 = wM * hM;
+      const perimM = 2 * (wM + hM);
+      geometryInfo = {
+        areaM2: areaM2.toFixed(2),
+        perimM: perimM.toFixed(2),
+        wM: wM.toFixed(2),
+        hM: hM.toFixed(2)
+      };
     }
-    const areaMm2 = (Math.abs(area) / 2) * (mmPerPx ** 2);
-    const areaM2 = areaMm2 / 1000000;
-    const perimM = (perimeter * mmPerPx) / 1000;
-    geometryInfo = {
-      areaM2: areaM2.toFixed(2),
-      perimM: perimM.toFixed(2),
-      pointsCount: pts.length
-    };
-  } else if (annotation.width && annotation.height) {
-    const wM = (annotation.width * mmPerPx) / 1000;
-    const hM = (annotation.height * mmPerPx) / 1000;
-    const areaM2 = wM * hM;
-    const perimM = 2 * (wM + hM);
-    geometryInfo = {
-      areaM2: areaM2.toFixed(2),
-      perimM: perimM.toFixed(2),
-      wM: wM.toFixed(2),
-      hM: hM.toFixed(2)
-    };
   }
 
   // Type labels and badges
@@ -86,18 +126,23 @@ export default function AnnotationPropertyPanel({
 
   const typeName = typeLabels[annotation.type] || annotation.type || "Annotation";
 
-  const isTextLike = ["text", "callout", "sticky-note"].includes(annotation.type);
-  const isCallout = annotation.type === "callout";
-  const isHighlight = annotation.type?.startsWith("highlight");
-  const isFillable = ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(annotation.type);
-  const hasStroke = !["sticky-note", "text"].includes(annotation.type);
+  const isTextLike = !isMulti && ["text", "callout", "sticky-note"].includes(annotation.type);
+  const isCallout = !isMulti && annotation.type === "callout";
+  const isHighlight = !isMulti && annotation.type?.startsWith("highlight");
+  const isFillable = isMulti
+    ? selectedList.some((a) => ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(a.type))
+    : ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(annotation.type);
+  const hasStroke = isMulti
+    ? selectedList.some((a) => !["sticky-note", "text"].includes(a.type))
+    : !["sticky-note", "text"].includes(annotation.type);
 
   const currentColor = annotation.color || (isHighlight ? "#facc15" : "#3b82f6");
   const currentOpacity = typeof annotation.opacity === "number" ? annotation.opacity : (isHighlight ? 0.45 : 1.0);
+  const currentFillMode = annotation.fillMode || "both";
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
   const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
-  const currentFillMode = annotation.fillMode || (isHighlight ? "both" : "stroke");
-  const currentFontSize = annotation.fontSize || (annotation.type === "text" ? 32 : 20);
+  const currentFontSize = annotation.fontSize || (annotation.type === "text" ? 36 : (annotation.type === "sticky-note" ? 30 : 20));
+  const isBold = annotation.type === "text" ? (annotation.isBold !== false) : !!annotation.isBold;
 
   const handleUpdate = (field, val) => {
     if (onUpdateAnnotation) {
@@ -112,21 +157,25 @@ export default function AnnotationPropertyPanel({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: "linear-gradient(135deg, rgba(49,69,110,0.12), rgba(49,69,110,0.04))",
-        border: "1px solid rgba(49,69,110,0.2)",
+        background: isMulti
+          ? "linear-gradient(135deg, rgba(37,99,235,0.14), rgba(59,130,246,0.06))"
+          : "linear-gradient(135deg, rgba(49,69,110,0.12), rgba(49,69,110,0.04))",
+        border: isMulti ? "1.5px solid #3b82f6" : "1px solid rgba(49,69,110,0.2)",
         borderRadius: "8px",
         padding: "10px 12px"
       }}>
         <div>
-          <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", color: "#64748b", fontWeight: 700 }}>
-            OBJECT PROPERTIES
+          <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px", color: isMulti ? "#1d4ed8" : "#64748b", fontWeight: 700 }}>
+            {isMulti ? `MULTI-SELECTION (${selectedList.length} OBJECTS)` : "OBJECT PROPERTIES"}
           </div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#1e293b", marginTop: "2px" }}>
-            {typeName}
+            {isMulti
+              ? (multiAreaCount > 0 ? `${multiAreaCount} Areas Selected` : `${selectedList.length} Objects Selected`)
+              : typeName}
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px" }}>
-          {onDuplicateAnnotation && (
+          {!isMulti && onDuplicateAnnotation && (
             <button
               type="button"
               onClick={() => onDuplicateAnnotation(annotation.id)}
@@ -152,7 +201,7 @@ export default function AnnotationPropertyPanel({
             <button
               type="button"
               onClick={() => onDeleteAnnotation(annotation.id)}
-              title="Delete"
+              title={isMulti ? `Delete all ${selectedList.length} selected objects` : "Delete"}
               style={{
                 background: "#fee2e2",
                 border: "1px solid #fca5a5",
@@ -161,14 +210,44 @@ export default function AnnotationPropertyPanel({
                 cursor: "pointer",
                 fontSize: "12px",
                 color: "#dc2626",
-                fontWeight: 600
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
               }}
             >
-              🗑️
+              <span>🗑️</span>
+              {isMulti && <span style={{ fontSize: "11px" }}>Delete ({selectedList.length})</span>}
             </button>
           )}
         </div>
       </div>
+
+      {/* Multi-Area Total Summary Box */}
+      {isMulti && multiTotalAreaM2 > 0 && (
+        <div style={{
+          background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
+          border: "1.5px solid #3b82f6",
+          borderRadius: "8px",
+          padding: "12px 14px",
+          boxShadow: "0 2px 6px rgba(37,99,235,0.12)"
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              📐 TOTAL AREA ({multiAreaCount} Areas)
+            </span>
+            <span style={{ fontSize: "10px", background: "#bfdbfe", color: "#1e3a8a", fontWeight: 700, padding: "2px 6px", borderRadius: "10px" }}>
+              Batch Applied
+            </span>
+          </div>
+          <div style={{ fontSize: "22px", fontWeight: 800, color: "#1e3a8a", marginTop: "4px" }}>
+            {multiTotalAreaM2.toFixed(2)} <span style={{ fontSize: "14px", fontWeight: 600 }}>m²</span>
+          </div>
+          <div style={{ fontSize: "11px", color: "#475569", marginTop: "2px" }}>
+            Total Perimeter: {multiTotalPerimM.toFixed(2)} m
+          </div>
+        </div>
+      )}
 
       {/* 2. Color Selection (Palette & Custom Picker) */}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -419,87 +498,85 @@ export default function AnnotationPropertyPanel({
           </div>
 
           {/* Text Style: Bold, Italic, Underline, Strike */}
-          {annotation.type !== "sticky-note" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-                Font Style
-              </label>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <button
-                  type="button"
-                  onClick={() => handleUpdate("isBold", !(annotation.isBold !== false))}
-                  style={{
-                    flex: 1,
-                    background: annotation.isBold !== false ? "#31456E" : "#f8fafc",
-                    color: annotation.isBold !== false ? "#ffffff" : "#334155",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "6px",
-                    padding: "6px 0",
-                    fontWeight: 800,
-                    fontSize: "13px",
-                    cursor: "pointer"
-                  }}
-                >
-                  B
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdate("isItalic", !annotation.isItalic)}
-                  style={{
-                    flex: 1,
-                    background: annotation.isItalic ? "#31456E" : "#f8fafc",
-                    color: annotation.isItalic ? "#ffffff" : "#334155",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "6px",
-                    padding: "6px 0",
-                    fontStyle: "italic",
-                    fontFamily: "serif",
-                    fontWeight: 700,
-                    fontSize: "14px",
-                    cursor: "pointer"
-                  }}
-                >
-                  I
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdate("isUnderline", !annotation.isUnderline)}
-                  style={{
-                    flex: 1,
-                    background: annotation.isUnderline ? "#31456E" : "#f8fafc",
-                    color: annotation.isUnderline ? "#ffffff" : "#334155",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "6px",
-                    padding: "6px 0",
-                    textDecoration: "underline",
-                    fontWeight: 700,
-                    fontSize: "13px",
-                    cursor: "pointer"
-                  }}
-                >
-                  U
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdate("isStrikethrough", !annotation.isStrikethrough)}
-                  style={{
-                    flex: 1,
-                    background: annotation.isStrikethrough ? "#31456E" : "#f8fafc",
-                    color: annotation.isStrikethrough ? "#ffffff" : "#334155",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "6px",
-                    padding: "6px 0",
-                    textDecoration: "line-through",
-                    fontWeight: 700,
-                    fontSize: "13px",
-                    cursor: "pointer"
-                  }}
-                >
-                  S
-                </button>
-              </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
+              Font Style
+            </label>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                type="button"
+                onClick={() => handleUpdate("isBold", !isBold)}
+                style={{
+                  flex: 1,
+                  background: isBold ? "#31456E" : "#f8fafc",
+                  color: isBold ? "#ffffff" : "#334155",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "6px 0",
+                  fontWeight: 800,
+                  fontSize: "13px",
+                  cursor: "pointer"
+                }}
+              >
+                B
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdate("isItalic", !annotation.isItalic)}
+                style={{
+                  flex: 1,
+                  background: annotation.isItalic ? "#31456E" : "#f8fafc",
+                  color: annotation.isItalic ? "#ffffff" : "#334155",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "6px 0",
+                  fontStyle: "italic",
+                  fontFamily: "serif",
+                  fontWeight: 700,
+                  fontSize: "14px",
+                  cursor: "pointer"
+                }}
+              >
+                I
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdate("isUnderline", !annotation.isUnderline)}
+                style={{
+                  flex: 1,
+                  background: annotation.isUnderline ? "#31456E" : "#f8fafc",
+                  color: annotation.isUnderline ? "#ffffff" : "#334155",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "6px 0",
+                  textDecoration: "underline",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  cursor: "pointer"
+                }}
+              >
+                U
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdate("isStrikethrough", !annotation.isStrikethrough)}
+                style={{
+                  flex: 1,
+                  background: annotation.isStrikethrough ? "#31456E" : "#f8fafc",
+                  color: annotation.isStrikethrough ? "#ffffff" : "#334155",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "6px 0",
+                  textDecoration: "line-through",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  cursor: "pointer"
+                }}
+              >
+                S
+              </button>
             </div>
-          )}
+          </div>
 
           {/* Editable Text Content */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>

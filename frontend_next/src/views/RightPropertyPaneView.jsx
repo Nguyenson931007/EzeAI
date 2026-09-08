@@ -85,9 +85,9 @@ import AnnotationPropertyPanel from "./right-property-pane/property-panels/Annot
    MAIN PANEL
    ================================================================ */
 export default function RightPropertyPaneView({
-  selectedRoom, selectedWall, selectedDoor, selectedType, selectedPointIndex, updateRoom, updateDoor, deleteDoor, scaleValue, realScale, rooms,
+  selectedRoom, selectedWall, selectedDoor, selectedType, selectedPointIndex, updateRoom, updateDoor, deleteDoor, deleteDoors, scaleValue, realScale, rooms,
   highlightType, setHighlightType,
-  selectedWallIds = [], setSelectedWallIds, setSelectedType, setSelectedId, updateWallsProperty, deleteWalls, interactionMode, setInteractionMode, pxToMm,
+  selectedWallIds = [], setSelectedWallIds, setSelectedType, setSelectedId, updateWallsProperty, deleteWalls, selectDoor, updateDoorsProperty, interactionMode, setInteractionMode, pxToMm,
   selectedDoorIds = [], setSelectedDoorIds, selectedRoomIds = [], setSelectedRoomIds, selectedLintelIds = [], setSelectedLintelIds,
   autoMergeCollinearWalls,
   walls = [],
@@ -171,6 +171,8 @@ export default function RightPropertyPaneView({
     setAnnotationsByPage,
     selectedAnnotationId,
     setSelectedAnnotationId,
+    selectedAnnotationIds,
+    setSelectedAnnotationIds,
     pushAnnotationHistory,
     setAnnotationColor,
     setAnnotationStrokeWidth,
@@ -189,21 +191,30 @@ export default function RightPropertyPaneView({
   } = useAppModel();
 
   const selectedAnnotation = React.useMemo(() => {
-    if (!selectedAnnotationId) return null;
     const list = annotationsByPage[currentPage] || [];
-    return list.find((a) => a.id === selectedAnnotationId) || null;
-  }, [annotationsByPage, currentPage, selectedAnnotationId]);
+    if (selectedAnnotationId) {
+      return list.find((a) => a.id === selectedAnnotationId) || null;
+    }
+    if (selectedAnnotationIds && selectedAnnotationIds.length > 0) {
+      return list.find((a) => a.id === selectedAnnotationIds[selectedAnnotationIds.length - 1]) || null;
+    }
+    return null;
+  }, [annotationsByPage, currentPage, selectedAnnotationId, selectedAnnotationIds]);
 
   const handleUpdateAnnotation = React.useCallback((annId, patch) => {
     if (typeof pushAnnotationHistory === "function") {
       pushAnnotationHistory(annotationsByPage);
     }
+    const idsToUpdate = (selectedAnnotationIds && selectedAnnotationIds.includes(annId) && selectedAnnotationIds.length > 1)
+      ? selectedAnnotationIds
+      : [annId];
+
     if (setAnnotationsByPage) {
       setAnnotationsByPage((prev) => {
         const list = prev[currentPage] || [];
         return {
           ...prev,
-          [currentPage]: list.map((a) => (a.id === annId ? { ...a, ...patch } : a))
+          [currentPage]: list.map((a) => (idsToUpdate.includes(a.id) ? { ...a, ...patch } : a))
         };
       });
     }
@@ -237,7 +248,7 @@ export default function RightPropertyPaneView({
       if (patch.fillMode && setAnnotationFillMode) setAnnotationFillMode(patch.fillMode);
     }
   }, [
-    currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage,
+    currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage, selectedAnnotationIds,
     setAnnotationColor, setAnnotationStrokeWidth, setAnnotationOpacity, setAnnotationFillOpacity,
     setAnnotationFillMode, setAnnotationFontSize, setTextColor, setTextOpacity, setTextFontSize,
     setTextBold, setTextItalic, setTextUnderline, setTextStrikethrough, setCalloutStrokeWidth
@@ -247,19 +258,26 @@ export default function RightPropertyPaneView({
     if (typeof pushAnnotationHistory === "function") {
       pushAnnotationHistory(annotationsByPage);
     }
+    const idsToDelete = (selectedAnnotationIds && selectedAnnotationIds.includes(annId) && selectedAnnotationIds.length > 1)
+      ? selectedAnnotationIds
+      : [annId];
+
     if (setAnnotationsByPage) {
       setAnnotationsByPage((prev) => {
         const list = prev[currentPage] || [];
         return {
           ...prev,
-          [currentPage]: list.filter((a) => a.id !== annId)
+          [currentPage]: list.filter((a) => !idsToDelete.includes(a.id))
         };
       });
     }
-    if (selectedAnnotationId === annId && setSelectedAnnotationId) {
+    if (setSelectedAnnotationId) {
       setSelectedAnnotationId(null);
     }
-  }, [currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage, selectedAnnotationId, setSelectedAnnotationId]);
+    if (setSelectedAnnotationIds) {
+      setSelectedAnnotationIds([]);
+    }
+  }, [currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage, selectedAnnotationIds, setSelectedAnnotationId, setSelectedAnnotationIds]);
 
   const handleDuplicateAnnotation = React.useCallback((annId) => {
     const list = annotationsByPage[currentPage] || [];
@@ -1304,10 +1322,22 @@ export default function RightPropertyPaneView({
     if (setSelectedWallIds) setSelectedWallIds([]);
     if (setSelectedRoomIds) setSelectedRoomIds([]);
     if (setSelectedLintelIds) setSelectedLintelIds([]);
-    if (setSelectedId) setSelectedId(d.id);
-    if (setSelectedType) setSelectedType("door");
-    if (setSelectedDoorIds) setSelectedDoorIds([d.id]);
-  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedId, setSelectedType, setSelectedDoorIds]);
+    const isMulti = e && (e.shiftKey || e.ctrlKey || e.metaKey);
+    const isWin = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
+    if (isMulti) {
+      if (selectDoor) {
+        selectDoor(d.id, true, isWin ? "window" : "door");
+      } else if (setSelectedDoorIds) {
+        setSelectedDoorIds(prev => prev.includes(d.id) ? prev.filter(id => id !== d.id) : [...prev, d.id]);
+        setSelectedId(d.id);
+        setSelectedType(isWin ? "window" : "door");
+      }
+    } else {
+      if (setSelectedId) setSelectedId(d.id);
+      if (setSelectedType) setSelectedType(isWin ? "window" : "door");
+      if (setSelectedDoorIds) setSelectedDoorIds([d.id]);
+    }
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedId, setSelectedType, setSelectedDoorIds, selectDoor]);
 
   const selectExclusiveRoom = React.useCallback((e, targetPageIdx, r) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -1381,8 +1411,21 @@ export default function RightPropertyPaneView({
       }
     } catch (err) {
       console.error("Error fetching Task Groups HW:", err);
-      setTaskError(err.message || "Không thể tải danh sách Task Groups HW");
-      setTaskListJobs([]);
+      let loadedFromCache = false;
+      try {
+        const cached = localStorage.getItem("cachedTaskListJobs");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTaskListJobs(parsed);
+            loadedFromCache = true;
+          }
+        }
+      } catch (e) { }
+      if (!loadedFromCache) {
+        setTaskError(err.message || "Không thể tải danh sách Task Groups HW");
+        setTaskListJobs([]);
+      }
     } finally {
       setTaskLoading(false);
     }
@@ -1556,11 +1599,11 @@ export default function RightPropertyPaneView({
 
   // Auto-switch to properties mode when an annotation is selected
   React.useEffect(() => {
-    if (selectedAnnotationId) {
+    if (selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) {
       setExplorerViewMode("properties");
       setActivePaneTab("explorer");
     }
-  }, [selectedAnnotationId]);
+  }, [selectedAnnotationId, selectedAnnotationIds]);
 
   // Resolve savedDefault wall height using the specified precedence rules
   const savedDefault = React.useMemo(() => {
@@ -3734,13 +3777,21 @@ export default function RightPropertyPaneView({
                     selectedWallMetrics={selectedWallMetrics}
                     getFinishTypeOptions={getFinishTypeOptions}
                   />
-                ) : (selectedType === "door" || selectedType === "window") && selectedDoor ? (
+                ) : ((selectedType === "door" || selectedType === "window") && (selectedDoor || (selectedDoorIds && selectedDoorIds.length > 0))) || (selectedDoorIds && selectedDoorIds.length > 0) ? (
                   <DoorWindowPropertyPanel
-                    selectedDoor={selectedDoor}
-                    selectedType={selectedType}
+                    selectedDoor={selectedDoor || (doors || []).find((d) => (selectedDoorIds || []).includes(d.id))}
+                    selectedType={selectedType || "door"}
                     walls={walls}
+                    doors={doors}
                     updateDoor={updateDoor}
                     deleteDoor={deleteDoor}
+                    deleteDoors={deleteDoors}
+                    selectedDoorIds={selectedDoorIds}
+                    setSelectedDoorIds={setSelectedDoorIds}
+                    setSelectedId={setSelectedId}
+                    setSelectedType={setSelectedType}
+                    updateDoorsProperty={updateDoorsProperty}
+                    selectDoor={selectDoor}
                     realScale={realScale}
                     scaleValue={scaleValue}
                     showConfirm={showConfirm}
@@ -3793,6 +3844,8 @@ export default function RightPropertyPaneView({
                 ) : selectedAnnotation ? (
                   <AnnotationPropertyPanel
                     annotation={selectedAnnotation}
+                    selectedAnnotationIds={selectedAnnotationIds}
+                    annotations={annotationsByPage[currentPage] || []}
                     onUpdateAnnotation={handleUpdateAnnotation}
                     onDeleteAnnotation={handleDeleteAnnotation}
                     onDuplicateAnnotation={handleDuplicateAnnotation}

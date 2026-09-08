@@ -1515,6 +1515,7 @@ const DoorLayer = React.memo(({
   setSelectedId,
   setSelectedType,
   selectedDoorIds = [],
+  selectDoor,
   startDrag,
   updateDoor,
   dragging,
@@ -1580,6 +1581,7 @@ const DoorLayer = React.memo(({
                 isDistancing={isDistancing}
                 setSelectedId={setSelectedId}
                 setSelectedType={setSelectedType}
+                selectDoor={selectDoor}
                 walls={walls}
                 onDoorContextMenu={onDoorContextMenu}
                 realScale={realScale}
@@ -1951,15 +1953,23 @@ const DoorLayer = React.memo(({
           return (
             <g key={`${d.id}-${idx}`}
               onClick={(e) => {
+                e.stopPropagation();
                 if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) {
-                  e.stopPropagation();
                   return;
                 }
                 if (interactionMode === "draw-wall") return;
                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-                e.stopPropagation();
-                setSelectedId(d.id);
-                setSelectedType(isWindow ? "window" : "door");
+                const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+                if (isMulti) {
+                  // Already handled in onMouseDown, do not toggle twice!
+                  return;
+                }
+                if (selectDoor) {
+                  selectDoor(d.id, false, isWindow ? "window" : "door");
+                } else {
+                  setSelectedId(d.id);
+                  setSelectedType(isWindow ? "window" : "door");
+                }
               }}
               onDoubleClick={(e) => {
                 if (interactionMode === "draw-wall") return;
@@ -1971,11 +1981,21 @@ const DoorLayer = React.memo(({
                 lastMouseDownSelectedId.current = selectedId;
                 if (interactionMode === "draw-wall") return;
                 if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+                if (isMulti) {
+                  e.stopPropagation();
+                  if (selectDoor) selectDoor(d.id, true, isWindow ? "window" : "door");
+                  return;
+                }
                 if (startDrag) {
                   e.stopPropagation();
                   if (!isSelected) {
-                    setSelectedId(d.id);
-                    setSelectedType(isWindow ? "window" : "door");
+                    if (selectDoor) {
+                      selectDoor(d.id, false, isWindow ? "window" : "door");
+                    } else {
+                      setSelectedId(d.id);
+                      setSelectedType(isWindow ? "window" : "door");
+                    }
                   }
                   startDrag(d.id, null, 'door-move');
                 }
@@ -2223,6 +2243,8 @@ const DoorLayer = React.memo(({
     prev.layerVisibility?.door === next.layerVisibility?.door &&
     prev.selectedId === next.selectedId &&
     prev.selectedType === next.selectedType &&
+    prev.selectedDoorIds === next.selectedDoorIds &&
+    prev.selectDoor === next.selectDoor &&
     prev.realScale === next.realScale &&
     prev.drawing === next.drawing &&
     prev.isDrawingDoor === next.isDrawingDoor &&
@@ -2876,6 +2898,7 @@ export default function CanvasView({
   selectedLintelIds = [],
   setSelectedLintelIds,
   selectWall,
+  selectDoor,
   cutPreviewPoint,
   interactionMode,
   setInteractionMode,
@@ -4768,6 +4791,7 @@ export default function CanvasView({
                 selectedId={selectedId}
                 selectedType={selectedType}
                 selectedDoorIds={selectedDoorIds}
+                selectDoor={selectDoor}
                 realScale={realScale}
                 drawing={drawing}
                 isDrawingDoor={isDrawingDoor}

@@ -18,6 +18,7 @@ export default function AIDoor({
   isDistancing,
   setSelectedId,
   setSelectedType,
+  selectDoor,
   walls = [],
   onDoorContextMenu,
   realScale,
@@ -1094,18 +1095,32 @@ export default function AIDoor({
 
   return (
     <g
-      onMouseDown={() => {
+      onMouseDown={(e) => {
+        if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+        e.stopPropagation();
         lastSelectedOnMouseDown.current = isSelected;
+        const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+        if (isMulti) {
+          if (selectDoor) selectDoor(d.id, true, isWindow ? "window" : "door");
+        }
       }}
       onClick={(e) => {
+        e.stopPropagation();
         if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) {
-          e.stopPropagation();
           return;
         }
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
-        e.stopPropagation();
-        setSelectedId(d.id);
-        setSelectedType(isWindow ? "window" : "door");
+        const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+        if (isMulti) {
+          // Handled in onMouseDown, do not toggle twice!
+          return;
+        }
+        if (selectDoor) {
+          selectDoor(d.id, false, isWindow ? "window" : "door");
+        } else {
+          setSelectedId(d.id);
+          setSelectedType(isWindow ? "window" : "door");
+        }
       }}
       onDoubleClick={(e) => {
         if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
@@ -1124,11 +1139,21 @@ export default function AIDoor({
         onMouseDown={(e) => {
           lastSelectedOnMouseDown.current = isSelected;
           if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+          const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+          if (isMulti) {
+            e.stopPropagation();
+            if (selectDoor) selectDoor(d.id, true, isWindow ? "window" : "door");
+            return;
+          }
           if (startDrag) {
             e.stopPropagation();
             if (!isSelected) {
-               setSelectedId(d.id);
-               setSelectedType(isWindow ? "window" : "door");
+               if (selectDoor) {
+                 selectDoor(d.id, false, isWindow ? "window" : "door");
+               } else {
+                 setSelectedId(d.id);
+                 setSelectedType(isWindow ? "window" : "door");
+               }
             }
             startDrag(d.id, null, 'door-move');
           }
@@ -1225,11 +1250,19 @@ export default function AIDoor({
             onMouseDown={(e) => {
               lastSelectedOnMouseDown.current = isSelected;
               if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+              e.stopPropagation();
+              const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+              if (isMulti) {
+                if (selectDoor) selectDoor(d.id, true, "door");
+                return;
+              }
               if (startDrag) {
-                e.stopPropagation();
                 if (!isSelected) {
-                   setSelectedId(d.id);
-                   setSelectedType("door");
+                   if (selectDoor) selectDoor(d.id, false, "door");
+                   else {
+                     setSelectedId(d.id);
+                     setSelectedType("door");
+                   }
                 }
                 startDrag(d.id, null, 'door-move');
               }
