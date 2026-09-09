@@ -524,7 +524,14 @@ export default function PdfToolsRibbon({
               >
                 <button
                   className="ribbon-btn"
-                  onClick={() => { handleNewDrawing && handleNewDrawing(); setOpenDropdown(null); }}
+                  onClick={() => {
+                    if (setAnnotationsByPage) setAnnotationsByPage({});
+                    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+                    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+                    if (setActiveAnnotationTool) setActiveAnnotationTool(null);
+                    handleNewDrawing && handleNewDrawing();
+                    setOpenDropdown(null);
+                  }}
                   style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "6px 10px", minWidth: "auto" }}
                 >
                   <span className="icon">📄</span><span className="label">New Drawing</span>
@@ -903,6 +910,8 @@ export default function PdfToolsRibbon({
                 }
                 setAnnotationsByPage((prev) => ({ ...prev, [currentPage]: [] }));
                 if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+                if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+                if (setActiveAnnotationTool) setActiveAnnotationTool(null);
               }
             }}
             title="Clear all annotations on this page"

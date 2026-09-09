@@ -34,6 +34,22 @@ const getPointsBounds = (pts) => {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 };
 
+// Accurate text width estimation for proportional sans-serif fonts
+const estimateTextWidth = (str, fSize = 50) => {
+  if (!str) return 0;
+  let w = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch >= 'A' && ch <= 'Z') w += fSize * 0.62;
+    else if ('ijlI1|!.,:;\'`'.includes(ch)) w += fSize * 0.24;
+    else if ('mwMW@%#'.includes(ch)) w += fSize * 0.78;
+    else if (ch === ' ') w += fSize * 0.28;
+    else if (ch >= '0' && ch <= '9') w += fSize * 0.54;
+    else w += fSize * 0.48;
+  }
+  return w;
+};
+
 // Smooth SVG path for freehand brush strokes (Catmull-Rom / Midpoint curve)
 const pointsToSmoothSvgPath = (pts) => {
   if (!pts || pts.length === 0) return "";
@@ -104,10 +120,10 @@ export default function AnnotationCanvasLayer({
     annotationOpacity = 1.0,
     annotationFillOpacity = 0.25,
     annotationFillMode = "stroke",
-    annotationFontSize = 20,
+    annotationFontSize = 50,
     textColor = "#0f172a",
     textOpacity = 1.0,
-    textFontSize = 20,
+    textFontSize = 50,
     calloutStrokeWidth = 3.5,
     setCalloutStrokeWidth,
     selectedAnnotationId,
@@ -204,6 +220,16 @@ export default function AnnotationCanvasLayer({
       setPolyPoints([]);
     }
   }, [activeAnnotationTool]);
+
+  // Dismiss active popups and text editor if annotations on this page are cleared
+  useEffect(() => {
+    if (activeNotePopup && !pageAnnotations.some(a => a.id === activeNotePopup.id)) {
+      setActiveNotePopup(null);
+    }
+    if (editingTextId && !pageAnnotations.some(a => a.id === editingTextId)) {
+      setEditingTextId(null);
+    }
+  }, [pageAnnotations, activeNotePopup, editingTextId]);
 
   // Helper to convert screen coordinates to local SVG coordinates
   const getPointFromEvent = useCallback((e) => {
@@ -431,18 +457,19 @@ export default function AnnotationCanvasLayer({
     if (activeAnnotationTool === "sticky-note") {
       const now = new Date();
       const dateStr = now.toLocaleDateString() + ", " + now.toLocaleTimeString();
-      const initialSize = textFontSize || annotationFontSize || 90;
+      const initialSize = textFontSize || annotationFontSize || 50;
+      const zoomFactor = 1 / (scale || 1);
       const newNote = {
         id: genId("note"),
         type: "sticky-note",
-        x: pt.x - 20,
-        y: pt.y - 20,
+        x: pt.x - 20 * zoomFactor,
+        y: pt.y - 20 * zoomFactor,
         width: 40,
         height: 40,
-        popupX: pt.x + 80,
-        popupY: pt.y - 140,
-        popupWidth: 440,
-        popupHeight: 280,
+        popupX: pt.x + 40 * zoomFactor,
+        popupY: pt.y - 90 * zoomFactor,
+        popupWidth: 280,
+        popupHeight: 175,
         createdAt: dateStr,
         title: "Sticky ..",
         fontSize: initialSize,
@@ -469,7 +496,7 @@ export default function AnnotationCanvasLayer({
     }
 
     if (activeAnnotationTool === "text") {
-      const initialSize = textFontSize || annotationFontSize || 90;
+      const initialSize = textFontSize || annotationFontSize || 50;
       const newText = {
         id: genId("text"),
         type: "text",
@@ -588,7 +615,7 @@ export default function AnnotationCanvasLayer({
     const pt = getPointFromEvent(e);
     if (!pt) return;
 
-    const fSize = ann.fontSize || 90;
+    const fSize = ann.fontSize || 50;
     let estW = ann.width;
     let estH = ann.height;
     let origX = ann.x || 0;
@@ -601,9 +628,11 @@ export default function AnnotationCanvasLayer({
       const textLines = (rawText || "").split("\n");
       const lineCount = Math.max(textLines.length, 1);
       const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-      estW = ann.width || Math.max(longestLine.length * (fSize * 0.65) + 28, 100);
-      const lineHeight = fSize * 1.35;
-      estH = ann.height || Math.max(lineCount * lineHeight + 14, fSize * 1.6, 38);
+      const fitW = Math.max(estimateTextWidth(longestLine, fSize) + 24, 70);
+      const lineHeight = fSize * 1.3;
+      const fitH = Math.max(lineCount * lineHeight + 12, fSize + 16);
+      estW = ann.customWidth || fitW;
+      estH = ann.customHeight || fitH;
       origX = boxX - 8;
       origY = boxY - estH / 2;
     } else if (ann.type === "sticky-note") {
@@ -612,8 +641,8 @@ export default function AnnotationCanvasLayer({
       origX = ann.x || 0;
       origY = ann.y || 0;
     } else {
-      estW = ann.width || Math.max(140, Math.min(800, ((ann.text || "Text").length) * (fSize * 0.65) + 36));
-      estH = ann.height || Math.max(50, fSize * 1.5 + 16);
+      estW = ann.width || Math.max(160, Math.min(800, ((ann.text || "Text").length) * (fSize * 0.65) + 36));
+      estH = ann.height || Math.max(56, fSize * 1.5 + 16);
       origX = ann.x || 0;
       origY = ann.y || 0;
     }
@@ -703,8 +732,9 @@ export default function AnnotationCanvasLayer({
       // Live text / sticky note / callout box resizing (Word-style 8 handles)
       if (textResizeStateRef.current) {
         const trs = textResizeStateRef.current;
-        const dx = pt.x - trs.startMouse.x;
-        const dy = pt.y - trs.startMouse.y;
+        const zoomFactor = 1 / (scale || 1);
+        const dx = trs.annType === "sticky-note" ? (pt.x - trs.startMouse.x) / zoomFactor : (pt.x - trs.startMouse.x);
+        const dy = trs.annType === "sticky-note" ? (pt.y - trs.startMouse.y) / zoomFactor : (pt.y - trs.startMouse.y);
         const handle = trs.handle;
 
         let newWidth = trs.origWidth;
@@ -776,6 +806,8 @@ export default function AnnotationCanvasLayer({
                 fontSize: newFontSize
               };
               if (trs.annType === "callout") {
+                updated.customWidth = newWidth;
+                updated.customHeight = newHeight;
                 if (newBoxX != null) updated.boxX = newBoxX;
                 if (newBoxY != null) updated.boxY = newBoxY;
               } else {
@@ -974,10 +1006,12 @@ export default function AnnotationCanvasLayer({
         if (type === "callout") {
           newAnn.text = "Callout";
           newAnn.color = textColor || "#0f172a";
-          newAnn.fontSize = textFontSize || annotationFontSize || 90;
+          newAnn.fontSize = textFontSize || annotationFontSize || 50;
           newAnn.opacity = textOpacity != null ? textOpacity : 1.0;
           newAnn.boxX = isSmallClick ? startPt.x + 80 : endPt.x;
           newAnn.boxY = isSmallClick ? startPt.y - 50 : endPt.y;
+          delete newAnn.width;
+          delete newAnn.height;
           newAnn.isBold = textBold;
           newAnn.isItalic = textItalic;
           newAnn.isUnderline = textUnderline;
@@ -1952,11 +1986,12 @@ export default function AnnotationCanvasLayer({
 
             {/* 14. STICKY NOTE (Icon on drawing with blue dashed selection, click opens popup) */}
             {ann.type === "sticky-note" && (() => {
+              const zoomFactor = 1 / (scale || 1);
               const noteW = ann.width || 40;
               const noteH = ann.height || 40;
               return (
                 <g
-                  transform={`translate(${ann.x}, ${ann.y})`}
+                  transform={`translate(${ann.x}, ${ann.y}) scale(${zoomFactor})`}
                   style={{ cursor: isSelected ? "move" : "pointer" }}
                   onMouseDown={(e) => {
                     e.stopPropagation();
@@ -1982,7 +2017,7 @@ export default function AnnotationCanvasLayer({
                       height={noteH + 6}
                       fill="none"
                       stroke="#2563eb"
-                      strokeWidth={Math.max(1.5 / scale, 1.2)}
+                      strokeWidth={1.5}
                       strokeDasharray="3,2"
                       pointerEvents="none"
                     />
@@ -2020,10 +2055,10 @@ export default function AnnotationCanvasLayer({
                           key={h.pos}
                           cx={h.cx}
                           cy={h.cy}
-                          r={Math.max(4 / scale, 4)}
+                          r={4}
                           fill="#ffffff"
                           stroke="#2563eb"
-                          strokeWidth={1.5 / scale}
+                          strokeWidth={1.5}
                           style={{ cursor: h.cursor, pointerEvents: "all" }}
                           onMouseDown={(e) => startTextResize(e, ann, h.pos)}
                         />
@@ -2034,7 +2069,7 @@ export default function AnnotationCanvasLayer({
               );
             })()}
 
-            {/* 15. TEXT BOX (Default 60px font, Word-style 8 resize handles, partial BIU) */}
+            {/* 15. TEXT BOX (Default 30px font, Word-style 8 resize handles) */}
             {ann.type === "text" && (() => {
               if (editingTextId === ann.id) return null;
 
@@ -2060,9 +2095,9 @@ export default function AnnotationCanvasLayer({
               const hasContent = Boolean((ann.text && String(ann.text).trim()) || (ann.html && String(ann.html).trim()));
               const displayContent = hasContent ? htmlContent : '<span style="color:#94a3b8; font-style:italic;">Text</span>';
 
-              const fSize = ann.fontSize || 90;
-              const boxW = ann.width || Math.max(140, Math.min(800, ((ann.text || "Text").length) * (fSize * 0.65) + 36));
-              const boxH = ann.height || Math.max(50, fSize * 1.5 + 16);
+              const fSize = ann.fontSize || 50;
+              const boxW = ann.width || Math.max(160, Math.min(800, ((ann.text || "Text").length) * (fSize * 0.65) + 36));
+              const boxH = ann.height || Math.max(56, fSize * 1.5 + 16);
 
               return (
                 <g transform={`translate(${ann.x}, ${ann.y})`}>
@@ -2193,7 +2228,7 @@ export default function AnnotationCanvasLayer({
 
               const boxX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const boxY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
-              const fontSize = ann.fontSize || 90;
+              const fontSize = ann.fontSize || 50;
               const tipX = ann.startPt?.x || ann.x;
               const tipY = ann.startPt?.y || ann.y;
 
@@ -2202,9 +2237,11 @@ export default function AnnotationCanvasLayer({
               const textLines = (rawText || "").split("\n");
               const lineCount = Math.max(textLines.length, 1);
               const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-              const textW = ann.width || Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
-              const lineHeight = fontSize * 1.35;
-              const boxH = ann.height || Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
+              const fitW = Math.max(estimateTextWidth(longestLine, fontSize) + 24, 70);
+              const lineHeight = fontSize * 1.3;
+              const fitH = Math.max(lineCount * lineHeight + 12, fontSize + 16);
+              const textW = ann.customWidth || fitW;
+              const boxH = ann.customHeight || fitH;
               const boxTop = boxY - boxH / 2;
               const startY = boxTop + (boxH - (lineCount - 1) * lineHeight) / 2 + (fontSize * 0.35);
 
@@ -2226,18 +2263,18 @@ export default function AnnotationCanvasLayer({
                     setEditingTextValue(ann.text || "");
                   }}
                 >
-                  {/* Arrow line — arrowhead now points AT the tip (startPt) */}
+                  {/* Arrow line — arrowhead points AT the tip (startPt) */}
                   <defs>
                     <marker
                       id={`callout-marker-${ann.id}`}
-                      markerWidth="15"
-                      markerHeight="11"
-                      refX="14"
-                      refY="5.5"
+                      markerWidth="18"
+                      markerHeight="13"
+                      refX="17"
+                      refY="6.5"
                       orient="auto"
                       markerUnits="userSpaceOnUse"
                     >
-                      <polygon points="0 0, 15 5.5, 0 11" fill={color} />
+                      <polygon points="0 0, 18 6.5, 0 13" fill={color} />
                     </marker>
                   </defs>
                   <line
@@ -2252,7 +2289,7 @@ export default function AnnotationCanvasLayer({
                   />
                   {/* Text box (multiline) */}
                   {!isBeingEdited && (
-                    <>
+                    <g>
                       <rect
                         x={boxX - 8}
                         y={boxY - boxH / 2}
@@ -2305,17 +2342,17 @@ export default function AnnotationCanvasLayer({
                               key={h.pos}
                               cx={h.cx}
                               cy={h.cy}
-                              r={Math.max(5 / scale, 5)}
+                              r={5}
                               fill="#ffffff"
                               stroke="#2563eb"
-                              strokeWidth={2 / scale}
+                              strokeWidth={2}
                               style={{ cursor: h.cursor, pointerEvents: "all" }}
                               onMouseDown={(e) => startTextResize(e, ann, h.pos)}
                             />
                           ))}
                         </g>
                       )}
-                    </>
+                    </g>
                   )}
                   {/* Draggable arrow-tip handle (only when selected, not editing) */}
                   {isSelected && !isBeingEdited && (
@@ -2325,7 +2362,7 @@ export default function AnnotationCanvasLayer({
                       r={6}
                       fill="#2563eb"
                       stroke="#ffffff"
-                      strokeWidth="2"
+                      strokeWidth={2}
                       style={{ cursor: "crosshair", pointerEvents: "all" }}
                       filter="drop-shadow(0 1px 3px rgba(0,0,0,0.3))"
                       onMouseDown={(e) => {
@@ -2347,14 +2384,16 @@ export default function AnnotationCanvasLayer({
             {ann.type === "callout" && isSelected && !isMarkupActive && (() => {
               const cbX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const cbY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
-              const fontSize = ann.fontSize || 90;
+              const fontSize = ann.fontSize || 50;
               const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "Callout";
               const textLines = (rawText || "").split("\n");
               const lineCount = Math.max(textLines.length, 1);
               const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-              const textWidth = ann.width || Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
-              const lineHeight = fontSize * 1.35;
-              const boxH = ann.height || Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
+              const fitW = Math.max(estimateTextWidth(longestLine, fontSize) + 24, 70);
+              const lineHeight = fontSize * 1.3;
+              const fitH = Math.max(lineCount * lineHeight + 12, fontSize + 16);
+              const textWidth = ann.customWidth || fitW;
+              const boxH = ann.customHeight || fitH;
               return (
                 <g
                   transform={`translate(${cbX - 8 + textWidth + 6}, ${cbY - boxH / 2 - 2})`}
@@ -2792,6 +2831,7 @@ export default function AnnotationCanvasLayer({
             setEditingTextId={setEditingTextId}
             setEditingTextValue={setEditingTextValue}
             deleteAnnotation={deleteAnnotation}
+            scale={scale}
           />
         );
       })()}
@@ -2831,7 +2871,8 @@ function InlineRichTextEditor({
   setAnnotationsByPage,
   setEditingTextId,
   setEditingTextValue,
-  deleteAnnotation
+  deleteAnnotation,
+  scale = 1
 }) {
   const editableRef = useRef(null);
 
@@ -3033,33 +3074,51 @@ function InlineRichTextEditor({
     setEditingTextId(null);
   };
 
+  const isCallout = targetAnn.type === "callout";
+  const fSize = targetAnn.fontSize || 50;
+  const boxX = isCallout ? (targetAnn.boxX || targetAnn.currentPt?.x || (targetAnn.x + 40)) : targetAnn.x;
+  const boxY = isCallout ? (targetAnn.boxY || targetAnn.currentPt?.y || (targetAnn.y + 40)) : targetAnn.y;
+  let boxH;
+  if (isCallout) {
+    const rawText = targetAnn.text != null && String(targetAnn.text).trim() !== "" ? String(targetAnn.text) : "Callout";
+    const lineCount = Math.max((rawText || "").split("\n").length, 1);
+    boxH = targetAnn.customHeight || Math.max(lineCount * (fSize * 1.3) + 12, fSize + 16);
+  } else {
+    boxH = targetAnn.height || Math.max(fSize * 1.6, 54);
+  }
+
+  const groupTransform = isCallout
+    ? `translate(${boxX - 8}, ${boxY - boxH / 2})`
+    : `translate(${boxX - 12}, ${boxY - fSize - 12})`;
+
   return (
-    <foreignObject
-      x={(targetAnn.type === "callout" ? (targetAnn.boxX || targetAnn.currentPt?.x || (targetAnn.x + 40)) : targetAnn.x) - 12}
-      y={(targetAnn.type === "callout" ? (targetAnn.boxY || targetAnn.currentPt?.y || (targetAnn.y + 40)) : targetAnn.y) - 80}
-      width="950"
-      height="550"
-      style={{ overflow: "visible", pointerEvents: "none" }}
-    >
-      <div style={{ position: "relative", display: "inline-block", pointerEvents: "all" }}>
-        {/* Floating Mini Formatting Pill Toolbar - Enhanced Size */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: "calc(100% + 10px)",
-            left: 0,
-            zIndex: 100,
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            background: "#1e293b",
-            padding: "8px 14px",
-            borderRadius: "12px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
-            userSelect: "none"
-          }}
-          onMouseDown={(e) => e.preventDefault()}
-        >
+    <g transform={groupTransform}>
+      <foreignObject
+        x="0"
+        y="-65"
+        width="1600"
+        height="1200"
+        style={{ overflow: "visible", pointerEvents: "none" }}
+      >
+        <div style={{ position: "relative", display: "inline-block", pointerEvents: "all", marginTop: "65px" }}>
+          {/* Floating Mini Formatting Pill Toolbar - Enhanced Size */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: "calc(100% + 10px)",
+              left: 0,
+              zIndex: 100,
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "#1e293b",
+              padding: "8px 14px",
+              borderRadius: "12px",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+              userSelect: "none"
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+          >
           <button
             type="button"
             title="Bold (Ctrl+B)"
@@ -3207,19 +3266,19 @@ function InlineRichTextEditor({
           suppressContentEditableWarning
           style={{
             display: "inline-block",
-            minWidth: "80px",
+            minWidth: isCallout ? "60px" : "140px",
             maxWidth: "850px",
-            minHeight: "48px",
-            padding: "8px 16px",
+            minHeight: isCallout ? `${fSize + 16}px` : "64px",
+            padding: isCallout ? "6px 14px" : "12px 20px",
             background: "#ffffff",
             border: "2.5px solid #31456E",
             borderRadius: "8px",
             boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
             outline: "none",
-            fontSize: `${targetAnn.fontSize || 90}px`,
+            fontSize: `${targetAnn.fontSize || 50}px`,
             color: targetAnn.color || "#0f172a",
             fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            lineHeight: 1.35,
+            lineHeight: 1.3,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
             caretColor: "#31456E"
@@ -3268,6 +3327,7 @@ function InlineRichTextEditor({
         />
       </div>
     </foreignObject>
+    </g>
   );
 }
 
@@ -3293,10 +3353,10 @@ function StickyNoteEditor({
   const [isUnderline, setIsUnderline] = useState(!!note.isUnderline);
   const [isStrikethrough, setIsStrikethrough] = useState(!!note.isStrikethrough);
 
-  const popupX = typeof note.popupX === "number" ? note.popupX : (note.x + 80);
-  const popupY = typeof note.popupY === "number" ? note.popupY : (note.y - 140);
-  const popupW = typeof note.popupWidth === "number" ? note.popupWidth : 440;
-  const popupH = typeof note.popupHeight === "number" ? note.popupHeight : 280;
+  const popupX = typeof note.popupX === "number" ? note.popupX : (note.x + 40);
+  const popupY = typeof note.popupY === "number" ? note.popupY : (note.y - 90);
+  const popupW = typeof note.popupWidth === "number" ? note.popupWidth : 280;
+  const popupH = typeof note.popupHeight === "number" ? note.popupHeight : 175;
 
   // Synchronize external changes from AnnotationPropertyPanel into StickyNoteEditor
   useEffect(() => {
@@ -3457,10 +3517,11 @@ function StickyNoteEditor({
 
     const onMouseMove = (moveEvt) => {
       moveEvt.preventDefault();
-      const dx = (moveEvt.clientX - startMouseX) / (scale || 1);
-      const dy = (moveEvt.clientY - startMouseY) / (scale || 1);
-      const newW = Math.max(260, initialW + dx);
-      const newH = Math.max(160, initialH + dy);
+      const zoomFactor = 1 / (scale || 1);
+      const dx = (moveEvt.clientX - startMouseX) / ((scale || 1) * zoomFactor);
+      const dy = (moveEvt.clientY - startMouseY) / ((scale || 1) * zoomFactor);
+      const newW = Math.max(180, initialW + dx);
+      const newH = Math.max(110, initialH + dy);
 
       setAnnotationsByPage((prev) => ({
         ...prev,
@@ -3560,8 +3621,9 @@ function StickyNoteEditor({
   };
 
   // Helper to compute beam connection points between note icon and popup window
-  const nw = note.width || 40;
-  const nh = note.height || 40;
+  const zoomFactor = 1 / (scale || 1);
+  const nw = (note.width || 40) * zoomFactor;
+  const nh = (note.height || 40) * zoomFactor;
   const icx = note.x + nw / 2;
   const icy = note.y + nh / 2;
 
@@ -3574,22 +3636,25 @@ function StickyNoteEditor({
     p2 = { x: note.x, y: note.y + nh * 0.65 };
   }
 
+  const effectivePopupW = popupW * zoomFactor;
+  const effectivePopupH = popupH * zoomFactor;
+
   let p3, p4;
   if (popupY <= icy) {
     if (popupX >= icx) {
-      p3 = { x: popupX + Math.min(100, popupW * 0.35), y: popupY + popupH };
-      p4 = { x: popupX, y: popupY + popupH };
+      p3 = { x: popupX + Math.min(80 * zoomFactor, effectivePopupW * 0.35), y: popupY + effectivePopupH };
+      p4 = { x: popupX, y: popupY + effectivePopupH };
     } else {
-      p3 = { x: popupX + popupW, y: popupY + popupH };
-      p4 = { x: popupX + popupW - Math.min(100, popupW * 0.35), y: popupY + popupH };
+      p3 = { x: popupX + effectivePopupW, y: popupY + effectivePopupH };
+      p4 = { x: popupX + effectivePopupW - Math.min(80 * zoomFactor, effectivePopupW * 0.35), y: popupY + effectivePopupH };
     }
   } else {
     if (popupX >= icx) {
-      p3 = { x: popupX + Math.min(100, popupW * 0.35), y: popupY };
+      p3 = { x: popupX + Math.min(80 * zoomFactor, effectivePopupW * 0.35), y: popupY };
       p4 = { x: popupX, y: popupY };
     } else {
-      p3 = { x: popupX + popupW, y: popupY };
-      p4 = { x: popupX + popupW - Math.min(100, popupW * 0.35), y: popupY };
+      p3 = { x: popupX + effectivePopupW, y: popupY };
+      p4 = { x: popupX + effectivePopupW - Math.min(80 * zoomFactor, effectivePopupW * 0.35), y: popupY };
     }
   }
 
@@ -3603,7 +3668,7 @@ function StickyNoteEditor({
         fill={note.color || "#fef08a"}
         fillOpacity="0.4"
         stroke="#eab308"
-        strokeWidth="1.2"
+        strokeWidth={1.2 * zoomFactor}
         strokeOpacity="0.65"
         style={{ pointerEvents: "none" }}
       />
@@ -3611,12 +3676,19 @@ function StickyNoteEditor({
       {/* Movable & Resizable Note Card inside drawing space */}
       <foreignObject
         x={popupX}
-        y={popupY - 46}
-        width={popupW + 40}
-        height={popupH + 60}
+        y={popupY - 42 * zoomFactor}
+        width={Math.max((popupW + 40) * zoomFactor, 1200)}
+        height={Math.max((popupH + 60) * zoomFactor, 800)}
         style={{ overflow: "visible", pointerEvents: "all" }}
       >
-        <div style={{ position: "relative", width: `${popupW}px` }}>
+        <div
+          style={{
+            position: "relative",
+            width: `${popupW}px`,
+            transform: `scale(${zoomFactor})`,
+            transformOrigin: "top left"
+          }}
+        >
           {/* Floating mini formatting pill toolbar */}
           <div
             style={{
@@ -3812,7 +3884,7 @@ function StickyNoteEditor({
                 minHeight: `${popupH - 42}px`,
                 maxHeight: "800px",
                 overflowY: "auto",
-                fontSize: `${note.fontSize || 90}px`,
+                fontSize: `${note.fontSize || 50}px`,
                 background: "rgba(255, 255, 255, 0.78)",
                 color: "#0f172a",
                 padding: "16px 20px",

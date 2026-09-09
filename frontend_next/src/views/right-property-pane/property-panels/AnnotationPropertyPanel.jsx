@@ -15,7 +15,7 @@ const PALETTE_COLORS = [
 ];
 
 const STROKE_WIDTH_OPTIONS = [1, 2, 4, 8, 12, 16, 24, 32];
-const FONT_SIZE_OPTIONS = [14, 18, 24, 32, 40, 48, 60, 72, 90, 100, 120];
+const FONT_SIZE_OPTIONS = [14, 18, 24, 30, 36, 40, 50, 60, 72, 90, 100, 120];
 
 export default function AnnotationPropertyPanel({
   annotation,
@@ -143,7 +143,7 @@ export default function AnnotationPropertyPanel({
   const currentFillMode = annotation.fillMode || "both";
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
   const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
-  const currentFontSize = annotation.fontSize || 90;
+  const currentFontSize = annotation.fontSize || 50;
 
   const handleUpdate = (field, val) => {
     if (onUpdateAnnotation) {

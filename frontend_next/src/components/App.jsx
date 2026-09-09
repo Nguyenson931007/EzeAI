@@ -195,7 +195,8 @@ export default function App() {
     activeTab, setActiveTab,
     currentJobId, setCurrentJobId,
     lintelsByPage, setLintelsByPage,
-    scalesByPage, setScalesByPage
+    scalesByPage, setScalesByPage,
+    annotationsByPage, setAnnotationsByPage
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -1232,6 +1233,7 @@ export default function App() {
       setPdfOffsetsByPage({});
       setRoofsByPage({});
       setLintelsByPage({});
+      if (setAnnotationsByPage) setAnnotationsByPage({});
       if (setCurrentJobId) setCurrentJobId(null);
 
       setPages(selectedData);
@@ -1287,6 +1289,7 @@ export default function App() {
       setScalesByPage({});
       setWasteByPage({});
       setPdfOffsetsByPage({});
+      if (setAnnotationsByPage) setAnnotationsByPage({});
       setPages([]);
       setCurrentPage(0);
       setImage(null);
@@ -1319,6 +1322,7 @@ export default function App() {
     setScalesByPage(shiftMap(scalesByPage));
     setWasteByPage(shiftMap(wasteByPage));
     setPdfOffsetsByPage(shiftMap(pdfOffsetsByPage));
+    if (setAnnotationsByPage) setAnnotationsByPage(shiftMap(annotationsByPage));
 
     // Update current page if needed
     if (currentPage === pageIndexToDelete) {

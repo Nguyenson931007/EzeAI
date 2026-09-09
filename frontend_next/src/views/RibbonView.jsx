@@ -381,6 +381,12 @@ export default function RibbonView({
     currentJobId, setCurrentJobId,
     realScale,
     annotationsByPage,
+    setAnnotationsByPage,
+    setAnnotationsHistory,
+    setAnnotationsFuture,
+    setSelectedAnnotationId,
+    setSelectedAnnotationIds,
+    setActiveAnnotationTool,
     showFrameworkModal, setShowFrameworkModal,
     showAreaSummaryModal, setShowAreaSummaryModal,
     showInsulationModal, setShowInsulationModal,
@@ -533,6 +539,12 @@ export default function RibbonView({
     if (setLintelsByPage) setLintelsByPage({});
     if (setScalesByPage) setScalesByPage({});
     if (setWasteByPage) setWasteByPage({});
+    if (setAnnotationsByPage) setAnnotationsByPage({});
+    if (setAnnotationsHistory) setAnnotationsHistory([]);
+    if (setAnnotationsFuture) setAnnotationsFuture([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+    if (setActiveAnnotationTool) setActiveAnnotationTool(null);
     if (setSelectedId) setSelectedId(null);
     if (setSelectedType) setSelectedType(null);
     if (setInteractionMode) setInteractionMode("select");
@@ -558,7 +570,8 @@ export default function RibbonView({
     const hasData = (pages && pages.length > 0) ||
       Object.values(wallsByPage || {}).some(arr => arr && arr.length > 0) ||
       Object.values(roomsByPage || {}).some(arr => arr && arr.length > 0) ||
-      Object.values(doorsByPage || {}).some(arr => arr && arr.length > 0);
+      Object.values(doorsByPage || {}).some(arr => arr && arr.length > 0) ||
+      Object.values(annotationsByPage || {}).some(arr => arr && arr.length > 0);
 
     if (hasData) {
       const ok = await showConfirm(" Are you sure you want to start a new project? ");

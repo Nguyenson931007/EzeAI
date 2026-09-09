@@ -105,7 +105,7 @@ export default function LockupTask({
       door_type: row.door_type || row.product || row.door || "",
       type: isCadDoorType(row.type) ? "-" : row.type,
       internal_type: row.internal_type || row.hfHo || (isExt ? "HO" : "HF"),
-      color: row.color || "Primed White",
+      color: (row.color && row.color !== "Primed White") ? row.color : (isExt ? "-" : "CHR"),
       door_stop: row.door_stop || row.stop || "Cushion Rubber Stop",
       default_qty: row.default_qty || row.qty || 1
     });
@@ -1881,7 +1881,7 @@ export default function LockupTask({
 
                     const typeDisplay = isCadDoorType(row.type) ? "-" : row.type;
                     const hfHoDisplay = row.hfHo || row.internal_type || (isExt ? "HO" : "HF");
-                    const colorDisplay = row.color === "CHR" || !row.color ? "Primed White" : row.color;
+                    const colorDisplay = (row.color && row.color !== "Primed White") ? row.color : (isExt ? "-" : "CHR");
                     const stopDisplay = row.stop || row.door_stop || "Cushion Rubber Stop";
                     const qtyDisplay = row.qty || row.default_qty || 1;
 
@@ -2094,12 +2094,16 @@ export default function LockupTask({
                               </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                              <input
-                                type="text"
-                                value={editRowData.color || "Primed White"}
+                              <select
+                                value={editRowData.color && editRowData.color !== "Primed White" ? editRowData.color : (isExt ? "-" : "CHR")}
                                 onChange={(e) => setEditRowData({ ...editRowData, color: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "11px", width: "80px" }}
-                              />
+                                style={{ padding: "2px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                              >
+                                {isExt && <option value="-">-</option>}
+                                {COLOR_OPTIONS.map(opt => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <input
@@ -2161,7 +2165,27 @@ export default function LockupTask({
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hungDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{typeDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hfHoDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{colorDisplay}</td>
+                            <td style={{ padding: "3px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }} onClick={(e) => e.stopPropagation()}>
+                              <select
+                                value={colorDisplay === "-" ? "-" : colorDisplay}
+                                onChange={(e) => handleRowFieldChange(row.id, "color", e.target.value)}
+                                style={{
+                                  padding: "2px 6px",
+                                  fontSize: "11px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: isSelected ? "#eff6ff" : "#ffffff",
+                                  color: "#0f172a",
+                                  fontWeight: 600,
+                                  cursor: "pointer"
+                                }}
+                              >
+                                {isExt && <option value="-">-</option>}
+                                {COLOR_OPTIONS.map(opt => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            </td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{stopDisplay}</td>
                             <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{qtyDisplay}</td>
                             <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
