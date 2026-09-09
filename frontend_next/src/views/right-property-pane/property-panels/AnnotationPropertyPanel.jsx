@@ -15,7 +15,7 @@ const PALETTE_COLORS = [
 ];
 
 const STROKE_WIDTH_OPTIONS = [1, 2, 4, 8, 12, 16, 24, 32];
-const FONT_SIZE_OPTIONS = [14, 18, 24, 32, 40, 48, 60, 72, 84, 96, 120];
+const FONT_SIZE_OPTIONS = [14, 18, 24, 32, 40, 48, 60, 72, 90, 100, 120];
 
 export default function AnnotationPropertyPanel({
   annotation,
@@ -112,12 +112,14 @@ export default function AnnotationPropertyPanel({
     "callout": "Callout Box",
     "measure-area-poly": "Area Polygon",
     "measure-area": "Area Box",
-    "measure-perimeter": "Perimeter",
+    "measure-perimeter": "Perimeter Box",
+    "measure-perimeter-poly": "Perimeter",
     "rect": "Rectangle",
     "oval": "Oval / Circle",
     "cloud": "Cloud",
     "polygon": "Polygon",
     "line": "Line",
+    "polyline": "Polyline",
     "arrow": "Arrow",
     "underline": "Underline",
     "strikethrough": "Strikethrough",
@@ -141,7 +143,7 @@ export default function AnnotationPropertyPanel({
   const currentFillMode = annotation.fillMode || "both";
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
   const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
-  const currentFontSize = annotation.fontSize || 60;
+  const currentFontSize = annotation.fontSize || 90;
 
   const handleUpdate = (field, val) => {
     if (onUpdateAnnotation) {
