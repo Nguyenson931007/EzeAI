@@ -485,40 +485,48 @@ async def calculate_lockout(payload: DoorCalcPayload):
             else:
                 jamb_or_wall_val = "90mm Wall"
 
-        # 3. Hinge Side -> Hung
-        hinge_side = str(d.get("hingeSide") or d.get("hinge_side") or d.get("hinge") or d.get("hung") or "").lower()
-        if "lh prehung" in hinge_side or "lh pre hung" in hinge_side:
-            hung_val = "LH Prehung"
-        elif "rh prehung" in hinge_side or "rh pre hung" in hinge_side:
-            hung_val = "RH Pre Hung"
-        elif "rh loose" in hinge_side:
-            hung_val = "RH Loose"
-        elif "lh loose" in hinge_side:
-            hung_val = "LH Loose"
-        elif "hung a" in hinge_side or "lh" in hinge_side or "left" in hinge_side:
-            hung_val = "LH Prehung" if is_ext else "Hung A"
-        elif "hung b" in hinge_side or "rh" in hinge_side or "right" in hinge_side:
-            hung_val = "RH Loose" if not is_ext else "Hung B"
+        # 3. Hinge Side -> Hung (right -> Hung A, left -> Hung B)
+        hinge_side = str(
+            d.get("hingeSide") or 
+            d.get("hinge_side") or 
+            d.get("handing") or 
+            d.get("hinge") or 
+            d.get("hung") or 
+            ""
+        ).strip().lower()
+
+        if "pivot" in hinge_side:
+            hung_val = "Pivot Door"
+        elif "double" in hinge_side:
+            hung_val = "Double Door Set"
         elif "hung cg" in hinge_side:
             hung_val = "Hung CG"
         elif "hung dg" in hinge_side:
             hung_val = "Hung DG"
         elif "hung g" in hinge_side:
             hung_val = "Hung G"
-        elif "pivot" in hinge_side:
-            hung_val = "Pivot Door"
-        elif "double" in hinge_side:
-            hung_val = "Double Door Set"
+        elif "right" in hinge_side or "rh" in hinge_side or "hung a" in hinge_side:
+            hung_val = "Hung A"
+        elif "left" in hinge_side or "lh" in hinge_side or "hung b" in hinge_side:
+            hung_val = "Hung B"
+        elif d.get("hung") and d.get("hung") != "-":
+            hung_val = d.get("hung")
         else:
-            hung_val = d.get("hung") or ("LH Prehung" if is_ext else "RH Loose")
+            hung_val = "Hung A"
 
         is_loose = d.get("mode") == "Loose" or "loose" in str(d.get("category", "")).lower()
+
+        cad_types = {"single", "sliding", "window", "double", "bifold", "pocket", "cavity", "door", "hinged", "french", "timber", "type a", "type cg"}
+        raw_t = str(d.get("type") or "").strip().lower()
+        clean_type = "-" if (not raw_t or raw_t in cad_types) else (d.get("type") or "-")
+        location_val = "External" if is_ext else "Internal"
 
         key = f"{d_label}_{selected_door_type}_{d_width}_{d_height}_{scope_val}_{jamb_or_wall_val}_{hung_val}"
         if key not in grouped:
             grouped[key] = {
                 "mode": "Loose" if is_loose else ("Prehung" if is_ext else d.get("mode")),
                 "scope": scope_val,
+                "location": location_val,
                 "label": d_label,
                 "door_type": selected_door_type,
                 "height": d_height,
@@ -526,8 +534,8 @@ async def calculate_lockout(payload: DoorCalcPayload):
                 "thickness": float(d.get("thickness") or d.get("thickness_mm") or (40.0 if is_ext else 35.0)),
                 "jamb_or_wall": jamb_or_wall_val,
                 "jamb_size": (d.get("jamb_size") or "112×19mm 5.4m Loose Jamb") if is_loose else None,
-                "hung": hung_val or ("LH Prehung" if is_ext else "RH Loose"),
-                "type": d.get("type") or "-",
+                "hung": hung_val,
+                "type": clean_type,
                 "door_stop": d.get("door_stop") or ("DS2 with Riser" if is_ext else "Cushion"),
                 "internal_type": d.get("internal_type") or (None if is_ext else "HF"),
                 "color": d.get("color") or (None if is_ext else "CHR"),

@@ -1095,7 +1095,10 @@ export default function RightPropertyPaneView({
           const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
           const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
           const wallThick = d.wall_thickness || d.thickness_mm || 90;
-          const hung = isExt ? (isSliding ? "Sliding Track" : "LH Prehung") : "RH Loose";
+          const dHinge = String(d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
+          const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
+          const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
+          const hung = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
 
           generatedDoors.push({
             id: `lck-door-${d.id || idx}-${Date.now()}`,
@@ -1103,6 +1106,7 @@ export default function RightPropertyPaneView({
             category: category,
             mode: d.mode || (isLoose ? "Loose" : (category === "Prehung" ? "Prehung" : null)),
             scope: isExt ? "external" : "internal",
+            location: isExt ? "External" : "Internal",
             label: dLabel,
             door_name: dLabel,
             height: dHeight,
@@ -1110,9 +1114,9 @@ export default function RightPropertyPaneView({
             thickness: isExt && !isSliding ? 40 : 35,
             jamb_or_wall: `${wallThick}mm Wall`,
             jamb_size: isLoose ? "112×19mm 5.4m Loose Jamb" : "",
-            hung: hung || (isExt ? "LH Prehung" : "RH Loose"),
+            hung: hung,
             door_type: d.door_type || d.lockup_door_type || "",
-            type: d.type || "-",
+            type: "-",
             door_stop: isExt ? "DS2 with Riser" : "Cushion",
             internal_type: isExt ? null : "HF",
             color: isExt ? null : "CHR",
@@ -2555,18 +2559,23 @@ export default function RightPropertyPaneView({
           const isExt = d.scope === "external" || d.isExternal || /entry|front|back|patio|balcony|sliding/i.test(dLabel);
           const isLoose = !isExt && (d.mode === "Loose" || d.category === "Loose Jamb");
 
+          const dHinge = String(d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
+          const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
+          const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
+          const hungVal = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
+
           return {
             id: `lck-ai-${d.id || idx}-${Date.now()}`,
             // NSW ACT columns
             category: isExt ? "Prehung" : (isLoose ? "Loose Jamb" : (d.category || "Prehung")),
-            location: dLabel,
+            location: isExt ? "External" : "Internal",
             door: d.door || d.product || "",
             size: `${dH}×${dW}`,
             thicks: `${d.thickness || (isExt ? 40 : 35)}mm`,
             jambWall: d.jamb_or_wall || "90mm Wall",
             jambSize: isLoose ? (d.jamb_size || d.jambSize || "112×19mm 5.4m Loose Jamb") : "",
-            hung: d.hung || (isExt ? "LH Prehung" : "RH Loose"),
-            type: d.type || "-",
+            hung: hungVal,
+            type: "-",
             hfHo: d.internal_type || "HF",
             color: d.color || "CHR",
             stop: d.door_stop || "Cushion",
@@ -2777,11 +2786,17 @@ export default function RightPropertyPaneView({
           const wallThick = d.wall_thickness || d.thickness_mm || 90;
           const isLoose = override.category === "Loose Jamb" || (!isExt && d.mode === "Loose");
 
+          const dHinge = String(override.hung || d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
+          const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
+          const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
+          const hungVal = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
+
           return {
             id: `lck-door-${d.id || Date.now()}-${idx}`,
             doorId: d.id,
             mode: override.category || (isExt ? "Prehung" : "Loose"),
             scope: isExt ? "external" : "internal",
+            location: isExt ? "External" : "Internal",
             label: dLabel,
             door_name: dLabel,
             height: dHeight,
@@ -2789,9 +2804,9 @@ export default function RightPropertyPaneView({
             thickness: isExt ? 40 : 35,
             jamb_or_wall: `${wallThick}mm Wall`,
             jamb_size: isLoose ? (override.jambSize || "112×19mm 5.4m Loose Jamb") : "",
-            hung: override.hung || (isExt ? "LH Prehung" : "RH Loose"),
+            hung: hungVal,
             door_type: override.door_type || d.door_type || "",
-            type: override.type || d.type || "-",
+            type: "-",
             door_stop: override.stop || (isExt ? "DS2 with Riser" : "Cushion"),
             internal_type: override.hfHo || (isExt ? null : "HF"),
             color: override.color || (isExt ? null : "CHR"),

@@ -54,15 +54,45 @@ export default function LockupTask({
   const [isLooseIntCollapsed, setIsLooseIntCollapsed] = useState(false);
   const [isCard2Collapsed, setIsCard2Collapsed] = useState(false);
 
+  const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1).trim() === String(id2).trim();
+
+  const isCadDoorType = (t) => {
+    if (!t || t === "-" || t === "Type A" || t === "Type CG") return true;
+    return /^(single|sliding|window|double|bifold|pocket|cavity|door|hinged|french|timber)$/i.test(String(t).trim());
+  };
+
   const handleStartEdit = (row) => {
     setEditingRowId(row.id);
-    const isExt = row.scope === "external" || row.isExternal;
+    const isExt = row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
     const isLoose = row.mode === "Loose" || row.category === "Loose Jamb" || String(row.category || "").toLowerCase().includes("loose");
     const isPrehung = row.mode === "Prehung" || row.category === "Prehung";
+
+    const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
+    const rawHinge = String(
+      row.hung ||
+      row.hingeSide ||
+      row.hinge_side ||
+      row.handing ||
+      (effCanvasDoor ? (effCanvasDoor.hingeSide || effCanvasDoor.hinge_side || effCanvasDoor.handing) : "") ||
+      ""
+    ).trim().toLowerCase();
+
+    let hungVal = "Hung A";
+    if (rawHinge.includes("right") || rawHinge.includes("rh") || rawHinge === "hung a") {
+      hungVal = "Hung A";
+    } else if (rawHinge.includes("left") || rawHinge.includes("lh") || rawHinge === "hung b") {
+      hungVal = "Hung B";
+    } else if (row.hung && row.hung !== "-") {
+      hungVal = row.hung;
+    } else if (effCanvasDoor) {
+      const cSide = String(effCanvasDoor.hingeSide || effCanvasDoor.hinge_side || effCanvasDoor.handing || "").toLowerCase();
+      hungVal = (cSide.includes("left") || cSide.includes("lh")) ? "Hung B" : "Hung A";
+    }
+
     setEditRowData({
       mode: row.mode || (isLoose ? "Loose" : (isPrehung ? "Prehung" : "")),
-      scope: row.scope || (isExt ? "external" : "internal"),
-      location: row.location || (isExt ? "External Patio / Balcony" : "Internal Room"),
+      scope: isExt ? "external" : "internal",
+      location: isExt ? "External" : "Internal",
       label: row.label || row.door_name || row.doorName || row.door || "D-1",
       height: row.height || 2040,
       width: row.width || 820,
@@ -71,9 +101,9 @@ export default function LockupTask({
       thicks: row.thicks || `${row.thickness || (isExt ? 40 : 35)}mm`,
       jamb_or_wall: row.jamb_or_wall || row.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
       jamb_size: isLoose ? (row.jamb_size || row.jambSize || "") : "",
-      hung: row.hung || (isExt ? "LH Prehung" : "RH Loose"),
+      hung: hungVal,
       door_type: row.door_type || row.product || row.door || "",
-      type: (!row.type || row.type === "Type A" || row.type === "Type CG") ? "-" : row.type,
+      type: isCadDoorType(row.type) ? "-" : row.type,
       internal_type: row.internal_type || row.hfHo || (isExt ? "HO" : "HF"),
       color: row.color || "Primed White",
       door_stop: row.door_stop || row.stop || "Cushion Rubber Stop",
@@ -87,16 +117,19 @@ export default function LockupTask({
       if (item.id !== id) return item;
       const isLoose = editRowData.mode === "Loose";
       const isPrehung = editRowData.mode === "Prehung";
+      const isExt = editRowData.scope === "external" || editRowData.location === "External";
       return {
         ...item,
         ...editRowData,
+        scope: isExt ? "external" : "internal",
+        location: isExt ? "External" : "Internal",
         door: editRowData.door_type || item.door,
         category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
         mode: editRowData.mode || null,
         jambWall: editRowData.jamb_or_wall,
         jambSize: isLoose ? editRowData.jamb_size : null,
         jamb_size: isLoose ? editRowData.jamb_size : null,
-        type: editRowData.type || "-",
+        type: isCadDoorType(editRowData.type) ? "-" : (editRowData.type || "-"),
         hfHo: editRowData.internal_type,
         stop: editRowData.door_stop,
         qty: editRowData.default_qty
@@ -671,10 +704,18 @@ export default function LockupTask({
         const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
         const isExt = Boolean(d.isExternal || /entry|front|sliding|patio|balcony|garage|external/i.test(doorLabel));
         const isLoose = !isExt && d.mode === "Loose";
+
+        // Right -> Hung A, Left -> Hung B
+        const dHinge = String(d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
+        const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
+        const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
+        const doorHung = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
+
         return {
           ...d,
           mode: isExt ? "Prehung" : "Loose",
           scope: isExt ? "external" : "internal",
+          location: isExt ? "External" : "Internal",
           label: doorLabel,
           door_name: doorLabel,
           door_type: d.lockup_door_type || d.product || null,
@@ -684,8 +725,8 @@ export default function LockupTask({
           wall_thickness: `${wallThick}mm Wall`,
           jamb_or_wall: `${wallThick}mm Wall`,
           jamb_size: isLoose ? "112×19mm 5.4m Loose Jamb" : null,
-          hung: isExt ? "LH Prehung" : "RH Loose",
-          type: d.type || "-",
+          hung: doorHung,
+          type: isCadDoorType(d.type) ? "-" : d.type,
           door_stop: isExt ? "DS2 with Riser" : "Cushion",
           internal_type: isExt ? null : "HF",
           color: isExt ? null : "CHR",
@@ -705,14 +746,27 @@ export default function LockupTask({
       // Map rows to entries (same mapping as LockoutJobsModal)
       const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
         const origDoor = enrichedDoors[idx] || targetDoors[idx] || {};
-        const isExt = r.scope === "external" || r.isExternal || origDoor.isExternal;
+        const isExt = r.scope === "external" || r.isExternal || origDoor.isExternal || String(r.location || "").toLowerCase().includes("ext");
         const doorLabel = (r.label || origDoor.door_name || origDoor.doorName || origDoor.doorLabel || (origDoor.label && !/single|sliding|window|door/i.test(origDoor.label) ? origDoor.label : null) || `D-${idx + 1}`).trim();
         const isLoose = r.mode === "Loose" || origDoor.mode === "Loose";
+
+        // Right -> Hung A, Left -> Hung B
+        const rawHinge = String(r.hung || origDoor.hung || origDoor.hingeSide || origDoor.hinge_side || origDoor.handing || "").toLowerCase();
+        let hungVal = "Hung A";
+        if (rawHinge.includes("right") || rawHinge.includes("rh") || rawHinge === "hung a") {
+          hungVal = "Hung A";
+        } else if (rawHinge.includes("left") || rawHinge.includes("lh") || rawHinge === "hung b") {
+          hungVal = "Hung B";
+        } else if (r.hung && r.hung !== "-") {
+          hungVal = r.hung;
+        }
+
         return {
           id: `door-ai-${Date.now()}-${idx}`,
           doorId: r.doorId || r.id || origDoor.doorId || origDoor.id,
           mode: r.mode || (isExt ? "Prehung" : "Loose"),
-          scope: r.scope || (isExt ? "external" : "internal"),
+          scope: isExt ? "external" : "internal",
+          location: isExt ? "External" : "Internal",
           label: doorLabel,
           door_name: doorLabel,
           door_type: r.door_type || origDoor.door_type || origDoor.product || null,
@@ -721,8 +775,8 @@ export default function LockupTask({
           thickness: r.thickness || origDoor.thickness || (isExt ? 40 : 35),
           jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || "90mm Wall",
           jamb_size: isLoose ? (r.jamb_size || origDoor.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
-          hung: r.hung || origDoor.hung || (isExt ? "LH Prehung" : "RH Loose"),
-          type: r.type || origDoor.type || "-",
+          hung: hungVal,
+          type: isCadDoorType(r.type || origDoor.type) ? "-" : (r.type || origDoor.type || "-"),
           door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
           internal_type: r.internal_type !== undefined ? r.internal_type : (origDoor.internal_type !== undefined ? origDoor.internal_type : (isExt ? null : "HF")),
           color: r.color !== undefined ? r.color : (origDoor.color !== undefined ? origDoor.color : (isExt ? null : "CHR")),
@@ -1779,10 +1833,10 @@ export default function LockupTask({
                     const isRowEditing = editingRowId === row.id;
                     const rowBg = isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")));
 
-                    const isExt = row.scope === "external" || row.isExternal;
+                    const isExt = row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
                     const categoryDisplay = row.mode === "Prehung" || row.category === "Prehung" ? "Prehung" : (row.mode === "Loose" || row.category === "Loose Jamb" ? "Loose Jamb" : "-");
                     const isLooseJamb = categoryDisplay === "Loose Jamb";
-                    const locationDisplay = row.location || (isExt ? "External Patio / Balcony" : (row.scope ? (row.scope.toLowerCase().includes("ext") ? "External Door" : `Internal Room ${idx + 1}`) : `Internal Room ${idx + 1}`));
+                    const locationDisplay = isExt ? "External" : "Internal";
 
                     // Synchronize door label with canvas UI door
                     const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
@@ -1800,8 +1854,32 @@ export default function LockupTask({
 
                     // Image 2: Jamb Size left blank unless Category is Loose Jamb
                     const jambSizeDisplay = isLooseJamb ? (row.jambSize || (row.jamb_size ? String(row.jamb_size).replace("5.4m Loose Jamb", "110mm").replace("5.4m", "110mm").trim() : "110mm")) : "";
-                    const hungDisplay = row.hung || "";
-                    const typeDisplay = (!row.type || row.type === "Type A" || row.type === "Type CG") ? "-" : row.type;
+
+                    // Hung: right -> Hung A, left -> Hung B
+                    const rawHinge = String(
+                      row.hung ||
+                      row.hingeSide ||
+                      row.hinge_side ||
+                      row.handing ||
+                      (effCanvasDoor ? (effCanvasDoor.hingeSide || effCanvasDoor.hinge_side || effCanvasDoor.handing) : "") ||
+                      ""
+                    ).trim().toLowerCase();
+
+                    let hungDisplay = "-";
+                    if (rawHinge.includes("right") || rawHinge.includes("rh") || rawHinge === "hung a") {
+                      hungDisplay = "Hung A";
+                    } else if (rawHinge.includes("left") || rawHinge.includes("lh") || rawHinge === "hung b") {
+                      hungDisplay = "Hung B";
+                    } else if (row.hung && row.hung !== "-") {
+                      hungDisplay = row.hung;
+                    } else if (effCanvasDoor) {
+                      const cSide = String(effCanvasDoor.hingeSide || effCanvasDoor.hinge_side || effCanvasDoor.handing || "").toLowerCase();
+                      hungDisplay = (cSide.includes("left") || cSide.includes("lh")) ? "Hung B" : "Hung A";
+                    } else {
+                      hungDisplay = "Hung A";
+                    }
+
+                    const typeDisplay = isCadDoorType(row.type) ? "-" : row.type;
                     const hfHoDisplay = row.hfHo || row.internal_type || (isExt ? "HO" : "HF");
                     const colorDisplay = row.color === "CHR" || !row.color ? "Primed White" : row.color;
                     const stopDisplay = row.stop || row.door_stop || "Cushion Rubber Stop";
@@ -1906,12 +1984,21 @@ export default function LockupTask({
                               </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                              <input
-                                type="text"
-                                value={editRowData.location || ""}
-                                onChange={(e) => setEditRowData({ ...editRowData, location: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "11px", width: "120px" }}
-                              />
+                              <select
+                                value={editRowData.location === "External" || editRowData.scope === "external" ? "External" : "Internal"}
+                                onChange={(e) => {
+                                  const loc = e.target.value;
+                                  setEditRowData({
+                                    ...editRowData,
+                                    location: loc,
+                                    scope: loc === "External" ? "external" : "internal"
+                                  });
+                                }}
+                                style={{ padding: "2px 4px", fontSize: "11px", width: "95px" }}
+                              >
+                                <option value="Internal">Internal</option>
+                                <option value="External">External</option>
+                              </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <SearchDropdown
@@ -1972,11 +2059,11 @@ export default function LockupTask({
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
-                                value={editRowData.hung || ""}
+                                value={editRowData.hung || "Hung A"}
                                 onChange={(e) => setEditRowData({ ...editRowData, hung: e.target.value })}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
                               >
-                                <option value="">-</option>
+                                <option value="-">-</option>
                                 {DOOR_HUNG_OPTIONS.filter(opt => opt !== "-").map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                 {editRowData.hung && editRowData.hung !== "-" && !DOOR_HUNG_OPTIONS.includes(editRowData.hung) && (
                                   <option value={editRowData.hung}>{editRowData.hung}</option>
@@ -1985,13 +2072,13 @@ export default function LockupTask({
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
-                                value={editRowData.type || "-"}
+                                value={isCadDoorType(editRowData.type) ? "-" : (editRowData.type || "-")}
                                 onChange={(e) => setEditRowData({ ...editRowData, type: e.target.value })}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
                               >
                                 <option value="-">-</option>
                                 {DOOR_TYPE_OPTIONS.filter(opt => opt !== "-").map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                {editRowData.type && editRowData.type !== "-" && !DOOR_TYPE_OPTIONS.includes(editRowData.type) && (
+                                {editRowData.type && !isCadDoorType(editRowData.type) && !DOOR_TYPE_OPTIONS.includes(editRowData.type) && (
                                   <option value={editRowData.type}>{editRowData.type}</option>
                                 )}
                               </select>

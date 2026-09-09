@@ -159,28 +159,43 @@ export default function LockoutJobsModal({
       const activeHwId = uniqueJobsList.find(j => j.job_number === selectedJobNumber)?.hw_id || jobsData[0]?.IdJob_HW || 1;
       const jobNum = selectedJobNumber !== "ALL" ? selectedJobNumber : (jobsData[0]?.job_number || "J-1001");
 
-      const newCustomRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => ({
-        rowKey: `ai_lockout_${Date.now()}_${idx}`,
-        IdJob_HW: activeHwId,
-        job_number: jobNum,
-        lockout_id: null,
-        mode: r.mode !== undefined ? r.mode : null,
-        scope: r.scope !== undefined ? r.scope : (r.isExternal ? "external" : "internal"),
-        label: r.label || r.door_name || `D${idx + 1}`,
-        door_name: r.door_name || r.label || `D${idx + 1}`,
-        height: r.height || 2040,
-        width: r.width || 820,
-        thickness: r.thickness || 35,
-        jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-        jamb_size: r.mode === "Loose" ? (r.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
-        hung: r.hung || (r.isExternal ? "LH Prehung" : "RH Loose"),
-        door_type: r.door_type || null,
-        door_stop: r.door_stop || "Cushion",
-        internal_type: r.internal_type || "HF",
-        color: r.color || "CHR",
-        default_qty: r.default_qty || 1,
-        isCustom: true
-      }));
+      const newCustomRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
+        const isExt = r.scope === "external" || r.isExternal || String(r.location || "").toLowerCase().includes("ext");
+        const rawHinge = String(r.hung || (isExt ? "left" : "right")).toLowerCase();
+        const hungVal = (rawHinge.includes("right") || rawHinge.includes("rh") || rawHinge === "hung a")
+          ? "Hung A"
+          : ((rawHinge.includes("left") || rawHinge.includes("lh") || rawHinge === "hung b") ? "Hung B" : (r.hung || "Hung A"));
+
+        const isCadDoorType = (t) => {
+          if (!t || t === "-" || t === "Type A" || t === "Type CG") return true;
+          return /^(single|sliding|window|double|bifold|pocket|cavity|door|hinged|french|timber)$/i.test(String(t).trim());
+        };
+
+        return {
+          rowKey: `ai_lockout_${Date.now()}_${idx}`,
+          IdJob_HW: activeHwId,
+          job_number: jobNum,
+          lockout_id: null,
+          mode: r.mode !== undefined ? r.mode : null,
+          scope: isExt ? "external" : "internal",
+          location: isExt ? "External" : "Internal",
+          label: r.label || r.door_name || `D${idx + 1}`,
+          door_name: r.door_name || r.label || `D${idx + 1}`,
+          height: r.height || 2040,
+          width: r.width || 820,
+          thickness: r.thickness || (isExt ? 40 : 35),
+          jamb_or_wall: r.jamb_or_wall || "90mm Wall",
+          jamb_size: r.mode === "Loose" ? (r.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
+          hung: hungVal,
+          type: isCadDoorType(r.type) ? "-" : (r.type || "-"),
+          door_type: r.door_type || null,
+          door_stop: r.door_stop || "Cushion",
+          internal_type: r.internal_type || "HF",
+          color: r.color || "CHR",
+          default_qty: r.default_qty || 1,
+          isCustom: true
+        };
+      });
 
       setCustomRows(newCustomRows);
 
