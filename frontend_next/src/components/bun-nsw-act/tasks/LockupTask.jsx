@@ -57,21 +57,23 @@ export default function LockupTask({
   const handleStartEdit = (row) => {
     setEditingRowId(row.id);
     const isExt = row.scope === "external" || row.isExternal;
+    const isLoose = row.mode === "Loose" || row.category === "Loose Jamb" || String(row.category || "").toLowerCase().includes("loose");
+    const isPrehung = row.mode === "Prehung" || row.category === "Prehung";
     setEditRowData({
-      mode: row.mode || (isExt ? "Prehung" : "Loose"),
+      mode: row.mode || (isLoose ? "Loose" : (isPrehung ? "Prehung" : "")),
       scope: row.scope || (isExt ? "external" : "internal"),
       location: row.location || (isExt ? "External Patio / Balcony" : "Internal Room"),
-      label: row.label || row.door || "D-1",
+      label: row.label || row.door_name || row.doorName || row.door || "D-1",
       height: row.height || 2040,
       width: row.width || 820,
       size: row.size || `${row.height || 2040} × ${row.width || 820}`,
       thickness: row.thickness || (isExt ? 40 : 35),
       thicks: row.thicks || `${row.thickness || (isExt ? 40 : 35)}mm`,
       jamb_or_wall: row.jamb_or_wall || row.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
-      jamb_size: row.jamb_size || row.jambSize || (isExt ? "135mm" : "110mm"),
+      jamb_size: isLoose ? (row.jamb_size || row.jambSize || "") : "",
       hung: row.hung || (isExt ? "LH Prehung" : "RH Loose"),
-      door_type: row.door_type || row.product || "",
-      type: row.type || "Type A",
+      door_type: row.door_type || row.product || row.door || "",
+      type: (!row.type || row.type === "Type A" || row.type === "Type CG") ? "-" : row.type,
       internal_type: row.internal_type || row.hfHo || (isExt ? "HO" : "HF"),
       color: row.color || "Primed White",
       door_stop: row.door_stop || row.stop || "Cushion Rubber Stop",
@@ -83,14 +85,18 @@ export default function LockupTask({
     if (!onSetEntries) return;
     onSetEntries(prev => (prev || []).map(item => {
       if (item.id !== id) return item;
+      const isLoose = editRowData.mode === "Loose";
+      const isPrehung = editRowData.mode === "Prehung";
       return {
         ...item,
         ...editRowData,
         door: editRowData.door_type || item.door,
-        category: editRowData.mode === "Prehung" ? "Prehung" : "Loose Jamb",
+        category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
+        mode: editRowData.mode || null,
         jambWall: editRowData.jamb_or_wall,
-        jambSize: editRowData.jamb_size,
-        type: editRowData.type,
+        jambSize: isLoose ? editRowData.jamb_size : null,
+        jamb_size: isLoose ? editRowData.jamb_size : null,
+        type: editRowData.type || "-",
         hfHo: editRowData.internal_type,
         stop: editRowData.door_stop,
         qty: editRowData.default_qty
@@ -123,6 +129,7 @@ export default function LockupTask({
   const DOOR_MODE_OPTIONS = ["Prehung", "Loose"];
 
   const DOOR_HUNG_OPTIONS = [
+    "-",
     "Hung A",
     "Hung B",
     "Hung CG",
@@ -130,10 +137,15 @@ export default function LockupTask({
     "Hung G",
     "Pivot Door",
     "Double Door Set",
-    "RH Pre Hung"
+    "RH Pre Hung",
+    "LH Prehung",
+    "LH Pre Hung",
+    "RH Loose",
+    "LH Loose"
   ];
 
   const DOOR_TYPE_OPTIONS = [
+    "-",
     "Type A",
     "Type B",
     "Type CC",
@@ -499,8 +511,8 @@ export default function LockupTask({
   const [preExtThick, setPreExtThick] = useState("35");
   const [preExtJambWall, setPreExtJambWall] = useState("");
   const [preExtQty, setPreExtQty] = useState("1");
-  const [preExtHung, setPreExtHung] = useState("Hung A");
-  const [preExtType, setPreExtType] = useState("Type A");
+  const [preExtHung, setPreExtHung] = useState("LH Prehung");
+  const [preExtType, setPreExtType] = useState("-");
   const [preExtStop, setPreExtStop] = useState("Cushion");
 
   // Prehung - Internal Door State
@@ -511,8 +523,8 @@ export default function LockupTask({
   const [preIntThick, setPreIntThick] = useState("35");
   const [preIntJambWall, setPreIntJambWall] = useState("");
   const [preIntQty, setPreIntQty] = useState("1");
-  const [preIntHung, setPreIntHung] = useState("Hung A");
-  const [preIntType, setPreIntType] = useState("Type A");
+  const [preIntHung, setPreIntHung] = useState("RH Loose");
+  const [preIntType, setPreIntType] = useState("-");
   const [preIntStop, setPreIntStop] = useState("Cushion");
   const [preIntInternalType, setPreIntInternalType] = useState("HF");
   const [preIntColor, setPreIntColor] = useState("CHR");
@@ -599,9 +611,9 @@ export default function LockupTask({
       width: 820,
       thickness: 35,
       jamb_or_wall: "90mm Wall",
-      jamb_size: "112×19mm 5.4m",
-      hung: "Hung A",
-      type: "Type A",
+      jamb_size: null,
+      hung: null,
+      type: "-",
       door_stop: "Cushion",
       internal_type: "HF",
       color: "CHR",
@@ -614,7 +626,7 @@ export default function LockupTask({
 
   // ── Auto-Calculate & Fill LockUp trực tiếp từ bản vẽ Timber Doors ──
   // Gọi API backend calculateLockout giống hệt như LockoutJobsModal
-  const handleAutoFillAI = async () => {
+  const handleAutoCalculateLockout = async () => {
     setIsAutoFilling(true);
     try {
       const allDoors = [];
@@ -654,24 +666,26 @@ export default function LockupTask({
       const enrichedDoors = targetDoors.map((d, idx) => {
         const pWall = allWalls.find(w => w.id === d.parentWallId);
         const wallThick = pWall?.thickness || pWall?.thickness_mm || d.thickness_mm || d.wall_thickness || 90;
-        const dName = (d.label || d.name || `D${idx + 1}`).trim();
+        const doorLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
         const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
         const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
-        const isExt = Boolean(d.isExternal || /entry|front|sliding|patio|balcony|garage|external/i.test(dName));
+        const isExt = Boolean(d.isExternal || /entry|front|sliding|patio|balcony|garage|external/i.test(doorLabel));
+        const isLoose = !isExt && d.mode === "Loose";
         return {
           ...d,
           mode: isExt ? "Prehung" : "Loose",
           scope: isExt ? "external" : "internal",
-          label: dName,
+          label: doorLabel,
+          door_name: doorLabel,
           door_type: d.lockup_door_type || d.product || null,
           width: dWidth,
           height: dHeight,
           thickness: isExt ? 40 : 35,
           wall_thickness: `${wallThick}mm Wall`,
           jamb_or_wall: `${wallThick}mm Wall`,
-          jamb_size: isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m",
+          jamb_size: isLoose ? "112×19mm 5.4m Loose Jamb" : null,
           hung: isExt ? "LH Prehung" : "RH Loose",
-          type: isExt ? "Type CG" : "Type A",
+          type: d.type || "-",
           door_stop: isExt ? "DS2 with Riser" : "Cushion",
           internal_type: isExt ? null : "HF",
           color: isExt ? null : "CHR",
@@ -692,20 +706,23 @@ export default function LockupTask({
       const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
         const origDoor = enrichedDoors[idx] || targetDoors[idx] || {};
         const isExt = r.scope === "external" || r.isExternal || origDoor.isExternal;
+        const doorLabel = (r.label || origDoor.door_name || origDoor.doorName || origDoor.doorLabel || (origDoor.label && !/single|sliding|window|door/i.test(origDoor.label) ? origDoor.label : null) || `D-${idx + 1}`).trim();
+        const isLoose = r.mode === "Loose" || origDoor.mode === "Loose";
         return {
           id: `door-ai-${Date.now()}-${idx}`,
           doorId: r.doorId || r.id || origDoor.doorId || origDoor.id,
           mode: r.mode || (isExt ? "Prehung" : "Loose"),
           scope: r.scope || (isExt ? "external" : "internal"),
-          label: r.label || origDoor.label || `D${idx + 1}`,
-          door_type: r.door_type || origDoor.door_type || null,
+          label: doorLabel,
+          door_name: doorLabel,
+          door_type: r.door_type || origDoor.door_type || origDoor.product || null,
           height: r.height || origDoor.height || 2040,
           width: r.width || origDoor.width || 820,
           thickness: r.thickness || origDoor.thickness || (isExt ? 40 : 35),
           jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || "90mm Wall",
-          jamb_size: r.jamb_size || origDoor.jamb_size || (isExt ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m"),
+          jamb_size: isLoose ? (r.jamb_size || origDoor.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
           hung: r.hung || origDoor.hung || (isExt ? "LH Prehung" : "RH Loose"),
-          type: r.type || origDoor.type || (isExt ? "Type CG" : "Type A"),
+          type: r.type || origDoor.type || "-",
           door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
           internal_type: r.internal_type !== undefined ? r.internal_type : (origDoor.internal_type !== undefined ? origDoor.internal_type : (isExt ? null : "HF")),
           color: r.color !== undefined ? r.color : (origDoor.color !== undefined ? origDoor.color : (isExt ? null : "CHR")),
@@ -732,15 +749,16 @@ export default function LockupTask({
           id: `door-sync-${Date.now()}-${idx}`,
           mode: r.mode || null,
           scope: r.scope || "internal",
-          label: r.label || `D-${idx + 1}`,
+          label: r.label || r.door_name || `D-${idx + 1}`,
+          door_name: r.door_name || r.label || `D-${idx + 1}`,
           door_type: r.door_type || null,
           height: r.height || 2040,
           width: r.width || 820,
           thickness: r.thickness || 35,
           jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-          jamb_size: r.jamb_size || "112×19mm 5.4m",
-          hung: r.hung || "Hung A",
-          type: r.type || "Type A",
+          jamb_size: r.mode === "Loose" ? (r.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
+          hung: r.hung || null,
+          type: r.type || "-",
           door_stop: r.door_stop || "Cushion",
           internal_type: r.internal_type || "HF",
           color: r.color || "CHR",
@@ -1762,16 +1780,28 @@ export default function LockupTask({
                     const rowBg = isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")));
 
                     const isExt = row.scope === "external" || row.isExternal;
-                    const categoryDisplay = row.mode === "Prehung" ? "Prehung" : (row.mode === "Loose" ? "Loose Jamb" : (row.category || (isExt ? "Prehung" : "Loose Jamb")));
+                    const categoryDisplay = row.mode === "Prehung" || row.category === "Prehung" ? "Prehung" : (row.mode === "Loose" || row.category === "Loose Jamb" ? "Loose Jamb" : "-");
+                    const isLooseJamb = categoryDisplay === "Loose Jamb";
                     const locationDisplay = row.location || (isExt ? "External Patio / Balcony" : (row.scope ? (row.scope.toLowerCase().includes("ext") ? "External Door" : `Internal Room ${idx + 1}`) : `Internal Room ${idx + 1}`));
-                    const labelDisplay = row.label || `D-${idx + 1}`;
-                    const doorDisplay = row.door_type || row.door || "-";
+
+                    // Synchronize door label with canvas UI door
+                    const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
+                    const canvasDoorLabel = effCanvasDoor ? (effCanvasDoor.door_name || effCanvasDoor.doorName || effCanvasDoor.doorLabel) : null;
+                    const isGenericLabel = (lbl) => !lbl || /^(door|internal hinged door|external hinged door|single door|sliding door|single|sliding|window)$/i.test(String(lbl).trim());
+                    const labelDisplay = (!isGenericLabel(row.label) ? row.label : null) || canvasDoorLabel || row.door_name || row.doorName || row.doorLabel || `D-${idx + 1}`;
+
+                    // Image 4: Door column blank unless specified product (do not show auto-filled Type A / Type CG)
+                    const rawDoorVal = row.door_type || row.door || "";
+                    const doorDisplay = (!isLooseJamb && (rawDoorVal === "Type A" || rawDoorVal === "Type CG")) ? "" : rawDoorVal;
+
                     const sizeDisplay = row.size || `${row.height || 2040} × ${row.width || 820}`;
                     const thicksDisplay = row.thicks || (row.thickness ? `${String(row.thickness).replace("mm", "")}mm` : (isExt ? "40mm" : "35mm"));
                     const jambWallDisplay = row.jambWall || row.jamb_or_wall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud");
-                    const jambSizeDisplay = row.jambSize || (row.jamb_size ? String(row.jamb_size).replace("5.4m Loose Jamb", "110mm").replace("5.4m", "110mm").trim() : (isExt ? "135mm" : "110mm"));
-                    const hungDisplay = row.hung || (isExt ? "LH Prehung" : "RH Loose");
-                    const typeDisplay = row.type || "-";
+
+                    // Image 2: Jamb Size left blank unless Category is Loose Jamb
+                    const jambSizeDisplay = isLooseJamb ? (row.jambSize || (row.jamb_size ? String(row.jamb_size).replace("5.4m Loose Jamb", "110mm").replace("5.4m", "110mm").trim() : "110mm")) : "";
+                    const hungDisplay = row.hung || "";
+                    const typeDisplay = (!row.type || row.type === "Type A" || row.type === "Type CG") ? "-" : row.type;
                     const hfHoDisplay = row.hfHo || row.internal_type || (isExt ? "HO" : "HF");
                     const colorDisplay = row.color === "CHR" || !row.color ? "Primed White" : row.color;
                     const stopDisplay = row.stop || row.door_stop || "Cushion Rubber Stop";
@@ -1859,10 +1889,18 @@ export default function LockupTask({
                           <>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
-                                value={editRowData.mode || "Loose"}
-                                onChange={(e) => setEditRowData({ ...editRowData, mode: e.target.value })}
+                                value={editRowData.mode || ""}
+                                onChange={(e) => {
+                                  const newMode = e.target.value;
+                                  setEditRowData({
+                                    ...editRowData,
+                                    mode: newMode,
+                                    jamb_size: newMode === "Loose" ? (editRowData.jamb_size || "112×19mm 5.4m Loose Jamb") : ""
+                                  });
+                                }}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
                               >
+                                <option value="">-</option>
                                 <option value="Loose">Loose Jamb</option>
                                 <option value="Prehung">Prehung</option>
                               </select>
@@ -1919,27 +1957,43 @@ export default function LockupTask({
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <input
                                 type="text"
-                                value={editRowData.jamb_size || ""}
+                                value={editRowData.mode === "Loose" ? (editRowData.jamb_size || "") : ""}
+                                disabled={editRowData.mode !== "Loose"}
+                                placeholder={editRowData.mode === "Loose" ? "Enter jamb size" : ""}
                                 onChange={(e) => setEditRowData({ ...editRowData, jamb_size: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "11px", width: "70px" }}
+                                style={{
+                                  padding: "2px 4px",
+                                  fontSize: "11px",
+                                  width: "70px",
+                                  background: editRowData.mode !== "Loose" ? "#f1f5f9" : "#ffffff",
+                                  cursor: editRowData.mode !== "Loose" ? "not-allowed" : "text"
+                                }}
                               />
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
-                                value={editRowData.hung || "RH Loose"}
+                                value={editRowData.hung || ""}
                                 onChange={(e) => setEditRowData({ ...editRowData, hung: e.target.value })}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
                               >
-                                {DOOR_HUNG_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                <option value="">-</option>
+                                {DOOR_HUNG_OPTIONS.filter(opt => opt !== "-").map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                {editRowData.hung && editRowData.hung !== "-" && !DOOR_HUNG_OPTIONS.includes(editRowData.hung) && (
+                                  <option value={editRowData.hung}>{editRowData.hung}</option>
+                                )}
                               </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
-                                value={editRowData.type || ""}
+                                value={editRowData.type || "-"}
                                 onChange={(e) => setEditRowData({ ...editRowData, type: e.target.value })}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
                               >
-                                {DOOR_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                <option value="-">-</option>
+                                {DOOR_TYPE_OPTIONS.filter(opt => opt !== "-").map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                {editRowData.type && editRowData.type !== "-" && !DOOR_TYPE_OPTIONS.includes(editRowData.type) && (
+                                  <option value={editRowData.type}>{editRowData.type}</option>
+                                )}
                               </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
@@ -2001,7 +2055,7 @@ export default function LockupTask({
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{locationDisplay}</td>
                             <td style={{ padding: "3px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }} onClick={(e) => e.stopPropagation()}>
                               <SearchDropdown
-                                value={row.door_type || row.door || ""}
+                                value={doorDisplay}
                                 options={
                                   row.scope === "external" || row.isExternal
                                     ? (doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES)

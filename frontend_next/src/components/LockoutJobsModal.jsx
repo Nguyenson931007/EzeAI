@@ -134,7 +134,7 @@ export default function LockoutJobsModal({
       const enrichedDoors = targetDoors.map((d, idx) => {
         const pWall = (walls || []).find(w => w.id === d.parentWallId);
         const wallThick = pWall?.thickness || pWall?.thickness_mm || d.thickness_mm || d.wall_thickness || 90;
-        const dName = (d.label || d.name || d.door_name || `D${idx + 1}`).trim();
+        const dName = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D${idx + 1}`).trim();
         const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
         const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
         return {
@@ -172,9 +172,9 @@ export default function LockoutJobsModal({
         width: r.width || 820,
         thickness: r.thickness || 35,
         jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-        jamb_size: r.jamb_size || "112×19mm 5.4m Loose Jamb",
-        hung: r.hung || "RH Pre Hung",
-        door_type: r.door_type || "Type A",
+        jamb_size: r.mode === "Loose" ? (r.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
+        hung: r.hung || (r.isExternal ? "LH Prehung" : "RH Loose"),
+        door_type: r.door_type || null,
         door_stop: r.door_stop || "Cushion",
         internal_type: r.internal_type || "HF",
         color: r.color || "CHR",
@@ -409,6 +409,11 @@ export default function LockoutJobsModal({
               {opt}
             </option>
           ))}
+          {displayVal && !options.includes(displayVal) && (
+            <option value={displayVal} style={{ background: "#ffffff", color: "#0f172a" }}>
+              {displayVal}
+            </option>
+          )}
         </select>
       );
     }
@@ -643,7 +648,7 @@ export default function LockoutJobsModal({
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "thickness", 55, true)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "jamb_or_wall", 100)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "jamb_size", 85)}</td>
-                      <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "hung", 110, false, ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door", "Double Door Set", "RH Pre Hung"])}</td>
+                      <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "hung", 110, false, ["-", "Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door", "Double Door Set", "RH Pre Hung", "LH Prehung", "LH Pre Hung", "RH Loose", "LH Loose"])}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_type", 100)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "door_stop", 85)}</td>
                       <td style={{ padding: "4px 6px" }}>{renderCellInput(row, "internal_type", 65)}</td>

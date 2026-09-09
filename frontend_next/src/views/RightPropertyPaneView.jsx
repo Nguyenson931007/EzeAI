@@ -1085,12 +1085,13 @@ export default function RightPropertyPaneView({
 
       if (curDoors && curDoors.length > 0) {
         curDoors.forEach((d, idx) => {
-          const dLabel = d.label || d.name || d.door_name || `Door D-${idx + 1}`;
+          const dLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
           const rawType = String(d.door_type || d.type || "").toLowerCase();
           const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
           const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
 
-          const category = isExt ? "Prehung" : "Loose Jamb";
+          const category = d.category || (d.mode === "Loose" ? "Loose Jamb" : (d.mode === "Prehung" ? "Prehung" : "-"));
+          const isLoose = category === "Loose Jamb";
           const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
           const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
           const wallThick = d.wall_thickness || d.thickness_mm || 90;
@@ -1099,7 +1100,8 @@ export default function RightPropertyPaneView({
           generatedDoors.push({
             id: `lck-door-${d.id || idx}-${Date.now()}`,
             doorId: d.id,
-            mode: category === "Loose Jamb" ? "Loose" : "Prehung",
+            category: category,
+            mode: d.mode || (isLoose ? "Loose" : (category === "Prehung" ? "Prehung" : null)),
             scope: isExt ? "external" : "internal",
             label: dLabel,
             door_name: dLabel,
@@ -1107,9 +1109,10 @@ export default function RightPropertyPaneView({
             width: dWidth,
             thickness: isExt && !isSliding ? 40 : 35,
             jamb_or_wall: `${wallThick}mm Wall`,
-            jamb_size: category === "Loose Jamb" ? "112×19mm 5.4m Loose Jamb" : "112×19mm 5.4m",
-            hung: hung || "RH Loose",
-            door_type: isExt ? "Type CG" : "Type A",
+            jamb_size: isLoose ? "112×19mm 5.4m Loose Jamb" : "",
+            hung: hung || (isExt ? "LH Prehung" : "RH Loose"),
+            door_type: d.door_type || d.lockup_door_type || "",
+            type: d.type || "-",
             door_stop: isExt ? "DS2 with Riser" : "Cushion",
             internal_type: isExt ? null : "HF",
             color: isExt ? null : "CHR",
@@ -2546,23 +2549,24 @@ export default function RightPropertyPaneView({
       const sourceList = lockoutRows.length > 0 ? lockoutRows : rawDoors;
       if (sourceList.length > 0) {
         const generated = sourceList.map((d, idx) => {
-          const dLabel = (d.label || d.door_name || d.name || `D${idx + 1}`).trim();
+          const dLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D${idx + 1}`).trim();
           const dW = d.width || 820;
           const dH = d.height || 2040;
           const isExt = d.scope === "external" || d.isExternal || /entry|front|back|patio|balcony|sliding/i.test(dLabel);
+          const isLoose = !isExt && (d.mode === "Loose" || d.category === "Loose Jamb");
 
           return {
             id: `lck-ai-${d.id || idx}-${Date.now()}`,
             // NSW ACT columns
-            category: isExt ? "External Door" : "Internal Loose Jamb",
+            category: isExt ? "Prehung" : (isLoose ? "Loose Jamb" : (d.category || "Prehung")),
             location: dLabel,
-            door: d.door || d.product || (isExt ? "SOLID CORE TIMBER DOOR 2040X820X40MM" : "FLUSH PANEL HONEYCOMB CORE 2040X820X35MM"),
+            door: d.door || d.product || "",
             size: `${dH}×${dW}`,
             thicks: `${d.thickness || (isExt ? 40 : 35)}mm`,
             jambWall: d.jamb_or_wall || "90mm Wall",
-            jambSize: d.jamb_size || "112×19mm 5.4m Loose Jamb",
-            hung: d.hung || (isExt ? "RH Pre Hung" : "Hung A"),
-            type: d.door_type || (isExt ? "Solid Core Entry" : "Type A"),
+            jambSize: isLoose ? (d.jamb_size || d.jambSize || "112×19mm 5.4m Loose Jamb") : "",
+            hung: d.hung || (isExt ? "LH Prehung" : "RH Loose"),
+            type: d.type || "-",
             hfHo: d.internal_type || "HF",
             color: d.color || "CHR",
             stop: d.door_stop || "Cushion",
@@ -2764,18 +2768,19 @@ export default function RightPropertyPaneView({
       if (targetDoors.length > 0) {
         const generated = targetDoors.map((d, idx) => {
           const override = customLockupOverrides[d.id] || {};
-          const dLabel = override.doorLabel || d.label || d.name || d.door_name || `D-${idx + 1}`;
+          const dLabel = (override.doorLabel || d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
           const rawType = String(d.door_type || d.type || "").toLowerCase();
           const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
 
           const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
           const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
           const wallThick = d.wall_thickness || d.thickness_mm || 90;
+          const isLoose = override.category === "Loose Jamb" || (!isExt && d.mode === "Loose");
 
           return {
             id: `lck-door-${d.id || Date.now()}-${idx}`,
             doorId: d.id,
-            mode: override.category || null,
+            mode: override.category || (isExt ? "Prehung" : "Loose"),
             scope: isExt ? "external" : "internal",
             label: dLabel,
             door_name: dLabel,
@@ -2783,9 +2788,10 @@ export default function RightPropertyPaneView({
             width: dWidth,
             thickness: isExt ? 40 : 35,
             jamb_or_wall: `${wallThick}mm Wall`,
-            jamb_size: override.jambSize || "112×19mm 5.4m",
-            hung: override.hung || "Hung A",
-            door_type: override.type || (isExt ? "Type CG" : "Type A"),
+            jamb_size: isLoose ? (override.jambSize || "112×19mm 5.4m Loose Jamb") : "",
+            hung: override.hung || (isExt ? "LH Prehung" : "RH Loose"),
+            door_type: override.door_type || d.door_type || "",
+            type: override.type || d.type || "-",
             door_stop: override.stop || (isExt ? "DS2 with Riser" : "Cushion"),
             internal_type: override.hfHo || (isExt ? null : "HF"),
             color: override.color || (isExt ? null : "CHR"),
