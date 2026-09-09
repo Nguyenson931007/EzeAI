@@ -72,8 +72,8 @@ export const AppProvider = ({ children }) => {
   // Text / Callout Tool Defaults (text, callout, sticky-note)
   const [textColor, setTextColor] = useState("#0f172a");
   const [textOpacity, setTextOpacity] = useState(1.0);
-  const [textFontSize, setTextFontSize] = useState(36);
-  const [annotationFontSize, setAnnotationFontSize] = useState(36);
+  const [textFontSize, setTextFontSize] = useState(60);
+  const [annotationFontSize, setAnnotationFontSize] = useState(60);
   const [calloutStrokeWidth, setCalloutStrokeWidth] = useState(3.5);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState([]);

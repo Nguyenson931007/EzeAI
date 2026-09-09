@@ -224,7 +224,19 @@ export default function RightPropertyPaneView({
     const target = currentList.find((a) => a.id === annId);
     const isTextAnnotation = target && (target.type === "text" || target.type === "callout" || target.type === "sticky-note");
 
-    if (isTextAnnotation) {
+    if (target && target.type === "sticky-note") {
+      // Sticky note: color is the note background color, not text color
+      if (patch.color && setAnnotationColor) setAnnotationColor(patch.color);
+      if (typeof patch.opacity === "number" && setTextOpacity) setTextOpacity(patch.opacity);
+      if (typeof patch.fontSize === "number") {
+        if (setTextFontSize) setTextFontSize(patch.fontSize);
+        if (setAnnotationFontSize) setAnnotationFontSize(patch.fontSize);
+      }
+      if (typeof patch.isBold === "boolean" && setTextBold) setTextBold(patch.isBold);
+      if (typeof patch.isItalic === "boolean" && setTextItalic) setTextItalic(patch.isItalic);
+      if (typeof patch.isUnderline === "boolean" && setTextUnderline) setTextUnderline(patch.isUnderline);
+      if (typeof patch.isStrikethrough === "boolean" && setTextStrikethrough) setTextStrikethrough(patch.isStrikethrough);
+    } else if (isTextAnnotation) {
       // Persist ONLY to text defaults (does not affect drawing tools)
       if (patch.color && setTextColor) setTextColor(patch.color);
       if (typeof patch.opacity === "number" && setTextOpacity) setTextOpacity(patch.opacity);

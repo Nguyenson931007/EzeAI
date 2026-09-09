@@ -13,6 +13,23 @@ type Calculation = {
 type PlumbingDraft = { itemName: string; code: string; description: string; qty: string; note: string };
 type PlumbingRow = PlumbingDraft & { id: string };
 
+// These are workbook input options, not products. Product code/description is
+// loaded from using_find_items by the matching stable key.
+const FOW_OPTIONS: Array<[string, string]> = [
+  ["dishwasher-inline-tap", "Dishwasher Inline Tap"], ["kitchen-sink", "Kitchen Sink"],
+  ["kitchen-sink-mixer", "Kitchen Sink Mixer"], ["toilet", "Toilet"],
+  ["toilet-wall-cock", "Toilet Wall Cock"], ["shower-rail-single", "Shower on Rail Single"],
+  ["shower-rail-double", "Shower on Rail Double"], ["shower-mixer-body", "Shower Mixer Body"],
+  ["shower-mixer-trim", "Shower Mixer Trim"], ["bathtub-built-in", "Bathtub Built In"],
+  ["bath-mixer-body", "Bath Mixer Body"], ["bath-mixer-trim", "Bath Mixer Trim"],
+  ["bath-spout", "Bath Spout"], ["wall-basin-mixer-body", "Wall Basin Mixer Body"],
+  ["wall-basin-mixer-trim", "Wall Basin Mixer Trim"], ["laundry-trough", "Laundry Trough"],
+  ["laundry-mixer", "Laundry Mixer"], ["washing-machine-stops", "Washing Machine Stops"],
+  ["toilet-roll-holder", "Toilet Roll Holder"], ["soap-holder", "Soap Holder"],
+  ["towel-rail-single", "Towel Rail Single"], ["towel-rail-double", "Towel Rail Double"],
+  ["vanity-wall-hung", "Vanity Wall Hung"], ["vanity-900-freestanding", "Vanity 900 Freestanding"],
+];
+
 const parse = <T,>(value: string | undefined, fallback: T): T => {
   try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; }
 };
@@ -20,23 +37,20 @@ const emptyDraft = (): PlumbingDraft => ({ itemName: "", code: "", description: 
 
 // Earlier saves stored one Qty (+ Note) per fixed catalog key. Migrate those
 // into rows so existing jobs keep their data under the new add/entered layout.
-const usageItemName = (usage: UsingFindItem) =>
-  (usage.usage_label || usage.display_name || usage.description || usage.item_number || usage.usage_key).trim();
-
 const migrateRows = (data: WorkPackFileData, usages: Map<string, UsingFindItem>): PlumbingRow[] => {
   if (data.fields.fow_plumbing_rows) return parse<PlumbingRow[]>(data.fields.fow_plumbing_rows, []);
   const quantities = parse<Record<string, string>>(data.fields.fow_plumbing_quantities, {});
   const notes = parse<Record<string, string>>(data.fields.fow_plumbing_notes, {});
-  return Array.from(usages.values())
-    .filter((usage) => num(quantities[usage.usage_key]) > 0)
-    .map((usage) => ({
+  return FOW_OPTIONS
+    .filter(([key]) => num(quantities[key]) > 0)
+    .map(([key, itemName]) => {
+      const usage = usages.get(key);
+      return ({
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      itemName: usageItemName(usage),
-      code: usage.item_number ?? "",
-      description: usage.description ?? "",
-      qty: quantities[usage.usage_key],
-      note: notes[usage.usage_key] ?? "",
-    }));
+      itemName, code: usage?.item_number ?? "", description: usage?.description ?? "",
+      qty: quantities[key], note: notes[key] ?? "",
+    });
+    });
 };
 
 export function isBunNswActFowPlumbing(sheet = "", name = "", id = "") {
@@ -51,12 +65,7 @@ export default function BunNswActFowPlumbingForm({ data, onChange }: Props) {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<PlumbingRow | null>(null);
   const catalogByKey = useMemo(() => new Map(catalog.map((row) => [row.usage_key, row])), [catalog]);
-  const catalogByItemName = useMemo(() => new Map(
-    catalog
-      .map((row) => [usageItemName(row).toLowerCase(), row] as const)
-      .filter(([name]) => Boolean(name)),
-  ), [catalog]);
-  const itemNames = useMemo(() => catalog.map(usageItemName).filter(Boolean), [catalog]);
+  const itemNames = FOW_OPTIONS.map(([, name]) => name);
 
   useEffect(() => {
     let alive = true;
@@ -91,12 +100,9 @@ export default function BunNswActFowPlumbingForm({ data, onChange }: Props) {
   }, [calculation.outputRows, status]);
 
   const pickItemName = (itemName: string, apply: (patch: Partial<PlumbingDraft>) => void) => {
-    const match = catalogByItemName.get(itemName.trim().toLowerCase());
-    apply(match ? {
-      itemName: usageItemName(match),
-      code: match.item_number ?? "",
-      description: match.description ?? "",
-    } : { itemName });
+    const option = FOW_OPTIONS.find(([, name]) => name.toLowerCase() === itemName.toLowerCase());
+    const match = option ? catalogByKey.get(option[0]) : undefined;
+    apply(match ? { itemName, code: match.item_number ?? "", description: match.description ?? "" } : { itemName });
   };
 
   const add = () => {

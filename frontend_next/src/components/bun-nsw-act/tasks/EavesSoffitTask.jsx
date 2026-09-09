@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -82,6 +82,47 @@ export default function EavesSoffitTask({
       if (onChange) onChange("eaves", "soffit_bead", initial);
     }
   }, [SOFFIT_BEAD_OPTIONS]);
+
+  // ── Auto-load saved Eaves & Soffit entries from MSSQL if empty on job load ──
+  const loadedJobRef = useRef(null);
+  useEffect(() => {
+    let isCancelled = false;
+    const target = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim().toLowerCase();
+    if (!target || target === "default" || target === "testai") return;
+    if (entries && entries.length > 0) return;
+    if (loadedJobRef.current === target) return;
+    loadedJobRef.current = target;
+
+    async function loadFromDb() {
+      try {
+        const res = await ApiService.fetchEavesJobs();
+        if (isCancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          if (matchedRows.length > 0 && onSetEntries) {
+            const loaded = matchedRows.map((r, idx) => ({
+              id: r.eaves_id ? `eave-${r.eaves_id}` : `eave-loaded-${Date.now()}-${idx}`,
+              brand: r.sheet_brand || "FC",
+              thickness: r.sheet_thickness || "4.5mm",
+              batten: r.sofit_batten || "",
+              bead: r.sofit_bead || "",
+              inputData: r.input_data || {}
+            }));
+            onSetEntries(loaded);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not auto-load Eaves from DB:", err);
+      }
+    }
+
+    loadFromDb();
+    return () => { isCancelled = true; };
+  }, [activeJobNumber, appModel?.currentProjectName, appModel?.currentJobId, entries, onSetEntries]);
 
   // Inline editing state for Card 2
   const [editingRowId, setEditingRowId] = useState(null);
@@ -199,9 +240,7 @@ export default function EavesSoffitTask({
     };
 
     if (onSetEntries) {
-      // Backend stores one current Eaves/Soffit setup per job. Replace the
-      // current snapshot so Save always matches the API contract.
-      onSetEntries([newEntry]);
+      onSetEntries(prev => [...(prev || []), newEntry]);
     }
   };
 

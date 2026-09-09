@@ -47,8 +47,7 @@ class JobSaveSchema(BaseModel):
     eaves: List[EavesItemSchema] = Field(
         ...,
         min_length=1,
-        max_length=1,
-        description="Đúng một setup Eaves/Soffit hiện hành cho mỗi job",
+        description="Danh sách các setup Eaves/Soffit hiện hành cho mỗi job",
     )
 
 
@@ -269,24 +268,8 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
         for job in payload.jobs:
             input_job_id = job.id_job_hw.strip()
             job_hw_id, authoritative_short_name = _resolve_job(cursor, input_job_id)
-            item = job.eaves[0]
-            short_name_val = item.short_name.strip().upper()
-            if short_name_val != authoritative_short_name:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"Client '{short_name_val}' does not match job '{input_job_id}' "
-                        f"(expected '{authoritative_short_name}')."
-                    ),
-                )
-
-            sheet_brand_val = item.sheet_brand.strip().upper()
-            sheet_thickness_val = _parse_decimal(item.sheet_thickness)
-            sofit_batten_val = item.sofit_batten.strip()
-            sofit_bead_val = item.sofit_bead.strip()
-            input_data_val = _normalize_input_data(item.input_data)
-            if not all((sheet_brand_val, sofit_batten_val, sofit_bead_val)) or not sheet_thickness_val or sheet_thickness_val <= 0:
-                raise HTTPException(status_code=422, detail=f"Eaves setup for job '{input_job_id}' is incomplete or invalid.")
+            first_item = job.eaves[0]
+            short_name_val = first_item.short_name.strip().upper()
 
             # Range-lock this job/client so concurrent requests cannot both
             # create a current row.
@@ -311,7 +294,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
             """
             cursor.execute(sql_update_history, (user_update, job_hw_id, short_name_val))
 
-            # Step 2: INSERT dữ liệu mới thành record mới (IsOldData = 0, NEWID())
+            # Step 2: INSERT toàn bộ record trong job.eaves thành record mới (IsOldData = 0, NEWID())
             sql_insert_new = """
                 INSERT INTO [ProcurementApp].[dbo].[EavesSoffit]
                 (
@@ -343,19 +326,38 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                 );
             """
 
-            cursor.execute(
-                sql_insert_new,
-                (
-                    sheet_brand_val,
-                    sheet_thickness_val,
-                    sofit_batten_val,
-                    sofit_bead_val,
-                    short_name_val,
-                    job_hw_id,
-                    user_update,
-                    json.dumps(input_data_val, separators=(",", ":")),
-                ),
-            )
+            for item in job.eaves:
+                item_short_name = item.short_name.strip().upper()
+                if item_short_name != authoritative_short_name:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Client '{item_short_name}' does not match job '{input_job_id}' "
+                            f"(expected '{authoritative_short_name}')."
+                        ),
+                    )
+
+                sheet_brand_val = item.sheet_brand.strip().upper()
+                sheet_thickness_val = _parse_decimal(item.sheet_thickness)
+                sofit_batten_val = item.sofit_batten.strip()
+                sofit_bead_val = item.sofit_bead.strip()
+                input_data_val = _normalize_input_data(item.input_data)
+                if not all((sheet_brand_val, sofit_batten_val, sofit_bead_val)) or not sheet_thickness_val or sheet_thickness_val <= 0:
+                    raise HTTPException(status_code=422, detail=f"Eaves setup for job '{input_job_id}' is incomplete or invalid.")
+
+                cursor.execute(
+                    sql_insert_new,
+                    (
+                        sheet_brand_val,
+                        sheet_thickness_val,
+                        sofit_batten_val,
+                        sofit_bead_val,
+                        item_short_name,
+                        job_hw_id,
+                        user_update,
+                        json.dumps(input_data_val, separators=(",", ":")),
+                    ),
+                )
 
             cursor.execute("""
                 SELECT COUNT(*)
@@ -366,10 +368,10 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
             """, (job_hw_id, short_name_val))
             active_count_row = cursor.fetchone()
             active_count = int(_row_value(active_count_row, "", 0) or 0)
-            if active_count != 1:
+            if active_count != len(job.eaves):
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Expected one current Eaves row for job '{input_job_id}', found {active_count}.",
+                    detail=f"Expected {len(job.eaves)} current Eaves row(s) for job '{input_job_id}', found {active_count}.",
                 )
 
             saved_summary.append({

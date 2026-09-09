@@ -15,7 +15,7 @@ const PALETTE_COLORS = [
 ];
 
 const STROKE_WIDTH_OPTIONS = [1, 2, 4, 8, 12, 16, 24, 32];
-const FONT_SIZE_OPTIONS = [14, 18, 22, 28, 32, 40, 48, 64];
+const FONT_SIZE_OPTIONS = [14, 18, 24, 32, 40, 48, 60, 72, 84, 96, 120];
 
 export default function AnnotationPropertyPanel({
   annotation,
@@ -141,8 +141,7 @@ export default function AnnotationPropertyPanel({
   const currentFillMode = annotation.fillMode || "both";
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
   const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
-  const currentFontSize = annotation.fontSize || (annotation.type === "text" ? 36 : (annotation.type === "sticky-note" ? 30 : 20));
-  const isBold = annotation.type === "text" ? (annotation.isBold !== false) : !!annotation.isBold;
+  const currentFontSize = annotation.fontSize || 60;
 
   const handleUpdate = (field, val) => {
     if (onUpdateAnnotation) {
@@ -253,7 +252,7 @@ export default function AnnotationPropertyPanel({
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-            Color
+            {annotation.type === "sticky-note" ? "Note Background Color" : (annotation.type === "text" ? "Text Color" : "Color")}
           </label>
           <span style={{ fontSize: "11px", fontFamily: "monospace", color: "#64748b", fontWeight: 600 }}>
             {currentColor}
@@ -468,7 +467,7 @@ export default function AnnotationPropertyPanel({
             <input
               type="range"
               min="14"
-              max="72"
+              max="160"
               step="2"
               value={currentFontSize}
               onChange={(e) => handleUpdate("fontSize", parseInt(e.target.value, 10))}
@@ -497,86 +496,6 @@ export default function AnnotationPropertyPanel({
             </div>
           </div>
 
-          {/* Text Style: Bold, Italic, Underline, Strike */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-              Font Style
-            </label>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <button
-                type="button"
-                onClick={() => handleUpdate("isBold", !isBold)}
-                style={{
-                  flex: 1,
-                  background: isBold ? "#31456E" : "#f8fafc",
-                  color: isBold ? "#ffffff" : "#334155",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: "6px",
-                  padding: "6px 0",
-                  fontWeight: 800,
-                  fontSize: "13px",
-                  cursor: "pointer"
-                }}
-              >
-                B
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdate("isItalic", !annotation.isItalic)}
-                style={{
-                  flex: 1,
-                  background: annotation.isItalic ? "#31456E" : "#f8fafc",
-                  color: annotation.isItalic ? "#ffffff" : "#334155",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: "6px",
-                  padding: "6px 0",
-                  fontStyle: "italic",
-                  fontFamily: "serif",
-                  fontWeight: 700,
-                  fontSize: "14px",
-                  cursor: "pointer"
-                }}
-              >
-                I
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdate("isUnderline", !annotation.isUnderline)}
-                style={{
-                  flex: 1,
-                  background: annotation.isUnderline ? "#31456E" : "#f8fafc",
-                  color: annotation.isUnderline ? "#ffffff" : "#334155",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: "6px",
-                  padding: "6px 0",
-                  textDecoration: "underline",
-                  fontWeight: 700,
-                  fontSize: "13px",
-                  cursor: "pointer"
-                }}
-              >
-                U
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdate("isStrikethrough", !annotation.isStrikethrough)}
-                style={{
-                  flex: 1,
-                  background: annotation.isStrikethrough ? "#31456E" : "#f8fafc",
-                  color: annotation.isStrikethrough ? "#ffffff" : "#334155",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: "6px",
-                  padding: "6px 0",
-                  textDecoration: "line-through",
-                  fontWeight: 700,
-                  fontSize: "13px",
-                  cursor: "pointer"
-                }}
-              >
-                S
-              </button>
-            </div>
-          </div>
 
           {/* Editable Text Content */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>

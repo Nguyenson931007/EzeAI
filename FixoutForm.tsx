@@ -1,6 +1,6 @@
 import "../styles/FixoutForm.css";
 import { useEffect, useState } from "react";
-import { getBunNswActLockupOptions, getEmsFixoutRows, type EmsFixoutRow } from "../../../api";
+import { getBunNswActLockupOptions, getEmsFixoutRows, getUsingFindItems, type EmsFixoutRow } from "../../../api";
 import type { WorkflowOutputRow, WorkPackFileData } from "../../../types";
 import CollapsibleSubgroup from "../../../components/CollapsibleSubgroup";
 import { useCustomerCalculator } from "../../useCustomerCalculator";
@@ -93,32 +93,28 @@ const SMART_ROBE_WIDTH_TABLE: Array<[string, string, string]> = [
 ];
 const emptySmartRobeDraft = (): SmartRobeDraft => ({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
 
-// Fix!B127:C153 "Type" list for Architrave/Skirting (Fixout!M70/M73/M80/M83 x14
-// extended data validation) -- [description, item code]. Shared by all 4 trim
-// fields (Architrave, Skirting, and their Wet Area variants); "spec" opens a
-// free-text override with no resolved code, same as other unmatched trims.
-const TRIM_TYPE_OPTIONS: Array<[string, string]> = [
-  ["To Match Existing 5.4M", ""],
-  ["MDF DAR PRIMED++42X18MM 5.4M", "8470034"],
-  ["MDF DAR PRIMED++67X18MM 5.4M", "8470036"],
-  ["MDF DAR PRIMED++92X18MM 5.4M", "8470038"],
-  ["PINE PRIMED DAR FJ++42X18MM 5.4M", "0020749"],
-  ["PINE PRIMED DAR FJ++66X18MM 5.4M", "0020750"],
-  ["PINE PRIMED DAR FJ++92X18MM 5.4M", "0020751"],
-  ["MDF MOULDING BEVEL++42X18MM 5.4M PRIMED", "8470064"],
-  ["MDF MOULDING BEVEL++67X18MM 5.4M PRIMED", "8470063"],
-  ["MDF MOULDING BEVEL++92X18MM 5.4M PRIMED", "8470014"],
-  ["MDF MOULDING COLONIAL++42X18MM 5.4M PRIMED", "8470071"],
-  ["MDF MOULDING COLONIAL++67X18MM 5.4M PRIMED", "8470074"],
-  ["MDF MOULDING COLONIAL++92X18MM 5.4M PRIMED", "8470046"],
-  ["MDF MOULDING BULLNOSE++42X18MM 5.4M PRIMED", "8470067"],
-  ["MDF MOULDING BULLNOSE++67X18MM 5.4M PRIMED", "8470076"],
-  ["MDF MOULDING BULLNOSE++92X18MM 5.4M PRIMED", "8470061"],
-  ["MDF MOULDING HALF SPLAYED++67X18MM 5.4M PRIMED", "8470069"],
-  ["MDF MOULDING HALF SPLAYED++92X18MM 5.4M PRIMED", "8470110"],
-  ["MDF MOULDING LAMBS TONGUE++67X18MM 5.4M PRIMED", "8470080"],
-  ["MDF MOULDING LAMBS TONGUE++92X18MM 5.4M PRIMED", "8470083"],
-  ["spec", "spec"],
+// Workbook options stay in code; their product codes are resolved from Using.
+const TRIM_OPTION_DEFINITIONS: Array<[string, string]> = [
+  ["match-existing", "To Match Existing 5.4M"],
+  ["mdf-dar-42x18", "MDF DAR PRIMED++42X18MM 5.4M"],
+  ["mdf-dar-67x18", "MDF DAR PRIMED++67X18MM 5.4M"],
+  ["mdf-dar-92x18", "MDF DAR PRIMED++92X18MM 5.4M"],
+  ["pine-dar-42x18", "PINE PRIMED DAR FJ++42X18MM 5.4M"],
+  ["pine-dar-66x18", "PINE PRIMED DAR FJ++66X18MM 5.4M"],
+  ["pine-dar-92x18", "PINE PRIMED DAR FJ++92X18MM 5.4M"],
+  ["mdf-bevel-42x18", "MDF MOULDING BEVEL++42X18MM 5.4M PRIMED"],
+  ["mdf-bevel-67x18", "MDF MOULDING BEVEL++67X18MM 5.4M PRIMED"],
+  ["mdf-bevel-92x18", "MDF MOULDING BEVEL++92X18MM 5.4M PRIMED"],
+  ["mdf-colonial-42x18", "MDF MOULDING COLONIAL++42X18MM 5.4M PRIMED"],
+  ["mdf-colonial-67x18", "MDF MOULDING COLONIAL++67X18MM 5.4M PRIMED"],
+  ["mdf-colonial-92x18", "MDF MOULDING COLONIAL++92X18MM 5.4M PRIMED"],
+  ["mdf-bullnose-42x18", "MDF MOULDING BULLNOSE++42X18MM 5.4M PRIMED"],
+  ["mdf-bullnose-67x18", "MDF MOULDING BULLNOSE++67X18MM 5.4M PRIMED"],
+  ["mdf-bullnose-92x18", "MDF MOULDING BULLNOSE++92X18MM 5.4M PRIMED"],
+  ["mdf-half-splayed-67x18", "MDF MOULDING HALF SPLAYED++67X18MM 5.4M PRIMED"],
+  ["mdf-half-splayed-92x18", "MDF MOULDING HALF SPLAYED++92X18MM 5.4M PRIMED"],
+  ["mdf-lambs-tongue-67x18", "MDF MOULDING LAMBS TONGUE++67X18MM 5.4M PRIMED"],
+  ["mdf-lambs-tongue-92x18", "MDF MOULDING LAMBS TONGUE++92X18MM 5.4M PRIMED"],
 ];
 
 // Fixout!L22:L60 data validation list ("Label") -- suggestions only, free text
@@ -194,22 +190,23 @@ function SelectField({ label, value, values, labels, onChange }: { label: string
 // Fixout!M70/M73/M80/M83 "Type" selector for a trim item (arch/skirting/wet
 // variants). Writes fixout_{key}_code + fixout_{key}_description, matching
 // the backend's existing _fixout_override() lookup -- no backend change needed.
-function TrimTypeField({ label, itemKey, defaultDescription, fields, onChange }: {
-  label: string; itemKey: string; defaultDescription: string;
+function TrimTypeField({ label, itemKey, defaultOptionKey, options, fields, onChange }: {
+  label: string; itemKey: string; defaultOptionKey: string; options: Array<[string, string]>;
   fields: Record<string, string>; onChange: (patch: Record<string, string>) => void;
 }) {
+  const defaultDescription = TRIM_OPTION_DEFINITIONS.find(([key]) => key === defaultOptionKey)?.[1] ?? "";
   const description = fields[`fixout_${itemKey}_description`] ?? defaultDescription;
-  const isSpec = !TRIM_TYPE_OPTIONS.some(([desc]) => desc === description);
+  const isSpec = !options.some(([desc]) => desc === description);
   const selectValue = isSpec ? "spec" : description;
   const specValue = isSpec ? description : "";
   return <>
     <ComboField
       label={label}
       value={selectValue}
-      values={TRIM_TYPE_OPTIONS.map(([desc]) => desc)}
+      values={[...options.map(([desc]) => desc), "spec"]}
       selectOnly
       onChange={(value) => {
-        const match = TRIM_TYPE_OPTIONS.find(([desc]) => desc === value);
+        const match = options.find(([desc]) => desc === value);
         const isSpecSelection = !match || match[0] === "spec";
         onChange({
           [`fixout_${itemKey}_description`]: isSpecSelection ? "" : match[0],
@@ -260,6 +257,7 @@ export default function BunNswActFixoutForm({ data, sourceFiles, idJobHw = "", o
   const [errors, setErrors] = useState<Record<FixoutMode, string>>({ cavity: "", prehung: "", "loose-jamb": "" });
   const [editing, setEditing] = useState<FixoutDoor | null>(null);
   const [doorNames, setDoorNames] = useState<string[]>([]);
+  const [trimTypeOptions, setTrimTypeOptions] = useState<Array<[string, string]>>([]);
   const [smartRobeRows, setSmartRobeRows] = useState<SmartRobeRow[]>(() => parse<SmartRobeRow[]>(data.fields.fixout_smart_robe_rows, [])
     // Drop blank placeholder rows and backfill ids left over from an earlier
     // fixed-10-row grid design that predates per-row add/edit.
@@ -275,6 +273,18 @@ export default function BunNswActFixoutForm({ data, sourceFiles, idJobHw = "", o
   const [editingReveal, setEditingReveal] = useState<RevealOpening | null>(null);
 
   useEffect(() => { getBunNswActLockupOptions().then((result) => setDoorNames(result.internal)).catch(() => undefined); }, []);
+  useEffect(() => {
+    getUsingFindItems("BUN-NSW-ACT", "fixout").then((rows) => {
+      const byKey = new Map(rows.filter((row) => row.group_key === "trim-options").map((row) => [row.usage_key, row]));
+      setTrimTypeOptions([
+        ["To Match Existing 5.4M", ""],
+        ...TRIM_OPTION_DEFINITIONS.filter(([key]) => key !== "match-existing").map(([key, label]) => {
+          const usage = byKey.get(`trim-option.${key}`);
+          return [label, usage?.item_number ?? ""] as [string, string];
+        }),
+      ]);
+    }).catch(() => undefined);
+  }, []);
 
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceError, setSourceError] = useState("");
@@ -636,7 +646,7 @@ export default function BunNswActFixoutForm({ data, sourceFiles, idJobHw = "", o
         <div className="fixout-extra-grid fixout-extra-grid-compact">
           <label className="fh-field"><span>Extras architrave</span><input className="fh-required" value={data.fields.fixout_arch_extra_lengths ?? "0"} onChange={(event) => /^\d*(?:[.,]\d*)?$/.test(event.target.value) && update("fixout_arch_extra_lengths", event.target.value)}/></label>
           {/* Fixout!M70 "Type" x14 extended data validation -> Fix!B127:C153. */}
-          <TrimTypeField label="Architrave Type" itemKey="arch" defaultDescription="MDF DAR PRIMED++42X18MM 5.4M" fields={data.fields} onChange={updateMany}/>
+          <TrimTypeField label="Architrave Type" itemKey="arch" defaultOptionKey="mdf-dar-42x18" options={trimTypeOptions} fields={data.fields} onChange={updateMany}/>
         </div>
         <div className="fh-table-wrap"><table className="fh-table fixout-arch-breakdown-table"><thead><tr>
           <th>Extras</th><th>Ext Doors</th><th>Robes +CSD</th><th>Windows</th><th>Int</th>
@@ -654,7 +664,7 @@ export default function BunNswActFixoutForm({ data, sourceFiles, idJobHw = "", o
         <div className="fixout-extra-grid fixout-extra-grid-compact">
           <label className="fh-field"><span>Skirting</span><input className="fh-required" value={data.fields.fixout_skirting_lm ?? "0"} onChange={(event) => /^\d*(?:[.,]\d*)?$/.test(event.target.value) && update("fixout_skirting_lm", event.target.value)}/></label>
           {/* Fixout!M73 "Type" x14 extended data validation -> Fix!B127:C153. */}
-          <TrimTypeField label="Skirting Type" itemKey="skirting" defaultDescription="MDF DAR PRIMED++67X18MM 5.4M" fields={data.fields} onChange={updateMany}/>
+          <TrimTypeField label="Skirting Type" itemKey="skirting" defaultOptionKey="mdf-dar-67x18" options={trimTypeOptions} fields={data.fields} onChange={updateMany}/>
         </div>
       </div>
 
@@ -671,10 +681,10 @@ export default function BunNswActFixoutForm({ data, sourceFiles, idJobHw = "", o
         <div className="fixout-extra-grid fixout-extra-grid-compact">
           <label className="fh-field"><span>Wet-area architrave</span><input className="fh-required" value={data.fields.fixout_wet_arch_lengths ?? "0"} onChange={(event) => /^\d*(?:[.,]\d*)?$/.test(event.target.value) && update("fixout_wet_arch_lengths", event.target.value)}/></label>
           {/* Fixout!M80 "Type" x14 extended data validation -> Fix!B127:C153. */}
-          <TrimTypeField label="Wet-area Architrave Type" itemKey="arch-wet" defaultDescription="MDF DAR PRIMED++42X18MM 5.4M" fields={data.fields} onChange={updateMany}/>
+          <TrimTypeField label="Wet-area Architrave Type" itemKey="arch-wet" defaultOptionKey="mdf-dar-42x18" options={trimTypeOptions} fields={data.fields} onChange={updateMany}/>
           <label className="fh-field"><span>Wet-area skirting</span><input className="fh-required" value={data.fields.fixout_wet_skirting_lm ?? "0"} onChange={(event) => /^\d*(?:[.,]\d*)?$/.test(event.target.value) && update("fixout_wet_skirting_lm", event.target.value)}/></label>
           {/* Fixout!M83 "Type" x14 extended data validation -> Fix!B127:C153. */}
-          <TrimTypeField label="Wet-area Skirting Type" itemKey="skirting-wet" defaultDescription="MDF DAR PRIMED++67X18MM 5.4M" fields={data.fields} onChange={updateMany}/>
+          <TrimTypeField label="Wet-area Skirting Type" itemKey="skirting-wet" defaultOptionKey="mdf-dar-67x18" options={trimTypeOptions} fields={data.fields} onChange={updateMany}/>
         </div>
       </div>
     </div>

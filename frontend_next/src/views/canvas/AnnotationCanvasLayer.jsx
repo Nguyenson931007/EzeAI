@@ -177,6 +177,11 @@ export default function AnnotationCanvasLayer({
   const calloutTipDragRef = useRef(null);
   calloutTipDragRef.current = calloutTipDrag;
 
+  // Text Resize Drag State (Word-style 8 handles)
+  const [textResizeState, setTextResizeState] = useState(null);
+  const textResizeStateRef = useRef(null);
+  textResizeStateRef.current = textResizeState;
+
   // Inline Text Box & Note Editing
   const [editingTextId, setEditingTextId] = useState(null);
   const [editingTextValue, setEditingTextValue] = useState("");
@@ -403,8 +408,7 @@ export default function AnnotationCanvasLayer({
         y: pt.y - 60,
         width: 120,
         height: 120,
-        color: annotationColor === "#facc15" ? "#fef08a" : annotationColor,
-        fontSize: annotationFontSize || 30,
+        fontSize: textFontSize || annotationFontSize || 60,
         isBold: false,
         isItalic: false,
         isUnderline: false,
@@ -426,9 +430,8 @@ export default function AnnotationCanvasLayer({
       return;
     }
 
-    // 3. Text Box: Drop immediately with clean empty text and enable editing (Bigger 36px font)
     if (activeAnnotationTool === "text") {
-      const initialSize = textFontSize >= 24 ? textFontSize : (annotationFontSize >= 24 ? annotationFontSize : 36);
+      const initialSize = textFontSize || annotationFontSize || 60;
       const newText = {
         id: genId("text"),
         type: "text",
@@ -460,24 +463,30 @@ export default function AnnotationCanvasLayer({
       return;
     }
 
-    // 4. Standard Drag/Click Tools (rect, oval, cloud, line, arrow, underline, strike, snapshot, etc.)
-    const isCallout = activeAnnotationTool === "callout";
+    // 4. Default Drag-to-Draw Tools (rect, oval, cloud, line, arrow, underline, strikethrough, callout)
     const newDrawing = {
+      type: activeAnnotationTool,
       startPt: pt,
       currentPt: pt,
-      type: activeAnnotationTool,
-      color: isCallout ? (textColor || "#0f172a") : annotationColor,
-      strokeWidth: isCallout ? (calloutStrokeWidth || 3.5) : (annotationStrokeWidth || 4),
-      fillMode: annotationFillMode || "stroke",
-      opacity: isCallout ? (textOpacity != null ? textOpacity : 1.0) : annotationOpacity,
-      fillOpacity: annotationFillOpacity
+      color: (activeAnnotationTool.startsWith("highlight") || activeAnnotationTool === "measure-area-poly" || activeAnnotationTool === "measure-area")
+        ? annotationColor
+        : (activeAnnotationTool === "callout" ? (textColor || "#0f172a") : annotationColor),
+      strokeWidth: activeAnnotationTool === "callout" ? calloutStrokeWidth : annotationStrokeWidth,
+      fillMode: annotationFillMode
     };
     setDrawingState(newDrawing);
   };
 
-  // Start moving existing annotation (Only in Select mode)
+  // Start moving existing annotation (Only in Select mode, or switch to Select mode if clicking same tool)
   const handleAnnotationMouseDown = (e, ann) => {
-    if (activeAnnotationTool) return;
+    if (activeAnnotationTool) {
+      if ((activeAnnotationTool === "text" && ann.type === "text") || (activeAnnotationTool === "sticky-note" && ann.type === "sticky-note")) {
+        setActiveAnnotationTool(null);
+        if (setInteractionMode) setInteractionMode("select");
+      } else {
+        return;
+      }
+    }
     if (e.button !== 0) return;
 
     e.stopPropagation();
@@ -530,6 +539,59 @@ export default function AnnotationCanvasLayer({
     setMovingState({
       items,
       startMouse: pt,
+      initialSnapshot: annotationsByPage
+    });
+  };
+
+  // Word-style 8-handle resizing for Text, Sticky Note, and Callout
+  const startTextResize = (e, ann, handle) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const pt = getPointFromEvent(e);
+    if (!pt) return;
+
+    const fSize = ann.fontSize || 60;
+    let estW = ann.width;
+    let estH = ann.height;
+    let origX = ann.x || 0;
+    let origY = ann.y || 0;
+
+    if (ann.type === "callout") {
+      const boxX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
+      const boxY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
+      const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "Callout";
+      const textLines = (rawText || "").split("\n");
+      const lineCount = Math.max(textLines.length, 1);
+      const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
+      estW = ann.width || Math.max(longestLine.length * (fSize * 0.65) + 28, 100);
+      const lineHeight = fSize * 1.35;
+      estH = ann.height || Math.max(lineCount * lineHeight + 14, fSize * 1.6, 38);
+      origX = boxX - 8;
+      origY = boxY - estH / 2;
+    } else if (ann.type === "sticky-note") {
+      estW = ann.width || 120;
+      estH = ann.height || 120;
+      origX = ann.x || 0;
+      origY = ann.y || 0;
+    } else {
+      estW = ann.width || Math.max(140, Math.min(800, ((ann.text || "Text").length) * (fSize * 0.65) + 36));
+      estH = ann.height || Math.max(50, fSize * 1.5 + 16);
+      origX = ann.x || 0;
+      origY = ann.y || 0;
+    }
+
+    setTextResizeState({
+      annId: ann.id,
+      annType: ann.type,
+      handle,
+      startMouse: pt,
+      origX,
+      origY,
+      origWidth: estW,
+      origHeight: estH,
+      origFontSize: fSize,
+      origBoxX: ann.boxX || (ann.currentPt?.x || (ann.x + 40)),
+      origBoxY: ann.boxY || (ann.currentPt?.y || (ann.y + 40)),
       initialSnapshot: annotationsByPage
     });
   };
@@ -594,6 +656,94 @@ export default function AnnotationCanvasLayer({
               }
               if (typeof it.origBoxX === "number") updated.boxX = it.origBoxX + dx;
               if (typeof it.origBoxY === "number") updated.boxY = it.origBoxY + dy;
+              return updated;
+            })
+          };
+        });
+      }
+
+      // Live text / sticky note / callout box resizing (Word-style 8 handles)
+      if (textResizeStateRef.current) {
+        const trs = textResizeStateRef.current;
+        const dx = pt.x - trs.startMouse.x;
+        const dy = pt.y - trs.startMouse.y;
+        const handle = trs.handle;
+
+        let newWidth = trs.origWidth;
+        let newHeight = trs.origHeight;
+        let newFontSize = trs.origFontSize;
+        let newX = trs.origX;
+        let newY = trs.origY;
+        let newBoxX = trs.origBoxX;
+        let newBoxY = trs.origBoxY;
+
+        // East / West
+        if (handle.includes("e")) {
+          newWidth = Math.max(40, trs.origWidth + dx);
+        } else if (handle.includes("w")) {
+          const proposedW = trs.origWidth - dx;
+          if (proposedW >= 40) {
+            newWidth = proposedW;
+            newX = trs.origX + dx;
+            if (trs.annType === "callout") {
+              newBoxX = (trs.origBoxX || trs.origX) + dx;
+            }
+          }
+        }
+
+        // North / South
+        if (handle.includes("s")) {
+          newHeight = Math.max(40, trs.origHeight + dy);
+        } else if (handle.includes("n")) {
+          const proposedH = trs.origHeight - dy;
+          if (proposedH >= 40) {
+            newHeight = proposedH;
+            newY = trs.origY + dy;
+            if (trs.annType === "callout") {
+              newBoxY = (trs.origBoxY || trs.origY) + dy;
+            }
+          }
+        }
+
+        // Font scaling for text and callout on corner/vertical drag:
+        if (trs.annType !== "sticky-note") {
+          if (handle === "se" || handle === "s") {
+            const scaleFactor = Math.max(0.2, (trs.origWidth + dx) / trs.origWidth);
+            newFontSize = Math.max(14, Math.min(240, Math.round(trs.origFontSize * scaleFactor)));
+          } else if (handle === "sw") {
+            const scaleFactor = Math.max(0.2, (trs.origWidth - dx) / trs.origWidth);
+            newFontSize = Math.max(14, Math.min(240, Math.round(trs.origFontSize * scaleFactor)));
+          } else if (handle === "ne" || handle === "n") {
+            const scaleFactor = Math.max(0.2, (trs.origHeight - dy) / trs.origHeight);
+            newFontSize = Math.max(14, Math.min(240, Math.round(trs.origFontSize * scaleFactor)));
+          } else if (handle === "nw") {
+            const scaleFactor = Math.max(0.2, (trs.origWidth - dx) / trs.origWidth);
+            newFontSize = Math.max(14, Math.min(240, Math.round(trs.origFontSize * scaleFactor)));
+          }
+        } else {
+          const scaleFactor = Math.max(0.3, Math.min(3.0, newWidth / trs.origWidth));
+          newFontSize = Math.max(16, Math.min(140, Math.round(trs.origFontSize * scaleFactor)));
+        }
+
+        setAnnotationsByPage((prev) => {
+          const list = prev[currentPage] || [];
+          return {
+            ...prev,
+            [currentPage]: list.map((a) => {
+              if (a.id !== trs.annId) return a;
+              const updated = {
+                ...a,
+                width: newWidth,
+                height: newHeight,
+                fontSize: newFontSize
+              };
+              if (trs.annType === "callout") {
+                if (newBoxX != null) updated.boxX = newBoxX;
+                if (newBoxY != null) updated.boxY = newBoxY;
+              } else {
+                updated.x = newX;
+                updated.y = newY;
+              }
               return updated;
             })
           };
@@ -708,6 +858,15 @@ export default function AnnotationCanvasLayer({
         setCalloutTipDrag(null);
       }
 
+      // 0.3 Finish Text Resize Dragging
+      if (textResizeStateRef.current) {
+        const trs = textResizeStateRef.current;
+        if (trs.initialSnapshot && typeof pushAnnotationHistory === "function") {
+          pushAnnotationHistory(trs.initialSnapshot);
+        }
+        setTextResizeState(null);
+      }
+
       // 1. Finish standard Dragging
       if (drawingStateRef.current) {
         const currentDrawing = drawingStateRef.current;
@@ -777,8 +936,7 @@ export default function AnnotationCanvasLayer({
         if (type === "callout") {
           newAnn.text = "Callout";
           newAnn.color = textColor || "#0f172a";
-          newAnn.strokeWidth = calloutStrokeWidth || 3.5;
-          newAnn.fontSize = textFontSize >= 24 ? textFontSize : (annotationFontSize >= 24 ? annotationFontSize : 36);
+          newAnn.fontSize = textFontSize || annotationFontSize || 60;
           newAnn.opacity = textOpacity != null ? textOpacity : 1.0;
           newAnn.boxX = isSmallClick ? startPt.x + 80 : endPt.x;
           newAnn.boxY = isSmallClick ? startPt.y - 50 : endPt.y;
@@ -1636,7 +1794,7 @@ export default function AnnotationCanvasLayer({
               />
             )}
 
-            {/* 14. STICKY NOTE (Extra Large 120x120, high visibility icon) */}
+            {/* 14. STICKY NOTE (Extra Large 120x120, single click selects + 8 handles, double click edits) */}
             {ann.type === "sticky-note" && (() => {
               const noteW = ann.width || 120;
               const noteH = ann.height || 120;
@@ -1651,7 +1809,6 @@ export default function AnnotationCanvasLayer({
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedAnnotationId(ann.id);
-                    setActiveNotePopup(ann);
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
@@ -1664,19 +1821,56 @@ export default function AnnotationCanvasLayer({
                     y="0"
                     width={noteW}
                     height={noteH}
-                    rx="20"
+                    rx={Math.max(10, Math.min(20, noteW * 0.15))}
                     fill={ann.color || "#fef08a"}
                     stroke={isSelected ? "#2563eb" : "#ca8a04"}
-                    strokeWidth={isSelected ? "4.5" : "3"}
+                    strokeWidth={isSelected ? "3.5" : "2.5"}
+                    strokeDasharray={isSelected ? "5,3" : "none"}
                     opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
                     filter="drop-shadow(0 8px 20px rgba(0,0,0,0.35))"
                   />
-                  <text x={noteW / 2} y={noteH / 2 + 22} fontSize="68" textAnchor="middle" style={{ pointerEvents: "none" }}>📝</text>
+                  <text
+                    x={noteW / 2}
+                    y={noteH / 2 + Math.min(noteW, noteH) * 0.18}
+                    fontSize={Math.max(28, Math.min(noteW, noteH) * 0.5)}
+                    textAnchor="middle"
+                    style={{ pointerEvents: "none", userSelect: "none" }}
+                  >
+                    📝
+                  </text>
+
+                  {/* 8 Resize Handles on Selection */}
+                  {isSelected && !isMarkupActive && (
+                    <g className="sticky-note-handles">
+                      {[
+                        { pos: "nw", cx: 0, cy: 0, cursor: "nwse-resize" },
+                        { pos: "n", cx: noteW / 2, cy: 0, cursor: "ns-resize" },
+                        { pos: "ne", cx: noteW, cy: 0, cursor: "nesw-resize" },
+                        { pos: "e", cx: noteW, cy: noteH / 2, cursor: "ew-resize" },
+                        { pos: "se", cx: noteW, cy: noteH, cursor: "nwse-resize" },
+                        { pos: "s", cx: noteW / 2, cy: noteH, cursor: "ns-resize" },
+                        { pos: "sw", cx: 0, cy: noteH, cursor: "nesw-resize" },
+                        { pos: "w", cx: 0, cy: noteH / 2, cursor: "ew-resize" }
+                      ].map((h) => (
+                        <circle
+                          key={h.pos}
+                          cx={h.cx}
+                          cy={h.cy}
+                          r={Math.max(5 / scale, 5)}
+                          fill="#ffffff"
+                          stroke="#2563eb"
+                          strokeWidth={2 / scale}
+                          style={{ cursor: h.cursor, pointerEvents: "all" }}
+                          onMouseDown={(e) => startTextResize(e, ann, h.pos)}
+                        />
+                      ))}
+                    </g>
+                  )}
                 </g>
               );
             })()}
 
-            {/* 15. TEXT BOX (Bigger default 36px font, bold, clear) */}
+            {/* 15. TEXT BOX (Default 60px font, Word-style 8 resize handles, partial BIU) */}
             {ann.type === "text" && (() => {
               if (editingTextId === ann.id) return null;
 
@@ -1699,17 +1893,20 @@ export default function AnnotationCanvasLayer({
                 ) : ""
               );
 
-              if (!htmlContent || !htmlContent.trim()) return null;
+              const hasContent = Boolean((ann.text && String(ann.text).trim()) || (ann.html && String(ann.html).trim()));
+              const displayContent = hasContent ? htmlContent : '<span style="color:#94a3b8; font-style:italic;">Text</span>';
 
-              const fSize = ann.fontSize || 36;
+              const fSize = ann.fontSize || 60;
+              const boxW = ann.width || Math.max(140, Math.min(800, ((ann.text || "Text").length) * (fSize * 0.65) + 36));
+              const boxH = ann.height || Math.max(50, fSize * 1.5 + 16);
 
               return (
                 <g transform={`translate(${ann.x}, ${ann.y})`}>
                   <foreignObject
-                    x="-8"
-                    y={-fSize - 8}
-                    width="1200"
-                    height="800"
+                    x="-12"
+                    y={-fSize - 12}
+                    width={Math.max(boxW + 60, 1200)}
+                    height={Math.max(boxH + 80, 800)}
                     style={{ overflow: "visible", pointerEvents: "none" }}
                   >
                     <div
@@ -1723,16 +1920,19 @@ export default function AnnotationCanvasLayer({
                       }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
+                        setSelectedAnnotationId(ann.id);
                         setEditingTextId(ann.id);
                         setEditingTextValue(ann.text || "");
                       }}
                       style={{
+                        position: "relative",
                         display: "inline-block",
+                        minWidth: `${boxW}px`,
                         pointerEvents: "all",
                         cursor: isSelected ? "move" : "pointer",
-                        background: "#ffffff",
-                        border: isSelected ? "2.5px dashed #2563eb" : "1.5px solid #94a3b8",
-                        borderRadius: "8px",
+                        background: isSelected ? "rgba(255,255,255,0.92)" : "#ffffff",
+                        border: isSelected ? "2px dashed #2563eb" : "1.5px solid #cbd5e1",
+                        borderRadius: "6px",
                         padding: "8px 16px",
                         fontSize: `${fSize}px`,
                         color: ann.color || "#0f172a",
@@ -1741,11 +1941,75 @@ export default function AnnotationCanvasLayer({
                         lineHeight: 1.35,
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
-                        boxShadow: isSelected ? "0 6px 18px rgba(37,99,235,0.3)" : "0 3px 8px rgba(0,0,0,0.18)",
+                        boxShadow: isSelected ? "0 6px 20px rgba(37,99,235,0.25)" : "0 3px 8px rgba(0,0,0,0.12)",
                         userSelect: "none"
                       }}
-                      dangerouslySetInnerHTML={{ __html: htmlContent }}
-                    />
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: displayContent }} />
+
+                      {/* Word-style 8 Resize Handles + Rotate on Selection */}
+                      {isSelected && (
+                        <>
+                          {[
+                            { pos: "nw", top: -6, left: -6, cursor: "nwse-resize" },
+                            { pos: "n", top: -6, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" },
+                            { pos: "ne", top: -6, right: -6, cursor: "nesw-resize" },
+                            { pos: "e", top: "50%", right: -6, transform: "translateY(-50%)", cursor: "ew-resize" },
+                            { pos: "se", bottom: -6, right: -6, cursor: "nwse-resize" },
+                            { pos: "s", bottom: -6, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" },
+                            { pos: "sw", bottom: -6, left: -6, cursor: "nesw-resize" },
+                            { pos: "w", top: "50%", left: -6, transform: "translateY(-50%)", cursor: "ew-resize" }
+                          ].map((h) => (
+                            <div
+                              key={h.pos}
+                              title={`Drag to resize (${h.pos.toUpperCase()})`}
+                              onMouseDown={(e) => startTextResize(e, ann, h.pos)}
+                              style={{
+                                position: "absolute",
+                                width: "11px",
+                                height: "11px",
+                                background: "#ffffff",
+                                border: "2px solid #2563eb",
+                                borderRadius: "50%",
+                                top: h.top,
+                                bottom: h.bottom,
+                                left: h.left,
+                                right: h.right,
+                                transform: h.transform,
+                                cursor: h.cursor,
+                                zIndex: 15,
+                                boxShadow: "0 1px 4px rgba(0,0,0,0.25)"
+                              }}
+                            />
+                          ))}
+
+                          {/* Rotate Handle indicator at top-right */}
+                          <div
+                            title="Rotate Text"
+                            style={{
+                              position: "absolute",
+                              top: -24,
+                              right: -8,
+                              width: "16px",
+                              height: "16px",
+                              borderRadius: "50%",
+                              background: "#ffffff",
+                              border: "1.5px solid #2563eb",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "11px",
+                              color: "#2563eb",
+                              cursor: "grab",
+                              zIndex: 15,
+                              boxShadow: "0 1px 3px rgba(0,0,0,0.25)"
+                            }}
+                          >
+                            ↻
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </foreignObject>
                 </g>
               );
@@ -1765,7 +2029,7 @@ export default function AnnotationCanvasLayer({
 
               const boxX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const boxY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
-              const fontSize = ann.fontSize || 36;
+              const fontSize = ann.fontSize || 60;
               const tipX = ann.startPt?.x || ann.x;
               const tipY = ann.startPt?.y || ann.y;
 
@@ -1774,9 +2038,9 @@ export default function AnnotationCanvasLayer({
               const textLines = (rawText || "").split("\n");
               const lineCount = Math.max(textLines.length, 1);
               const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-              const textW = Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
+              const textW = ann.width || Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
               const lineHeight = fontSize * 1.35;
-              const boxH = Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
+              const boxH = ann.height || Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
               const boxTop = boxY - boxH / 2;
               const startY = boxTop + (boxH - (lineCount - 1) * lineHeight) / 2 + (fontSize * 0.35);
 
@@ -1793,6 +2057,7 @@ export default function AnnotationCanvasLayer({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
+                    setSelectedAnnotationId(ann.id);
                     setEditingTextId(ann.id);
                     setEditingTextValue(ann.text || "");
                   }}
@@ -1858,6 +2123,34 @@ export default function AnnotationCanvasLayer({
                           </tspan>
                         ))}
                       </text>
+
+                      {/* 8 Resize Handles for Callout Box on Selection */}
+                      {isSelected && !isMarkupActive && (
+                        <g className="callout-box-handles">
+                          {[
+                            { pos: "nw", cx: boxX - 8, cy: boxY - boxH / 2, cursor: "nwse-resize" },
+                            { pos: "n", cx: boxX - 8 + textW / 2, cy: boxY - boxH / 2, cursor: "ns-resize" },
+                            { pos: "ne", cx: boxX - 8 + textW, cy: boxY - boxH / 2, cursor: "nesw-resize" },
+                            { pos: "e", cx: boxX - 8 + textW, cy: boxY, cursor: "ew-resize" },
+                            { pos: "se", cx: boxX - 8 + textW, cy: boxY + boxH / 2, cursor: "nwse-resize" },
+                            { pos: "s", cx: boxX - 8 + textW / 2, cy: boxY + boxH / 2, cursor: "ns-resize" },
+                            { pos: "sw", cx: boxX - 8, cy: boxY + boxH / 2, cursor: "nesw-resize" },
+                            { pos: "w", cx: boxX - 8, cy: boxY, cursor: "ew-resize" }
+                          ].map((h) => (
+                            <circle
+                              key={h.pos}
+                              cx={h.cx}
+                              cy={h.cy}
+                              r={Math.max(5 / scale, 5)}
+                              fill="#ffffff"
+                              stroke="#2563eb"
+                              strokeWidth={2 / scale}
+                              style={{ cursor: h.cursor, pointerEvents: "all" }}
+                              onMouseDown={(e) => startTextResize(e, ann, h.pos)}
+                            />
+                          ))}
+                        </g>
+                      )}
                     </>
                   )}
                   {/* Draggable arrow-tip handle (only when selected, not editing) */}
@@ -1890,14 +2183,14 @@ export default function AnnotationCanvasLayer({
             {ann.type === "callout" && isSelected && !isMarkupActive && (() => {
               const cbX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const cbY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
-              const fontSize = ann.fontSize || 20;
+              const fontSize = ann.fontSize || 60;
               const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "Callout";
               const textLines = (rawText || "").split("\n");
               const lineCount = Math.max(textLines.length, 1);
               const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-              const textWidth = Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
+              const textWidth = ann.width || Math.max(longestLine.length * (fontSize * 0.65) + 28, 100);
               const lineHeight = fontSize * 1.35;
-              const boxH = Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
+              const boxH = ann.height || Math.max(lineCount * lineHeight + 14, fontSize * 1.6, 38);
               return (
                 <g
                   transform={`translate(${cbX - 8 + textWidth + 6}, ${cbY - boxH / 2 - 2})`}
@@ -2382,6 +2675,23 @@ function InlineRichTextEditor({
   const [isUnderline, setIsUnderline] = useState(!!targetAnn.isUnderline);
   const [isStrikethrough, setIsStrikethrough] = useState(!!targetAnn.isStrikethrough);
 
+  // Synchronize formatting if edited from Properties Panel
+  useEffect(() => {
+    setIsBold(targetAnn.isBold !== false);
+  }, [targetAnn.isBold]);
+
+  useEffect(() => {
+    setIsItalic(!!targetAnn.isItalic);
+  }, [targetAnn.isItalic]);
+
+  useEffect(() => {
+    setIsUnderline(!!targetAnn.isUnderline);
+  }, [targetAnn.isUnderline]);
+
+  useEffect(() => {
+    setIsStrikethrough(!!targetAnn.isStrikethrough);
+  }, [targetAnn.isStrikethrough]);
+
   useEffect(() => {
     if (!editableRef.current) return;
     const el = editableRef.current;
@@ -2422,11 +2732,16 @@ function InlineRichTextEditor({
     } catch (e) {}
   };
 
-  const syncEditor = () => {
+  const syncEditor = (overrideStyles = {}) => {
     if (!editableRef.current) return;
     const html = editableRef.current.innerHTML;
     const text = (editableRef.current.innerText || editableRef.current.textContent || "").trim();
     setEditingTextValue(text);
+
+    const nextBold = "isBold" in overrideStyles ? overrideStyles.isBold : isBold;
+    const nextItalic = "isItalic" in overrideStyles ? overrideStyles.isItalic : isItalic;
+    const nextUnderline = "isUnderline" in overrideStyles ? overrideStyles.isUnderline : isUnderline;
+    const nextStrike = "isStrikethrough" in overrideStyles ? overrideStyles.isStrikethrough : isStrikethrough;
 
     setAnnotationsByPage((prev) => {
       const list = prev[currentPage] || [];
@@ -2438,10 +2753,10 @@ function InlineRichTextEditor({
                 ...a,
                 html,
                 text,
-                isBold: html.includes("<b>") || html.includes("<strong>"),
-                isItalic: html.includes("<i>") || html.includes("<em>"),
-                isUnderline: html.includes("<u>"),
-                isStrikethrough: html.includes("<s>") || html.includes("<strike>")
+                isBold: nextBold,
+                isItalic: nextItalic,
+                isUnderline: nextUnderline,
+                isStrikethrough: nextStrike
               }
             : a
         )
@@ -2452,33 +2767,93 @@ function InlineRichTextEditor({
   const toggleBold = () => {
     if (!editableRef.current) return;
     editableRef.current.focus();
-    document.execCommand("bold", false, null);
-    updateFormatStates();
-    syncEditor();
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("bold", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncEditor();
+    } else {
+      try {
+        document.execCommand("bold", false, null);
+      } catch (e) {}
+      const next = !isBold;
+      setIsBold(next);
+      updateFormatStates();
+      syncEditor({ isBold: next });
+    }
   };
 
   const toggleItalic = () => {
     if (!editableRef.current) return;
     editableRef.current.focus();
-    document.execCommand("italic", false, null);
-    updateFormatStates();
-    syncEditor();
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("italic", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncEditor();
+    } else {
+      try {
+        document.execCommand("italic", false, null);
+      } catch (e) {}
+      const next = !isItalic;
+      setIsItalic(next);
+      updateFormatStates();
+      syncEditor({ isItalic: next });
+    }
   };
 
   const toggleUnderline = () => {
     if (!editableRef.current) return;
     editableRef.current.focus();
-    document.execCommand("underline", false, null);
-    updateFormatStates();
-    syncEditor();
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("underline", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncEditor();
+    } else {
+      try {
+        document.execCommand("underline", false, null);
+      } catch (e) {}
+      const next = !isUnderline;
+      setIsUnderline(next);
+      updateFormatStates();
+      syncEditor({ isUnderline: next });
+    }
   };
 
   const toggleStrikethrough = () => {
     if (!editableRef.current) return;
     editableRef.current.focus();
-    document.execCommand("strikeThrough", false, null);
-    updateFormatStates();
-    syncEditor();
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("strikeThrough", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncEditor();
+    } else {
+      try {
+        document.execCommand("strikeThrough", false, null);
+      } catch (e) {}
+      const next = !isStrikethrough;
+      setIsStrikethrough(next);
+      updateFormatStates();
+      syncEditor({ isStrikethrough: next });
+    }
   };
 
   const handleFinish = () => {
@@ -2495,27 +2870,27 @@ function InlineRichTextEditor({
 
   return (
     <foreignObject
-      x={(targetAnn.type === "callout" ? (targetAnn.boxX || targetAnn.currentPt?.x || (targetAnn.x + 40)) : targetAnn.x) - 8}
-      y={(targetAnn.type === "callout" ? (targetAnn.boxY || targetAnn.currentPt?.y || (targetAnn.y + 40)) : targetAnn.y) - 72}
-      width="850"
-      height="450"
+      x={(targetAnn.type === "callout" ? (targetAnn.boxX || targetAnn.currentPt?.x || (targetAnn.x + 40)) : targetAnn.x) - 12}
+      y={(targetAnn.type === "callout" ? (targetAnn.boxY || targetAnn.currentPt?.y || (targetAnn.y + 40)) : targetAnn.y) - 80}
+      width="950"
+      height="550"
       style={{ overflow: "visible", pointerEvents: "none" }}
     >
       <div style={{ position: "relative", display: "inline-block", pointerEvents: "all" }}>
-        {/* Floating Mini Formatting Pill Toolbar */}
+        {/* Floating Mini Formatting Pill Toolbar - Enhanced Size */}
         <div
           style={{
             position: "absolute",
-            bottom: "calc(100% + 6px)",
+            bottom: "calc(100% + 10px)",
             left: 0,
             zIndex: 100,
             display: "flex",
             alignItems: "center",
-            gap: "3px",
+            gap: "6px",
             background: "#1e293b",
-            padding: "4px 7px",
-            borderRadius: "7px",
-            boxShadow: "0 6px 18px rgba(0,0,0,0.4)",
+            padding: "8px 14px",
+            borderRadius: "12px",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
             userSelect: "none"
           }}
           onMouseDown={(e) => e.preventDefault()}
@@ -2532,18 +2907,17 @@ function InlineRichTextEditor({
               border: "none",
               color: isBold ? "#ffffff" : "#94a3b8",
               fontWeight: "800",
-              fontSize: "14px",
-              padding: "3px 9px",
+              fontSize: "19px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "5px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isBold ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
-            }}
-            onMouseEnter={(e) => {
-              if (!isBold) e.currentTarget.style.background = "rgba(255,255,255,0.15)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isBold) e.currentTarget.style.background = "transparent";
+              boxShadow: isBold ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             B
@@ -2562,18 +2936,17 @@ function InlineRichTextEditor({
               fontStyle: "italic",
               fontFamily: "serif",
               fontWeight: "700",
-              fontSize: "15px",
-              padding: "3px 9px",
+              fontSize: "21px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "5px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isItalic ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
-            }}
-            onMouseEnter={(e) => {
-              if (!isItalic) e.currentTarget.style.background = "rgba(255,255,255,0.15)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isItalic) e.currentTarget.style.background = "transparent";
+              boxShadow: isItalic ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             I
@@ -2591,18 +2964,17 @@ function InlineRichTextEditor({
               color: isUnderline ? "#ffffff" : "#94a3b8",
               textDecoration: "underline",
               fontWeight: "700",
-              fontSize: "14px",
-              padding: "3px 9px",
+              fontSize: "19px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "5px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isUnderline ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
-            }}
-            onMouseEnter={(e) => {
-              if (!isUnderline) e.currentTarget.style.background = "rgba(255,255,255,0.15)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isUnderline) e.currentTarget.style.background = "transparent";
+              boxShadow: isUnderline ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             U
@@ -2620,23 +2992,22 @@ function InlineRichTextEditor({
               color: isStrikethrough ? "#ffffff" : "#94a3b8",
               textDecoration: "line-through",
               fontWeight: "700",
-              fontSize: "14px",
-              padding: "3px 9px",
+              fontSize: "19px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "5px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isStrikethrough ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
-            }}
-            onMouseEnter={(e) => {
-              if (!isStrikethrough) e.currentTarget.style.background = "rgba(255,255,255,0.15)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isStrikethrough) e.currentTarget.style.background = "transparent";
+              boxShadow: isStrikethrough ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             S
           </button>
-          <div style={{ width: "1px", height: "18px", background: "#475569", margin: "0 3px" }} />
+          <div style={{ width: "2px", height: "24px", background: "#475569", margin: "0 4px" }} />
           <button
             type="button"
             title="Done [Enter]"
@@ -2649,11 +3020,15 @@ function InlineRichTextEditor({
               border: "none",
               color: "#ffffff",
               fontWeight: "700",
-              fontSize: "12px",
-              padding: "3px 10px",
+              fontSize: "15px",
+              height: "38px",
+              padding: "4px 16px",
               cursor: "pointer",
-              borderRadius: "5px",
-              boxShadow: "0 2px 6px rgba(49,69,110,0.4)"
+              borderRadius: "7px",
+              boxShadow: "0 2px 6px rgba(49,69,110,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             Done
@@ -2668,15 +3043,15 @@ function InlineRichTextEditor({
           style={{
             display: "inline-block",
             minWidth: "80px",
-            maxWidth: "750px",
-            minHeight: "44px",
-            padding: "6px 14px",
+            maxWidth: "850px",
+            minHeight: "48px",
+            padding: "8px 16px",
             background: "#ffffff",
             border: "2.5px solid #31456E",
             borderRadius: "8px",
             boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
             outline: "none",
-            fontSize: `${targetAnn.fontSize || 36}px`,
+            fontSize: `${targetAnn.fontSize || 60}px`,
             color: targetAnn.color || "#0f172a",
             fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             lineHeight: 1.35,
@@ -2709,7 +3084,22 @@ function InlineRichTextEditor({
               toggleUnderline();
             }
           }}
-          onBlur={handleFinish}
+          onBlur={(e) => {
+            syncEditor();
+            // Do not dismiss text editor if user clicked inside Properties panel
+            const related = e.relatedTarget;
+            if (related && (related.closest?.(".annotation-property-panel") || related.closest?.(".right-property-pane") || related.closest?.("[data-property-panel]"))) {
+              return;
+            }
+            // Delay check: if activeElement moved to properties panel or body, avoid closing
+            setTimeout(() => {
+              const active = document.activeElement;
+              if (active && (active.closest?.(".annotation-property-panel") || active.closest?.(".right-property-pane") || active.closest?.("[data-property-panel]"))) {
+                return;
+              }
+              handleFinish();
+            }, 150);
+          }}
         />
       </div>
     </foreignObject>
@@ -2785,16 +3175,19 @@ function StickyNoteEditor({
     }
 
     // Auto-focus and place cursor at end
-    el.focus();
-    try {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    } catch (err) {}
-    updateFormatStates();
+    setTimeout(() => {
+      if (!editableRef.current) return;
+      editableRef.current.focus();
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(editableRef.current);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (err) {}
+      updateFormatStates();
+    }, 10);
   }, [note.id]);
 
   const updateFormatStates = () => {
@@ -2849,38 +3242,90 @@ function StickyNoteEditor({
 
   const toggleBold = () => {
     if (!editableRef.current) return;
-    editableRef.current.focus();
-    document.execCommand("bold", false, null);
-    const next = !isBold;
-    setIsBold(next);
-    syncNote({ isBold: next });
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("bold", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncNote();
+    } else {
+      try {
+        document.execCommand("bold", false, null);
+      } catch (e) {}
+      const next = !isBold;
+      setIsBold(next);
+      updateFormatStates();
+      syncNote({ isBold: next });
+    }
   };
 
   const toggleItalic = () => {
     if (!editableRef.current) return;
-    editableRef.current.focus();
-    document.execCommand("italic", false, null);
-    const next = !isItalic;
-    setIsItalic(next);
-    syncNote({ isItalic: next });
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("italic", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncNote();
+    } else {
+      try {
+        document.execCommand("italic", false, null);
+      } catch (e) {}
+      const next = !isItalic;
+      setIsItalic(next);
+      updateFormatStates();
+      syncNote({ isItalic: next });
+    }
   };
 
   const toggleUnderline = () => {
     if (!editableRef.current) return;
-    editableRef.current.focus();
-    document.execCommand("underline", false, null);
-    const next = !isUnderline;
-    setIsUnderline(next);
-    syncNote({ isUnderline: next });
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("underline", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncNote();
+    } else {
+      try {
+        document.execCommand("underline", false, null);
+      } catch (e) {}
+      const next = !isUnderline;
+      setIsUnderline(next);
+      updateFormatStates();
+      syncNote({ isUnderline: next });
+    }
   };
 
   const toggleStrikethrough = () => {
     if (!editableRef.current) return;
-    editableRef.current.focus();
-    document.execCommand("strikeThrough", false, null);
-    const next = !isStrikethrough;
-    setIsStrikethrough(next);
-    syncNote({ isStrikethrough: next });
+    const sel = window.getSelection();
+    const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().length > 0;
+
+    if (hasSelection) {
+      try {
+        document.execCommand("strikeThrough", false, null);
+      } catch (e) {}
+      updateFormatStates();
+      syncNote();
+    } else {
+      try {
+        document.execCommand("strikeThrough", false, null);
+      } catch (e) {}
+      const next = !isStrikethrough;
+      setIsStrikethrough(next);
+      updateFormatStates();
+      syncNote({ isStrikethrough: next });
+    }
   };
 
   const handleFinish = () => {
@@ -2888,10 +3333,7 @@ function StickyNoteEditor({
       setActiveNotePopup(null);
       return;
     }
-    const text = (editableRef.current.innerText || editableRef.current.textContent || "").trim();
-    if (!text) {
-      deleteAnnotation(note.id);
-    }
+    syncNote();
     setActiveNotePopup(null);
   };
 
@@ -2899,11 +3341,11 @@ function StickyNoteEditor({
     <foreignObject
       x={note.x + 70}
       y={note.y - 70}
-      width="780"
-      height="680"
+      width="920"
+      height="850"
       style={{ overflow: "visible", pointerEvents: "all" }}
     >
-      <div style={{ position: "relative", display: "inline-block", width: "620px" }}>
+      <div style={{ position: "relative", display: "inline-block", width: "760px" }}>
         {/* Floating Mini Formatting Pill Toolbar */}
         <div
           style={{
@@ -2913,7 +3355,7 @@ function StickyNoteEditor({
             zIndex: 100,
             display: "flex",
             alignItems: "center",
-            gap: "7px",
+            gap: "6px",
             background: "#1e293b",
             padding: "8px 14px",
             borderRadius: "12px",
@@ -2931,12 +3373,17 @@ function StickyNoteEditor({
               border: "none",
               color: isBold ? "#ffffff" : "#94a3b8",
               fontWeight: "800",
-              fontSize: "20px",
-              padding: "7px 16px",
+              fontSize: "19px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "8px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isBold ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
+              boxShadow: isBold ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             B
@@ -2952,12 +3399,17 @@ function StickyNoteEditor({
               fontStyle: "italic",
               fontFamily: "serif",
               fontWeight: "700",
-              fontSize: "22px",
-              padding: "7px 16px",
+              fontSize: "21px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "8px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isItalic ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
+              boxShadow: isItalic ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             I
@@ -2972,12 +3424,17 @@ function StickyNoteEditor({
               color: isUnderline ? "#ffffff" : "#94a3b8",
               textDecoration: "underline",
               fontWeight: "700",
-              fontSize: "20px",
-              padding: "7px 16px",
+              fontSize: "19px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "8px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isUnderline ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
+              boxShadow: isUnderline ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             U
@@ -2992,17 +3449,22 @@ function StickyNoteEditor({
               color: isStrikethrough ? "#ffffff" : "#94a3b8",
               textDecoration: "line-through",
               fontWeight: "700",
-              fontSize: "20px",
-              padding: "7px 16px",
+              fontSize: "19px",
+              minWidth: "40px",
+              height: "38px",
+              padding: "4px 12px",
               cursor: "pointer",
-              borderRadius: "8px",
+              borderRadius: "7px",
               transition: "all 0.12s",
-              boxShadow: isStrikethrough ? "0 1px 4px rgba(49,69,110,0.5)" : "none"
+              boxShadow: isStrikethrough ? "0 1px 4px rgba(49,69,110,0.5)" : "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             S
           </button>
-          <div style={{ width: "2px", height: "28px", background: "#475569", margin: "0 6px" }} />
+          <div style={{ width: "2px", height: "24px", background: "#475569", margin: "0 4px" }} />
           <button
             type="button"
             title="Done [Enter]"
@@ -3012,34 +3474,38 @@ function StickyNoteEditor({
               border: "none",
               color: "#ffffff",
               fontWeight: "700",
-              fontSize: "17px",
-              padding: "7px 18px",
+              fontSize: "15px",
+              height: "38px",
+              padding: "4px 16px",
               cursor: "pointer",
-              borderRadius: "8px",
-              boxShadow: "0 2px 8px rgba(49,69,110,0.4)"
+              borderRadius: "7px",
+              boxShadow: "0 2px 6px rgba(49,69,110,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
             }}
           >
             Done
           </button>
         </div>
 
-        {/* Sticky Note Container Card */}
+        {/* Sticky Note Container Card - Enlarged & Beautiful */}
         <div
           style={{
-            background: note.color || "#fef9c3",
+            background: note.color || "#fef08a",
             border: "2.5px solid rgba(0,0,0,0.18)",
-            borderRadius: "18px",
-            boxShadow: "0 18px 45px rgba(0,0,0,0.36)",
-            padding: "20px 24px",
+            borderRadius: "20px",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.38)",
+            padding: "24px 28px",
             display: "flex",
             flexDirection: "column",
-            gap: "16px",
+            gap: "18px",
             fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "21px", fontWeight: 700, color: "#854d0e", display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "26px" }}>📝</span> Sticky Note
+            <span style={{ fontSize: "24px", fontWeight: 700, color: "#854d0e", display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "30px" }}>📝</span> Sticky Note
             </span>
             <button
               onClick={handleFinish}
@@ -3047,10 +3513,10 @@ function StickyNoteEditor({
                 background: "none",
                 border: "none",
                 cursor: "pointer",
-                fontSize: "26px",
+                fontSize: "28px",
                 color: "#a16207",
                 fontWeight: "bold",
-                padding: "4px 8px",
+                padding: "4px 10px",
                 borderRadius: "6px"
               }}
             >
@@ -3063,20 +3529,18 @@ function StickyNoteEditor({
             suppressContentEditableWarning
             style={{
               width: "100%",
-              minHeight: "220px",
-              maxHeight: "450px",
+              minHeight: "320px",
+              maxHeight: "580px",
               overflowY: "auto",
-              fontSize: `${note.fontSize || 30}px`,
-              fontWeight: isBold ? 700 : 400,
-              fontStyle: isItalic ? "italic" : "normal",
-              textDecoration: [isUnderline ? "underline" : "", isStrikethrough ? "line-through" : ""].filter(Boolean).join(" ") || "none",
-              border: "2px solid #fde047",
-              borderRadius: "12px",
-              background: "#ffffff",
-              padding: "18px 22px",
+              fontSize: `${note.fontSize || 60}px`,
+              border: "2px solid rgba(0,0,0,0.12)",
+              borderRadius: "14px",
+              background: "rgba(255, 255, 255, 0.94)",
+              color: "#0f172a",
+              padding: "20px 24px",
               outline: "none",
               fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-              lineHeight: 1.5,
+              lineHeight: 1.55,
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
               caretColor: "#2563eb"
@@ -3100,7 +3564,7 @@ function StickyNoteEditor({
                 toggleUnderline();
               }
             }}
-            onBlur={handleFinish}
+            onBlur={() => syncNote()}
           />
         </div>
       </div>

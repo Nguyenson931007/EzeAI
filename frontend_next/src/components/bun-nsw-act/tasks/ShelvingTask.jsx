@@ -9,17 +9,19 @@ import { ApiService } from "@/models/api.service";
 const SHELVING_TYPES = ["Robe", "Linen"];
 
 const SHELVING_SIZES = [
-  "1500×450",
-  "1800×450",
-  "2400×450",
-  "3000×450",
-  "3600×450",
-  "1500×600",
-  "1800×600",
-  "2400×600",
-  "3000×600",
-  "3600×600",
+  "1500x450",
+  "1800x450",
+  "2400x450",
+  "3000x450",
+  "3600x450",
+  "1500x600",
+  "1800x600",
+  "2400x600",
+  "3000x600",
+  "3600x600",
 ];
+
+const normalizeShelvingSize = (s) => (s ? String(s).replace(/[×\u00d7X]/g, "x").trim() : "1500x450");
 
 // ══════════════════════════════════════════════════════
 // SHARED STYLES
@@ -350,7 +352,7 @@ export default function ShelvingTask({
 
   // Draft input state
   const [typeDraft, setTypeDraft] = useState("Robe");
-  const [sizeDraft, setSizeDraft] = useState("1500×450");
+  const [sizeDraft, setSizeDraft] = useState("1500x450");
   const [qtyDraft, setQtyDraft] = useState("1");
 
   const [editingId, setEditingId] = useState(null);
@@ -380,7 +382,7 @@ export default function ShelvingTask({
             .map((r, idx) => ({
               id: `shv-${r.shelving_id || Date.now()}-${idx}`,
               type: r.type || "Robe",
-              size: r.size || "1500×450",
+              size: normalizeShelvingSize(r.size),
               qty: r.qty != null ? Number(r.qty) : 1,
             }));
           if (loaded.length > 0 && onSetEntries) {
@@ -445,7 +447,7 @@ export default function ShelvingTask({
     try {
       const items = (entries || []).map((item) => ({
         type: item.type || "Robe",
-        size: item.size || "1500×450",
+        size: normalizeShelvingSize(item.size),
         qty: item.qty != null ? Number(item.qty) : 1,
       }));
 
@@ -616,7 +618,7 @@ export default function ShelvingTask({
                           </td>
                           <td style={{ padding: "6px 8px" }}>
                             <select
-                              value={current.size || "1500×450"}
+                              value={normalizeShelvingSize(current.size)}
                               onChange={(e) => setEditData({ ...current, size: e.target.value })}
                               style={{ ...S.select, width: "100%", height: "30px", fontSize: "11px", padding: "4px 8px" }}
                             >

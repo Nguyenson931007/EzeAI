@@ -9,6 +9,7 @@ const nextConfig = {
     '*.ngrok-free.app',
     '*.ngrok.io',
     '*.ngrok.app',
+    'cherub-gleaming-cotton.ngrok-free.dev',
     'elope-gory-filth.ngrok-free.dev'
   ],
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
