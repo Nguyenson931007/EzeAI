@@ -328,7 +328,7 @@ def get_jobs_count(username: Optional[str] = None):
                 cursor.execute("SELECT COUNT(*) as total FROM jobs")
                 
             row = cursor.fetchone()
-            count = int(row["total"]) if row and "total" in row and row["total"] is not None else 0
+            count = int(row["total"]) if row and row["total"] is not None else 0
             return {"count": count}
         finally:
             try:
@@ -762,6 +762,93 @@ def get_jobs_progress_report(
         conn.close()
 
 
+@router.get("/jobs/find")
+@router.get("/api/jobs/find")
+def find_job(query: str):
+    """
+    Tìm kiếm và nạp dữ liệu dự án theo:
+    - ID số nguyên (ví dụ: 123)
+    - Hoặc Tên dự án / Mã Job Number (ví dụ: 'JOB-2024-001', 'P-101', ...)
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="Query is required")
+    
+    clean_query = query.strip()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        row = None
+        # 1. Thử tìm theo ID số nguyên
+        if clean_query.isdigit():
+            cursor.execute(
+                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE id = ?",
+                (int(clean_query),)
+            )
+            row = cursor.fetchone()
+
+        # 2. Nếu không thấy, tìm chính xác theo project_name (không phân biệt hoa thường)
+        if not row:
+            cursor.execute(
+                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(TRIM(project_name)) = LOWER(TRIM(?)) ORDER BY created_at DESC LIMIT 1",
+                (clean_query,)
+            )
+            row = cursor.fetchone()
+
+        # 3. Nếu vẫn không thấy, thử tìm LIKE '%query%'
+        if not row:
+            cursor.execute(
+                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(TRIM(project_name)) LIKE LOWER(TRIM(?)) ORDER BY created_at DESC LIMIT 1",
+                (f"%{clean_query}%",)
+            )
+            row = cursor.fetchone()
+
+        if row:
+            row_dict = dict(row)
+            return {
+                "status": "success",
+                "found": True,
+                "job_id": row_dict["id"],
+                "project_name": row_dict["project_name"],
+                "room_count": row_dict.get("room_count", 0),
+                "total_area": row_dict.get("total_area", 0.0),
+                "data": row_dict["data"]
+            }
+        else:
+            return {
+                "status": "success",
+                "found": False,
+                "job_id": None,
+                "project_name": clean_query,
+                "data": None
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/jobs/data/{job_id}")
+def get_job_data(job_id: int, username: str = Depends(validate_session)):
+    """
+    Lấy chi tiết chuỗi dữ liệu trạng thái bản vẽ của một dự án thông qua ID.
+    - Yêu cầu xác thực phiên đăng nhập hợp lệ.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT data FROM jobs WHERE id = ?", (job_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Không tìm thấy dự án được yêu cầu.")
+        return {"status": "success", "data": row["data"]}
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.get("/jobs/{username}", response_model=List[JobResponse])
 def get_user_jobs(username: str, limit: int = 20, offset: int = 0, current_user: str = Depends(validate_session)):
     """
@@ -790,17 +877,23 @@ def get_user_jobs(username: str, limit: int = 20, offset: int = 0, current_user:
 
 
 @router.get("/all-jobs", response_model=List[JobAllResponse])
+@router.get("/api/all-jobs", response_model=List[JobAllResponse])
 def get_all_jobs(limit: int = 50, offset: int = 0):
     """
-    Lấy danh sách toàn bộ các dự án của mọi người dùng trong hệ thống (dành cho Admin quản trị).
+    Lấy danh sách toàn bộ các dự án của mọi người dùng trong hệ thống (dành cho Admin quản trị / xem thư viện Projects).
     - Hỗ trợ phân trang và sắp xếp theo mốc thời gian tạo giảm dần (mới nhất hiển thị đầu tiên).
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("PRAGMA table_info(jobs)")
-        cols = {row[1] for row in cursor.fetchall()}
-        
+        from app.config import DB_TYPE
+        cols = set()
+        if DB_TYPE == "sqlite":
+            cursor.execute("PRAGMA table_info(jobs)")
+            cols = {row["name"] if isinstance(row, dict) else row[1] for row in cursor.fetchall()}
+        else:
+            cols = {"is_trained", "share_token"}
+
         select_cols = ["j.id", "j.project_name", "j.room_count", "j.total_area", "j.created_at", "u.username", "j.thumbnail"]
         select_cols.append("j.is_trained" if "is_trained" in cols else "0 AS is_trained")
         select_cols.append("j.is_corrected" if "is_corrected" in cols else "0 AS is_corrected")
@@ -825,93 +918,6 @@ def get_all_jobs(limit: int = 50, offset: int = 0):
         return result
     except Exception as e:
         logger.error(f"[get_all_jobs] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-
-@router.get("/jobs/data/{job_id}")
-def get_job_data(job_id: int, username: str = Depends(validate_session)):
-    """
-    Lấy chi tiết chuỗi dữ liệu trạng thái bản vẽ của một dự án thông qua ID.
-    - Yêu cầu xác thực phiên đăng nhập hợp lệ.
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT data FROM jobs WHERE id = ?", (job_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Không tìm thấy dự án được yêu cầu.")
-        return {"status": "success", "data": row["data"]}
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-
-@router.get("/jobs/find")
-@router.get("/api/jobs/find")
-def find_job(query: str):
-    """
-    Tìm kiếm và nạp dữ liệu dự án theo:
-    - ID số nguyên (ví dụ: 123)
-    - Hoặc Tên dự án / Mã Job Number (ví dụ: 'JOB-2024-001', 'P-101', ...)
-    """
-    if not query or not query.strip():
-        raise HTTPException(status_code=400, detail="Query is required")
-    
-    clean_query = query.strip()
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        row = None
-        # 1. Thử tìm theo ID số nguyên
-        if clean_query.isdigit():
-            cursor.execute(
-                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE id = ?",
-                (int(clean_query),)
-            )
-            row = cursor.fetchone()
-
-        # 2. Nếu không thấy, tìm chính xác theo project_name (không phân biệt hoa thường)
-        if not row:
-            cursor.execute(
-                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(project_name) = LOWER(?) ORDER BY created_at DESC LIMIT 1",
-                (clean_query,)
-            )
-            row = cursor.fetchone()
-
-        # 3. Nếu vẫn không thấy, thử tìm LIKE '%query%'
-        if not row:
-            cursor.execute(
-                "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(project_name) LIKE LOWER(?) ORDER BY created_at DESC LIMIT 1",
-                (f"%{clean_query}%",)
-            )
-            row = cursor.fetchone()
-
-        if row:
-            row_dict = dict(row)
-            return {
-                "status": "success",
-                "found": True,
-                "job_id": row_dict["id"],
-                "project_name": row_dict["project_name"],
-                "room_count": row_dict.get("room_count", 0),
-                "total_area": row_dict.get("total_area", 0.0),
-                "data": row_dict["data"]
-            }
-        else:
-            return {
-                "status": "success",
-                "found": False,
-                "job_id": None,
-                "project_name": clean_query,
-                "data": None
-            }
-    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
@@ -1141,8 +1147,8 @@ async def get_job_by_ems_id(ems_id: str):
                 local_conn = get_db_connection()
                 local_cursor = local_conn.cursor()
                 local_cursor.execute(
-                    "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE project_name = ? ORDER BY id DESC LIMIT 1",
-                    (job_number,)
+                    "SELECT id, project_name, data, room_count, total_area FROM jobs WHERE LOWER(TRIM(project_name)) = LOWER(TRIM(?)) ORDER BY id DESC LIMIT 1",
+                    (job_number.strip(),)
                 )
                 local_row = local_cursor.fetchone()
                 if local_row:

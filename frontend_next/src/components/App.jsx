@@ -572,7 +572,7 @@ export default function App() {
           };
           const metaStr = JSON.stringify(cleanJobMeta);
           sessionStorage.setItem("pendingEmsJob", metaStr);
-          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) {}
+          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) { }
         } catch (storageErr) {
           console.warn("[SSO] Không thể lưu pendingEmsJob vào Storage:", storageErr);
         }
@@ -583,10 +583,10 @@ export default function App() {
         if (jobInfo.task_modules_configured === true && Array.isArray(jobInfo.selected_modules)) {
           const serializedModules = JSON.stringify(jobInfo.selected_modules);
           sessionStorage.setItem("selectedModules", serializedModules);
-          try { localStorage.setItem("selectedModules", serializedModules); } catch (_) {}
+          try { localStorage.setItem("selectedModules", serializedModules); } catch (_) { }
         } else {
           sessionStorage.removeItem("selectedModules");
-          try { localStorage.removeItem("selectedModules"); } catch (_) {}
+          try { localStorage.removeItem("selectedModules"); } catch (_) { }
         }
 
         if (typeof window !== "undefined") {
@@ -595,16 +595,93 @@ export default function App() {
 
         const targetProjectName = jobInfo.job_number || ("Project " + String(idJobEms).slice(0, 8));
 
-        // Nếu đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor (local_job)
+        // 1. Kiểm tra đối chiếu xem Job đã có bản vẽ lưu trong CSDL SQLite hay chưa
+        let savedJobData = null;
+        let savedJobId = null;
+        let savedProjectName = targetProjectName;
+
         if (jobInfo.local_job?.data) {
-          console.log("[SSO] Tìm thấy bản vẽ đã lưu cho Job:", targetProjectName, "Đang nạp lên canvas...");
-          const parsedData = typeof jobInfo.local_job.data === "string"
-            ? JSON.parse(jobInfo.local_job.data)
-            : jobInfo.local_job.data;
-          handleLoadJobRef.current(parsedData, jobInfo.local_job.project_name || targetProjectName, jobInfo.local_job.id);
+          savedJobData = jobInfo.local_job.data;
+          savedJobId = jobInfo.local_job.id;
+          savedProjectName = jobInfo.local_job.project_name || targetProjectName;
+        } else if (jobInfo.local_job?.id) {
+          try {
+            const dataRes = await ApiService.getJobData(jobInfo.local_job.id);
+            if (dataRes?.status === "success" && dataRes.data) {
+              savedJobData = dataRes.data;
+              savedJobId = jobInfo.local_job.id;
+              savedProjectName = jobInfo.local_job.project_name || targetProjectName;
+            }
+          } catch (err) {
+            console.warn("[SSO] Không thể tải dữ liệu bản vẽ từ local_job.id:", err);
+          }
+        }
+
+        // Nếu chưa có data, thử tra cứu đối chiếu trực tiếp với CSDL SQLite bằng tên job_number
+        if (!savedJobData && targetProjectName) {
+          try {
+            const findRes = await ApiService.findJob(targetProjectName);
+            if (findRes?.status === "success" && findRes.found && findRes.data) {
+              savedJobData = findRes.data;
+              savedJobId = findRes.job_id;
+              savedProjectName = findRes.project_name || targetProjectName;
+            }
+          } catch (findErr) {
+            console.warn("[SSO] Tra cứu SQLite theo tên dự án thất bại:", findErr);
+          }
+        }
+
+        // 2. Nạp dữ liệu hoặc mở trang trắng mới tinh
+        if (savedJobData) {
+          console.log("[SSO] Tìm thấy bản vẽ đã lưu trong SQLite cho Job:", savedProjectName, "Đang nạp lên canvas...");
+          const parsedData = typeof savedJobData === "string"
+            ? JSON.parse(savedJobData)
+            : savedJobData;
+          handleLoadJobRef.current(parsedData, savedProjectName, savedJobId);
         } else {
-          // Nếu là job mới chưa có bản vẽ trên EzeFloor
-          console.log("[SSO] Job mới từ TaskList chưa có bản vẽ. Đặt tên dự án:", targetProjectName);
+          // Nếu là job mới chưa có bản vẽ trên EzeFloor (không có trên SQLite) -> Mở trang new trắng
+          console.log("[SSO] Job chưa có bản vẽ trong SQLite. Reset sạch workspace mở trang trắng mới:", targetProjectName);
+
+          // 2a. Đặt flag skip restore để tránh useEffect đọc lại cache cũ
+          try {
+            sessionStorage.setItem("ezefloor_skip_restore", "1");
+          } catch (_) { }
+
+          // 2b. Xóa sạch IndexedDB workspace cache
+          try {
+            await clearWorkspaceState("active_session");
+          } catch (_) { }
+
+          // 2c. Xóa sạch localStorage liên quan đến job trước
+          try {
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("ezefloor_last_active_job_id");
+              localStorage.removeItem("ezefloor_last_active_project_name");
+            }
+          } catch (_) { }
+
+          // 2d. Xóa toàn bộ React state về rỗng / trắng tinh
+          setPages([]);
+          setRoomsByPage({});
+          setWallsByPage({});
+          setDoorsByPage({});
+          setRoofsByPage({});
+          setLintelsByPage({});
+          setScalesByPage({});
+          setWasteByPage({});
+          setPdfOffsetsByPage({});
+          setAnnotationsByPage({});
+          setImage(null);
+          setImgSize({ w: 800, h: 600 });
+          setCurrentPage(0);
+          setSelectedId(null);
+          setSelectedType(null);
+          setSelectedWallIds([]);
+          setSelectedDoorIds([]);
+          setSelectedRoomIds([]);
+          setSelectedLintelIds([]);
+          setHighlightType(null);
+
           setCurrentProjectNameRef.current(targetProjectName);
           if (setCurrentJobIdRef.current) setCurrentJobIdRef.current(null);
         }
@@ -616,7 +693,13 @@ export default function App() {
     } finally {
       isLoadingEmsRef.current = false;
     }
-  }, []);
+  }, [
+    setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setRoofsByPage,
+    setLintelsByPage, setScalesByPage, setWasteByPage, setPdfOffsetsByPage,
+    setAnnotationsByPage, setImage, setImgSize, setCurrentPage,
+    setSelectedId, setSelectedType, setSelectedWallIds, setSelectedDoorIds,
+    setSelectedRoomIds, setSelectedLintelIds, setHighlightType
+  ]);
 
   // Expose loadEmsJob to window for debug and external integration
   useEffect(() => {
@@ -627,7 +710,7 @@ export default function App() {
       try {
         delete window.openEmsJob;
         delete window.loadEmsJob;
-      } catch (_) {}
+      } catch (_) { }
     };
   }, [loadEmsJob]);
 
@@ -705,6 +788,13 @@ export default function App() {
 
     // Nếu URL có ?job= thì để loadEmsJob xử lý
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("job")) {
+      return;
+    }
+
+    // Nếu đang reset workspace cho job mới (từ handleOpenJobTask), bỏ qua restore
+    if (typeof window !== "undefined" && sessionStorage.getItem("ezefloor_skip_restore") === "1") {
+      console.log("[Restore] Skip restore — workspace đang được reset cho job mới");
+      sessionStorage.removeItem("ezefloor_skip_restore");
       return;
     }
 
@@ -893,7 +983,7 @@ export default function App() {
 
     try {
       localStorage.setItem("ezefloor_3d_state", JSON.stringify(payload));
-    } catch (e) {}
+    } catch (e) { }
 
     channel.postMessage({
       type: "STATE_UPDATE",
@@ -950,9 +1040,9 @@ export default function App() {
 
       try {
         console.log("[SSO] Đang xác thực SSO token từ TaskList...", event.data);
-        const extractedUser = event.data.username || 
-          event.data.UserID || 
-          event.data.user_id || 
+        const extractedUser = event.data.username ||
+          event.data.UserID ||
+          event.data.user_id ||
           (event.data.user && (typeof event.data.user === "string" ? event.data.user : (event.data.user.username || event.data.user.UserID || event.data.user.user_id || event.data.user.name)));
 
         const ssoPayload = {

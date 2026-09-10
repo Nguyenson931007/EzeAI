@@ -4,6 +4,7 @@ import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDo
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { ApiService, BASE_URL } from "@/models/api.service";
+import { clearWorkspaceState } from "@/utils/workspaceStorage";
 import {
   DOOR_TYPE_REGISTRY,
   getDoorTypeOptions,
@@ -154,14 +155,18 @@ export default function RightPropertyPaneView({
   const {
     pages: pagesContext,
     setPages: setPagesContext,
+    wallsByPage: wallsByPageCtx, setWallsByPage: setWallsByPageCtx,
+    doorsByPage: doorsByPageCtx, setDoorsByPage: setDoorsByPageCtx,
     wasteByPage, setWasteByPage,
     roofsByPage, setRoofsByPage,
+    lintelsByPage, setLintelsByPage: setLintelsByPageCtx,
+    trussesByPage, setTrussesByPage: setTrussesByPageCtx,
+    scalesByPage: scalesByPageCtx, setScalesByPage: setScalesByPageCtx,
     currentPage,
     currentProjectName, setCurrentProjectName,
     currentJobId, setCurrentJobId,
     setActiveTab,
     user,
-    lintelsByPage,
     setShowFrameworkModal,
     setShowAreaSummaryModal,
     setShowInsulationModal,
@@ -169,10 +174,13 @@ export default function RightPropertyPaneView({
     setShowLockoutModal,
     annotationsByPage = {},
     setAnnotationsByPage,
+    setAnnotationsHistory: setAnnotationsHistoryCtx,
+    setAnnotationsFuture: setAnnotationsFutureCtx,
     selectedAnnotationId,
     setSelectedAnnotationId,
     selectedAnnotationIds,
     setSelectedAnnotationIds,
+    setActiveAnnotationTool: setActiveAnnotationToolCtx,
     pushAnnotationHistory,
     setAnnotationColor,
     setAnnotationStrokeWidth,
@@ -1566,39 +1574,127 @@ export default function RightPropertyPaneView({
         } : null
       };
       sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta));
-    } catch (_) {}
+    } catch (_) { }
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: currentTask }));
     }
 
-    // 1. Nếu Job đã có dữ liệu bản vẽ đã lưu trong hệ thống EzeFloor
+    // 1. Kiểm tra đối chiếu xem Job đã có dữ liệu bản vẽ đã lưu trong CSDL SQLite hay chưa
     let loadedSuccess = false;
-    if (task.has_local_job && task.local_job?.id) {
+    const localJobId = currentTask.local_job?.id || task.local_job?.id;
+    const localJobData = currentTask.local_job?.data || task.local_job?.data;
+
+    // A. Nếu có local_job data inline
+    if (localJobData) {
+      try {
+        const parsed = typeof localJobData === "string" ? JSON.parse(localJobData) : localJobData;
+        if (onLoadJob) {
+          onLoadJob(parsed, currentTask.local_job?.project_name || task.local_job?.project_name || targetName, localJobId);
+        }
+        if (setActiveTab) setActiveTab("Home");
+        loadedSuccess = true;
+      } catch (err) {
+        console.warn("[handleOpenJobTask] Lỗi parse inline local_job data:", err);
+      }
+    } else if (localJobId) {
+      // B. Nếu có ID trong SQLite -> tải chi tiết bản vẽ
       try {
         setLoadingJobId(task.hw_id);
-        const res = await ApiService.getJobData(task.local_job.id);
+        const res = await ApiService.getJobData(localJobId);
         if (res && res.status === "success" && res.data) {
           const parsed = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
           if (onLoadJob) {
-            onLoadJob(parsed, task.local_job.project_name || targetName, task.local_job.id);
+            onLoadJob(parsed, currentTask.local_job?.project_name || task.local_job?.project_name || targetName, localJobId);
           }
           if (setActiveTab) setActiveTab("Home");
           loadedSuccess = true;
         }
       } catch (err) {
-        console.warn("Could not load local job data, falling back to new project:", err);
+        console.warn("[handleOpenJobTask] Could not load local job data by ID:", err);
+      } finally {
+        setLoadingJobId(null);
+      }
+    }
+
+    // C. Nếu chưa tìm thấy qua task metadata, thử tìm trực tiếp trong SQLite qua ApiService.findJob
+    if (!loadedSuccess && targetName) {
+      try {
+        setLoadingJobId(task.hw_id);
+        const findRes = await ApiService.findJob(targetName);
+        if (findRes && findRes.status === "success" && findRes.found && findRes.data) {
+          const parsed = typeof findRes.data === "string" ? JSON.parse(findRes.data) : findRes.data;
+          if (onLoadJob) {
+            onLoadJob(parsed, findRes.project_name || targetName, findRes.job_id);
+          }
+          if (setActiveTab) setActiveTab("Home");
+          loadedSuccess = true;
+        }
+      } catch (err) {
+        console.warn("[handleOpenJobTask] Could not find job by name in SQLite:", err);
       } finally {
         setLoadingJobId(null);
       }
     }
 
     if (!loadedSuccess) {
-      // 2. Nếu chưa có bản vẽ hoặc không tìm thấy: Đặt tên dự án theo job_number, chuyển tab Home và kích hoạt mở file picker
+      // 2. Nếu chưa có bản vẽ trong SQLite: XÓA SẠCH workspace cũ mở trang mới trắng
+      console.log("[handleOpenJobTask] Job chưa có bản vẽ trong SQLite, reset sạch workspace mở trang trắng cho:", targetName);
+
+      // 2a. ĐẶT FLAG chặn restore — phải đặt TRƯỚC khi clear state để App.jsx không restore lại data cũ
+      try {
+        sessionStorage.setItem("ezefloor_skip_restore", "1");
+      } catch (_) { }
+
+      // 2b. Clear IndexedDB workspace cache TRƯỚC (await để đảm bảo xóa xong trước khi state thay đổi)
+      try {
+        await clearWorkspaceState("active_session");
+        console.log("[handleOpenJobTask] IndexedDB active_session cleared successfully");
+      } catch (err) {
+        console.warn("[handleOpenJobTask] Could not clear IndexedDB:", err);
+      }
+
+      // 2c. Clear relevant localStorage keys
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("ezefloor_last_active_job_id");
+          localStorage.removeItem("ezefloor_last_active_project_name");
+        }
+      } catch (_) { }
+
+      // 2d. Clear React state — pages, walls, rooms, doors, roofs, lintels, trusses, scales, annotations
+      // (Phải thực hiện SAU khi IndexedDB đã xóa xong để restore effect không đọc được data cũ)
+      if (setPagesContext) setPagesContext([]);
+      if (setWallsByPageCtx) setWallsByPageCtx({});
+      if (setDoorsByPageCtx) setDoorsByPageCtx({});
+      if (setRoomsByPage) setRoomsByPage({});
+      if (setRoofsByPage) setRoofsByPage({});
+      if (setLintelsByPageCtx) setLintelsByPageCtx({});
+      if (setTrussesByPageCtx) setTrussesByPageCtx({});
+      if (setScalesByPageCtx) setScalesByPageCtx({});
+      if (setWasteByPage) setWasteByPage({});
+      if (setAnnotationsByPage) setAnnotationsByPage({});
+      if (setAnnotationsHistoryCtx) setAnnotationsHistoryCtx([]);
+      if (setAnnotationsFutureCtx) setAnnotationsFutureCtx([]);
+      if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+      if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+      if (setActiveAnnotationToolCtx) setActiveAnnotationToolCtx(null);
+
+      // 2e. Clear selection & interaction state
+      if (setSelectedId) setSelectedId(null);
+      if (setSelectedType) setSelectedType(null);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setSelectedLintelIds) setSelectedLintelIds([]);
+      if (setHighlightType) setHighlightType(null);
+      if (setCurrentPageProp) setCurrentPageProp(0);
+
+      // 2f. Set project name & job context for the new job
       if (setCurrentProjectName) setCurrentProjectName(targetName);
       if (setCurrentJobId) setCurrentJobId(null);
       if (setActiveTab) setActiveTab("Home");
 
-      // Tự động kích hoạt chọn bản vẽ PDF / Ảnh để người dùng bắt đầu vẽ ngay
+      // 2g. Tự động kích hoạt chọn bản vẽ PDF / Ảnh để người dùng bắt đầu vẽ ngay
       const fileInput = document.createElement("input");
       fileInput.type = "file";
       fileInput.accept = ".pdf,image/*";
@@ -1827,7 +1923,7 @@ export default function RightPropertyPaneView({
             const ids = entry.wallIds && entry.wallIds.length > 0
               ? entry.wallIds
               : (entry.wallId ? [entry.wallId] : (selectedWallIds && selectedWallIds.length === 1 ? [selectedWallIds[0]] : (selectedWall?.id ? [selectedWall.id] : [])));
-            
+
             ids.forEach(wId => {
               newOverrides[wId] = {
                 height: entry.height ? parseInt(entry.height, 10) : undefined,
@@ -1866,7 +1962,7 @@ export default function RightPropertyPaneView({
 
       const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
-      
+
       const targetWalls = curWalls;
 
       if (targetWalls.length > 0) {
@@ -1954,7 +2050,7 @@ export default function RightPropertyPaneView({
             const ids = entry.roomIds && entry.roomIds.length > 0
               ? entry.roomIds
               : (entry.roomId ? [entry.roomId] : (selectedRoomIds && selectedRoomIds.length === 1 ? [selectedRoomIds[0]] : (selectedRoom?.id ? [selectedRoom.id] : [])));
-            
+
             ids.forEach(rId => {
               newOverrides[rId] = {
                 typeArea: entry.typeArea || entry.location,

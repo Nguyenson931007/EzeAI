@@ -156,7 +156,7 @@ export const ApiService = {
           };
           const metaStr = JSON.stringify(cleanJobMeta);
           sessionStorage.setItem("pendingEmsJob", metaStr);
-          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) {}
+          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) { }
           const authoritativeModules = Array.isArray(jobInfo.task_modules)
             ? jobInfo.task_modules
             : (Array.isArray(jobInfo.selected_modules)
@@ -165,10 +165,10 @@ export const ApiService = {
           if (Array.isArray(authoritativeModules)) {
             const authStr = JSON.stringify(authoritativeModules);
             sessionStorage.setItem("selectedModules", authStr);
-            try { localStorage.removeItem("selectedModules"); } catch (_) {}
+            try { localStorage.removeItem("selectedModules"); } catch (_) { }
           }
           window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: cleanJobMeta }));
-        } catch (_) {}
+        } catch (_) { }
       }
       return result;
     } catch (err) {
@@ -339,11 +339,19 @@ export const ApiService = {
   },
 
   async findJob(query) {
-    const res = await fetch(`${BASE_URL}/jobs/find?query=${encodeURIComponent(query)}`, {
-      headers: getHeaders(),
-      credentials: "include"
-    });
-    return handleResponse(res);
+    try {
+      const res = await fetch(`${BASE_URL}/jobs/find?query=${encodeURIComponent(query)}`, {
+        headers: getHeaders(),
+        credentials: "include"
+      });
+      if (res.status === 401 || !res.ok) {
+        return { status: "success", found: false, job_id: null, data: null };
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[ApiService.findJob] Query error:", err);
+      return { status: "success", found: false, job_id: null, data: null };
+    }
   },
 
   async getUserJobs(username, limit = 20, offset = 0) {
