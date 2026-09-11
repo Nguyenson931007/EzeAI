@@ -84,7 +84,13 @@ export const AppProvider = ({ children }) => {
   const [textFontSize, setTextFontSize] = useState(50);
   const [annotationFontSize, setAnnotationFontSize] = useState(50);
   const [calloutStrokeWidth, setCalloutStrokeWidth] = useState(3.5);
-  const [activeCalloutStyle, setActiveCalloutStyle] = useState("red");
+  const [activeCalloutStyle, setActiveCalloutStyleState] = useState(() => safeGetItem("ezefloor_last_callout_style") || "red");
+  const setActiveCalloutStyle = useCallback((style) => {
+    setActiveCalloutStyleState(style);
+    if (typeof window !== "undefined" && style) {
+      localStorage.setItem("ezefloor_last_callout_style", String(style));
+    }
+  }, []);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState([]);
 

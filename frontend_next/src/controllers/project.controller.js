@@ -20,7 +20,8 @@ export const useProjectController = (
   roofsByPage, setRoofsByPage,
   lintelsByPage, setLintelsByPage,
   scalesByPage, setScalesByPage,
-  activePdfCategory, setActivePdfCategory
+  activePdfCategory, setActivePdfCategory,
+  annotationsByPage, setAnnotationsByPage
 ) => {
   const { showAlert } = useDialog();
   
@@ -39,6 +40,7 @@ export const useProjectController = (
 
     const jobData = {
       roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage,
+      annotationsByPage: annotationsByPage || {},
       activePdfCategory
     };
 
@@ -208,6 +210,12 @@ export const useProjectController = (
     else setRoofsByPage({});
     if (jobData.lintelsByPage) setLintelsByPage(jobData.lintelsByPage);
     else setLintelsByPage({});
+    
+    if (jobData.annotationsByPage && setAnnotationsByPage) {
+      setAnnotationsByPage(jobData.annotationsByPage);
+    } else if (setAnnotationsByPage) {
+      setAnnotationsByPage({});
+    }
     
     if (jobData.pages?.length > 0) {
       setCurrentPage(0);

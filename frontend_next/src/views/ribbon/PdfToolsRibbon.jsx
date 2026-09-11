@@ -619,31 +619,53 @@ export default function PdfToolsRibbon({
                   className={`ribbon-btn ${activeAnnotationTool === "callout" ? "active" : ""}`}
                   onClick={() => {
                     handleSelectTool("callout");
-                    setOpenDropdown("callout");
+                    setOpenDropdown(null);
                   }}
                   style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "6px 10px", minWidth: "auto" }}
                 >
                   <span className="icon"><PDF_ICONS.Callout /></span>
-                  <span className="label">Callout...</span>
+                  <span className="label">Callout</span>
                 </button>
               </div>
             )}
           </div>
 
           {/* Callout Tool Button with Style Options Popover */}
-          <div style={{ position: "relative", zIndex: openDropdown === "callout" ? 2500 : 1 }}>
+          <div style={{ position: "relative", zIndex: openDropdown === "callout" ? 2500 : 1, display: "inline-flex", alignItems: "stretch" }}>
             <button
-              className={`ribbon-btn ${(activeAnnotationTool === "callout" || (selectedAnn && selectedAnn.type === "callout") || openDropdown === "callout") ? "active" : ""}`}
+              className={`ribbon-btn ${(activeAnnotationTool === "callout" || (selectedAnn && selectedAnn.type === "callout")) ? "active" : ""}`}
               onClick={() => {
-                if (activeAnnotationTool !== "callout") {
-                  handleSelectTool("callout");
-                }
-                setOpenDropdown(prev => prev === "callout" ? null : "callout");
+                handleSelectTool("callout");
+                setOpenDropdown(null);
               }}
-              title="Callout Tool (Click to select & choose style)"
+              title="Callout Tool (Click to select & draw with last chosen style)"
+              style={{
+                borderTopRightRadius: 0,
+                borderBottomRightRadius: 0,
+                paddingRight: "5px"
+              }}
             >
               <span className="icon"><PDF_ICONS.Callout /></span>
-              <span className="label">Callout ▾</span>
+              <span className="label">Callout</span>
+            </button>
+            <button
+              type="button"
+              className={`ribbon-btn ${openDropdown === "callout" ? "active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenDropdown(prev => prev === "callout" ? null : "callout");
+              }}
+              title="Choose Callout Style"
+              style={{
+                borderTopLeftRadius: 0,
+                borderBottomLeftRadius: 0,
+                paddingLeft: "3px",
+                paddingRight: "5px",
+                minWidth: "16px",
+                borderLeft: "1px solid rgba(0,0,0,0.08)"
+              }}
+            >
+              <span style={{ fontSize: "10px", marginTop: "auto", marginBottom: "auto" }}>▾</span>
             </button>
             {openDropdown === "callout" && (
               <div
@@ -687,6 +709,7 @@ export default function PdfToolsRibbon({
                   isCloudy={selectedAnn && selectedAnn.type === "callout" ? selectedAnn.isCloudy : undefined}
                   onSelectStyle={(styleItem) => {
                     if (setActiveCalloutStyle) setActiveCalloutStyle(styleItem.id);
+                    setOpenDropdown(null);
                     // If a Callout annotation is currently selected on the canvas, apply immediately!
                     if (selectedAnn && selectedAnn.type === "callout") {
                       if (typeof pushAnnotationHistory === "function") {

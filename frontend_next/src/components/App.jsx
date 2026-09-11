@@ -501,7 +501,8 @@ export default function App() {
     roofsByPage, setRoofsByPage,
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage,
-    activePdfCategory, setActivePdfCategory
+    activePdfCategory, setActivePdfCategory,
+    annotationsByPage, setAnnotationsByPage
   );
 
   // ── Global Capture Escape Handler: Cancel ROI & Active Operations Reliably ──
@@ -834,6 +835,7 @@ export default function App() {
           if (savedSession.scalesByPage) setScalesByPage(savedSession.scalesByPage);
           if (savedSession.roofsByPage) setRoofsByPage(savedSession.roofsByPage);
           if (savedSession.lintelsByPage) setLintelsByPage(savedSession.lintelsByPage);
+          if (savedSession.annotationsByPage && setAnnotationsByPage) setAnnotationsByPage(savedSession.annotationsByPage);
           if (savedSession.currentProjectName) setCurrentProjectName(savedSession.currentProjectName);
           if (savedSession.currentJobId) setCurrentJobId(savedSession.currentJobId);
           if (savedSession.realScale) setRealScale(savedSession.realScale);
@@ -875,7 +877,7 @@ export default function App() {
     };
 
     restoreWorkspace();
-  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
+  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setAnnotationsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
 
   // 2. Tự động lưu Workspace vào IndexedDB khi có thay đổi (debounce 400ms)
   useEffect(() => {
@@ -891,6 +893,7 @@ export default function App() {
         scalesByPage,
         roofsByPage,
         lintelsByPage,
+        annotationsByPage,
         currentPage,
         currentProjectName,
         currentJobId,
@@ -904,7 +907,7 @@ export default function App() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
+  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, annotationsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
 
   // 2.5. Tự động lưu định kỳ theo thiết lập Cài đặt (Configurable Periodic Auto-Save)
   useEffect(() => {
@@ -938,6 +941,7 @@ export default function App() {
             scalesByPage,
             roofsByPage,
             lintelsByPage,
+            annotationsByPage,
             currentPage,
             currentProjectName,
             currentJobId,
@@ -967,6 +971,7 @@ export default function App() {
     scalesByPage,
     roofsByPage,
     lintelsByPage,
+    annotationsByPage,
     currentPage,
     currentProjectName,
     currentJobId,
