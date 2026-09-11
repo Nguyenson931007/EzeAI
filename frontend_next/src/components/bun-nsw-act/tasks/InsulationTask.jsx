@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -44,6 +44,12 @@ export default function InsulationTask({
   const { items: catalogItems } = useCatalog(activeCustomerShortName, "insulation");
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+  const editRowDataRef = useRef(editRowData);
+  editRowDataRef.current = editRowData;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -51,8 +57,6 @@ export default function InsulationTask({
   const [isExtOpen, setIsExtOpen] = useState(true);
   const [isIntOpen, setIsIntOpen] = useState(true);
   const [isPartyOpen, setIsPartyOpen] = useState(true);
-  const [isSection2Open, setIsSection2Open] = useState(true);
-  const [isSection3Open, setIsSection3Open] = useState(true);
 
   const normalizeRValue = (value) => {
     const raw = String(value ?? "").trim().toUpperCase();
@@ -118,14 +122,6 @@ export default function InsulationTask({
   );
   const partyCatalogItems = useMemo(
     () => catalogByGroup(catalogItems, "partiwall"),
-    [catalogItems]
-  );
-  const ceilingCatalogItems = useMemo(
-    () => catalogByGroup(catalogItems, "ceiling"),
-    [catalogItems]
-  );
-  const floorCatalogItems = useMemo(
-    () => catalogByGroup(catalogItems, "floor"),
     [catalogItems]
   );
 
@@ -286,7 +282,7 @@ export default function InsulationTask({
     }
   };
 
-  // ── Auto-Calculate & Fill Insulation trực tiếp từ bản vẽ (tất cả các trang & cửa mở) ──
+  // ── Auto-Calculate & Fill Insulation trực tiếp từ bản vẽ ──
   const handleAutoFillAI = async () => {
     setIsAutoFilling(true);
     try {
@@ -362,7 +358,6 @@ export default function InsulationTask({
       if (res && res.success && res.rows && res.rows.length > 0) {
         const mappedRows = res.rows.map((r, idx) => {
           const isExt = (r.wall_type || "").toLowerCase().includes("ext");
-          const isParty = (r.wall_type || "").toLowerCase().includes("party");
           const rOptions = getRValueOptionsForWallType(r.wall_type);
           const preferredR = isExt ? "R2.5" : "R2.0";
           const rVal = rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR);
@@ -401,30 +396,95 @@ export default function InsulationTask({
     }
   };
 
-  // ── Thay đổi trường dữ liệu từng hàng trong Card 2 ──
-  const handleRowFieldChange = (rowId, field, val) => {
-    if (!onSetWallEntries) return;
-    onSetWallEntries(prev => (prev || []).map(r => {
-      if (r.id !== rowId) return r;
-      const updated = { ...r, [field]: val };
+  // ── Inline Edit Logic ──
+  const handleStartEdit = (w) => {
+    setEditingRowId(w.id);
+    const rOptions = getRValueOptionsForWallType(w.type);
+    const preferredR = String(w.type || "").toLowerCase().includes("ext") ? "R2.5" : "R2.0";
+    const currentRRaw = normalizeRValue(w.rValue);
+    const currentR = rOptions.includes(currentRRaw)
+      ? currentRRaw
+      : (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || currentRRaw || preferredR));
+
+    const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
+    const prod = availableProds.includes(w.product) ? w.product : (availableProds[0] || "");
+
+    setEditRowData({
+      type: w.type || "Ext wall",
+      height: w.height !== undefined ? w.height : 2400,
+      length: w.length !== undefined ? w.length : 0,
+      rValue: currentR,
+      product: prod,
+      raked: w.raked !== undefined ? w.raked : 0,
+      door: w.door !== undefined ? w.door : 0
+    });
+  };
+
+  const handleEditFieldChange = (field, val) => {
+    setEditRowData(prev => {
+      const updated = { ...prev, [field]: val };
       if (field === "rValue") {
         const normalizedR = normalizeRValue(val);
         updated.rValue = normalizedR || val;
         const prods = getProductOptionsForWallTypeAndR(updated.type, updated.rValue);
         updated.product = prods[0] || "";
       }
-      if (field === "height" || field === "length" || field === "raked" || field === "door") {
-        const h = parseFloat(field === "height" ? val : updated.height) || 2400;
-        const l = parseFloat(field === "length" ? val : updated.length) || 0;
-        const rk = parseFloat(field === "raked" ? val : updated.raked) || 0;
-        const dr = parseFloat(field === "door" ? val : updated.door) || 0;
-        const net = Math.max(0, (h / 1000 * l / 1000) + rk - dr);
-        updated.insulationArea = Number(net.toFixed(2));
-        updated.totalArea = Number(net.toFixed(2));
-      }
       return updated;
-    }));
+    });
   };
+
+  const handleSaveInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingRowIdRef.current;
+    if (!targetId || !onSetWallEntries) return;
+    const currentData = editRowDataRef.current;
+    const h = parseFloat(currentData.height) || 2400;
+    const l = parseFloat(currentData.length) || 0;
+    const rk = parseFloat(currentData.raked) || 0;
+    const dr = parseFloat(currentData.door) || 0;
+    const net = Math.max(0, (h / 1000 * l / 1000) + rk - dr);
+    const areaVal = Number(net.toFixed(2));
+
+    const updatedList = (wallEntries || []).map(item => item.id === targetId ? {
+      ...item,
+      ...currentData,
+      height: h,
+      length: l,
+      raked: rk,
+      door: dr,
+      insulationArea: areaVal,
+      totalArea: areaVal
+    } : item);
+
+    onSetWallEntries(updatedList);
+    setEditingRowId(null);
+  };
+
+  // Tự động lưu khi click ra ngoài dòng đang chỉnh sửa
+  useEffect(() => {
+    const handleDocumentMouseDown = (e) => {
+      if (!editingRowIdRef.current) return;
+      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+      if (!editingTr) return;
+
+      const path = e.composedPath ? e.composedPath() : [];
+      const isInsideEditingTr = path.some(el => 
+        el === editingTr || 
+        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current)) ||
+        (el.getAttribute && el.getAttribute("data-search-dropdown"))
+      );
+
+      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
+        return;
+      }
+
+      handleSaveInlineEdit(editingRowIdRef.current);
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, []);
 
   // ── Lưu toàn bộ danh sách Insulation vào [ProcurementApp].[dbo].[Insulation] ──
   const handleSaveToDatabase = async () => {
@@ -677,7 +737,6 @@ export default function InsulationTask({
                 />
               </div>
 
-
               <button
                 type="button"
                 onClick={() => handleAddWallEntry("Ext wall", extHeight, extLength, extRValue, extProduct, extRaked, extDoor, setExtLength)}
@@ -798,7 +857,6 @@ export default function InsulationTask({
                   style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
                 />
               </div>
-
 
               <button
                 type="button"
@@ -921,7 +979,6 @@ export default function InsulationTask({
                 />
               </div>
 
-
               <button
                 type="button"
                 onClick={() => handleAddWallEntry("Partywall", partyHeight, partyLength, partyRValue, partyProduct, partyRaked, partyDoor, setPartyLength)}
@@ -992,7 +1049,7 @@ export default function InsulationTask({
                 <th style={{ padding: "6px 8px", width: "105px" }}>Wall Length (mm)*</th>
                 <th style={{ padding: "6px 8px", width: "75px" }}>Raked (m²)*</th>
                 <th style={{ padding: "6px 8px", width: "75px", color: "#34d399" }}>Door (m²)*</th>
-                <th style={{ padding: "6px 8px", width: "30px", textAlign: "center" }}></th>
+                <th style={{ padding: "6px 8px", width: "55px", textAlign: "right" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -1016,8 +1073,8 @@ export default function InsulationTask({
                   (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
                   (effType === "wall" && hasMatch(effId));
                 const isHovered = effHovered && hasMatch(effHovered);
+                const isRowEditing = editingRowId === w.id;
                 const isExt = (w.type || "").toLowerCase().includes("ext");
-                const isParty = (w.type || "").toLowerCase().includes("party");
                 const rowRValueOptions = getRValueOptionsForWallType(w.type);
                 const preferredR = isExt ? "R2.5" : "R2.0";
                 const currentRRaw = normalizeRValue(w.rValue);
@@ -1026,17 +1083,36 @@ export default function InsulationTask({
                   : (rowRValueOptions.includes(preferredR) ? preferredR : (rowRValueOptions[0] || currentRRaw || preferredR));
                 const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
 
+                const editRVal = isRowEditing ? (editRowData.rValue || currentR) : currentR;
+                const editProds = isRowEditing ? getProductOptionsForWallTypeAndR(editRowData.type || w.type, editRVal) : availableProds;
+
                 return (
                   <tr
                     key={w.id || idx}
-                    onClick={() => {
+                    data-editing-row-id={isRowEditing ? w.id : undefined}
+                    onDoubleClick={(e) => {
+                      if (isRowEditing) return;
+                      if (e.target.closest && e.target.closest("button")) return;
+                      if (editingRowId && editingRowId !== w.id) {
+                        handleSaveInlineEdit(editingRowId);
+                      }
                       setSelectedEntryId(w.id || `${w.type}-${idx}`);
                       if (onSelectEntry) onSelectEntry(w);
+                      handleStartEdit(w);
+                    }}
+                    onClick={() => {
+                      if (!isRowEditing) {
+                        if (editingRowId && editingRowId !== w.id) {
+                          handleSaveInlineEdit(editingRowId);
+                        }
+                        setSelectedEntryId(w.id || `${w.type}-${idx}`);
+                        if (onSelectEntry) onSelectEntry(w);
+                      }
                     }}
                     style={{
                       borderBottom: "1px solid #e2e8f0",
-                      background: isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
-                      cursor: "pointer",
+                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
+                      cursor: isRowEditing ? "default" : "pointer",
                       outline: isSelected ? "2px solid #3b82f6" : "none",
                       outlineOffset: "-1px",
                       transition: "background 0.15s ease"
@@ -1059,147 +1135,216 @@ export default function InsulationTask({
                       </span>
                     </td>
 
-                    {/* R-Value Dropdown */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={currentR}
-                        onChange={(e) => handleRowFieldChange(w.id, "rValue", e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "3px 4px",
-                          fontSize: "10.5px",
-                          fontWeight: 700,
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff"
-                        }}
-                      >
-                        {rowRValueOptions.map(r => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
+                    {/* R-Value */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                      {isRowEditing ? (
+                        <select
+                          value={editRowData.rValue || currentR}
+                          onChange={(e) => handleEditFieldChange("rValue", e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "3px 4px",
+                            fontSize: "10.5px",
+                            fontWeight: 700,
+                            borderRadius: "4px",
+                            border: "1px solid #3b82f6",
+                            background: "#ffffff"
+                          }}
+                        >
+                          {rowRValueOptions.map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{ fontWeight: 600, color: "#334155" }}>{currentR}</span>
+                      )}
                     </td>
 
-                    {/* Product Dropdown */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={availableProds.includes(w.product) ? w.product : (availableProds[0] || "")}
-                        onChange={(e) => handleRowFieldChange(w.id, "product", e.target.value)}
-                        style={{
-                          width: "100%",
-                          minWidth: "260px",
-                          padding: "3px 6px",
-                          fontSize: "10.5px",
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff"
-                        }}
-                        title={availableProds.includes(w.product) ? w.product : (availableProds[0] || "")}
-                      >
-                        {availableProds.length === 0 && (
-                          <option value="">No product configured for {currentR}</option>
-                        )}
-                        {availableProds.map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
+                    {/* Product */}
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                      {isRowEditing ? (
+                        <select
+                          value={editProds.includes(editRowData.product) ? editRowData.product : (editProds[0] || "")}
+                          onChange={(e) => handleEditFieldChange("product", e.target.value)}
+                          style={{
+                            width: "100%",
+                            minWidth: "200px",
+                            padding: "3px 6px",
+                            fontSize: "10.5px",
+                            borderRadius: "4px",
+                            border: "1px solid #3b82f6",
+                            background: "#ffffff"
+                          }}
+                          title={editProds.includes(editRowData.product) ? editRowData.product : (editProds[0] || "")}
+                        >
+                          {editProds.length === 0 && (
+                            <option value="">No product configured for {editRVal}</option>
+                          )}
+                          {editProds.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{ color: "#1e293b", fontSize: "10.5px" }}>{w.product || "-"}</span>
+                      )}
                     </td>
 
                     {/* Wall Height (mm) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="number"
-                        value={w.height || 2400}
-                        onChange={(e) => handleRowFieldChange(w.id, "height", e.target.value)}
-                        style={{
-                          width: "75px",
-                          padding: "3px 5px",
-                          fontSize: "10.5px",
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff"
-                        }}
-                      />
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          value={editRowData.height !== undefined ? editRowData.height : (w.height || 2400)}
+                          onChange={(e) => handleEditFieldChange("height", e.target.value)}
+                          style={{
+                            width: "75px",
+                            padding: "3px 5px",
+                            fontSize: "10.5px",
+                            borderRadius: "4px",
+                            border: "1px solid #3b82f6",
+                            background: "#ffffff"
+                          }}
+                        />
+                      ) : (
+                        <span>{w.height || 2400}</span>
+                      )}
                     </td>
 
                     {/* Wall Length (mm) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={w.length || 0}
-                        onChange={(e) => handleRowFieldChange(w.id, "length", e.target.value)}
-                        style={{
-                          width: "90px",
-                          padding: "3px 5px",
-                          fontSize: "10.5px",
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff",
-                          fontWeight: 600
-                        }}
-                      />
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={editRowData.length !== undefined ? editRowData.length : (w.length || 0)}
+                          onChange={(e) => handleEditFieldChange("length", e.target.value)}
+                          style={{
+                            width: "90px",
+                            padding: "3px 5px",
+                            fontSize: "10.5px",
+                            borderRadius: "4px",
+                            border: "1px solid #3b82f6",
+                            background: "#ffffff",
+                            fontWeight: 600
+                          }}
+                        />
+                      ) : (
+                        <span style={{ fontWeight: 600 }}>{w.length || 0}</span>
+                      )}
                     </td>
 
                     {/* Raked Wall Area (m²) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={w.raked !== undefined ? w.raked : 0}
-                        onChange={(e) => handleRowFieldChange(w.id, "raked", e.target.value)}
-                        style={{
-                          width: "55px",
-                          padding: "3px 5px",
-                          fontSize: "10.5px",
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff"
-                        }}
-                      />
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editRowData.raked !== undefined ? editRowData.raked : (w.raked || 0)}
+                          onChange={(e) => handleEditFieldChange("raked", e.target.value)}
+                          style={{
+                            width: "55px",
+                            padding: "3px 5px",
+                            fontSize: "10.5px",
+                            borderRadius: "4px",
+                            border: "1px solid #3b82f6",
+                            background: "#ffffff"
+                          }}
+                        />
+                      ) : (
+                        <span>{w.raked !== undefined ? w.raked : 0}</span>
+                      )}
                     </td>
 
                     {/* Door Area (m²) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={w.door !== undefined ? w.door : 0}
-                        onChange={(e) => handleRowFieldChange(w.id, "door", e.target.value)}
-                        style={{
-                          width: "55px",
-                          padding: "3px 5px",
-                          fontSize: "10.5px",
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff",
-                          color: "#059669",
-                          fontWeight: 700
-                        }}
-                      />
+                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                      {isRowEditing ? (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editRowData.door !== undefined ? editRowData.door : (w.door || 0)}
+                          onChange={(e) => handleEditFieldChange("door", e.target.value)}
+                          style={{
+                            width: "55px",
+                            padding: "3px 5px",
+                            fontSize: "10.5px",
+                            borderRadius: "4px",
+                            border: "1px solid #3b82f6",
+                            background: "#ffffff",
+                            color: "#059669",
+                            fontWeight: 700
+                          }}
+                        />
+                      ) : (
+                        <span style={{ color: "#059669", fontWeight: 700 }}>{w.door !== undefined ? w.door : 0}</span>
+                      )}
                     </td>
 
-                    {/* Delete */}
-                    <td style={{ padding: "4px 8px", textAlign: "center" }}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveWall(w.id);
-                        }}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#ef4444",
-                          cursor: "pointer",
-                          fontWeight: 800,
-                          fontSize: "12px",
-                          padding: "2px"
-                        }}
-                        title="Delete row"
-                      >
-                        ✕
-                      </button>
+                    {/* Actions: Edit / Save / Cancel / Delete */}
+                    <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isRowEditing ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
+                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                            title="Save"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Cancel"
+                          >
+                            ✕
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveWall(w.id); }}
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                            title="Delete row"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (editingRowId && editingRowId !== w.id) {
+                                handleSaveInlineEdit(editingRowId);
+                              }
+                              handleStartEdit(w);
+                            }}
+                            style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                            title="Edit row"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveWall(w.id);
+                            }}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#ef4444",
+                              cursor: "pointer",
+                              fontWeight: 800,
+                              fontSize: "12px",
+                              padding: "0 2px"
+                            }}
+                            title="Delete row"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1207,8 +1352,8 @@ export default function InsulationTask({
 
               {(!wallEntries || wallEntries.length === 0) && (
                 <tr>
-                  <td colSpan={9} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                    No insulation walls entered. Click <strong>⚡ Auto Fill (AI)</strong> to calculate from project walls.
+                  <td colSpan={9} style={{ padding: "20px", textAlign: "center", color: "#94a3b8" }}>
+                    No insulation walls entered yet. Click &quot;Auto Fill (AI)&quot; or enter manually above.
                   </td>
                 </tr>
               )}
@@ -1216,55 +1361,43 @@ export default function InsulationTask({
           </table>
         </div>
 
-        {/* ── ACTION BUTTONS: SAVE & SUMMARY (ONLY WHEN RESULTS EXIST) ── */}
-        {wallEntries && wallEntries.length > 0 && (
-          <div style={{
-            padding: "8px 14px",
-            background: "#f8fafc",
-            borderTop: "1px solid #e2e8f0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "10px",
-            flexWrap: "wrap"
-          }}>
-            <div style={{ fontSize: "11px", color: "#475569", display: "flex", gap: "14px" }}>
-              <span>Total Rows: <strong>{wallEntries.length}</strong></span>
-              <span>Total Length: <strong>{totalLengthM} m</strong></span>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {saveSuccess && (
-                <span style={{ fontSize: "11px", color: "#059669", fontWeight: 700 }}>
-                  ✓ Saved to ProcurementApp!
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={handleSaveToDatabase}
-                disabled={isSaving}
-                style={{
-                  padding: "5px 12px",
-                  background: saveSuccess ? "#059669" : "linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "11px",
-                  fontWeight: "700",
-                  cursor: isSaving ? "not-allowed" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                  transition: "background 0.2s ease"
-                }}
-              >
-                <span>{isSaving ? "⏳" : "💾"}</span>
-                <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
-              </button>
-            </div>
+        {/* Footer Summary & Save */}
+        <div style={{
+          padding: "8px 12px",
+          background: "#f8fafc",
+          borderTop: "1px solid #e2e8f0",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "8px",
+          fontSize: "11px"
+        }}>
+          <div style={{ display: "flex", gap: "16px", color: "#475569", fontWeight: 600 }}>
+            <span>Total Rows: <b style={{ color: "#0f172a" }}>{(wallEntries || []).length}</b></span>
+            <span>Total Length: <b style={{ color: "#0f172a" }}>{totalLengthM} m</b></span>
+            <span>Total Net Area: <b style={{ color: "#059669" }}>{totalNetAreaM2} m²</b></span>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={handleSaveToDatabase}
+            disabled={isSaving || !wallEntries || wallEntries.length === 0}
+            style={{
+              background: saveSuccess ? "#16a34a" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "5px",
+              padding: "5px 12px",
+              fontSize: "11px",
+              fontWeight: 700,
+              cursor: (isSaving || !wallEntries || wallEntries.length === 0) ? "not-allowed" : "pointer",
+              opacity: (isSaving || !wallEntries || wallEntries.length === 0) ? 0.6 : 1,
+              transition: "all 0.2s ease"
+            }}
+          >
+            {isSaving ? "Saving..." : saveSuccess ? "✓ Saved to Database" : "Save Entries to DB"}
+          </button>
+        </div>
       </div>
     </div>
   );

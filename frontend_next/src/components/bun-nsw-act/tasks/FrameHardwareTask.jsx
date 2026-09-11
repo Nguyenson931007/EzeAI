@@ -36,8 +36,6 @@ export default function FrameHardwareTask({
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
-  const [editingRowId, setEditingRowId] = useState(null);
-  const [editRowData, setEditRowData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSection1Open, setIsSection1Open] = useState(false);
@@ -178,28 +176,74 @@ export default function FrameHardwareTask({
     loadExistingSavedWalls();
   }, [currentProjectName, activeJobNumber]);
 
-  const handleSaveInlineEdit = (id) => {
-    const lenVal = parseFloat(editRowData.length) || 0;
-    const spacingVal = parseFloat(editRowData.spacing) || 900;
-    const hVal = parseFloat(editRowData.height) || 2700;
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+  const editRowDataRef = useRef(editRowData);
+  editRowDataRef.current = editRowData;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
+
+  const handleStartEdit = (w) => {
+    setEditingRowId(w.id);
+    setEditRowData({
+      height: w.height ? String(w.height).replace("mm", "").trim() : "2700",
+      length: w.length ? String(w.length).replace("mm", "").trim() : "",
+      spacing: w.spacing ? String(w.spacing).replace("mm", "").trim() : "900",
+      rodSize: w.rodSize || "M12"
+    });
+  };
+
+  const handleSaveInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingRowIdRef.current;
+    if (!targetId || !onSetEntries) return;
+    const currentData = editRowDataRef.current;
+    const lenVal = parseFloat(currentData.length) || 0;
+    const spacingVal = parseFloat(currentData.spacing) || 900;
+    const hVal = parseFloat(currentData.height) || 2700;
     const demand = (lenVal / spacingVal).toFixed(2);
     const rodCount = Math.ceil(lenVal / spacingVal) || 1;
     const rodLen = hVal <= 2440 ? 2700 : (hVal <= 2740 ? 3000 : 3600);
 
-    const updatedList = (entries || []).map(item => item.id === id ? {
+    const updatedList = (entries || []).map(item => item.id === targetId ? {
       ...item,
-      ...editRowData,
-      height: editRowData.height ? (String(editRowData.height).includes("mm") ? editRowData.height : `${editRowData.height} mm`) : item.height,
-      length: editRowData.length ? (String(editRowData.length).includes("mm") ? editRowData.length : `${editRowData.length} mm`) : item.length,
-      spacing: editRowData.spacing ? (String(editRowData.spacing).includes("mm") ? editRowData.spacing : `${editRowData.spacing} mm`) : item.spacing,
+      ...currentData,
+      height: currentData.height ? (String(currentData.height).includes("mm") ? currentData.height : `${currentData.height} mm`) : item.height,
+      length: currentData.length ? (String(currentData.length).includes("mm") ? currentData.length : `${currentData.length} mm`) : item.length,
+      spacing: currentData.spacing ? (String(currentData.spacing).includes("mm") ? currentData.spacing : `${currentData.spacing} mm`) : item.spacing,
       rodDemand: demand,
       rodsQty: `${rodCount} pcs`,
-      rodMapping: `${rodCount} x ${item.rodSize || "M12"} Rod ${rodLen}`
+      rodMapping: `${rodCount} x ${currentData.rodSize || item.rodSize || "M12"} Rod ${rodLen}`
     } : item);
 
     if (onSetEntries) onSetEntries(updatedList);
     setEditingRowId(null);
   };
+
+  // Tự động lưu khi click ra ngoài dòng đang chỉnh sửa
+  useEffect(() => {
+    const handleDocumentMouseDown = (e) => {
+      if (!editingRowIdRef.current) return;
+      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+      if (!editingTr) return;
+
+      const path = e.composedPath ? e.composedPath() : [];
+      const isInsideEditingTr = path.some(el => 
+        el === editingTr || 
+        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current))
+      );
+
+      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
+        return;
+      }
+
+      handleSaveInlineEdit(editingRowIdRef.current);
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, []);
 
   const WALL_HEIGHT_OPTIONS = [
     "Select...",
@@ -836,8 +880,22 @@ export default function FrameHardwareTask({
                 return (
                   <tr
                     key={w.id || idx}
+                    data-editing-row-id={isRowEditing ? w.id : undefined}
+                    onDoubleClick={(e) => {
+                      if (isRowEditing) return;
+                      if (e.target.closest && e.target.closest("button")) return;
+                      if (editingRowId && editingRowId !== w.id) {
+                        handleSaveInlineEdit(editingRowId);
+                      }
+                      setSelectedEntryId(w.id);
+                      if (onSelectEntry) onSelectEntry(w);
+                      handleStartEdit(w);
+                    }}
                     onClick={() => {
                       if (!isRowEditing) {
+                        if (editingRowId && editingRowId !== w.id) {
+                          handleSaveInlineEdit(editingRowId);
+                        }
                         setSelectedEntryId(isSelected ? null : w.id);
                         if (onSelectEntry) onSelectEntry(isSelected ? null : w);
                       }

@@ -498,6 +498,22 @@ export default function App() {
     scalesByPage, setScalesByPage
   );
 
+  // ── Global Capture Escape Handler: Cancel ROI & Active Operations Reliably ──
+  useEffect(() => {
+    const handleGlobalEscape = (e) => {
+      if (e.key === "Escape" || e.code === "Escape") {
+        if (roiRect) {
+          clearROI();
+          if (setRoiRect) setRoiRect(null);
+        }
+        if (cancelROI) cancelROI();
+        if (cancelSmartDetect) cancelSmartDetect();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalEscape, true);
+    return () => window.removeEventListener("keydown", handleGlobalEscape, true);
+  }, [roiRect, clearROI, setRoiRect, cancelROI, cancelSmartDetect]);
+
   // ── 1. Tải project chia sẻ qua token bảo mật ──
   const loadSharedProject = useCallback(async (token) => {
     try {
@@ -1773,6 +1789,8 @@ export default function App() {
                     hiddenItemIds={hiddenItemIds}
                     isPanning={isPanning}
                     isDistancing={isDistancing}
+                    setIsDistancing={setIsDistancing}
+                    setDistancePoints={setDistancePoints}
                     isMeasuring={isMeasuring}
                     isAddingPoint={isAddingPoint}
                     measurePoints={measurePoints}
@@ -1796,6 +1814,7 @@ export default function App() {
                     isDetecting={isDetecting}
                     activeScanRoom={activeScanRoom}
                     cancelROI={cancelROI}
+                    clearROI={clearROI}
                     setOffset={setOffset}
                     setScale={setScale}
                     currentPage={currentPage}

@@ -2712,7 +2712,7 @@ const OCRLabelLayer = React.memo(({
 // ==========================================
 // 6. ROIOverlayLayer (Memoized)
 // ==========================================
-const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 0, y: 0 } }) => {
+const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 0, y: 0 }, clearROI }) => {
   if (!roiRect) return null;
 
   const rx = roiRect.x + pdfOffset.x;
@@ -2742,19 +2742,38 @@ const ROIOverlayLayer = React.memo(({ roiRect, scale, imgSize, pdfOffset = { x: 
         fill="none" stroke="rgba(59,130,246,0.3)" strokeWidth={6 / scale}
         pointerEvents="none"
       />
-      {/* Size label */}
+      {/* Size label background */}
       <rect
-        x={rx} y={ry - 22 / scale}
-        width={135 / scale} height={18 / scale}
-        rx={4 / scale} fill="rgba(22,28,45,0.9)" pointerEvents="none"
+        x={rx} y={ry - 24 / scale}
+        width={170 / scale} height={20 / scale}
+        rx={4 / scale} fill="rgba(22,28,45,0.95)" stroke="rgba(59,130,246,0.6)" strokeWidth={1 / scale}
       />
       <text
-        x={rx + 6 / scale} y={ry - 8 / scale}
+        x={rx + 6 / scale} y={ry - 10 / scale}
         fontSize={11 / scale} fill="#60a5fa" fontWeight="700" fontFamily="Inter, sans-serif"
         pointerEvents="none"
       >
         🎯 ROI {Math.round(roiRect.w)}×{Math.round(roiRect.h)}px
       </text>
+      {/* Clickable ✕ Close Button */}
+      {clearROI && (
+        <g
+          onClick={(e) => { e.stopPropagation(); clearROI(); }}
+          style={{ cursor: "pointer" }}
+        >
+          <rect
+            x={rx + 138 / scale} y={ry - 22 / scale}
+            width={26 / scale} height={16 / scale}
+            rx={3 / scale} fill="#ef4444"
+          />
+          <text
+            x={rx + 151 / scale} y={ry - 11 / scale}
+            fontSize={10 / scale} fill="#ffffff" fontWeight="bold" textAnchor="middle" dominantBaseline="central"
+          >
+            ✕ Esc
+          </text>
+        </g>
+      )}
     </g>
   );
 }, (prev, next) =>
@@ -2877,10 +2896,12 @@ export default function CanvasView({
   setHoverId,
   isPanning,
   isDistancing,
+  setIsDistancing,
   isMeasuring,
   isAddingPoint,
   measurePoints,
   distancePoints,
+  setDistancePoints,
   distanceResults,
   setDistanceResults,
   hoveredDistIdx,
@@ -2908,6 +2929,7 @@ export default function CanvasView({
   isDetecting,
   activeScanRoom,
   cancelROI,
+  clearROI,
   setOffset,
   setScale,
   currentPage,
@@ -3005,6 +3027,21 @@ export default function CanvasView({
     if (layerVisibility?.roof === false) return [];
     return (roofsByPage[currentPage] || []).filter(r => !hiddenItemIds?.has(r.id));
   }, [roofsByPage, currentPage, layerVisibility, hiddenItemIds]);
+
+  // Distance Tool & Global Escape handler
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" || e.code === "Escape") {
+        if (isDistancing) {
+          if (setIsDistancing) setIsDistancing(false);
+          if (setDistancePoints) setDistancePoints([]);
+          if (setInteractionMode) setInteractionMode("select");
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isDistancing, setIsDistancing, setDistancePoints, setInteractionMode]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -4939,12 +4976,12 @@ export default function CanvasView({
               const dlen = Math.hypot(ddx, ddy) || 1;
               const ux = ddx / dlen, uy = ddy / dlen;
               const nx = -uy, ny = ux;
-              const GAP = 3, EXT = 6;
+              const GAP = 6, EXT = 20;
               const extP1start = { x: seg.p1.x + nx * GAP, y: seg.p1.y + ny * GAP };
               const extP1end = { x: d1.x + nx * EXT, y: d1.y + ny * EXT };
               const extP2start = { x: seg.p2.x + nx * GAP, y: seg.p2.y + ny * GAP };
               const extP2end = { x: d2.x + nx * EXT, y: d2.y + ny * EXT };
-              const A = 7, W = A * 0.32;
+              const A = 22, W = A * 0.38;
               const arr1 = [
                 d1,
                 { x: d1.x - ux * A + nx * W, y: d1.y - uy * A + ny * W },
@@ -4962,9 +4999,10 @@ export default function CanvasView({
 
               const angDeg = Math.atan2(ddy, ddx) * 180 / Math.PI;
               const textAng = angDeg > 90 || angDeg < -90 ? angDeg + 180 : angDeg;
-              const lblOffX = nx * 9, lblOffY = ny * 9;
+              const lblOffX = nx * 42, lblOffY = ny * 42;
               const lx = mx + lblOffX, ly = my + lblOffY;
-              const LW = label.length * 5.2 + 8;
+              const LW = Math.max(label.length * 22 + 64, 200);
+              const LH = 58;
 
               return (
                 <g key={`dist-${idx}`}
@@ -4978,23 +5016,23 @@ export default function CanvasView({
                     setHoveredDistIdx(null);
                   }}
                 >
-                  <line x1={extP1start.x} y1={extP1start.y} x2={extP1end.x} y2={extP1end.y} stroke={color} strokeWidth={0.8} opacity={0.75} />
-                  <line x1={extP2start.x} y1={extP2start.y} x2={extP2end.x} y2={extP2end.y} stroke={color} strokeWidth={0.8} opacity={0.75} />
-                  <line x1={d1.x} y1={d1.y} x2={d2.x} y2={d2.y} stroke={color} strokeWidth={isHov ? 2 : 1.2} />
+                  <line x1={extP1start.x} y1={extP1start.y} x2={extP1end.x} y2={extP1end.y} stroke={color} strokeWidth={3.5} opacity={0.88} />
+                  <line x1={extP2start.x} y1={extP2start.y} x2={extP2end.x} y2={extP2end.y} stroke={color} strokeWidth={3.5} opacity={0.88} />
+                  <line x1={d1.x} y1={d1.y} x2={d2.x} y2={d2.y} stroke={color} strokeWidth={isHov ? 5.5 : 4.5} />
                   <polygon points={arr1} fill={color} />
                   <polygon points={arr2} fill={color} />
-                  <circle cx={seg.p1.x} cy={seg.p1.y} r={2.5} fill={color} />
-                  <circle cx={seg.p2.x} cy={seg.p2.y} r={2.5} fill={color} />
+                  <circle cx={seg.p1.x} cy={seg.p1.y} r={9} fill={color} stroke="#ffffff" strokeWidth={3} />
+                  <circle cx={seg.p2.x} cy={seg.p2.y} r={9} fill={color} stroke="#ffffff" strokeWidth={3} />
                   <g transform={`translate(${lx},${ly}) rotate(${textAng})`}>
-                    <rect x={-LW / 2} y={-8} width={LW} height={13} rx={2.5}
-                      fill={isHov ? 'rgba(60,10,0,0.88)' : 'rgba(0,8,16,0.85)'}
-                      stroke={color} strokeWidth={0.5} />
-                    <text x={0} y={3} fontSize="12" textAnchor="middle" fill={color} fontFamily="Inter, monospace" fontWeight="700" letterSpacing="0.3">{label}</text>
+                    <rect x={-LW / 2} y={-LH / 2} width={LW} height={LH} rx={12}
+                      fill={isHov ? 'rgba(60,10,0,0.96)' : 'rgba(0,12,24,0.96)'}
+                      stroke={color} strokeWidth={3} />
+                    <text x={0} y={11.5} fontSize="32" textAnchor="middle" fill={color} fontFamily="Inter, sans-serif" fontWeight="900" letterSpacing="0.8">{label}</text>
                   </g>
                   {isHov && (
-                    <g transform={`translate(${lx + LW / 2 + 8},${ly})`}>
-                      <circle r={6} fill="rgba(255,80,0,0.85)" />
-                      <text x={0} y={2.5} fontSize="8" textAnchor="middle" fill="#fff" fontWeight="700">×</text>
+                    <g transform={`translate(${lx + LW / 2 + 28},${ly})`}>
+                      <circle r={16} fill="rgba(255,80,0,0.95)" stroke="#fff" strokeWidth={2} />
+                      <text x={0} y={6.5} fontSize="18" textAnchor="middle" fill="#fff" fontWeight="900">×</text>
                     </g>
                   )}
                 </g>
@@ -5023,13 +5061,25 @@ export default function CanvasView({
               const pixelDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
               const realMm = scaleValue ? pixelDist * scaleValue * 1000 : 0;
               const label = realMm >= 1000 ? `${(realMm / 1000).toFixed(3)} m` : `${realMm.toFixed(0)} mm`;
+              const ddx = p2.x - p1.x, ddy = p2.y - p1.y;
+              const dlen = Math.hypot(ddx, ddy) || 1;
+              const nx = -ddy / dlen, ny = ddx / dlen;
+              const angDeg = Math.atan2(ddy, ddx) * 180 / Math.PI;
+              const textAng = angDeg > 90 || angDeg < -90 ? angDeg + 180 : angDeg;
+              const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+              const lblOffX = nx * 42, lblOffY = ny * 42;
+              const lx = mx + lblOffX, ly = my + lblOffY;
+              const LW = Math.max(label.length * 22 + 64, 200);
+              const LH = 58;
               return (
                 <g style={{ pointerEvents: 'none' }}>
-                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#00e5ff" strokeWidth={1} strokeDasharray="5,3" opacity={0.6} />
-                  <circle cx={p1.x} cy={p1.y} r={4} fill="#00e5ff" stroke="#fff" strokeWidth={1.5} />
-                  <circle cx={p2.x} cy={p2.y} r={3} fill="#00e5ff" stroke="#fff" strokeWidth={1} />
-                  <rect x={(p1.x + p2.x) / 2 - 26} y={(p1.y + p2.y) / 2 - 9} width={52} height={14} rx={3} fill="rgba(0,10,20,0.82)" />
-                  <text x={(p1.x + p2.x) / 2} y={(p1.y + p2.y) / 2 + 2} fontSize="7.5" textAnchor="middle" fill="#00e5ff" fontFamily="Inter, monospace" fontWeight="700">{label}</text>
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#00e5ff" strokeWidth={3.5} strokeDasharray="8,4" opacity={0.85} />
+                  <circle cx={p1.x} cy={p1.y} r={9} fill="#00e5ff" stroke="#fff" strokeWidth={2.5} />
+                  <circle cx={p2.x} cy={p2.y} r={9} fill="#00e5ff" stroke="#fff" strokeWidth={2.5} />
+                  <g transform={`translate(${lx},${ly}) rotate(${textAng})`}>
+                    <rect x={-LW / 2} y={-LH / 2} width={LW} height={LH} rx={12} fill="rgba(0,12,24,0.96)" stroke="#00e5ff" strokeWidth={3} />
+                    <text x={0} y={11.5} fontSize="32" textAnchor="middle" fill="#00e5ff" fontFamily="Inter, sans-serif" fontWeight="900" letterSpacing="0.8">{label}</text>
+                  </g>
                 </g>
               );
             })()}
@@ -5042,22 +5092,29 @@ export default function CanvasView({
               const label = realMm >= 1000 ? `${(realMm / 1000).toFixed(3)} m` : `${realMm.toFixed(0)} mm`;
               const mx = (dimP1.x + dimP2.x) / 2, my = (dimP1.y + dimP2.y) / 2;
               const ang = Math.atan2(dimP2.y - dimP1.y, dimP2.x - dimP1.x) * 180 / Math.PI;
+              const textAng = ang > 90 || ang < -90 ? ang + 180 : ang;
               const dx = dimP2.x - dimP1.x, dy = dimP2.y - dimP1.y;
               const len = Math.hypot(dx, dy) || 1;
               const ux = dx / len, uy = dy / len;
               const pxv = -uy, pyv = ux;
-              const A = 6, EXT = 4;
+              const A = 24, EXT = 18;
+              const LW = Math.max(label.length * 22 + 64, 200);
+              const LH = 58;
+              const lblOffX = pxv * 42, lblOffY = pyv * 42;
+              const lx = mx + lblOffX, ly = my + lblOffY;
               return (
-                <g style={{ pointerEvents: 'none' }} opacity={0.9}>
-                  <line x1={p1.x} y1={p1.y} x2={dimP1.x + pxv * EXT} y2={dimP1.y + pyv * EXT} stroke="#00e5ff" strokeWidth={1} opacity={0.6} />
-                  <line x1={p2.x} y1={p2.y} x2={dimP2.x + pxv * EXT} y2={dimP2.y + pyv * EXT} stroke="#00e5ff" strokeWidth={1} opacity={0.6} />
-                  <line x1={dimP1.x} y1={dimP1.y} x2={dimP2.x} y2={dimP2.y} stroke="#00e5ff" strokeWidth={1.5} />
+                <g style={{ pointerEvents: 'none' }} opacity={0.95}>
+                  <line x1={p1.x} y1={p1.y} x2={dimP1.x + pxv * EXT} y2={dimP1.y + pyv * EXT} stroke="#00e5ff" strokeWidth={3.5} opacity={0.85} />
+                  <line x1={p2.x} y1={p2.y} x2={dimP2.x + pxv * EXT} y2={dimP2.y + pyv * EXT} stroke="#00e5ff" strokeWidth={3.5} opacity={0.85} />
+                  <line x1={dimP1.x} y1={dimP1.y} x2={dimP2.x} y2={dimP2.y} stroke="#00e5ff" strokeWidth={4.5} />
                   <polygon points={`${dimP1.x},${dimP1.y} ${dimP1.x + ux * A + pyv * (A * 0.4)},${dimP1.y + uy * A - pxv * (A * 0.4)} ${dimP1.x + ux * A - pyv * (A * 0.4)},${dimP1.y + uy * A + pxv * (A * 0.4)}`} fill="#00e5ff" />
                   <polygon points={`${dimP2.x},${dimP2.y} ${dimP2.x - ux * A + pyv * (A * 0.4)},${dimP2.y - uy * A - pxv * (A * 0.4)} ${dimP2.x - ux * A - pyv * (A * 0.4)},${dimP2.y - uy * A + pxv * (A * 0.4)}`} fill="#00e5ff" />
-                  <circle cx={p1.x} cy={p1.y} r={3} fill="#00e5ff" stroke="#fff" strokeWidth={1} />
-                  <circle cx={p2.x} cy={p2.y} r={3} fill="#00e5ff" stroke="#fff" strokeWidth={1} />
-                  <rect x={mx - 26} y={my - 9} width={52} height={14} rx={3} fill="rgba(0,10,20,0.82)" />
-                  <text x={mx} y={my + 2} fontSize="7.5" textAnchor="middle" fill="#00e5ff" fontFamily="Inter, monospace" fontWeight="700" transform={`rotate(${ang > 90 || ang < -90 ? ang + 180 : ang},${mx},${my})`}>{label}</text>
+                  <circle cx={p1.x} cy={p1.y} r={9} fill="#00e5ff" stroke="#fff" strokeWidth={2.5} />
+                  <circle cx={p2.x} cy={p2.y} r={9} fill="#00e5ff" stroke="#fff" strokeWidth={2.5} />
+                  <g transform={`translate(${lx},${ly}) rotate(${textAng})`}>
+                    <rect x={-LW / 2} y={-LH / 2} width={LW} height={LH} rx={12} fill="rgba(0,12,24,0.96)" stroke="#00e5ff" strokeWidth={3} />
+                    <text x={0} y={11.5} fontSize="32" textAnchor="middle" fill="#00e5ff" fontFamily="Inter, sans-serif" fontWeight="900" letterSpacing="0.8">{label}</text>
+                  </g>
                 </g>
               );
             })()}
@@ -5158,7 +5215,7 @@ export default function CanvasView({
             })}
 
             {/* Memoized Layer 6: ROI Overlay region */}
-            <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} pdfOffset={pdfOffset} />
+            <ROIOverlayLayer roiRect={roiRect} scale={scale} imgSize={imgSize} pdfOffset={pdfOffset} clearROI={clearROI} />
 
             {/* Cut Wall Preview Dot */}
             {cutPreviewPoint && (

@@ -56,6 +56,10 @@ export default function FlooringDeckingTask({
   const [otherArea, setOtherArea] = useState(formData.otherArea || "");
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
+  const editRowDataRef = useRef(editRowData);
+  editRowDataRef.current = editRowData;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
   const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
   const [isDryOpen, setIsDryOpen] = useState(true);
@@ -70,6 +74,95 @@ export default function FlooringDeckingTask({
     if (isNaN(num)) return String(val);
     return `${num.toFixed(4)} m²`;
   };
+
+  const handleStartEdit = (item) => {
+    setEditingRowId(item.id);
+    const rawM2 = item.totalM2 !== undefined ? String(item.totalM2).replace(/m²/gi, "").trim() : (item.areaM2 ? String(item.areaM2) : "");
+    setEditRowData({
+      floorLevel: item.floorLevel || "GF",
+      product: item.product || "",
+      totalM2: rawM2
+    });
+  };
+
+  const handleSaveInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingRowIdRef.current;
+    if (!targetId || !onSetEntries) return;
+    const currentData = editRowDataRef.current;
+    const item = (entries || []).find(r => (r.id && r.id === targetId) || (!r.id && r.typeArea === targetId));
+    if (!item) return;
+
+    const rawM2 = parseFloat(String(currentData.totalM2 || "0").replace(/m²/gi, "").trim()) || 0;
+    const valStr = rawM2 > 0 ? rawM2.toFixed(4) : "0";
+    const chosenProduct = currentData.product || item.product;
+    const chosenLevel = currentData.floorLevel || item.floorLevel || "GF";
+
+    if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
+      setDryArea(valStr);
+      if (chosenProduct) {
+        setDryProduct(chosenProduct);
+        if (onChange) onChange("flooring_decking", "dryProduct", chosenProduct);
+      }
+      if (onChange) onChange("flooring_decking", "dryArea", valStr);
+    } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
+      setWetArea(valStr);
+      if (chosenProduct) {
+        setWetProduct(chosenProduct);
+        if (onChange) onChange("flooring_decking", "wetProduct", chosenProduct);
+      }
+      if (onChange) onChange("flooring_decking", "wetArea", valStr);
+    } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
+      setBalconyArea(valStr);
+      if (chosenProduct) {
+        setBalconyProduct(chosenProduct);
+        if (onChange) onChange("flooring_decking", "balconyProduct", chosenProduct);
+      }
+      if (onChange) onChange("flooring_decking", "balconyArea", valStr);
+    } else {
+      setOtherArea(valStr);
+      if (chosenProduct) {
+        setOtherProduct(chosenProduct);
+        if (onChange) onChange("flooring_decking", "otherProduct", chosenProduct);
+      }
+      if (onChange) onChange("flooring_decking", "otherArea", valStr);
+    }
+
+    onSetEntries((entries || []).map(r => ((r.id && r.id === targetId) || (!r.id && r.typeArea === targetId)) ? {
+      ...r,
+      floorLevel: chosenLevel,
+      product: chosenProduct,
+      areaM2: rawM2,
+      totalM2: formatM2_4Digits(rawM2)
+    } : r));
+
+    setEditingRowId(null);
+  };
+
+  // Tự động lưu khi click ra ngoài dòng đang chỉnh sửa
+  useEffect(() => {
+    const handleDocumentMouseDown = (e) => {
+      if (!editingRowIdRef.current) return;
+      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+      if (!editingTr) return;
+
+      const path = e.composedPath ? e.composedPath() : [];
+      const isInsideEditingTr = path.some(el => 
+        el === editingTr || 
+        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current))
+      );
+
+      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
+        return;
+      }
+
+      handleSaveInlineEdit(editingRowIdRef.current);
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, []);
 
   // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
   const getLevelCode = (idx) => {
@@ -1189,8 +1282,21 @@ export default function FlooringDeckingTask({
                   <tr
                     key={item.id || idx}
                     data-entry-id={item.id || item.typeArea}
+                    data-editing-row-id={isRowEditing ? item.id : undefined}
+                    onDoubleClick={(e) => {
+                      if (isRowEditing) return;
+                      if (e.target.closest && e.target.closest("button")) return;
+                      if (editingRowId && editingRowId !== item.id) {
+                        handleSaveInlineEdit(editingRowId);
+                      }
+                      setSelectedEntryId(item.id || item.typeArea);
+                      handleStartEdit(item);
+                    }}
                     onClick={() => {
                       if (!isRowEditing) {
+                        if (editingRowId && editingRowId !== item.id) {
+                          handleSaveInlineEdit(editingRowId);
+                        }
                         setSelectedEntryId(item.id || item.typeArea);
 
                         // Auto switch canvas page if item belongs to Level 2 (FF), Level 3 (SF), etc.
@@ -1357,51 +1463,7 @@ export default function FlooringDeckingTask({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const rawM2 = parseFloat(String(editRowData.totalM2 || "0").replace(/m²/gi, "").trim()) || 0;
-                              const valStr = rawM2 > 0 ? rawM2.toFixed(4) : "0";
-                              const chosenProduct = editRowData.product || item.product;
-                              const chosenLevel = editRowData.floorLevel || lvl;
-
-                              if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
-                                setDryArea(valStr);
-                                if (chosenProduct) {
-                                  setDryProduct(chosenProduct);
-                                  if (onChange) onChange("flooring_decking", "dryProduct", chosenProduct);
-                                }
-                                if (onChange) onChange("flooring_decking", "dryArea", valStr);
-                              } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
-                                setWetArea(valStr);
-                                if (chosenProduct) {
-                                  setWetProduct(chosenProduct);
-                                  if (onChange) onChange("flooring_decking", "wetProduct", chosenProduct);
-                                }
-                                if (onChange) onChange("flooring_decking", "wetArea", valStr);
-                              } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
-                                setBalconyArea(valStr);
-                                if (chosenProduct) {
-                                  setBalconyProduct(chosenProduct);
-                                  if (onChange) onChange("flooring_decking", "balconyProduct", chosenProduct);
-                                }
-                                if (onChange) onChange("flooring_decking", "balconyArea", valStr);
-                              } else {
-                                setOtherArea(valStr);
-                                if (chosenProduct) {
-                                  setOtherProduct(chosenProduct);
-                                  if (onChange) onChange("flooring_decking", "otherProduct", chosenProduct);
-                                }
-                                if (onChange) onChange("flooring_decking", "otherArea", valStr);
-                              }
-
-                              if (onSetEntries) {
-                                onSetEntries(enteredRows.map(r => r.id === item.id ? {
-                                  ...r,
-                                  floorLevel: chosenLevel,
-                                  product: chosenProduct,
-                                  totalM2: formatM2_4Digits(rawM2)
-                                } : r));
-                              }
-
-                              setEditingRowId(null);
+                              handleSaveInlineEdit(item.id);
                             }}
                             style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
                             title="Save"

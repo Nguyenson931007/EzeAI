@@ -60,7 +60,8 @@ class SaveLockoutJobsPayloadSchema(BaseModel):
 
 @router.get("/door-types")
 async def get_lockout_door_types():
-    """Đọc door_type từ catalog và tách riêng Internal/External."""
+    """Đọc danh sách Door Types từ Database / Selector Catalog, phân theo Internal / External."""
+    options = {"internal": set(), "external": set()}
     conn = None
     try:
         conn = get_mssql_connection()
@@ -68,7 +69,10 @@ async def get_lockout_door_types():
         cursor.execute("""
             SELECT DISTINCT
                 LOWER(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.category')))) AS category,
-                LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))) AS door_type
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_name'))), N''),
+                    NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))), N'')
+                ) AS door_type
             FROM [ProcurementApp].[dbo].[data_find_items] AS d
             CROSS APPLY OPENJSON(
                 CASE
@@ -80,30 +84,52 @@ async def get_lockout_door_types():
             WHERE d.customer_id = 'BUN-NSW-ACT'
               AND JSON_VALUE(v.[value], '$.task_key') = 'lock-up'
               AND JSON_VALUE(v.[value], '$.formula_key') = 'door-selection'
-              AND NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))), N'') IS NOT NULL
+              AND (
+                NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_name'))), N'') IS NOT NULL
+                OR NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))), N'') IS NOT NULL
+              )
             ORDER BY category, door_type;
         """)
 
-        options = {"internal": set(), "external": set()}
         for row in cursor.fetchall():
             category = str(row.get("category") or "").strip().lower()
             door_type = str(row.get("door_type") or "").strip()
             if category in options and door_type:
                 options[category].add(door_type)
-
-        return {
-            "success": True,
-            "data": {
-                "internal": sorted(options["internal"]),
-                "external": sorted(options["external"]),
-            },
-        }
-    except Exception as e:
-        logger.error(f"Error fetching LockUp door types: {e}")
-        raise HTTPException(status_code=500, detail=f"Không thể tải dropdown LockUp: {str(e)}")
+    except Exception as db_err:
+        logger.warning(f"MSSQL door-types query failed ({db_err}), loading from selector_variants.json...")
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # Fallback to local selector_variants.json if DB returned empty or errored
+    if not options["internal"] or not options["external"]:
+        try:
+            from pathlib import Path
+            import json
+            catalog_file = Path(__file__).resolve().parent.parent / "app" / "customer_modules" / "bun_nsw_act" / "selector_variants.json"
+            if catalog_file.exists():
+                variants = json.loads(catalog_file.read_text(encoding="utf-8"))
+                for item in variants:
+                    if item.get("task_key") == "lock-up" and item.get("formula_key") == "door-selection":
+                        params = item.get("parameters") or {}
+                        cat = str(params.get("category") or "").strip().lower()
+                        d_name = str(params.get("door_name") or params.get("door_type") or "").strip()
+                        if cat in options and d_name:
+                            options[cat].add(d_name)
+        except Exception as json_err:
+            logger.error(f"Error fallback reading selector_variants.json: {json_err}")
+
+    return {
+        "success": True,
+        "data": {
+            "internal": sorted(list(options["internal"])),
+            "external": sorted(list(options["external"])),
+        },
+    }
 
 
 # ══════════════════════════════════════════════════════

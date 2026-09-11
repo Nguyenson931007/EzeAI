@@ -43,6 +43,10 @@ export default function LockupTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
+  const editRowDataRef = useRef(editRowData);
+  editRowDataRef.current = editRowData;
+  const editingRowIdRef = useRef(editingRowId);
+  editingRowIdRef.current = editingRowId;
 
   // Collapsible States
   const [isCard1Collapsed, setIsCard1Collapsed] = useState(false);
@@ -54,10 +58,69 @@ export default function LockupTask({
   const [isLooseIntCollapsed, setIsLooseIntCollapsed] = useState(false);
   const [isCard2Collapsed, setIsCard2Collapsed] = useState(false);
 
+  const DOOR_HEIGHT_OPTIONS = ["2040", "2340", "2600", "2650", "Spec"];
+  const DOOR_WIDTH_OPTIONS = [
+    "520",
+    "620",
+    "720",
+    "770",
+    "804",
+    "810",
+    "820",
+    "870",
+    "920",
+    "970",
+    "1020",
+    "1200",
+    "1640",
+    "Spec"
+  ];
+  const DOOR_THICK_OPTIONS = ["35", "38", "40"];
+  const DOOR_MODE_OPTIONS = ["Prehung", "Loose"];
+  const DOOR_HUNG_OPTIONS = [
+    "-",
+    "Hung A",
+    "Hung B",
+    "Hung CG",
+    "Hung DG",
+    "Hung G",
+    "Pivot Door",
+    "Double Door Set",
+    "RH Pre Hung",
+    "LH Prehung",
+    "LH Pre Hung",
+    "RH Loose",
+    "LH Loose"
+  ];
+  const DOOR_TYPE_OPTIONS = [
+    "-",
+    "Type A",
+    "Type B",
+    "Type CC",
+    "Type DG",
+    "Type C",
+    "Type CG",
+    "Pivot Frame A",
+    "Pivot Frame B",
+    "Steel Frame"
+  ];
+  const DOOR_STOP_OPTIONS = ["Cushion", "DS2 with Riser"];
+  const INTERNAL_TYPE_OPTIONS = ["HF", "HO"];
+  const COLOR_OPTIONS = ["CHR", "SCH"];
+  const JAMB_SIZE_OPTIONS = [
+    "Steel Frame",
+    "112×19mm 5.4m",
+    "112×19mm 5.4m Loose Jamb",
+    "112x19mm",
+    "92x18mm",
+    "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
+  ];
+
   const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1).trim() === String(id2).trim();
 
   const isCadDoorType = (t) => {
-    if (!t || t === "-" || t === "Type A" || t === "Type CG") return true;
+    if (!t || t === "-") return false;
+    if (DOOR_TYPE_OPTIONS.includes(String(t).trim())) return false;
     return /^(single|sliding|window|double|bifold|pocket|cavity|door|hinged|french|timber)$/i.test(String(t).trim());
   };
 
@@ -100,7 +163,7 @@ export default function LockupTask({
       thickness: row.thickness || (isExt ? 40 : 35),
       thicks: row.thicks || `${row.thickness || (isExt ? 40 : 35)}mm`,
       jamb_or_wall: row.jamb_or_wall || row.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
-      jamb_size: isLoose ? (row.jamb_size || row.jambSize || "") : "",
+      jamb_size: row.jamb_size || row.jambSize || "",
       hung: hungVal,
       door_type: row.door_type || row.product || row.door || "",
       type: isCadDoorType(row.type) ? "-" : row.type,
@@ -111,99 +174,63 @@ export default function LockupTask({
     });
   };
 
-  const handleSaveInlineEdit = (id) => {
-    if (!onSetEntries) return;
+  const handleSaveInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingRowIdRef.current;
+    if (!targetId || !onSetEntries) return;
+    const currentData = editRowDataRef.current;
     onSetEntries(prev => (prev || []).map(item => {
-      if (item.id !== id) return item;
-      const isLoose = editRowData.mode === "Loose";
-      const isPrehung = editRowData.mode === "Prehung";
-      const isExt = editRowData.scope === "external" || editRowData.location === "External";
+      if (item.id !== targetId) return item;
+      const isLoose = currentData.mode === "Loose";
+      const isPrehung = currentData.mode === "Prehung";
+      const isExt = currentData.scope === "external" || currentData.location === "External";
       return {
         ...item,
-        ...editRowData,
+        ...currentData,
         scope: isExt ? "external" : "internal",
         location: isExt ? "External" : "Internal",
-        door: editRowData.door_type || item.door,
+        door: currentData.door_type || item.door,
         category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
-        mode: editRowData.mode || null,
-        jambWall: editRowData.jamb_or_wall,
-        jambSize: isLoose ? editRowData.jamb_size : null,
-        jamb_size: isLoose ? editRowData.jamb_size : null,
-        type: isCadDoorType(editRowData.type) ? "-" : (editRowData.type || "-"),
-        hfHo: editRowData.internal_type,
-        stop: editRowData.door_stop,
-        qty: editRowData.default_qty
+        mode: currentData.mode || null,
+        jambWall: currentData.jamb_or_wall,
+        jambSize: currentData.jamb_size || null,
+        jamb_size: currentData.jamb_size || null,
+        type: isCadDoorType(currentData.type) ? "-" : (currentData.type || "-"),
+        hfHo: currentData.internal_type,
+        stop: currentData.door_stop,
+        qty: currentData.default_qty
       };
     }));
     setEditingRowId(null);
   };
 
-  const DOOR_HEIGHT_OPTIONS = ["2040", "2340", "2600", "2650", "Spec"];
+  // Tự động lưu khi click ra ngoài dòng đang chỉnh sửa
+  useEffect(() => {
+    const handleDocumentMouseDown = (e) => {
+      if (!editingRowIdRef.current) return;
+      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+      if (!editingTr) return;
 
-  const DOOR_WIDTH_OPTIONS = [
-    "520",
-    "620",
-    "720",
-    "770",
-    "804",
-    "810",
-    "820",
-    "870",
-    "920",
-    "970",
-    "1020",
-    "1200",
-    "1640",
-    "Spec"
-  ];
+      const path = e.composedPath ? e.composedPath() : [];
+      const isInsideEditingTr = path.some(el => 
+        el === editingTr || 
+        (el.getAttribute && (
+          el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current) ||
+          el.getAttribute("data-search-dropdown") === "true"
+        ))
+      );
 
-  const DOOR_THICK_OPTIONS = ["35", "38", "40"];
+      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
+        return; // Click bên trong dòng đang edit hoặc trong dropdown
+      }
 
-  const DOOR_MODE_OPTIONS = ["Prehung", "Loose"];
+      handleSaveInlineEdit(editingRowIdRef.current);
+    };
 
-  const DOOR_HUNG_OPTIONS = [
-    "-",
-    "Hung A",
-    "Hung B",
-    "Hung CG",
-    "Hung DG",
-    "Hung G",
-    "Pivot Door",
-    "Double Door Set",
-    "RH Pre Hung",
-    "LH Prehung",
-    "LH Pre Hung",
-    "RH Loose",
-    "LH Loose"
-  ];
-
-  const DOOR_TYPE_OPTIONS = [
-    "-",
-    "Type A",
-    "Type B",
-    "Type CC",
-    "Type DG",
-    "Type C",
-    "Type CG",
-    "Pivot Frame A",
-    "Pivot Frame B",
-    "Steel Frame"
-  ];
-
-  const DOOR_STOP_OPTIONS = ["Cushion", "DS2 with Riser"];
-
-  const INTERNAL_TYPE_OPTIONS = ["HF", "HO"];
-
-  const COLOR_OPTIONS = ["CHR", "SCH"];
-
-  const JAMB_SIZE_OPTIONS = [
-    "Steel Frame",
-    "112×19mm 5.4m",
-    "112×19mm 5.4m Loose Jamb",
-    "112x19mm",
-    "92x18mm",
-    "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
-  ];
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, []);
 
   const FALLBACK_EXTERNAL_DOOR_TYPES = [
     "BFR1 D/C CLEAR",
@@ -297,6 +324,18 @@ export default function LockupTask({
     };
   }, []);
 
+  const externalDoorOptions = useMemo(() => {
+    return doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES;
+  }, [doorTypeOptions.external]);
+
+  const internalDoorOptions = useMemo(() => {
+    return doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES;
+  }, [doorTypeOptions.internal]);
+
+  const allDoorOptions = useMemo(() => {
+    return Array.from(new Set([...externalDoorOptions, ...internalDoorOptions]));
+  }, [externalDoorOptions, internalDoorOptions]);
+
   // ══════════════════════════════════════════════════════
   // SEARCHABLE DROPDOWN COMPONENT (Select or search...)
   // ══════════════════════════════════════════════════════
@@ -353,6 +392,7 @@ export default function LockupTask({
     return (
       <div
         ref={containerRef}
+        data-search-dropdown="true"
         style={{
           position: "relative",
           width: "100%",
@@ -477,6 +517,7 @@ export default function LockupTask({
               <div
                 onMouseDown={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   onChange("");
                   setOpen(false);
                 }}
@@ -508,6 +549,7 @@ export default function LockupTask({
                 key={i}
                 onMouseDown={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   onChange(opt);
                   setOpen(false);
                 }}
@@ -621,12 +663,14 @@ export default function LockupTask({
         updated.door = finalVal;
         updated.product = finalVal;
       }
-      // Khi chọn mode là Loose -> tự động gán jamb_size là Loose Jamb, nếu không phải Loose (Prehung hoặc trống) -> gán null
+      if (field === "jamb_size") {
+        updated.jambSize = finalVal;
+      }
+      // Khi chọn mode là Loose -> tự động gán jamb_size là Loose Jamb nếu chưa có
       if (field === "mode") {
-        if (finalVal === "Loose") {
+        if (finalVal === "Loose" && !updated.jamb_size) {
           updated.jamb_size = "112×19mm 5.4m Loose Jamb";
-        } else {
-          updated.jamb_size = null;
+          updated.jambSize = "112×19mm 5.4m Loose Jamb";
         }
       }
       return updated;
@@ -1797,7 +1841,7 @@ export default function LockupTask({
                     }}>Label</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Category</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Location</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Door</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Door type</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Size</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Thicks</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Jamb / wall</th>
@@ -1852,9 +1896,6 @@ export default function LockupTask({
                     const thicksDisplay = row.thicks || (row.thickness ? `${String(row.thickness).replace("mm", "")}mm` : (isExt ? "40mm" : "35mm"));
                     const jambWallDisplay = row.jambWall || row.jamb_or_wall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud");
 
-                    // Image 2: Jamb Size left blank unless Category is Loose Jamb
-                    const jambSizeDisplay = isLooseJamb ? (row.jambSize || (row.jamb_size ? String(row.jamb_size).replace("5.4m Loose Jamb", "110mm").replace("5.4m", "110mm").trim() : "110mm")) : "";
-
                     // Hung: right -> Hung A, left -> Hung B
                     const rawHinge = String(
                       row.hung ||
@@ -1888,13 +1929,27 @@ export default function LockupTask({
                     return (
                       <tr
                         key={row.id || idx}
+                        data-editing-row-id={isRowEditing ? row.id : undefined}
                         ref={(el) => {
                           if (isSelected && el) {
                             el.scrollIntoView({ behavior: "smooth", block: "nearest" });
                           }
                         }}
+                        onDoubleClick={(e) => {
+                          if (isRowEditing) return;
+                          if (e.target.closest && e.target.closest("button")) return;
+                          if (editingRowId && editingRowId !== row.id) {
+                            handleSaveInlineEdit(editingRowId);
+                          }
+                          setSelectedEntryId(row.id);
+                          if (onSelectEntry) onSelectEntry(row);
+                          handleStartEdit(row);
+                        }}
                         onClick={() => {
                           if (!isRowEditing) {
+                            if (editingRowId && editingRowId !== row.id) {
+                              handleSaveInlineEdit(editingRowId);
+                            }
                             setSelectedEntryId(row.id);
                             if (onSelectEntry) onSelectEntry(row);
                           }
@@ -1973,7 +2028,7 @@ export default function LockupTask({
                                   setEditRowData({
                                     ...editRowData,
                                     mode: newMode,
-                                    jamb_size: newMode === "Loose" ? (editRowData.jamb_size || "112×19mm 5.4m Loose Jamb") : ""
+                                    jamb_size: newMode === "Loose" ? (editRowData.jamb_size || "112×19mm 5.4m Loose Jamb") : editRowData.jamb_size
                                   });
                                 }}
                                 style={{ padding: "2px 4px", fontSize: "11px" }}
@@ -2004,14 +2059,14 @@ export default function LockupTask({
                               <SearchDropdown
                                 value={editRowData.door_type || ""}
                                 options={
-                                  editRowData.scope === "external"
-                                    ? (doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES)
-                                    : (doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES)
+                                  (editRowData.scope === "external" || editRowData.location === "External" || String(editRowData.location || "").toLowerCase().includes("ext"))
+                                    ? externalDoorOptions
+                                    : internalDoorOptions
                                 }
                                 onChange={(val) => setEditRowData({ ...editRowData, door_type: val })}
                                 placeholder="Select or search..."
-                                isYellow={false}
-                                minWidth="120px"
+                                isYellow={true}
+                                minWidth="130px"
                               />
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
@@ -2042,20 +2097,35 @@ export default function LockupTask({
                               />
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                              <input
-                                type="text"
-                                value={editRowData.mode === "Loose" ? (editRowData.jamb_size || "") : ""}
-                                disabled={editRowData.mode !== "Loose"}
-                                placeholder={editRowData.mode === "Loose" ? "Enter jamb size" : ""}
+                              <select
+                                value={editRowData.jamb_size || ""}
                                 onChange={(e) => setEditRowData({ ...editRowData, jamb_size: e.target.value })}
                                 style={{
-                                  padding: "2px 4px",
+                                  padding: "3px 5px",
                                   fontSize: "11px",
-                                  width: "70px",
-                                  background: editRowData.mode !== "Loose" ? "#f1f5f9" : "#ffffff",
-                                  cursor: editRowData.mode !== "Loose" ? "not-allowed" : "text"
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: editRowData.jamb_size ? "#0f172a" : "#94a3b8",
+                                  fontWeight: editRowData.jamb_size ? 600 : 400,
+                                  width: "100%",
+                                  minWidth: "120px",
+                                  maxWidth: "180px",
+                                  outline: "none"
                                 }}
-                              />
+                              >
+                                <option value="" style={{ color: "#94a3b8" }}>-- Select --</option>
+                                {editRowData.jamb_size && !JAMB_SIZE_OPTIONS.includes(editRowData.jamb_size) && (
+                                  <option value={editRowData.jamb_size} style={{ color: "#0f172a", fontWeight: 600 }}>
+                                    {editRowData.jamb_size}
+                                  </option>
+                                )}
+                                {JAMB_SIZE_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt} style={{ color: "#0f172a" }}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
                               <select
@@ -2144,47 +2214,20 @@ export default function LockupTask({
                           <>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{categoryDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{locationDisplay}</td>
-                            <td style={{ padding: "3px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }} onClick={(e) => e.stopPropagation()}>
-                              <SearchDropdown
-                                value={doorDisplay}
-                                options={
-                                  row.scope === "external" || row.isExternal
-                                    ? (doorTypeOptions.external.length > 0 ? doorTypeOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES)
-                                    : (doorTypeOptions.internal.length > 0 ? doorTypeOptions.internal : FALLBACK_INTERNAL_DOOR_TYPES)
-                                }
-                                onChange={(val) => handleRowFieldChange(row.id, "door_type", val)}
-                                placeholder="Select or search..."
-                                isYellow={false}
-                                minWidth="150px"
-                              />
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : "#0f172a", fontWeight: isSelected ? 600 : "normal" }}>
+                              {doorDisplay || "-"}
                             </td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{sizeDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{thicksDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambWallDisplay}</td>
-                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambSizeDisplay}</td>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>
+                              {row.jamb_size || row.jambSize || "-"}
+                            </td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hungDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{typeDisplay}</td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hfHoDisplay}</td>
-                            <td style={{ padding: "3px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }} onClick={(e) => e.stopPropagation()}>
-                              <select
-                                value={colorDisplay === "-" ? "-" : colorDisplay}
-                                onChange={(e) => handleRowFieldChange(row.id, "color", e.target.value)}
-                                style={{
-                                  padding: "2px 6px",
-                                  fontSize: "11px",
-                                  borderRadius: "4px",
-                                  border: "1px solid #cbd5e1",
-                                  background: isSelected ? "#eff6ff" : "#ffffff",
-                                  color: "#0f172a",
-                                  fontWeight: 600,
-                                  cursor: "pointer"
-                                }}
-                              >
-                                {isExt && <option value="-">-</option>}
-                                {COLOR_OPTIONS.map(opt => (
-                                  <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                              </select>
+                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>
+                              {colorDisplay}
                             </td>
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{stopDisplay}</td>
                             <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{qtyDisplay}</td>

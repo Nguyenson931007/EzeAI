@@ -317,9 +317,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   // ROI State
   const [roiRect, setRoiRect] = useState(null);       // {x,y,w,h} in image coords
+  const roiRectRef = useRef(roiRect);
+  roiRectRef.current = roiRect;
   const [roiMode, setRoiMode] = useState("additive");   // additive|replace|merge|refine
   const [roiUpscale, setRoiUpscale] = useState(1.0);   // upscale factor
   const [interactionMode, setInteractionMode] = useState("select");
+  const interactionModeRef = useRef(interactionMode);
+  interactionModeRef.current = interactionMode;
   // select | draw | pan | roi_select | edit_text | refine_ai
 
   const lintelController = useLintelController({
@@ -343,7 +347,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function clearROI() {
     setRoiRect(null);
+    roiRectRef.current = null;
     setInteractionMode("select");
+    interactionModeRef.current = "select";
   }
 
   function mergeCollinearWalls(wallsList, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120, ignoreExemptions = false, onlySameBaseId = false) {
@@ -498,42 +504,18 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   // Key Listeners
   useEffect(() => {
     const down = (e) => {
-      const activeEl = document.activeElement;
-      const targetEl = e.target;
-      const isInputFocused = Boolean(
-        (activeEl && (
-          ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName) ||
-          activeEl.isContentEditable ||
-          activeEl.getAttribute?.("contenteditable") === "true" ||
-          activeEl.getAttribute?.("contenteditable") === "" ||
-          activeEl.closest?.('[contenteditable="true"]') ||
-          activeEl.closest?.('[contenteditable=""]')
-        )) ||
-        (targetEl && (
-          ["INPUT", "TEXTAREA", "SELECT"].includes(targetEl.tagName) ||
-          targetEl.isContentEditable ||
-          targetEl.getAttribute?.("contenteditable") === "true" ||
-          targetEl.getAttribute?.("contenteditable") === "" ||
-          targetEl.closest?.('[contenteditable="true"]') ||
-          targetEl.closest?.('[contenteditable=""]')
-        ))
-      );
-
-      if (isInputFocused) return;
-      if (doorController.showTypeSelector) return;
-
-      if (e.code === "Space") {
-        e.preventDefault();
-        setIsSpaceDown(prev => (prev ? prev : true));
-      }
-      if (e.key === "Shift") setIsShiftDown(prev => (prev ? prev : true));
-      if (e.key === "Alt") { e.preventDefault(); setIsAltDown(prev => (prev ? prev : true)); }
-      if (e.key === "Control") setIsCtrlDown(prev => (prev ? prev : true));
-
-      if (e.code === "Escape") {
+      // 1. Escape key MUST ALWAYS execute immediately regardless of focus or active tool
+      if (e.code === "Escape" || e.key === "Escape") {
         cancelActiveZoomAnimation();
         // If ROI is active, clear it first
-        if (roiRect) { clearROI(); return; }
+        if (roiRectRef.current || roiRect || interactionModeRef.current === "roi_select" || interactionMode === "roi_select") {
+          clearROI();
+          setRoiRect(null);
+          roiRectRef.current = null;
+          setInteractionMode("select");
+          interactionModeRef.current = "select";
+          return;
+        }
         setDrawing(false);
         setCurrentPoly([]);
         setIsDistancing(false);
@@ -566,9 +548,43 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         setPullStepInfo(null);
         setPullStepPreview(null);
         setInteractionMode("select");
+        interactionModeRef.current = "select";
         if (setActiveAnnotationTool) setActiveAnnotationTool(null);
         if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+        return;
       }
+
+      const activeEl = document.activeElement;
+      const targetEl = e.target;
+      const isInputFocused = Boolean(
+        (activeEl && (
+          ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName) ||
+          activeEl.isContentEditable ||
+          activeEl.getAttribute?.("contenteditable") === "true" ||
+          activeEl.getAttribute?.("contenteditable") === "" ||
+          activeEl.closest?.('[contenteditable="true"]') ||
+          activeEl.closest?.('[contenteditable=""]')
+        )) ||
+        (targetEl && (
+          ["INPUT", "TEXTAREA", "SELECT"].includes(targetEl.tagName) ||
+          targetEl.isContentEditable ||
+          targetEl.getAttribute?.("contenteditable") === "true" ||
+          targetEl.getAttribute?.("contenteditable") === "" ||
+          targetEl.closest?.('[contenteditable="true"]') ||
+          targetEl.closest?.('[contenteditable=""]')
+        ))
+      );
+
+      if (isInputFocused) return;
+      if (doorController.showTypeSelector) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        setIsSpaceDown(prev => (prev ? prev : true));
+      }
+      if (e.key === "Shift") setIsShiftDown(prev => (prev ? prev : true));
+      if (e.key === "Alt") { e.preventDefault(); setIsAltDown(prev => (prev ? prev : true)); }
+      if (e.key === "Control") setIsCtrlDown(prev => (prev ? prev : true));
 
       // (Ctrl+H, Ctrl+V, H hotkeys removed — replaced by click-based vertex menu)
 
@@ -697,7 +713,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentPage, doorController]);
+  }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentPage, doorController, roiRect, interactionMode]);
 
   // Zoom Handler
   useEffect(() => {
