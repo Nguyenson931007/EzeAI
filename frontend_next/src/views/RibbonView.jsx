@@ -297,19 +297,19 @@ const CAD_ICONS = {
 };
 
 export const DEFAULT_TASK_STEPS = [
-  { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "⚙️", color: "#2563eb" },
-  { id: "flooring_decking", label: "Floor", name: "Flooring & Decking", icon: "▦", color: "#0284c7" },
-  { id: "insulation", label: "Insu", name: "Insulation", icon: "🛡️", color: "#059669" },
-  { id: "eaves_soffit", label: "Eaves", name: "Eaves Soffit", icon: "🏠", color: "#d97706" },
-  { id: "cladding", label: "Cladding", name: "Cladding", icon: "🧱", color: "#ea580c" },
-  { id: "lock_up", label: "Lockup", name: "Lockup", icon: "🔒", color: "#4f46e5" },
-  { id: "shelving", label: "Shelving", name: "Shelving", icon: "🪜", color: "#7c3aed" },
-  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "🪟", color: "#9333ea" },
-  { id: "power_truss_braces", label: "Truss", name: "Power Truss Braces", icon: "🔺", color: "#db2777" },
-  { id: "fow_plumbing", label: "Plumbing", name: "FOW Plumbing", icon: "🚰", color: "#0891b2" },
-  { id: "fixout", label: "Fixout", name: "Fixout", icon: "🚪", color: "#0d9488" },
-  { id: "final_fit", label: "Final", name: "Final Fit", icon: "🔑", color: "#ca8a04" },
-  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "🔥", color: "#dc2626" },
+  { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "", color: "#2563eb" },
+  { id: "flooring_decking", label: "Floor", name: "Flooring & Decking", icon: "", color: "#0284c7" },
+  { id: "insulation", label: "Insu", name: "Insulation", icon: "", color: "#059669" },
+  { id: "eaves_soffit", label: "Eaves", name: "Eaves Soffit", icon: "", color: "#d97706" },
+  { id: "cladding", label: "Cladding", name: "Cladding", icon: "", color: "#ea580c" },
+  { id: "lock_up", label: "Lockup", name: "Lockup", icon: "", color: "#4f46e5" },
+  { id: "shelving", label: "Shelving", name: "Shelving", icon: "", color: "#7c3aed" },
+  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "", color: "#9333ea" },
+  { id: "power_truss_braces", label: "Truss", name: "Power Truss Braces", icon: "", color: "#db2777" },
+  { id: "fow_plumbing", label: "Plumbing", name: "FOW Plumbing", icon: "", color: "#0891b2" },
+  { id: "fixout", label: "Fixout", name: "Fixout", icon: "", color: "#0d9488" },
+  { id: "final_fit", label: "Final", name: "Final Fit", icon: "", color: "#ca8a04" },
+  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "", color: "#dc2626" },
 ];
 
 export const isCategoryMatch = (pageCat, stepId) => {
@@ -512,7 +512,7 @@ export default function RibbonView({
                   id: s.id,
                   label: s.label || def?.label || s.name,
                   name: s.name || def?.name || s.label,
-                  icon: def?.icon || s.icon || "📑",
+                  icon: "",
                   color: def?.color || s.color || "#2563eb",
                   step_number: s.step_number
                 };
@@ -782,11 +782,11 @@ export default function RibbonView({
       URL.revokeObjectURL(url);
 
       if (showAlert) {
-        showAlert(`Đã xuất thành công file JSON (${formattedRooms.length} phòng, ${formattedWalls.length} tường, ${formattedDoors.length} cửa)!`);
+        showAlert(`Successfully exported JSON (${formattedRooms.length} rooms, ${formattedWalls.length} walls, ${formattedDoors.length} doors)!`);
       }
     } catch (err) {
       console.error("[Export JSON] Error:", err);
-      if (showAlert) showAlert(`Lỗi khi xuất JSON: ${err.message}`);
+      if (showAlert) showAlert(`Failed to export JSON: ${err.message}`);
     }
   };
 
@@ -1041,7 +1041,7 @@ export default function RibbonView({
       // 1. Mở Procurement bằng window.open để giữ window.opener
       const popup = window.open(target.toString(), "_blank");
       if (!popup) {
-        showAlert("Pop-up blocked. Please allow pop-ups in your browser.", "Lỗi");
+        showAlert("Pop-up blocked. Please allow pop-ups in your browser.", "Error");
         return;
       }
 
@@ -2208,7 +2208,7 @@ export default function RibbonView({
                 className={`roi-btn-detect walls ${isDetecting ? "pulsing" : ""}`}
                 onClick={() => {
                   if (!realScale || realScale === 1.0) {
-                    showAlert("bạn phải scale trước khi chạy AI");
+                    showAlert("Please calibrate scale before running AI detection!");
                     return;
                   }
                   setShowWallConfig(true);
@@ -2563,7 +2563,7 @@ export default function RibbonView({
                           >
                             {taskSteps.map((step, sIdx) => (
                               <option key={step.id} value={step.id}>
-                                {sIdx + 1}. {step.icon || ""} {step.label || step.name}
+                                {sIdx + 1}. {step.label || step.name}
                               </option>
                             ))}
                           </select>

@@ -3,19 +3,19 @@ import React from "react";
 import { useDialog } from "@/components/DialogContext";
 
 export const DEFAULT_TASK_STEPS = [
-  { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "⚙️", color: "#2563eb" },
-  { id: "flooring_decking", label: "Floor", name: "Flooring & Decking", icon: "▦", color: "#0284c7" },
-  { id: "insulation", label: "Insu", name: "Insulation", icon: "🛡️", color: "#059669" },
-  { id: "eaves_soffit", label: "Eaves", name: "Eaves Soffit", icon: "🏠", color: "#d97706", aliases: ["eaves"] },
-  { id: "cladding", label: "Cladding", name: "Cladding", icon: "🧱", color: "#ea580c" },
-  { id: "lock_up", label: "Lockup", name: "Lockup", icon: "🔒", color: "#4f46e5" },
-  { id: "power_truss_braces", label: "Truss", name: "Power Truss Braces", icon: "🔺", color: "#db2777" },
-  { id: "fow_plumbing", label: "Plumbing", name: "FOW Plumbing", icon: "🚰", color: "#0891b2" },
-  { id: "fixout", label: "Fixout", name: "Fixout", icon: "🚪", color: "#0d9488" },
-  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "🔥", color: "#dc2626" },
-  { id: "shelving", label: "Shelving", name: "Shelving", icon: "🪜", color: "#7c3aed" },
-  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "🪟", color: "#9333ea" },
-  { id: "final_fit", label: "Final", name: "Final Fit", icon: "🔑", color: "#ca8a04" }
+  { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "", color: "#2563eb" },
+  { id: "flooring_decking", label: "Floor", name: "Flooring & Decking", icon: "", color: "#0284c7" },
+  { id: "insulation", label: "Insu", name: "Insulation", icon: "", color: "#059669" },
+  { id: "eaves_soffit", label: "Eaves", name: "Eaves Soffit", icon: "", color: "#d97706", aliases: ["eaves"] },
+  { id: "cladding", label: "Cladding", name: "Cladding", icon: "", color: "#ea580c" },
+  { id: "lock_up", label: "Lockup", name: "Lockup", icon: "", color: "#4f46e5" },
+  { id: "power_truss_braces", label: "Truss", name: "Power Truss Braces", icon: "", color: "#db2777" },
+  { id: "fow_plumbing", label: "Plumbing", name: "FOW Plumbing", icon: "", color: "#0891b2" },
+  { id: "fixout", label: "Fixout", name: "Fixout", icon: "", color: "#0d9488" },
+  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "", color: "#dc2626" },
+  { id: "shelving", label: "Shelving", name: "Shelving", icon: "", color: "#7c3aed" },
+  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "", color: "#9333ea" },
+  { id: "final_fit", label: "Final", name: "Final Fit", icon: "", color: "#ca8a04" }
 ];
 
 export const isCategoryMatch = (pageCat, stepId) => {
@@ -145,7 +145,7 @@ export default function PdfModuleTabBarView({
               }}
               title={`${step.name || step.label} Pages (${stepPages.length})`}
             >
-              <span>{step.icon} {step.label}</span>
+              <span>{step.label}</span>
               <span className="badge" style={isActive ? { background: "rgba(255,255,255,0.3)", color: "#fff" } : {}}>
                 {stepPages.length}
               </span>
@@ -185,7 +185,7 @@ export default function PdfModuleTabBarView({
             <option value="" disabled>+ Add Step...</option>
             {remainingSteps.map(s => (
               <option key={s.id} value={s.id}>
-                {s.icon} {s.label}
+                {s.label}
               </option>
             ))}
           </select>
@@ -239,7 +239,7 @@ export default function PdfModuleTabBarView({
                 >
                   {availableTaskSteps.map(s => (
                     <option key={s.id} value={s.id} style={{ color: '#1e293b', background: '#ffffff' }}>
-                      ⇄ {s.icon} {s.label}
+                      {s.label}
                     </option>
                   ))}
                 </select>

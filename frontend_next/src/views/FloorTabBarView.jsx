@@ -63,11 +63,11 @@ export default function FloorTabBarView({
               className="tab-close"
               onClick={async (e) => {
                 e.stopPropagation();
-                if (await showConfirm(`Xóa tầng ${levelName}?`)) {
+                if (await showConfirm(`Delete level ${levelName}?`)) {
                   if (onDeletePage) onDeletePage(p.originalIndex);
                 }
               }}
-              title="Xóa tầng"
+              title="Delete level"
             >
               ✕
             </span>

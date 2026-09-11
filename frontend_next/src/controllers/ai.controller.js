@@ -520,7 +520,7 @@ export const useAIController = (
 
   const autoDetect = async (roiRect, roiMode, roiUpscale) => {
     if (!realScale || realScale === 1.0) {
-      alert("bạn phải scale trước khi chạy AI");
+      alert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return alert("No image to detect");
@@ -709,7 +709,7 @@ export const useAIController = (
 
   const detectWallFromFloorAI = async (wallThicknesses = null, roiRect = null) => {
     if (!realScale || realScale === 1.0) {
-      alert("bạn phải scale trước khi chạy AI");
+      alert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return alert("No image to detect");
@@ -854,7 +854,7 @@ export const useAIController = (
 
   const detectText = async () => {
     if (!realScale || realScale === 1.0) {
-      alert("bạn phải scale trước khi chạy AI");
+      alert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return alert("No image to detect");
@@ -914,7 +914,7 @@ export const useAIController = (
 
   const detectTemplate = async () => {
     if (!realScale || realScale === 1.0) {
-      alert("bạn phải scale trước khi chạy AI");
+      alert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return alert("No image to detect");
@@ -963,7 +963,7 @@ export const useAIController = (
 
   const detectDoorSeg = async (roiRect, roiMode) => {
     if (!realScale || realScale === 1.0) {
-      alert("bạn phải scale trước khi chạy AI");
+      alert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return alert("No image to detect");
@@ -1113,7 +1113,7 @@ export const useAIController = (
 
   const smartDetect = async () => {
     if (!realScale || realScale === 1.0) {
-      alert("bạn phải scale trước khi chạy AI");
+      alert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return alert("No image loaded. Please open a floor plan first.");

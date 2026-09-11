@@ -1957,7 +1957,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const distToA = Math.hypot(splitPt[0] - p1[0], splitPt[1] - p1[1]);
         const distToB = Math.hypot(splitPt[0] - p2[0], splitPt[1] - p2[1]);
         if (distToA < 15 || distToB < 15) {
-          await showAlert("Điểm cắt quá gần với đầu mút tường (phải cách ít nhất 15px)!", { x: e.clientX, y: e.clientY });
+          await showAlert("Cut point is too close to wall end (must be at least 15px away)!", { x: e.clientX, y: e.clientY });
           return;
         }
 
@@ -2096,7 +2096,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const p2 = point;
         const pixelDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         if (pixelDist < 20) {
-          await showAlert("Scale line quá ngắn, chọn lại!", { x: e.clientX, y: e.clientY });
+          await showAlert("Scale line is too short, please select again!", { x: e.clientX, y: e.clientY });
           setMeasurePoints([]);
           return;
         }
@@ -2120,7 +2120,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     }
     if (isDistancing) {
       if (!scaleValue) {
-        await showAlert("Bạn phải scale trước khi đo kích thước!", { x: e.clientX, y: e.clientY });
+        await showAlert("Please calibrate scale before measuring distance!", { x: e.clientX, y: e.clientY });
         return;
       }
       if (distancePoints.length === 0) setDistancePoints([p]);

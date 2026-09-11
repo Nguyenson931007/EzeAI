@@ -2178,7 +2178,7 @@ export default function App() {
                 initialPageIndex={currentPage}
               />
             ) : (
-              <div style={{ padding: 20 }}>Vui lòng thiết lập Scale trước khi xem BOQ.</div>
+              <div style={{ padding: 20 }}>Please calibrate scale before viewing BOQ.</div>
             )}
           </div>
         </>

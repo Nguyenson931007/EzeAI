@@ -105,6 +105,12 @@ export default function LockupTask({
     "Steel Frame"
   ];
   const DOOR_STOP_OPTIONS = ["Cushion", "DS2 with Riser"];
+  const normalizeDoorStop = (val) => {
+    if (!val) return "Cushion";
+    const s = String(val).trim().toLowerCase();
+    if (s.includes("ds2") || s.includes("riser")) return "DS2 with Riser";
+    return "Cushion";
+  };
   const INTERNAL_TYPE_OPTIONS = ["HF", "HO"];
   const COLOR_OPTIONS = ["CHR", "SCH"];
   const JAMB_SIZE_OPTIONS = [
@@ -169,7 +175,7 @@ export default function LockupTask({
       type: isCadDoorType(row.type) ? "-" : row.type,
       internal_type: row.internal_type || row.hfHo || (isExt ? "HO" : "HF"),
       color: (row.color && row.color !== "Primed White") ? row.color : (isExt ? "-" : "CHR"),
-      door_stop: row.door_stop || row.stop || "Cushion Rubber Stop",
+      door_stop: normalizeDoorStop(row.door_stop || row.stop),
       default_qty: row.default_qty || row.qty || 1
     });
   };
@@ -838,6 +844,8 @@ export default function LockupTask({
       setIsAutoFilling(false);
     }
   };
+
+  const handleAutoFillAI = handleAutoCalculateLockout;
 
   // ── Đồng bộ từ sự kiện Modal LockOut ──
   useEffect(() => {
@@ -1784,7 +1792,7 @@ export default function LockupTask({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onAddDataAI("lock_up");
+                  handleAutoCalculateLockout();
                 }}
                 disabled={isAutoFilling}
                 style={{
@@ -2176,12 +2184,15 @@ export default function LockupTask({
                               </select>
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                              <input
-                                type="text"
-                                value={editRowData.door_stop || "Cushion Rubber Stop"}
-                                onChange={(e) => setEditRowData({ ...editRowData, door_stop: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "11px", width: "110px" }}
-                              />
+                              <select
+                                value={normalizeDoorStop(editRowData.door_stop || editRowData.stop)}
+                                onChange={(e) => setEditRowData({ ...editRowData, door_stop: e.target.value, stop: e.target.value })}
+                                style={{ padding: "2px 4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                              >
+                                {DOOR_STOP_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
                             </td>
                             <td style={{ padding: "4px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
                               <input
@@ -2229,7 +2240,34 @@ export default function LockupTask({
                             <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>
                               {colorDisplay}
                             </td>
-                            <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{stopDisplay}</td>
+                            <td style={{ padding: "4px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
+                              <select
+                                value={normalizeDoorStop(row.door_stop || row.stop)}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  const val = e.target.value;
+                                  if (onSetEntries) {
+                                    onSetEntries(prev => (prev || []).map(item => item.id === row.id ? { ...item, door_stop: val, stop: val } : item));
+                                  }
+                                }}
+                                style={{
+                                  padding: "2px 6px",
+                                  fontSize: "11px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: "#0f172a",
+                                  fontWeight: 500,
+                                  cursor: "pointer",
+                                  outline: "none"
+                                }}
+                              >
+                                {DOOR_STOP_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            </td>
                             <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{qtyDisplay}</td>
                             <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
                               <button

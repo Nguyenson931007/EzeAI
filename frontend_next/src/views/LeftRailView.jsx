@@ -151,7 +151,7 @@ export default function LeftRailView({
                   onClick={async (e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    const confirmed = await showConfirm(`Xóa tầng ${name} (${code})?\nToàn bộ bản vẽ và dữ liệu của tầng này sẽ bị xóa.`);
+                    const confirmed = await showConfirm(`Delete level ${name} (${code})?\nAll drawings and data on this level will be deleted.`);
                     if (confirmed) {
                       if (onDeleteFloor) {
                         onDeleteFloor(originalIdx);
@@ -160,7 +160,7 @@ export default function LeftRailView({
                       }
                     }
                   }}
-                  title={`Xóa tầng ${name} (${code})`}
+                  title={`Delete level ${name} (${code})`}
                 >
                   ✕
                 </span>
