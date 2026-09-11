@@ -70,10 +70,13 @@ const nextConfig = {
     keepAlive: true,
   },
 
-  // Increase proxy timeout for rewrites to 5 minutes (300s)
-  // Default is ~60-120s which is too short for first-run AI model loading + inference
+  // Increase proxy timeout for rewrites to 5 minutes (300s) and increase body limit to 150MB
   experimental: {
     proxyTimeout: 300_000,
+    proxyClientMaxBodySize: '150mb',
+    serverActions: {
+      bodySizeLimit: '150mb',
+    },
   },
 
   // Turbopack configuration (Next.js 16+ uses Turbopack by default)
@@ -83,17 +86,6 @@ const nextConfig = {
       // PDF.js canvas polyfill — not needed client-side
       canvas: { browser: "./empty-module.js" },
     },
-  },
-
-  // Prevent proxy socket hang-ups on long-running AI inference requests
-  httpAgentOptions: {
-    keepAlive: true,
-  },
-
-  // Increase proxy timeout for rewrites to 5 minutes (300s)
-  // Default is ~60-120s which is too short for first-run AI model loading + inference
-  experimental: {
-    proxyTimeout: 300_000,
   },
 
   // Dev server configuration

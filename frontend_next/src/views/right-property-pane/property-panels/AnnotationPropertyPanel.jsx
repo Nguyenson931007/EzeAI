@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import CalloutStylePicker from "../../../components/CalloutStylePicker";
 
 // Quick Palette Colors
 const PALETTE_COLORS = [
@@ -247,6 +248,42 @@ export default function AnnotationPropertyPanel({
           <div style={{ fontSize: "11px", color: "#475569", marginTop: "2px" }}>
             Total Perimeter: {multiTotalPerimM.toFixed(2)} m
           </div>
+        </div>
+      )}
+
+      {/* Callout Style Preset Gallery (14 Thumbnails) */}
+      {isCallout && (
+        <div style={{
+          background: "#ffffff",
+          border: "1.5px solid #cbd5e1",
+          borderRadius: "8px",
+          padding: "10px",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.05)"
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#1e293b" }}>
+              🎨 CALLOUT STYLES
+            </span>
+            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
+              {annotation.isCloudy ? "Cloudy" : "Standard"}
+            </span>
+          </div>
+          <CalloutStylePicker
+            selectedStyleId={annotation.calloutStyle}
+            selectedColor={annotation.color}
+            isCloudy={annotation.isCloudy}
+            onSelectStyle={(styleItem) => {
+              if (onUpdateAnnotation) {
+                onUpdateAnnotation(annotation.id, {
+                  color: styleItem.color,
+                  bgColor: styleItem.bgColor,
+                  isCloudy: styleItem.isCloudy,
+                  calloutStyle: styleItem.id
+                });
+              }
+            }}
+            size="compact"
+          />
         </div>
       )}
 

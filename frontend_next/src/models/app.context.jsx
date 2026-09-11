@@ -13,6 +13,13 @@ const safeGetItem = (key) => {
 export const AppProvider = ({ children }) => {
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
+  const [levels, setLevels] = useState([
+    { id: "lvl-1", name: "Level 1", code: "GF" },
+    { id: "lvl-2", name: "Level 2", code: "FF" }
+  ]);
+  const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
+  const [activePdfCategory, setActivePdfCategory] = useState("cladding"); // "cladding" | "eaves"
+  const [importTarget, setImportTarget] = useState("level"); // "level" | "pdf_tools"
   const [roomsByPage, setRoomsByPage] = useState({});
   const [doorsByPage, setDoorsByPage] = useState({});
   const [wallsByPage, setWallsByPage] = useState({});
@@ -21,7 +28,9 @@ export const AppProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : null;
   });
   const [isLoggedIn, setIsLoggedIn] = useState(() => safeGetItem("isLoggedIn") === "true");
-  const [currentProjectName, setCurrentProjectName] = useState(null);
+  const [currentProjectName, setCurrentProjectName] = useState(() => {
+    return safeGetItem("ezefloor_last_active_project_name") || null;
+  });
   const [realScale, setRealScale] = useState(null);
   const [scalesByPage, setScalesByPage] = useState({});
   const [wasteByPage, setWasteByPage] = useState({});
@@ -75,6 +84,7 @@ export const AppProvider = ({ children }) => {
   const [textFontSize, setTextFontSize] = useState(50);
   const [annotationFontSize, setAnnotationFontSize] = useState(50);
   const [calloutStrokeWidth, setCalloutStrokeWidth] = useState(3.5);
+  const [activeCalloutStyle, setActiveCalloutStyle] = useState("red");
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState([]);
 
@@ -146,6 +156,10 @@ export const AppProvider = ({ children }) => {
   const value = {
     pages, setPages,
     currentPage, setCurrentPage,
+    levels, setLevels,
+    currentLevelIndex, setCurrentLevelIndex,
+    activePdfCategory, setActivePdfCategory,
+    importTarget, setImportTarget,
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
@@ -176,6 +190,7 @@ export const AppProvider = ({ children }) => {
     textOpacity, setTextOpacity,
     textFontSize, setTextFontSize,
     calloutStrokeWidth, setCalloutStrokeWidth,
+    activeCalloutStyle, setActiveCalloutStyle,
     selectedAnnotationId, setSelectedAnnotationId,
     selectedAnnotationIds, setSelectedAnnotationIds,
 

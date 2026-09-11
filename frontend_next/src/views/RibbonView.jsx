@@ -14,9 +14,18 @@ import SettingsModal from "@/components/SettingsModal";
 import { createToolAiJwt } from "@/utils/toolAiSso";
 import TrussEngine from "@/engines/Truss";
 import { isFullAdmin, hasHwAccess, getDisplayRoleName } from "@/utils/permissions";
+import { polygonAreaM2 } from "@/utils/geometry";
 import PdfToolsRibbon from "./ribbon/PdfToolsRibbon";
 
 const CAD_ICONS = {
+  Json: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <path d="M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1" />
+      <path d="M14 12a1 1 0 0 1 1 1v1a1 1 0 0 0 1 1 1 1 0 0 0-1 1v1a1 1 0 0 1-1 1" />
+    </svg>
+  ),
   NewPDF: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -287,6 +296,38 @@ const CAD_ICONS = {
   )
 };
 
+export const DEFAULT_TASK_STEPS = [
+  { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "⚙️", color: "#2563eb" },
+  { id: "flooring_decking", label: "Floor", name: "Flooring & Decking", icon: "▦", color: "#0284c7" },
+  { id: "insulation", label: "Insu", name: "Insulation", icon: "🛡️", color: "#059669" },
+  { id: "eaves_soffit", label: "Eaves", name: "Eaves Soffit", icon: "🏠", color: "#d97706" },
+  { id: "cladding", label: "Cladding", name: "Cladding", icon: "🧱", color: "#ea580c" },
+  { id: "lock_up", label: "Lockup", name: "Lockup", icon: "🔒", color: "#4f46e5" },
+  { id: "shelving", label: "Shelving", name: "Shelving", icon: "🪜", color: "#7c3aed" },
+  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "🪟", color: "#9333ea" },
+  { id: "power_truss_braces", label: "Truss", name: "Power Truss Braces", icon: "🔺", color: "#db2777" },
+  { id: "fow_plumbing", label: "Plumbing", name: "FOW Plumbing", icon: "🚰", color: "#0891b2" },
+  { id: "fixout", label: "Fixout", name: "Fixout", icon: "🚪", color: "#0d9488" },
+  { id: "final_fit", label: "Final", name: "Final Fit", icon: "🔑", color: "#ca8a04" },
+  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "🔥", color: "#dc2626" },
+];
+
+export const isCategoryMatch = (pageCat, stepId) => {
+  if (!pageCat || !stepId) return false;
+  const p = String(pageCat).toLowerCase().trim();
+  const s = String(stepId).toLowerCase().trim();
+  if (p === s) return true;
+  if ((p === "eaves" || p === "eaves_soffit") && (s === "eaves" || s === "eaves_soffit")) return true;
+  if ((p === "lockup" || p === "lock_up") && (s === "lockup" || s === "lock_up")) return true;
+  if ((p === "frame" || p === "frame_hardware") && (s === "frame" || s === "frame_hardware")) return true;
+  if ((p === "floor" || p === "flooring_decking") && (s === "floor" || s === "flooring_decking")) return true;
+  if ((p === "insu" || p === "insulation") && (s === "insu" || s === "insulation")) return true;
+  if ((p === "truss" || p === "power_truss_braces") && (s === "truss" || s === "power_truss_braces")) return true;
+  if ((p === "plumbing" || p === "fow_plumbing") && (s === "plumbing" || s === "fow_plumbing")) return true;
+  if ((p === "firewall" || p === "hardies_fire_walls") && (s === "firewall" || s === "hardies_fire_walls")) return true;
+  return false;
+};
+
 export default function RibbonView({
   // State from App.jsx not in context yet
   drawing, setDrawing,
@@ -361,7 +402,9 @@ export default function RibbonView({
   // Auto-save
   lastAutoSaveTime,
   isAutoSaving,
-  exportRoofInput
+  exportRoofInput,
+  importTarget: propsImportTarget,
+  setImportTarget: propsSetImportTarget
 }) {
   const { showAlert, showConfirm } = useDialog();
   const {
@@ -390,7 +433,9 @@ export default function RibbonView({
     showFrameworkModal, setShowFrameworkModal,
     showAreaSummaryModal, setShowAreaSummaryModal,
     showInsulationModal, setShowInsulationModal,
-    showLockoutModal, setShowLockoutModal
+    showLockoutModal, setShowLockoutModal,
+    importTarget: contextImportTarget,
+    setImportTarget: contextSetImportTarget
   } = useAppModel();
   const [isExportingProcurement, setIsExportingProcurement] = useState(false);
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
@@ -399,7 +444,103 @@ export default function RibbonView({
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [activeAiTask, setActiveAiTask] = useState(null); // 'wall' | 'door' | 'roof' | 'room' | null
+  const [importPageCategories, setImportPageCategories] = useState({});
   const userMenuRef = useRef(null);
+
+  const effectiveImportTarget = propsImportTarget || contextImportTarget || (activeTab === "PDF Tools" ? "pdf_tools" : "level");
+  const [taskSteps, setTaskSteps] = useState(DEFAULT_TASK_STEPS);
+  const [selectedStepId, setSelectedStepId] = useState("cladding");
+
+  // Fetch & filter task steps from TaskList API / selectedModules (Image 2)
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncTaskStepsFromSource = async () => {
+      let hwId = null;
+      let jobNumber = currentProjectName;
+      let activeModules = null;
+
+      // 1. Kiểm tra selectedModules trong sessionStorage / localStorage (nguồn chân lý của TaskList)
+      try {
+        const storedSel = typeof window !== "undefined" ? (sessionStorage.getItem("selectedModules") || localStorage.getItem("selectedModules")) : null;
+        if (storedSel) {
+          const parsed = JSON.parse(storedSel);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            activeModules = parsed.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean);
+          }
+        }
+        const savedPending = typeof window !== "undefined" ? (sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob")) : null;
+        if (savedPending) {
+          const parsed = JSON.parse(savedPending);
+          hwId = parsed?.hw_id || parsed?.id_job_ems;
+          if (parsed?.job_number) jobNumber = parsed.job_number;
+          if (!activeModules && (parsed?.task_modules || parsed?.selected_modules)) {
+            const raw = parsed.task_modules || parsed.selected_modules;
+            if (Array.isArray(raw) && raw.length > 0) {
+              activeModules = raw.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean);
+            }
+          }
+        }
+      } catch (_) {}
+
+      // Nếu đã có activeModules từ TaskList, lọc đúng các step đó (0ms)
+      if (activeModules && activeModules.length > 0) {
+        const filtered = DEFAULT_TASK_STEPS.filter(step =>
+          activeModules.some(m => isCategoryMatch(m, step.id))
+        );
+        if (filtered.length > 0 && isMounted) {
+          setTaskSteps(filtered);
+          setSelectedStepId(prev => (filtered.some(s => s.id === prev) ? prev : filtered[0].id));
+          return;
+        }
+      }
+
+      // 2. Fetch từ API /jobs/task-steps
+      try {
+        const params = new URLSearchParams();
+        if (hwId) params.append("hw_id", hwId);
+        if (jobNumber) params.append("job_number", jobNumber);
+        const qs = params.toString() ? `?${params.toString()}` : "";
+        const res = await fetch(`/api/jobs/task-steps${qs}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.status === "success" && Array.isArray(data.steps) && data.steps.length > 0) {
+            if (isMounted) {
+              const enriched = data.steps.map(s => {
+                const def = DEFAULT_TASK_STEPS.find(d => isCategoryMatch(d.id, s.id));
+                return {
+                  id: s.id,
+                  label: s.label || def?.label || s.name,
+                  name: s.name || def?.name || s.label,
+                  icon: def?.icon || s.icon || "📑",
+                  color: def?.color || s.color || "#2563eb",
+                  step_number: s.step_number
+                };
+              });
+              setTaskSteps(enriched);
+              setSelectedStepId(prev => (enriched.some(s => s.id === prev) ? prev : enriched[0].id));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[RibbonView] Could not fetch task steps from API:", err);
+      }
+    };
+
+    syncTaskStepsFromSource();
+
+    const handleModulesUpdated = () => syncTaskStepsFromSource();
+    if (typeof window !== "undefined") {
+      window.addEventListener("task-modules-updated", handleModulesUpdated);
+    }
+
+    return () => {
+      isMounted = false;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("task-modules-updated", handleModulesUpdated);
+      }
+    };
+  }, [showImportPageSelector, currentProjectName]);
 
   const handleGenerateTruss = () => {
     try {
@@ -523,6 +664,130 @@ export default function RibbonView({
         window.RoofEngine.exportRoofInput({ roof: rf, scaleFactor: scaleValue, realScale, download: true });
       }
     });
+  };
+
+  const handleExportPlanJson = () => {
+    try {
+      const curRooms = roomsByPage?.[currentPage] || rooms || [];
+      const curWalls = wallsByPage?.[currentPage] || walls || [];
+      const curDoors = doorsByPage?.[currentPage] || [];
+      const curRoofs = roofsByPage?.[currentPage] || [];
+      const curTrusses = trussesByPage?.[currentPage] || [];
+      const curLintels = lintelsByPage?.[currentPage] || [];
+      const curAnnotations = annotationsByPage?.[currentPage] || [];
+      const curScale = scalesByPage?.[currentPage] || scaleValue;
+
+      const scaleMult = (realScale && realScale > 0 && realScale !== 1.0) ? realScale : (curScale ? curScale * 1000 : 1.0);
+      const effScale = (realScale && realScale > 0) ? realScale / 1000 : (curScale || 0.02);
+
+      // Format Rooms / Floors
+      const formattedRooms = curRooms.map((r, idx) => {
+        let areaM2 = 0;
+        if (r.polygon && r.polygon.length >= 3 && effScale) {
+          areaM2 = Number(polygonAreaM2(r.polygon, effScale).toFixed(2));
+        }
+        return {
+          id: r.id || `room_${idx + 1}`,
+          room_name: r.room_name || r.name || `ROOM ${idx + 1}`,
+          type: r.type || r.wetness || "dry",
+          polygon: (r.polygon || []).map(p => ({ x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)) })),
+          area_m2: areaM2,
+          conf: r.conf ?? 1.0,
+          correction_source: r.correction_source || r.source || "ai_detected"
+        };
+      });
+
+      // Format Walls
+      const formattedWalls = curWalls.map((w, idx) => {
+        const cl = w.centerline || (w.startPt && w.endPt ? [[w.startPt.x, w.startPt.y], [w.endPt.x, w.endPt.y]] : []);
+        let lengthMm = 0;
+        if (cl.length === 2) {
+          const dx = cl[1][0] - cl[0][0];
+          const dy = cl[1][1] - cl[0][1];
+          const lenPx = Math.hypot(dx, dy);
+          lengthMm = Math.round(lenPx * scaleMult);
+        }
+        return {
+          id: w.id || `wall_${idx + 1}`,
+          wall_type: (w.class_name === "exterior_wall" || w.type === "exterior") ? "external" : "internal",
+          wall_class: w.class_name || w.wall_class || "stud_partition",
+          thickness_mm: w.thickness || (w.thickness_px ? Math.round(w.thickness_px * scaleMult) : 90),
+          height_mm: w.height_mm || w.height || 2700,
+          centerline: cl.map(pt => [Number((pt[0] ?? pt.x ?? 0).toFixed(2)), Number((pt[1] ?? pt.y ?? 0).toFixed(2))]),
+          startPt: cl[0] ? { x: Number(cl[0][0].toFixed(2)), y: Number(cl[0][1].toFixed(2)) } : null,
+          endPt: cl[1] ? { x: Number(cl[1][0].toFixed(2)), y: Number(cl[1][1].toFixed(2)) } : null,
+          length_mm: lengthMm,
+          conf: w.conf ?? 1.0
+        };
+      });
+
+      // Format Doors
+      const formattedDoors = curDoors.map((d, idx) => {
+        return {
+          id: d.id || `door_${idx + 1}`,
+          door_type: d.type || d.door_type || "single_swing",
+          parent_wall_id: d.parentWallId || d.parent_wall_id || null,
+          x: typeof d.x === "number" ? Number(d.x.toFixed(2)) : 0,
+          y: typeof d.y === "number" ? Number(d.y.toFixed(2)) : 0,
+          width_mm: d.widthMm || d.width_mm || (d.width ? Math.round(d.width * scaleMult) : 820),
+          thickness_mm: d.thicknessMm || d.thickness_mm || 90,
+          rotation_deg: d.rotation || d.rotation_deg || 0,
+          swing_direction: d.swingDirection || d.swing_direction || "inward_left",
+          hinge: d.hinge ? { x: Number(d.hinge.x.toFixed(2)), y: Number(d.hinge.y.toFixed(2)) } : null,
+          conf: d.conf ?? 1.0,
+          source: d.source || "ai_snapped"
+        };
+      });
+
+      const totalAreaM2 = Number(formattedRooms.reduce((sum, r) => sum + (r.area_m2 || 0), 0).toFixed(2));
+      const totalWallLengthM = Number((formattedWalls.reduce((sum, w) => sum + (w.length_mm || 0), 0) / 1000).toFixed(2));
+
+      const exportPayload = {
+        project_name: currentProjectName || "EzeFloor_Plan",
+        page_index: currentPage,
+        page_name: pages?.[currentPage]?.name || `Level ${currentPage + 1}`,
+        total_pages: pages?.length || 1,
+        exported_at: new Date().toISOString(),
+        scale: {
+          scale_value_m_per_px: effScale,
+          real_scale_mm_per_px: scaleMult
+        },
+        summary: {
+          total_rooms: formattedRooms.length,
+          total_area_m2: totalAreaM2,
+          total_walls: formattedWalls.length,
+          total_wall_length_m: totalWallLengthM,
+          total_doors: formattedDoors.length,
+          total_roofs: curRoofs.length
+        },
+        rooms: formattedRooms,
+        walls: formattedWalls,
+        doors: formattedDoors,
+        roofs: curRoofs,
+        trusses: curTrusses,
+        lintels: curLintels,
+        annotations: curAnnotations
+      };
+
+      const jsonStr = JSON.stringify(exportPayload, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeProjectName = (currentProjectName || "floorplan").replace(/[^a-z0-9_\-]/gi, "_");
+      a.href = url;
+      a.download = `${safeProjectName}_Page${currentPage + 1}_detected_data.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (showAlert) {
+        showAlert(`Đã xuất thành công file JSON (${formattedRooms.length} phòng, ${formattedWalls.length} tường, ${formattedDoors.length} cửa)!`);
+      }
+    } catch (err) {
+      console.error("[Export JSON] Error:", err);
+      if (showAlert) showAlert(`Lỗi khi xuất JSON: ${err.message}`);
+    }
   };
 
   const handleCreateNewProject = () => {
@@ -1255,12 +1520,18 @@ export default function RibbonView({
                         }
                       } catch (_) { }
 
-                      setCurrentProjectName(targetJobName);
+                      // KHÔNG ĐỔI TÊN NẾU JOB ĐÃ CÓ TÊN (Giữ nguyên tên hiện có như TestAI)
+                      if (!currentProjectName || currentProjectName === "Untitled Project" || currentProjectName === "New Project") {
+                        if (setCurrentProjectName) setCurrentProjectName(targetJobName);
+                      }
+
+                      if (propsSetImportTarget) propsSetImportTarget("level");
+                      else if (contextSetImportTarget) contextSetImportTarget("level");
 
                       if (file.type === "application/pdf") loadPDF(file);
                       else {
                         const url = URL.createObjectURL(file);
-                        const imgData = { image: url, w: 2000, h: 1500, fileName: targetJobName };
+                        const imgData = { image: url, w: 2000, h: 1500, fileName: targetJobName, category: null, source: "design" };
                         setPendingPages([imgData]);
                         setImportSelectedPages([0]);
                         if (setIsAddingPagesMode) setIsAddingPagesMode(false);
@@ -1747,6 +2018,14 @@ export default function RibbonView({
           <>
             <div className="ribbon-group">
               <div className="ribbon-buttons">
+                <button
+                  className="ribbon-btn"
+                  onClick={handleExportPlanJson}
+                  title="Export all detected CAD & AI data (Rooms, Walls, Doors, Areas, Scales) to a JSON file"
+                >
+                  <span className="icon" style={{ color: "#10b981" }}><CAD_ICONS.Json /></span>
+                  <span className="label">Export JSON</span>
+                </button>
                 {hasHwAccess(user) && (
                   <button
                     className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
@@ -1815,6 +2094,21 @@ export default function RibbonView({
                 </button>
               </div>
               <span className="ribbon-group-title">DATASET LABELS</span>
+            </div>
+            <div className="ribbon-divider" />
+
+            <div className="ribbon-group">
+              <div className="ribbon-buttons">
+                <button
+                  className="ribbon-btn"
+                  onClick={handleExportPlanJson}
+                  title="Export all detected CAD & AI data (Rooms, Walls, Doors, Areas, Scales) to a JSON file"
+                >
+                  <span className="icon" style={{ color: "#10b981" }}><CAD_ICONS.Json /></span>
+                  <span className="label">Export JSON</span>
+                </button>
+              </div>
+              <span className="ribbon-group-title">PLAN DATA</span>
             </div>
             <div className="ribbon-divider" />
 
@@ -2047,153 +2341,429 @@ export default function RibbonView({
             <div style={{
               position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', backdropFilter: 'blur(4px)', zIndex: 9998
             }} onClick={() => setShowImportPageSelector(false)} />
-            <div style={{
-              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 16,
-              padding: '20px 24px', zIndex: 9999, width: 'min(1120px, 94vw)', maxHeight: '90vh',
-              display: 'flex', flexDirection: 'column',
-              boxShadow: '0 25px 60px rgba(0,0,0,0.18)', color: '#1e293b'
-            }}>
-              {/* Modal Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 18, color: '#2563eb', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span>📂</span> {isAddingPagesMode ? "Add Pages to Project" : "Select Pages to Import from PDF"}
-                  </h3>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                    Total: <b>{pendingPages.length}</b> page(s) found • Selected: <b style={{ color: '#2563eb' }}>{importSelectedPages.length}</b>
-                  </div>
-                </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button
-                    onClick={() => {
-                      if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
-                      else setImportSelectedPages(pendingPages.map((_, i) => i));
-                    }}
-                    style={{
-                      background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#2563eb',
-                      borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
-                      fontWeight: 700, transition: 'all 0.15s'
-                    }}
-                  >
-                    {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
-                  </button>
-                  <button
-                    onClick={() => setShowImportPageSelector(false)}
-                    style={{
-                      background: '#f1f5f9', border: '1px solid #e2e8f0',
-                      color: '#64748b', borderRadius: 6, width: 32, height: 32, cursor: 'pointer',
-                      fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center'
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-
-              {/* Modal Body: Large Responsive Grid Cards */}
+            {effectiveImportTarget === "level" ? (
+              /* ══════════════════════════════════════════════════════════════════════
+                 IMAGE 2: SELECT PAGES TO IMPORT FROM PDF (BUILDING LEVELS / TẦNG)
+                 Clean legacy style: Only page checkboxes, dimensions, thumbnail preview
+                 No Cladding, Eaves, or Task steps.
+                 ══════════════════════════════════════════════════════════════════════ */
               <div style={{
-                flex: 1, overflowY: 'auto', marginBottom: 16, paddingRight: 4,
-                display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16,
-                maxHeight: 'calc(90vh - 160px)'
+                position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 16,
+                padding: '20px 24px', zIndex: 9999, width: 'min(980px, 94vw)', maxHeight: '90vh',
+                display: 'flex', flexDirection: 'column',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.18)', color: '#1e293b'
               }}>
-                {/* Existing Pages (if adding) */}
-                {isAddingPagesMode && pages.map((pg, i) => (
-                  <div
-                    key={`existing-${i}`}
-                    style={{
-                      display: 'flex', flexDirection: 'column', padding: 12,
-                      borderRadius: 12, cursor: 'not-allowed',
-                      background: 'rgba(241, 245, 249, 0.8)',
-                      border: '1px solid #cbd5e1', opacity: 0.75
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>Page {i + 1} (In Project)</span>
-                      <span style={{ fontSize: 11, color: '#94a3b8' }}>{pg.w} × {pg.h} px</span>
-                    </div>
-                    <div style={{ width: '100%', height: 210, background: '#ffffff', borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                {/* Modal Header (Image 2) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 18, color: '#2563eb', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>📁</span> Select Pages to Import from PDF
+                    </h3>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                      Total: <b>{pendingPages.length}</b> page(s) found • Selected: <b style={{ color: '#2563eb' }}>{importSelectedPages.length}</b>
                     </div>
                   </div>
-                ))}
 
-                {/* Pending Pages to Select */}
-                {pendingPages.map((pg, i) => {
-                  const isChecked = importSelectedPages.includes(i);
-                  return (
-                    <div
-                      key={`pending-${i}`}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      type="button"
                       onClick={() => {
-                        if (isChecked) setImportSelectedPages(prev => prev.filter(p => p !== i));
-                        else setImportSelectedPages(prev => [...prev, i]);
+                        if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
+                        else setImportSelectedPages(pendingPages.map((_, i) => i));
                       }}
                       style={{
-                        display: 'flex', flexDirection: 'column', padding: 12,
-                        borderRadius: 12, cursor: 'pointer',
-                        background: isChecked ? '#eff6ff' : '#f8fafc',
-                        border: isChecked ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                        boxShadow: isChecked ? '0 4px 16px rgba(59, 130, 246, 0.15)' : '0 2px 8px rgba(0,0,0,0.04)',
-                        transition: 'all 0.15s ease'
+                        background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#2563eb',
+                        borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+                        fontWeight: 700, transition: 'all 0.15s'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              if (e.target.checked) setImportSelectedPages(prev => [...prev, i]);
-                              else setImportSelectedPages(prev => prev.filter(p => p !== i));
-                            }}
-                            style={{ accentColor: '#2563eb', width: 18, height: 18, cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? '#2563eb' : '#1e293b' }}>
-                            Page {isAddingPagesMode ? pages.length + i + 1 : i + 1}
+                      {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowImportPageSelector(false)}
+                      style={{
+                        background: '#f1f5f9', border: '1px solid #e2e8f0',
+                        color: '#64748b', borderRadius: 6, width: 32, height: 32, cursor: 'pointer',
+                        fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* Modal Body: Cards with Checkbox and Image Preview (Image 2) */}
+                <div style={{
+                  flex: 1, overflowY: 'auto', marginBottom: 16, paddingRight: 4,
+                  display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16,
+                  maxHeight: 'calc(90vh - 160px)'
+                }}>
+                  {pendingPages.map((pg, i) => {
+                    const isChecked = importSelectedPages.includes(i);
+                    return (
+                      <div
+                        key={`pending-level-${i}`}
+                        onClick={() => {
+                          if (isChecked) setImportSelectedPages(prev => prev.filter(p => p !== i));
+                          else setImportSelectedPages(prev => [...prev, i]);
+                        }}
+                        style={{
+                          display: 'flex', flexDirection: 'column', padding: 12,
+                          borderRadius: 12, cursor: 'pointer',
+                          background: isChecked ? '#eff6ff' : '#f8fafc',
+                          border: isChecked ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+                          boxShadow: isChecked ? '0 4px 16px rgba(0, 0, 0, 0.08)' : '0 2px 8px rgba(0,0,0,0.03)',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (e.target.checked) setImportSelectedPages(prev => [...prev, i]);
+                                else setImportSelectedPages(prev => prev.filter(p => p !== i));
+                              }}
+                              style={{ accentColor: '#2563eb', width: 18, height: 18, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? '#2563eb' : '#1e293b' }}>
+                              Page {i + 1}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{pg.w} × {pg.h} px</span>
+                        </div>
+
+                        <div style={{
+                          width: '100%', height: 210, background: '#ffffff', borderRadius: 8,
+                          overflow: 'hidden', border: isChecked ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                          <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                        </div>
+
+                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center' }}>
+                          <span style={{ fontSize: 11, color: isChecked ? '#16a34a' : '#94a3b8', fontWeight: 700 }}>
+                            {isChecked ? '✓ Selected for Import' : 'Click to select'}
                           </span>
                         </div>
-                        <span style={{ fontSize: 11, color: '#64748b' }}>{pg.w} × {pg.h} px</span>
                       </div>
+                    );
+                  })}
+                </div>
 
-                      {/* Large Crisp Preview Canvas */}
-                      <div style={{
-                        width: '100%', height: 210, background: '#ffffff', borderRadius: 8,
-                        overflow: 'hidden', border: isChecked ? '2px solid #3b82f6' : '1px solid #cbd5e1',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                      }}>
-                        <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                      </div>
-
-                      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: isChecked ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
-                          {isChecked ? "✓ Selected for Import" : "Click to select"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Modal Footer */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, borderTop: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: 13, color: '#64748b' }}>
-                  Ready to import: <b style={{ color: '#1e293b' }}>{importSelectedPages.length}</b> page(s)
-                </span>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => setShowImportPageSelector(false)} style={{
-                    padding: '9px 20px', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1',
-                    borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
-                  }}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importSelectedPages.length === 0} style={{
-                    padding: '9px 24px', background: importSelectedPages.length > 0 ? '#2563eb' : '#94a3b8',
-                    color: '#fff', border: 'none', borderRadius: 8, cursor: importSelectedPages.length > 0 ? 'pointer' : 'not-allowed',
-                    fontSize: 13, fontWeight: 700, boxShadow: importSelectedPages.length > 0 ? '0 4px 14px rgba(37,99,235,0.3)' : 'none'
-                  }}>{isAddingPagesMode ? "Add Selected Page(s)" : `Import ${importSelectedPages.length} Page(s)`}</button>
+                {/* Modal Footer (Image 2) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, borderTop: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>
+                    Ready to import: <b style={{ color: '#1e293b' }}>{importSelectedPages.length}</b> page(s)
+                  </span>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={() => setShowImportPageSelector(false)} style={{
+                      padding: '9px 20px', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1',
+                      borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
+                    }}>Cancel</button>
+                    <button
+                      onClick={() => confirmImport && confirmImport({})}
+                      disabled={importSelectedPages.length === 0}
+                      style={{
+                        padding: '9px 24px',
+                        background: importSelectedPages.length > 0 ? '#2563eb' : '#94a3b8',
+                        color: '#fff', border: 'none', borderRadius: 8,
+                        cursor: importSelectedPages.length > 0 ? 'pointer' : 'not-allowed',
+                        fontSize: 13, fontWeight: 700,
+                        boxShadow: importSelectedPages.length > 0 ? '0 4px 14px rgba(37,99,235,0.3)' : 'none'
+                      }}
+                    >
+                      Import {importSelectedPages.length} Page(s)
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              /* ══════════════════════════════════════════════════════════════════════
+                 IMAGE 1 + IMAGE 3: PDF TOOLS WITH TASKLIST STEPS & "NEXT STEP ➡️" FLOW
+                 Full assignment UI: Step dropdown, Next Step button, Cladding/Eaves shortcuts
+                 ══════════════════════════════════════════════════════════════════════ */
+              (() => {
+                const claddingCount = importSelectedPages.filter(i => {
+                  const cat = importPageCategories[i] || "cladding";
+                  return cat === "cladding";
+                }).length;
+
+                const eavesCount = importSelectedPages.filter(i => {
+                  const cat = importPageCategories[i] || "cladding";
+                  return cat === "eaves" || cat === "eaves_soffit";
+                }).length;
+
+                const currentStepObj = taskSteps.find(s => s.id === selectedStepId) || taskSteps[0] || DEFAULT_TASK_STEPS[0];
+
+                const handleNextStep = () => {
+                  const currentIdx = taskSteps.findIndex(s => s.id === selectedStepId);
+                  const nextIdx = (currentIdx + 1) % taskSteps.length;
+                  setSelectedStepId(taskSteps[nextIdx].id);
+                };
+
+                const handleAssignCurrentStepToSelected = () => {
+                  const updated = { ...importPageCategories };
+                  importSelectedPages.forEach(i => {
+                    updated[i] = selectedStepId;
+                  });
+                  setImportPageCategories(updated);
+                };
+
+                return (
+                  <div style={{
+                    position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                    background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 16,
+                    padding: '20px 24px', zIndex: 9999, width: 'min(1180px, 95vw)', maxHeight: '90vh',
+                    display: 'flex', flexDirection: 'column',
+                    boxShadow: '0 25px 60px rgba(0,0,0,0.18)', color: '#1e293b'
+                  }}>
+                    {/* Modal Header (Image 1 with Tasklist Steps from Image 3 & backend/api/jobs.py) */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: 18, color: '#2563eb', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span>📁</span> Add Pages to Project
+                        </h3>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                          Total: <b>{pendingPages.length}</b> page(s) • Selected: <b style={{ color: '#2563eb' }}>{importSelectedPages.length}</b>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* Tasklist Step Selector Dropdown & Next Step */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', padding: '3px 8px', borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Step:</span>
+                          <select
+                            value={selectedStepId}
+                            onChange={(e) => {
+                              const newStep = e.target.value;
+                              setSelectedStepId(newStep);
+                              if (importSelectedPages.length > 0) {
+                                const updated = { ...importPageCategories };
+                                importSelectedPages.forEach(i => { updated[i] = newStep; });
+                                setImportPageCategories(updated);
+                              }
+                            }}
+                            style={{
+                              padding: '5px 8px',
+                              borderRadius: 6,
+                              border: '1px solid #93c5fd',
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontWeight: 700,
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              outline: 'none'
+                            }}
+                          >
+                            {taskSteps.map((step, sIdx) => (
+                              <option key={step.id} value={step.id}>
+                                {sIdx + 1}. {step.icon || ""} {step.label || step.name}
+                              </option>
+                            ))}
+                          </select>
+
+                          {/* "Next Step ➡️" Button (Advances dropdown to next step) */}
+                          <button
+                            type="button"
+                            onClick={handleNextStep}
+                            style={{
+                              background: '#10b981',
+                              border: 'none',
+                              color: '#ffffff',
+                              borderRadius: 6,
+                              padding: '5px 12px',
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              boxShadow: '0 2px 4px rgba(16,185,129,0.25)'
+                            }}
+                            title="Advance to next step in task list"
+                          >
+                            <span>Next Step</span>
+                            <span>➡️</span>
+                          </button>
+                        </div>
+
+                        <div style={{ width: 1, height: 20, background: '#e2e8f0', margin: '0 2px' }} />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
+                            else setImportSelectedPages(pendingPages.map((_, i) => i));
+                          }}
+                          style={{
+                            background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#2563eb',
+                            borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+                            fontWeight: 700, transition: 'all 0.15s'
+                          }}
+                        >
+                          {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowImportPageSelector(false)}
+                          style={{
+                            background: '#f1f5f9', border: '1px solid #e2e8f0',
+                            color: '#64748b', borderRadius: 6, width: 32, height: 32, cursor: 'pointer',
+                            fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Modal Body: Cards with Module Buttons & Step Dropdowns (Image 1) */}
+                    <div style={{
+                      flex: 1, overflowY: 'auto', marginBottom: 16, paddingRight: 4,
+                      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16,
+                      maxHeight: 'calc(90vh - 160px)'
+                    }}>
+                      {/* Existing Pages (if adding) */}
+                      {isAddingPagesMode && pages.filter(p => p.category || p.source === "pdf_tools").map((pg, i) => (
+                        <div
+                          key={`existing-${i}`}
+                          style={{
+                            display: 'flex', flexDirection: 'column', padding: 12,
+                            borderRadius: 12, cursor: 'not-allowed',
+                            background: 'rgba(241, 245, 249, 0.8)',
+                            border: '1px solid #cbd5e1', opacity: 0.75
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>
+                              Page {i + 1} ({pg.category === "eaves" || pg.category === "eaves_soffit" ? "🏠 Eaves" : "🧱 Cladding"})
+                            </span>
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{pg.w} × {pg.h} px</span>
+                          </div>
+                          <div style={{ width: '100%', height: 200, background: '#ffffff', borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Pending Pages to Select & Categorize */}
+                      {pendingPages.map((pg, i) => {
+                        const isChecked = importSelectedPages.includes(i);
+                        const assignedCat = importPageCategories[i] || "cladding";
+                        const isCladding = assignedCat === "cladding";
+                        const isEaves = assignedCat === "eaves" || assignedCat === "eaves_soffit";
+                        const assignedStep = taskSteps.find(s => s.id === assignedCat) || { label: assignedCat, name: assignedCat, color: '#2563eb' };
+
+                        const cardBorderColor = isChecked
+                          ? (isCladding ? '#3b82f6' : isEaves ? '#f59e0b' : (assignedStep.color || '#3b82f6'))
+                          : '#e2e8f0';
+
+                        const cardBgColor = isChecked
+                          ? (isCladding ? '#eff6ff' : isEaves ? '#fffbeb' : '#f0fdf4')
+                          : '#f8fafc';
+
+                        return (
+                          <div
+                            key={`pending-pdftools-${i}`}
+                            onClick={() => {
+                              if (isChecked) {
+                                setImportSelectedPages(prev => prev.filter(p => p !== i));
+                              } else {
+                                setImportSelectedPages(prev => [...prev, i]);
+                                setImportPageCategories(prev => ({ ...prev, [i]: selectedStepId }));
+                              }
+                            }}
+                            style={{
+                              display: 'flex', flexDirection: 'column', padding: 12,
+                              borderRadius: 12, cursor: 'pointer',
+                              background: cardBgColor,
+                              border: isChecked ? `2px solid ${cardBorderColor}` : '1px solid #e2e8f0',
+                              boxShadow: isChecked ? '0 4px 16px rgba(0, 0, 0, 0.1)' : '0 2px 8px rgba(0,0,0,0.04)',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    if (e.target.checked) {
+                                      setImportSelectedPages(prev => [...prev, i]);
+                                      setImportPageCategories(prev => ({ ...prev, [i]: selectedStepId }));
+                                    } else {
+                                      setImportSelectedPages(prev => prev.filter(p => p !== i));
+                                    }
+                                  }}
+                                  style={{ accentColor: isCladding ? '#2563eb' : isEaves ? '#d97706' : assignedStep.color, width: 18, height: 18, cursor: 'pointer' }}
+                                />
+                                <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? (isCladding ? '#2563eb' : isEaves ? '#b45309' : assignedStep.color) : '#1e293b' }}>
+                                  Page {isAddingPagesMode ? pages.length + i + 1 : i + 1}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: 11, color: '#64748b' }}>{pg.w} × {pg.h} px</span>
+                            </div>
+
+                            {/* Crisp Preview Canvas */}
+                            <div style={{
+                              width: '100%', height: 210, background: '#ffffff', borderRadius: 8,
+                              overflow: 'hidden', border: `1px solid ${isChecked ? cardBorderColor : '#cbd5e1'}`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                              <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                            </div>
+
+                            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{
+                                fontSize: 11,
+                                color: isChecked ? (assignedStep.color || (isCladding ? '#2563eb' : '#d97706')) : '#94a3b8',
+                                fontWeight: 700
+                              }}>
+                                {isChecked ? `✓ Import as ${assignedStep.label || (isCladding ? "Cladding" : "Eaves")}` : "Click to select"}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Modal Footer (Image 1) */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, borderTop: '1px solid #e2e8f0' }}>
+                      <span style={{ fontSize: 13, color: '#64748b' }}>
+                        Ready to import: <b style={{ color: '#1e293b' }}>{importSelectedPages.length}</b> page(s)
+                      </span>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button onClick={() => setShowImportPageSelector(false)} style={{
+                          padding: '9px 20px', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1',
+                          borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
+                        }}>Cancel</button>
+                        <button
+                          onClick={() => confirmImport && confirmImport(importPageCategories)}
+                          disabled={importSelectedPages.length === 0}
+                          style={{
+                            padding: '9px 24px',
+                            background: importSelectedPages.length > 0 ? '#2563eb' : '#94a3b8',
+                            color: '#fff', border: 'none', borderRadius: 8,
+                            cursor: importSelectedPages.length > 0 ? 'pointer' : 'not-allowed',
+                            fontSize: 13, fontWeight: 700,
+                            boxShadow: importSelectedPages.length > 0 ? '0 4px 14px rgba(37,99,235,0.3)' : 'none'
+                          }}
+                        >
+                          {isAddingPagesMode ? "Add Selected Page(s)" : `Import ${importSelectedPages.length} Page(s)`}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()
+            )}
           </>
         )
       }

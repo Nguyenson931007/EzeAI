@@ -24,18 +24,25 @@ export default function FloorTabBarView({
     return `Level ${idx + 1}`;
   };
 
+  // Only display architectural Level pages (exclude PDF Tools / Cladding & Eaves pages)
+  const architecturalPages = pages
+    .map((p, originalIndex) => ({ ...p, originalIndex }))
+    .filter((p) => p?.source !== "pdf_tools" && p?.category !== "cladding" && p?.category !== "eaves");
+
+  const displayPages = architecturalPages.length > 0 ? architecturalPages : pages.map((p, originalIndex) => ({ ...p, originalIndex }));
+
   return (
     <div className="cad-floor-tabs">
-      {pages.map((p, idx) => {
-        const isActive = idx === currentPage;
-        const pageRooms = roomsByPage[idx] || [];
+      {displayPages.map((p, idx) => {
+        const isActive = p.originalIndex === currentPage;
+        const pageRooms = roomsByPage[p.originalIndex] || [];
         const levelName = getLevelLabel(p, idx);
 
         return (
           <div
-            key={idx}
+            key={p.originalIndex}
             className={`cad-floor-tab ${isActive ? "active" : ""}`}
-            onClick={() => onPageClick && onPageClick(idx)}
+            onClick={() => onPageClick && onPageClick(p.originalIndex)}
             title={`${levelName} (${pageRooms.length} rooms)`}
           >
             <span className="tab-icon" style={{ color: isActive ? "var(--blue)" : "var(--text-dim)" }}>■</span>
@@ -52,20 +59,18 @@ export default function FloorTabBarView({
                 {pageRooms.length}
               </span>
             )}
-            {pages.length > 1 && (
-              <span
-                className="tab-close"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (await showConfirm(`Delete ${levelName}?`)) {
-                    if (onDeletePage) onDeletePage(idx);
-                  }
-                }}
-                title="Delete Level"
-              >
-                ✕
-              </span>
-            )}
+            <span
+              className="tab-close"
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (await showConfirm(`Xóa tầng ${levelName}?`)) {
+                  if (onDeletePage) onDeletePage(p.originalIndex);
+                }
+              }}
+              title="Xóa tầng"
+            >
+              ✕
+            </span>
           </div>
         );
       })}

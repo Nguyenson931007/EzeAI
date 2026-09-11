@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useAppModel } from "@/models/app.context";
 import { getBrushCursor } from "@/utils/cursorUtils";
+import { CALLOUT_STYLES } from "@/components/CalloutStylePicker";
 
 // Geometry helpers
 const calcPolygonArea = (pts) => {
@@ -57,20 +58,28 @@ const getCalloutEdgeAttachment = (boxLeft, boxTop, boxWidth, boxHeight, targetX,
   };
 };
 
-// Accurate text width estimation for proportional sans-serif fonts
-const estimateTextWidth = (str, fSize = 50) => {
+// Accurate text width estimation for proportional sans-serif fonts with bold and unicode support
+const estimateTextWidth = (str, fSize = 50, isBold = false) => {
   if (!str) return 0;
   let w = 0;
   for (let i = 0; i < str.length; i++) {
     const ch = str[i];
-    if (ch >= 'A' && ch <= 'Z') w += fSize * 0.62;
-    else if ('ijlI1|!.,:;\'`'.includes(ch)) w += fSize * 0.24;
-    else if ('mwMW@%#'.includes(ch)) w += fSize * 0.78;
-    else if (ch === ' ') w += fSize * 0.28;
-    else if (ch >= '0' && ch <= '9') w += fSize * 0.54;
-    else w += fSize * 0.48;
+    const code = ch.charCodeAt(0);
+    if ('mwMW@%#'.includes(ch) || (code >= 0x00c0 && code <= 0x1ef9 && ch === ch.toUpperCase())) {
+      w += fSize * 0.96;
+    } else if (ch >= 'A' && ch <= 'Z') {
+      w += fSize * 0.84;
+    } else if ('ijlI1|!.,:;\'`tfr '.includes(ch)) {
+      w += fSize * 0.35;
+    } else if (ch >= '0' && ch <= '9') {
+      w += fSize * 0.68;
+    } else if (code > 255) {
+      w += fSize * 0.78;
+    } else {
+      w += fSize * 0.65;
+    }
   }
-  return w;
+  return isBold ? w * 1.20 : w;
 };
 
 // Smooth SVG path for freehand brush strokes (Catmull-Rom / Midpoint curve)
@@ -96,17 +105,72 @@ const getSnappedPoint = (pt, basePt, isShiftActive) => {
   return dx >= dy ? { x: pt.x, y: basePt.y } : { x: basePt.x, y: pt.y };
 };
 
-const getSnappedLine45 = (startPt, pt, isShiftActive) => {
-  if (!isShiftActive || !startPt) return pt;
+const getSnappedLine45 = (startPt, pt, isSnapActive) => {
+  if (!isSnapActive || !startPt) return pt;
   const dx = pt.x - startPt.x;
   const dy = pt.y - startPt.y;
   const dist = Math.hypot(dx, dy);
   if (dist === 0) return pt;
   const angle = Math.atan2(dy, dx);
   const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+
+  const cos = Math.cos(snapAngle);
+  const sin = Math.sin(snapAngle);
+  const isHoriz = Math.abs(sin) < 1e-4;
+  const isVert = Math.abs(cos) < 1e-4;
+
   return {
-    x: startPt.x + dist * Math.cos(snapAngle),
-    y: startPt.y + dist * Math.sin(snapAngle)
+    x: isVert ? startPt.x : startPt.x + dist * cos,
+    y: isHoriz ? startPt.y : startPt.y + dist * sin
+  };
+};
+
+// Computes sharp arrowhead polygon points anchored directly at Point B (endPt)
+const computeArrowHeadPoints = (startPt, endPt, strokeW = 3.5) => {
+  if (!startPt || !endPt) return "";
+  const dx = endPt.x - startPt.x;
+  const dy = endPt.y - startPt.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) {
+    return `${endPt.x},${endPt.y} ${endPt.x - 14},${endPt.y - 7} ${endPt.x - 14},${endPt.y + 7}`;
+  }
+
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+
+  // Arrowhead length & width proportioned to stroke width
+  const headLen = Math.max(18, Math.min(strokeW * 5.0, 50));
+  const headWidth = Math.max(14, Math.min(strokeW * 3.6, 36));
+
+  // Tip is firmly anchored at Point B
+  const tipX = endPt.x;
+  const tipY = endPt.y;
+
+  const leftX = endPt.x - ux * headLen + px * (headWidth / 2);
+  const leftY = endPt.y - uy * headLen + py * (headWidth / 2);
+
+  const rightX = endPt.x - ux * headLen - px * (headWidth / 2);
+  const rightY = endPt.y - uy * headLen - py * (headWidth / 2);
+
+  return `${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`;
+};
+
+// Computes end coordinate of the arrow line body so it terminates neatly inside the arrowhead
+const computeArrowLineEnd = (startPt, endPt, strokeW = 3.5) => {
+  if (!startPt || !endPt) return endPt || { x: 0, y: 0 };
+  const dx = endPt.x - startPt.x;
+  const dy = endPt.y - startPt.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) return endPt;
+  const ux = dx / len;
+  const uy = dy / len;
+  const headLen = Math.max(18, Math.min(strokeW * 5.0, 50));
+  const inset = Math.min(headLen * 0.4, len * 0.6);
+  return {
+    x: endPt.x - ux * inset,
+    y: endPt.y - uy * inset
   };
 };
 
@@ -121,6 +185,75 @@ const getSnappedAspect1to1 = (startPt, pt, isShiftActive) => {
   };
 };
 
+// Finds nearest geometry point (markup endpoints, wall vertices, room corners) within threshold
+const findNearestGeometrySnap = (rawPt, pageAnnotations = [], wallsList = [], roomsList = [], threshold = 20, excludeAnnId = null) => {
+  if (!rawPt) return null;
+  let closest = null;
+  let minDist = threshold;
+
+  // 1. Existing markup endpoints & vertices
+  if (Array.isArray(pageAnnotations)) {
+    for (const ann of pageAnnotations) {
+      if (ann.id === excludeAnnId) continue;
+      const pts = [];
+      if (ann.startPt) pts.push(ann.startPt);
+      if (ann.currentPt) pts.push(ann.currentPt);
+      if (Array.isArray(ann.points)) pts.push(...ann.points);
+      if (typeof ann.x === "number" && typeof ann.y === "number") {
+        pts.push({ x: ann.x, y: ann.y });
+        if (ann.width && ann.height) {
+          pts.push({ x: ann.x + ann.width, y: ann.y });
+          pts.push({ x: ann.x + ann.width, y: ann.y + ann.height });
+          pts.push({ x: ann.x, y: ann.y + ann.height });
+        }
+      }
+      for (const p of pts) {
+        if (!p || typeof p.x !== "number" || typeof p.y !== "number") continue;
+        const d = Math.hypot(rawPt.x - p.x, rawPt.y - p.y);
+        if (d < minDist) {
+          minDist = d;
+          closest = { x: p.x, y: p.y, label: "Point" };
+        }
+      }
+    }
+  }
+
+  // 2. CAD Wall endpoints
+  if (Array.isArray(wallsList)) {
+    for (const w of wallsList) {
+      const p1 = { x: w.p1?.x ?? w.x1, y: w.p1?.y ?? w.y1 };
+      const p2 = { x: w.p2?.x ?? w.x2, y: w.p2?.y ?? w.y2 };
+      for (const p of [p1, p2]) {
+        if (typeof p.x !== "number" || typeof p.y !== "number") continue;
+        const d = Math.hypot(rawPt.x - p.x, rawPt.y - p.y);
+        if (d < minDist) {
+          minDist = d;
+          closest = { x: p.x, y: p.y, label: "Wall" };
+        }
+      }
+    }
+  }
+
+  // 3. CAD Room polygon vertices
+  if (Array.isArray(roomsList)) {
+    for (const r of roomsList) {
+      const poly = r.polygon || r.points;
+      if (Array.isArray(poly)) {
+        for (const p of poly) {
+          if (!p || typeof p.x !== "number" || typeof p.y !== "number") continue;
+          const d = Math.hypot(rawPt.x - p.x, rawPt.y - p.y);
+          if (d < minDist) {
+            minDist = d;
+            closest = { x: p.x, y: p.y, label: "Room" };
+          }
+        }
+      }
+    }
+  }
+
+  return closest;
+};
+
 export default function AnnotationCanvasLayer({
   scale = 1,
   getCanvasPoint,
@@ -128,7 +261,10 @@ export default function AnnotationCanvasLayer({
   realScale,
   scaleValue,
   isShiftDown = false,
-  setInteractionMode
+  setInteractionMode,
+  isSnapEnabled = true,
+  walls = [],
+  rooms = []
 }) {
   const {
     annotationsByPage = {},
@@ -149,6 +285,8 @@ export default function AnnotationCanvasLayer({
     textFontSize = 50,
     calloutStrokeWidth = 3.5,
     setCalloutStrokeWidth,
+    activeCalloutStyle = "red",
+    setActiveCalloutStyle,
     selectedAnnotationId,
     setSelectedAnnotationId,
     selectedAnnotationIds,
@@ -216,6 +354,36 @@ export default function AnnotationCanvasLayer({
   const calloutTipDragRef = useRef(null);
   calloutTipDragRef.current = calloutTipDrag;
 
+  // Line & Arrow Endpoint Dragging State (Point A / Point B)
+  const [endpointDrag, setEndpointDrag] = useState(null);
+  const endpointDragRef = useRef(null);
+  endpointDragRef.current = endpointDrag;
+  const [endpointSnapPt, setEndpointSnapPt] = useState(null);
+
+  // Two-click state for Line and Arrow tools (Click A -> move mouse with rubberband -> Click B)
+  const twoClickStateRef = useRef(null);
+  const lastMouseDownTimeRef = useRef(0);
+
+  const startEndpointDrag = (e, ann, handle) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const pt = getPointFromEvent(e);
+    if (!pt) return;
+    const pA = ann.startPt ? { ...ann.startPt } : { x: ann.x || 0, y: ann.y || 0 };
+    const pB = ann.currentPt ? { ...ann.currentPt } : { x: (ann.x || 0) + (ann.width || 120), y: (ann.y || 0) + (ann.height || 0) };
+
+    const edObj = {
+      annId: ann.id,
+      handle, // "start" (Point A) or "end" (Point B)
+      startMouse: pt,
+      origStartPt: pA,
+      origCurrentPt: pB,
+      initialSnapshot: annotationsByPage
+    };
+    endpointDragRef.current = edObj;
+    setEndpointDrag(edObj);
+  };
+
   // Text Resize Drag State (Word-style 8 handles)
   const [textResizeState, setTextResizeState] = useState(null);
   const textResizeStateRef = useRef(null);
@@ -235,8 +403,11 @@ export default function AnnotationCanvasLayer({
   // Generate unique ID
   const genId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
-  // Dismiss popups when an active drawing tool is selected
+  // Dismiss popups and reset line/arrow creation when an active drawing tool is selected
   useEffect(() => {
+    twoClickStateRef.current = null;
+    drawingStateRef.current = null;
+    setDrawingState(null);
     if (activeAnnotationTool) {
       setActiveNotePopup(null);
       setEditingTextId(null);
@@ -427,6 +598,43 @@ export default function AnnotationCanvasLayer({
     setPolyPoints([]);
   }, [activeAnnotationTool, annotationColor, annotationStrokeWidth, currentPage, setAnnotationsByPage, setSelectedAnnotationId, setSelectedAnnotationIds, setActiveAnnotationTool, setInteractionMode, pushAnnotationHistory, annotationsByPage]);
 
+  // Helper to finalize a single Line or Arrow annotation
+  const createLineOrArrowAnnotation = useCallback((startPt, endPt, type, color, strokeWidth) => {
+    if (!startPt || !endPt) return;
+    const sX = startPt.x;
+    const sY = startPt.y;
+    const eX = endPt.x;
+    const eY = endPt.y;
+
+    const newAnn = {
+      id: genId(type),
+      type,
+      startPt: { x: sX, y: sY },
+      currentPt: { x: eX, y: eY },
+      x: Math.min(sX, eX),
+      y: Math.min(sY, eY),
+      width: Math.max(Math.abs(eX - sX), 1),
+      height: Math.max(Math.abs(eY - sY), 1),
+      color: color || (type === "arrow" ? (annotationColor || "#ef4444") : (annotationColor || "#3b82f6")),
+      strokeWidth: strokeWidth || annotationStrokeWidth || 3,
+      opacity: annotationOpacity != null ? annotationOpacity : 1.0,
+      fillMode: "stroke"
+    };
+
+    if (typeof pushAnnotationHistory === "function") {
+      pushAnnotationHistory(annotationsByPage);
+    }
+    setAnnotationsByPage((prev) => ({
+      ...prev,
+      [currentPage]: [...(prev[currentPage] || []), newAnn]
+    }));
+    // Keep the current tool active so user can immediately continue drawing the next line/arrow
+    setSelectedAnnotationId(null);
+    if (typeof setSelectedAnnotationIds === "function") {
+      setSelectedAnnotationIds([]);
+    }
+  }, [annotationsByPage, currentPage, setAnnotationsByPage, pushAnnotationHistory, setSelectedAnnotationId, setSelectedAnnotationIds, annotationColor, annotationStrokeWidth, annotationOpacity]);
+
   // Is multi-point tool
   const isMultiPointTool = ["measure-area", "polygon", "polyline", "measure-perimeter"].includes(activeAnnotationTool);
 
@@ -435,6 +643,10 @@ export default function AnnotationCanvasLayer({
     if (!activeAnnotationTool) return;
     if (e.button !== 0) return; // Left click only
 
+    const now = Date.now();
+    if (now - lastMouseDownTimeRef.current < 60) return;
+    lastMouseDownTimeRef.current = now;
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -442,6 +654,38 @@ export default function AnnotationCanvasLayer({
     if (!pt) return;
 
     const shiftActive = e.shiftKey || isShift;
+    const snapActive = isSnapEnabled || shiftActive;
+
+    // ── CLICK 2 for Line / Arrow (Click A -> Click B mode) ──
+    if ((activeAnnotationTool === "line" || activeAnnotationTool === "arrow") && twoClickStateRef.current) {
+      let pointB = pt;
+      if (snapActive) {
+        const snapB = findNearestGeometrySnap(pt, pageAnnotations, walls, rooms, 20 / (scale || 1));
+        if (snapB) {
+          pointB = { x: snapB.x, y: snapB.y };
+        } else if (shiftActive) {
+          pointB = getSnappedLine45(twoClickStateRef.current.startPt, pt, true);
+        }
+      }
+
+      const pointA = twoClickStateRef.current.startPt;
+      const dist = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y);
+
+      if (dist >= 3 / (scale || 1)) {
+        createLineOrArrowAnnotation(
+          pointA,
+          pointB,
+          activeAnnotationTool,
+          twoClickStateRef.current.color,
+          twoClickStateRef.current.strokeWidth
+        );
+        twoClickStateRef.current = null;
+        drawingStateRef.current = null;
+        setDrawingState(null);
+        return;
+      }
+      return;
+    }
 
     // 0. Freehand Highlighter Brush (Cọ tô màu)
     if (activeAnnotationTool === "highlight") {
@@ -553,23 +797,51 @@ export default function AnnotationCanvasLayer({
     }
 
     // 4. Default Drag-to-Draw Tools (rect, oval, cloud, line, arrow, underline, strikethrough, callout)
+    let startPoint = pt;
+    let snapA = null;
+
+    if (activeAnnotationTool === "line" || activeAnnotationTool === "arrow") {
+      if (snapActive) {
+        snapA = findNearestGeometrySnap(pt, pageAnnotations, walls, rooms, 20 / (scale || 1));
+        if (snapA) {
+          startPoint = { x: snapA.x, y: snapA.y };
+        }
+      }
+    }
+
+    const activeCalloutObj = activeAnnotationTool === "callout"
+      ? (CALLOUT_STYLES.find(s => s.id === activeCalloutStyle) || CALLOUT_STYLES[0])
+      : null;
+
     const newDrawing = {
       type: activeAnnotationTool,
-      startPt: pt,
-      currentPt: pt,
+      startPt: startPoint,
+      currentPt: startPoint,
+      snappedPtA: snapA,
+      snappedPtB: null,
       color: (activeAnnotationTool.startsWith("highlight") || activeAnnotationTool === "measure-area-poly" || activeAnnotationTool === "measure-area")
         ? annotationColor
-        : (activeAnnotationTool === "callout" ? (textColor || "#0f172a") : annotationColor),
-      strokeWidth: activeAnnotationTool === "callout" ? calloutStrokeWidth : annotationStrokeWidth,
-      fillMode: annotationFillMode
+        : (activeAnnotationTool === "callout" ? (activeCalloutObj?.color || textColor || "#ef4444") : (activeAnnotationTool === "arrow" ? (annotationColor || "#ef4444") : (annotationColor || "#3b82f6"))),
+      bgColor: activeCalloutObj?.bgColor,
+      isCloudy: !!activeCalloutObj?.isCloudy,
+      calloutStyle: activeCalloutObj?.id,
+      strokeWidth: activeAnnotationTool === "callout" ? calloutStrokeWidth : (annotationStrokeWidth || 3),
+      fillMode: annotationFillMode,
+      isTwoClick: false
     };
+    drawingStateRef.current = newDrawing;
     setDrawingState(newDrawing);
   };
 
   // Start moving existing annotation (Only in Select mode, or switch to Select mode if clicking same tool)
   const handleAnnotationMouseDown = (e, ann) => {
     if (activeAnnotationTool) {
-      if ((activeAnnotationTool === "text" && ann.type === "text") || (activeAnnotationTool === "sticky-note" && ann.type === "sticky-note")) {
+      if (
+        (activeAnnotationTool === "text" && ann.type === "text") ||
+        (activeAnnotationTool === "sticky-note" && ann.type === "sticky-note") ||
+        (activeAnnotationTool === "line" && ann.type === "line") ||
+        (activeAnnotationTool === "arrow" && ann.type === "arrow")
+      ) {
         setActiveAnnotationTool(null);
         if (setInteractionMode) setInteractionMode("select");
       } else {
@@ -617,8 +889,8 @@ export default function AnnotationCanvasLayer({
         annId: a.id,
         origX: a.x || 0,
         origY: a.y || 0,
-        origStartPt: a.startPt ? { ...a.startPt } : null,
-        origCurrentPt: a.currentPt ? { ...a.currentPt } : null,
+        origStartPt: a.startPt ? { ...a.startPt } : { x: a.x || 0, y: a.y || 0 },
+        origCurrentPt: a.currentPt ? { ...a.currentPt } : { x: (a.x || 0) + (a.width || 120), y: (a.y || 0) + (a.height || 0) },
         origPoints: a.points ? a.points.map((p) => ({ ...p })) : null,
         origBoxX: typeof a.boxX === "number" ? a.boxX : (a.currentPt?.x ?? (a.x + 40)),
         origBoxY: typeof a.boxY === "number" ? a.boxY : (a.currentPt?.y ?? (a.y + 40)),
@@ -650,15 +922,16 @@ export default function AnnotationCanvasLayer({
     if (ann.type === "callout") {
       const boxX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
       const boxY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
+      const isBold = ann.isBold !== false;
       const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "";
       const textLines = (rawText || "").split("\n");
       const lineCount = Math.max(textLines.length, 1);
       const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-      const fitW = Math.max(estimateTextWidth(longestLine, fSize) + 24, 70);
-      const lineHeight = fSize * 1.3;
-      const fitH = Math.max(lineCount * lineHeight + 12, fSize + 16);
-      estW = ann.customWidth || fitW;
-      estH = ann.customHeight || fitH;
+      const fitW = Math.max(estimateTextWidth(longestLine, fSize, isBold) + 48, 320);
+      const lineHeight = fSize * 1.35;
+      const fitH = Math.max(lineCount * lineHeight + 20, 85);
+      estW = Math.max(ann.customWidth || 0, fitW);
+      estH = Math.max(ann.customHeight || 0, fitH);
       origX = boxX - 8;
       origY = boxY - estH / 2;
     } else {
@@ -703,13 +976,25 @@ export default function AnnotationCanvasLayer({
 
       if (drawingStateRef.current) {
         const currentDrawing = drawingStateRef.current;
+        const snapActive = isSnapEnabled || shiftActive;
         let finalPt = pt;
-        if (["line", "arrow", "underline", "strikethrough"].includes(currentDrawing.type)) {
-          finalPt = getSnappedLine45(currentDrawing.startPt, pt, shiftActive);
+        let snapB = null;
+
+        if (["line", "arrow"].includes(currentDrawing.type)) {
+          if (snapActive) {
+            snapB = findNearestGeometrySnap(pt, pageAnnotations, walls, rooms, 20 / (scale || 1));
+            if (snapB) {
+              finalPt = { x: snapB.x, y: snapB.y };
+            } else if (shiftActive) {
+              finalPt = getSnappedLine45(currentDrawing.startPt, pt, true);
+            }
+          }
+        } else if (["underline", "strikethrough"].includes(currentDrawing.type)) {
+          finalPt = getSnappedLine45(currentDrawing.startPt, pt, snapActive);
         } else if (["rect", "oval"].includes(currentDrawing.type)) {
           finalPt = getSnappedAspect1to1(currentDrawing.startPt, pt, shiftActive);
         }
-        setDrawingState((prev) => (prev ? { ...prev, currentPt: finalPt } : null));
+        setDrawingState((prev) => (prev ? { ...prev, currentPt: finalPt, snappedPtB: snapB } : null));
       }
 
       if (movingStateRef.current) {
@@ -743,6 +1028,14 @@ export default function AnnotationCanvasLayer({
                 }
                 if (it.origCurrentPt) {
                   updated.currentPt = { x: it.origCurrentPt.x + dx, y: it.origCurrentPt.y + dy };
+                }
+                if (a.type === "line" || a.type === "arrow") {
+                  if (updated.startPt && updated.currentPt) {
+                    updated.x = Math.min(updated.startPt.x, updated.currentPt.x);
+                    updated.y = Math.min(updated.startPt.y, updated.currentPt.y);
+                    updated.width = Math.max(Math.abs(updated.currentPt.x - updated.startPt.x), 1);
+                    updated.height = Math.max(Math.abs(updated.currentPt.y - updated.startPt.y), 1);
+                  }
                 }
                 if (Array.isArray(it.origPoints)) {
                   updated.points = it.origPoints.map((p) => ({ x: p.x + dx, y: p.y + dy }));
@@ -901,6 +1194,78 @@ export default function AnnotationCanvasLayer({
           };
         });
       }
+
+      // Live line & arrow endpoint dragging (Point A / Point B)
+      if (endpointDragRef.current) {
+        const ed = endpointDragRef.current;
+        const shiftActive = e.shiftKey || isShift;
+        const snapActive = isSnapEnabled || shiftActive;
+
+        // Ensure movingState does not fight with endpoint dragging
+        if (movingStateRef.current) {
+          movingStateRef.current = null;
+          setMovingState(null);
+        }
+
+        let detectedSnapPt = null;
+
+        setAnnotationsByPage((prev) => {
+          const list = prev[currentPage] || [];
+          return {
+            ...prev,
+            [currentPage]: list.map((a) => {
+              if (a.id !== ed.annId) return a;
+
+              // RULE CỐ ĐỊNH 1 ĐIỂM – DI CHUYỂN ĐIỂM CÒN LẠI:
+              let newStart = { ...ed.origStartPt };
+              let newEnd = { ...ed.origCurrentPt };
+
+              if (ed.handle === "start") {
+                // Dragging Point A: Point B is ABSOLUTELY FIXED at origCurrentPt!
+                let target = { x: pt.x, y: pt.y };
+                if (snapActive) {
+                  const snapPt = findNearestGeometrySnap(pt, pageAnnotations, walls, rooms, 20 / (scale || 1), ed.annId);
+                  if (snapPt) {
+                    target = { x: snapPt.x, y: snapPt.y };
+                    detectedSnapPt = target;
+                  } else if (shiftActive) {
+                    target = getSnappedLine45(ed.origCurrentPt, pt, true);
+                  }
+                }
+                newStart = target;
+                newEnd = { ...ed.origCurrentPt }; // Point B stays strictly fixed!
+              } else {
+                // Dragging Point B: Point A is ABSOLUTELY FIXED at origStartPt!
+                let target = { x: pt.x, y: pt.y };
+                if (snapActive) {
+                  const snapPt = findNearestGeometrySnap(pt, pageAnnotations, walls, rooms, 20 / (scale || 1), ed.annId);
+                  if (snapPt) {
+                    target = { x: snapPt.x, y: snapPt.y };
+                    detectedSnapPt = target;
+                  } else if (shiftActive) {
+                    target = getSnappedLine45(ed.origStartPt, pt, true);
+                  }
+                }
+                newEnd = target;
+                newStart = { ...ed.origStartPt }; // Point A stays strictly fixed!
+              }
+
+              return {
+                ...a,
+                startPt: newStart,
+                currentPt: newEnd,
+                x: Math.min(newStart.x, newEnd.x),
+                y: Math.min(newStart.y, newEnd.y),
+                width: Math.max(Math.abs(newEnd.x - newStart.x), 1),
+                height: Math.max(Math.abs(newEnd.y - newStart.y), 1)
+              };
+            })
+          };
+        });
+
+        setEndpointSnapPt(detectedSnapPt);
+        return;
+      }
     };
 
     const handlePointerUp = (e) => {
@@ -957,6 +1322,14 @@ export default function AnnotationCanvasLayer({
         setCalloutTipDrag(null);
       }
 
+      // 0.25 Finish Line & Arrow Endpoint Dragging
+      if (endpointDragRef.current) {
+        if (endpointDragRef.current.initialSnapshot && typeof pushAnnotationHistory === "function") {
+          pushAnnotationHistory(endpointDragRef.current.initialSnapshot);
+        }
+        setEndpointDrag(null);
+      }
+
       // 0.3 Finish Text Resize Dragging
       if (textResizeStateRef.current) {
         const trs = textResizeStateRef.current;
@@ -969,14 +1342,46 @@ export default function AnnotationCanvasLayer({
       // 1. Finish standard Dragging
       if (drawingStateRef.current) {
         const currentDrawing = drawingStateRef.current;
-        setDrawingState(null);
+        const { startPt, type, color, strokeWidth, fillMode, isTwoClick } = currentDrawing;
 
         const shiftActive = e.shiftKey || isShift;
+        const snapActive = isSnapEnabled || shiftActive;
         let endPt = getPointFromEvent(e) || currentDrawing.currentPt || currentDrawing.startPt;
-        const { startPt, type, color, strokeWidth, fillMode } = currentDrawing;
 
-        if (["line", "arrow", "underline", "strikethrough"].includes(type)) {
-          endPt = getSnappedLine45(startPt, endPt, shiftActive);
+        if (["line", "arrow"].includes(type)) {
+          endPt = currentDrawing.currentPt || endPt;
+          const dragDist = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+
+          // If this was a click at Point A without dragging, and not already in two-click mode:
+          if (dragDist < 10 / (scale || 1) && !isTwoClick) {
+            twoClickStateRef.current = {
+              type,
+              startPt,
+              snappedPtA: currentDrawing.snappedPtA,
+              color,
+              strokeWidth
+            };
+            setDrawingState((prev) => (prev ? { ...prev, isTwoClick: true } : null));
+            return;
+          }
+
+          // Otherwise, user dragged from A to B:
+          twoClickStateRef.current = null;
+          drawingStateRef.current = null;
+          setDrawingState(null);
+
+          if (dragDist >= 3 / (scale || 1)) {
+            createLineOrArrowAnnotation(startPt, endPt, type, color, strokeWidth);
+          }
+          return;
+        }
+
+        drawingStateRef.current = null;
+        setDrawingState(null);
+        twoClickStateRef.current = null;
+
+        if (["underline", "strikethrough"].includes(type)) {
+          endPt = getSnappedLine45(startPt, endPt, snapActive);
         } else if (["rect", "oval"].includes(type)) {
           endPt = getSnappedAspect1to1(startPt, endPt, shiftActive);
         }
@@ -1019,8 +1424,8 @@ export default function AnnotationCanvasLayer({
         const newAnn = {
           id: genId(type),
           type,
-          startPt: isSmallClick ? { x: startPt.x, y: startPt.y } : startPt,
-          currentPt: isSmallClick ? { x: startPt.x + (width || 120), y: startPt.y + (type === "line" || type === "arrow" ? 0 : height || 60) } : endPt,
+          startPt: { x: startPt.x, y: startPt.y },
+          currentPt: { x: endPt.x, y: endPt.y },
           x,
           y,
           width,
@@ -1033,13 +1438,18 @@ export default function AnnotationCanvasLayer({
         };
 
         if (type === "callout") {
+          const activeCalloutObj = CALLOUT_STYLES.find(s => s.id === activeCalloutStyle) || CALLOUT_STYLES[0];
           newAnn.text = "";
           newAnn.html = "";
-          newAnn.color = textColor || "#0f172a";
+          newAnn.color = activeCalloutObj.color;
+          newAnn.bgColor = activeCalloutObj.bgColor;
+          newAnn.isCloudy = activeCalloutObj.isCloudy;
+          newAnn.calloutStyle = activeCalloutObj.id;
+          newAnn.strokeWidth = 5;
           newAnn.fontSize = textFontSize || annotationFontSize || 50;
           newAnn.opacity = textOpacity != null ? textOpacity : 1.0;
-          newAnn.boxX = isSmallClick ? startPt.x + 80 : endPt.x;
-          newAnn.boxY = isSmallClick ? startPt.y - 50 : endPt.y;
+          newAnn.boxX = isSmallClick ? startPt.x + 180 : endPt.x;
+          newAnn.boxY = isSmallClick ? startPt.y - 100 : endPt.y;
           delete newAnn.width;
           delete newAnn.height;
           newAnn.isBold = textBold;
@@ -1081,6 +1491,45 @@ export default function AnnotationCanvasLayer({
         }
         setMovingState(null);
       }
+
+      // 3. Finish Line / Arrow Endpoint Dragging
+      if (endpointDragRef.current) {
+        if (endpointDragRef.current.initialSnapshot) {
+          if (typeof pushAnnotationHistory === "function") {
+            pushAnnotationHistory(endpointDragRef.current.initialSnapshot);
+          }
+        }
+        endpointDragRef.current = null;
+        setEndpointDrag(null);
+        setEndpointSnapPt(null);
+      }
+
+      // 4. Finish Callout Arrow Tip Dragging
+      if (calloutTipDragRef.current) {
+        if (typeof pushAnnotationHistory === "function") {
+          pushAnnotationHistory(annotationsByPage);
+        }
+        calloutTipDragRef.current = null;
+        setCalloutTipDrag(null);
+      }
+
+      // 5. Finish Vertex Dragging (Area & Shapes)
+      if (vertexDragStateRef.current) {
+        if (typeof pushAnnotationHistory === "function") {
+          pushAnnotationHistory(annotationsByPage);
+        }
+        vertexDragStateRef.current = null;
+        setVertexDragState(null);
+      }
+
+      // 6. Finish Text / Callout Box Resizing
+      if (textResizeStateRef.current) {
+        if (typeof pushAnnotationHistory === "function") {
+          pushAnnotationHistory(annotationsByPage);
+        }
+        textResizeStateRef.current = null;
+        setTextResizeState(null);
+      }
     };
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -1094,7 +1543,7 @@ export default function AnnotationCanvasLayer({
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("mouseup", handlePointerUp);
     };
-  }, [isMultiPointTool, isShift, getPointFromEvent, currentPage, setAnnotationsByPage, setSelectedAnnotationId, textBold, textItalic, textUnderline, textStrikethrough, pushAnnotationHistory, annotationsByPage]);
+  }, [isMultiPointTool, isShift, getPointFromEvent, currentPage, setAnnotationsByPage, setSelectedAnnotationId, textBold, textItalic, textUnderline, textStrikethrough, pushAnnotationHistory, annotationsByPage, createLineOrArrowAnnotation, activeCalloutStyle]);
 
   // Snapshot capture implementation
   const handleCaptureSnapshot = (x, y, w, h) => {
@@ -1301,6 +1750,8 @@ export default function AnnotationCanvasLayer({
 
       // 1. Escape: Cancel ANY drawing mode, close text editing/popups and ALWAYS return to Select mode
       if (e.key === "Escape" || e.code === "Escape") {
+        twoClickStateRef.current = null;
+        drawingStateRef.current = null;
         setPolyPoints([]);
         setActiveNotePopup(null);
         setEditingTextId(null);
@@ -1490,29 +1941,29 @@ export default function AnnotationCanvasLayer({
 
   return (
     <g className="cad-annotation-layer">
-      {/* ── ARROWHEAD MARKERS ── */}
+      {/* ── ARROWHEAD MARKERS (Prominent, sharp, CAD-standard) ── */}
       <defs>
         <marker
           id="pdf-arrowhead"
-          markerWidth="12"
-          markerHeight="9"
-          refX="11"
-          refY="4.5"
+          markerWidth="28"
+          markerHeight="20"
+          refX="26"
+          refY="10"
           orient="auto"
           markerUnits="userSpaceOnUse"
         >
-          <polygon points="0 0, 12 4.5, 0 9" fill={annotationColor || "#ef4444"} />
+          <polygon points="0 1.5, 26 10, 0 18.5" fill={annotationColor || "#ef4444"} />
         </marker>
         <marker
           id="pdf-arrowhead-start"
-          markerWidth="12"
-          markerHeight="9"
-          refX="1"
-          refY="4.5"
+          markerWidth="28"
+          markerHeight="20"
+          refX="2"
+          refY="10"
           orient="auto-start-reverse"
           markerUnits="userSpaceOnUse"
         >
-          <polygon points="12 0, 0 4.5, 12 9" fill={annotationColor || "#ef4444"} />
+          <polygon points="26 1.5, 0 10, 26 18.5" fill={annotationColor || "#ef4444"} />
         </marker>
       </defs>
 
@@ -1546,7 +1997,7 @@ export default function AnnotationCanvasLayer({
           <g
             key={ann.id}
             style={{
-              pointerEvents: isMarkupActive ? "none" : "all",
+              pointerEvents: (isMarkupActive && selectedAnnotationId !== ann.id) ? "none" : "all",
               cursor: isMarkupActive ? (activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor) : "crosshair") : "move"
             }}
             onMouseDown={(e) => {
@@ -2013,33 +2464,119 @@ export default function AnnotationCanvasLayer({
               />
             )}
 
-            {/* 12. LINE */}
-            {ann.type === "line" && (
-              <line
-                x1={ann.startPt?.x || ann.x}
-                y1={ann.startPt?.y || ann.y}
-                x2={ann.currentPt?.x || (ann.x + ann.width)}
-                y2={ann.currentPt?.y || (ann.y + ann.height)}
-                stroke={color}
-                strokeWidth={strokeW}
-                opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
-                strokeDasharray={isSelected ? "4,2" : "none"}
-              />
-            )}
+            {/* 12. LINE & 13. ARROW (Unified vector object with interactive endpoints & auto-oriented arrowhead) */}
+            {(ann.type === "line" || ann.type === "arrow") && (() => {
+              const pA = ann.startPt || { x: ann.x || 0, y: ann.y || 0 };
+              const pB = ann.currentPt || { x: (ann.x || 0) + (ann.width || 120), y: (ann.y || 0) + (ann.height || 0) };
+              const isArrow = ann.type === "arrow";
+              const lineEnd = isArrow ? computeArrowLineEnd(pA, pB, strokeW) : pB;
 
-            {/* 13. ARROW */}
-            {ann.type === "arrow" && (
-              <line
-                x1={ann.startPt?.x || ann.x}
-                y1={ann.startPt?.y || ann.y}
-                x2={ann.currentPt?.x || (ann.x + ann.width)}
-                y2={ann.currentPt?.y || (ann.y + ann.height)}
-                stroke={color}
-                strokeWidth={strokeW}
-                opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
-                markerEnd="url(#pdf-arrowhead)"
-              />
-            )}
+              return (
+                <g key={ann.id} style={{ cursor: isSelected ? "move" : "pointer" }}>
+                  {/* Invisible wide stroke for effortless click & drag selection */}
+                  <line
+                    x1={pA.x}
+                    y1={pA.y}
+                    x2={pB.x}
+                    y2={pB.y}
+                    stroke="transparent"
+                    strokeWidth={Math.max(strokeW + 16, 20 / scale)}
+                    style={{ pointerEvents: "stroke" }}
+                    onMouseDown={(e) => handleAnnotationMouseDown(e, ann)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAnnotationId(ann.id);
+                    }}
+                  />
+
+                  {/* Visible Line Body */}
+                  <line
+                    x1={pA.x}
+                    y1={pA.y}
+                    x2={lineEnd.x}
+                    y2={lineEnd.y}
+                    stroke={color}
+                    strokeWidth={strokeW}
+                    strokeLinecap="round"
+                    opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
+                    strokeDasharray={isSelected ? "6,3" : "none"}
+                    style={{ pointerEvents: "stroke" }}
+                    onMouseDown={(e) => handleAnnotationMouseDown(e, ann)}
+                  />
+
+                  {/* Unified Arrow Head (Point B) */}
+                  {isArrow && (
+                    <polygon
+                      points={computeArrowHeadPoints(pA, pB, strokeW)}
+                      fill={color}
+                      opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
+                      style={{ pointerEvents: "all" }}
+                      onMouseDown={(e) => handleAnnotationMouseDown(e, ann)}
+                    />
+                  )}
+
+                  {/* Interactive Endpoint Handles when Selected */}
+                  {isSelected && (
+                    <g className="line-endpoint-handles" style={{ pointerEvents: "all" }}>
+                      {/* Point A Handle (Point A: Start) */}
+                      <g
+                        style={{ cursor: "crosshair", pointerEvents: "all" }}
+                        onMouseDown={(e) => startEndpointDrag(e, ann, "start")}
+                        title="Point A: Drag to move (Point B stays fixed)"
+                      >
+                        {/* Invisible large hit area for easy grabbing */}
+                        <circle
+                          cx={pA.x}
+                          cy={pA.y}
+                          r={Math.max(14 / scale, 12)}
+                          fill="transparent"
+                        />
+                        <circle
+                          cx={pA.x}
+                          cy={pA.y}
+                          r={Math.max(7 / scale, 5.5)}
+                          fill="#ffffff"
+                          stroke="#2563eb"
+                          strokeWidth={2.4 / scale}
+                          filter="drop-shadow(0 1px 4px rgba(0,0,0,0.35))"
+                        />
+                        <circle cx={pA.x} cy={pA.y} r={Math.max(2.5 / scale, 2)} fill="#2563eb" />
+                      </g>
+
+                      {/* Point B Handle (Point B: End / Arrow tip) */}
+                      <g
+                        style={{ cursor: "crosshair", pointerEvents: "all" }}
+                        onMouseDown={(e) => startEndpointDrag(e, ann, "end")}
+                        title="Point B: Drag to move (Point A stays fixed)"
+                      >
+                        {/* Invisible large hit area */}
+                        <circle
+                          cx={pB.x}
+                          cy={pB.y}
+                          r={Math.max(14 / scale, 12)}
+                          fill="transparent"
+                        />
+                        <circle
+                          cx={pB.x}
+                          cy={pB.y}
+                          r={Math.max(7 / scale, 5.5)}
+                          fill={isArrow ? color : "#ffffff"}
+                          stroke="#2563eb"
+                          strokeWidth={2.4 / scale}
+                          filter="drop-shadow(0 1px 4px rgba(0,0,0,0.35))"
+                        />
+                        <circle
+                          cx={pB.x}
+                          cy={pB.y}
+                          r={Math.max(2.5 / scale, 2)}
+                          fill={isArrow ? "#ffffff" : "#2563eb"}
+                        />
+                      </g>
+                    </g>
+                  )}
+                </g>
+              );
+            })()}
 
             {/* 14. STICKY NOTE (Icon on drawing with blue dashed selection, click opens popup) */}
             {ann.type === "sticky-note" && (() => {
@@ -2267,18 +2804,19 @@ export default function AnnotationCanvasLayer({
               const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "";
               const textLines = (rawText || "").split("\n");
               const lineCount = Math.max(textLines.length, 1);
-              const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-              const fitW = Math.max(estimateTextWidth(longestLine, fontSize) + 24, 70);
-              const lineHeight = fontSize * 1.3;
-              const fitH = Math.max(lineCount * lineHeight + 12, fontSize + 16);
-              const textW = ann.customWidth || fitW;
-              const boxH = ann.customHeight || fitH;
+              const longestLine = textLines.reduce((a, b) => (a.length > b.length ? a : b), "");
+              const estimatedW = estimateTextWidth(longestLine, fontSize, isBold) + 48;
+              const fitW = Math.max(estimatedW, 320);
+              const lineHeight = fontSize * 1.35;
+              const fitH = Math.max(lineCount * lineHeight + 20, 85);
+              const textW = Math.max(ann.customWidth || 0, fitW);
+              const boxH = Math.max(ann.customHeight || 0, fitH);
               const boxLeft = boxX - 8;
               const boxTop = boxY - boxH / 2;
               const startY = boxTop + (boxH - (lineCount - 1) * lineHeight) / 2 + (fontSize * 0.35);
 
               const color = ann.color || textColor || "#0f172a";
-              const strokeW = typeof ann.strokeWidth === "number" && ann.strokeWidth > 2 ? ann.strokeWidth : 3.5;
+              const strokeW = typeof ann.strokeWidth === "number" && ann.strokeWidth > 3 ? ann.strokeWidth : 5;
 
               // Dynamic intersection point on closest edge of Callout box pointing to anchor
               const attach = getCalloutEdgeAttachment(boxLeft, boxTop, textW, boxH, tipX, tipY);
@@ -2305,14 +2843,14 @@ export default function AnnotationCanvasLayer({
                   <defs>
                     <marker
                       id={`callout-marker-${ann.id}`}
-                      markerWidth="18"
-                      markerHeight="14"
-                      refX="17"
-                      refY="7"
+                      markerWidth="30"
+                      markerHeight="22"
+                      refX="28"
+                      refY="11"
                       orient="auto"
                       markerUnits="userSpaceOnUse"
                     >
-                      <polygon points="0 1.5, 17 7, 0 12.5" fill={color} />
+                      <polygon points="0 1.5, 28 11, 0 20.5" fill={color} />
                     </marker>
                   </defs>
 
@@ -2331,19 +2869,31 @@ export default function AnnotationCanvasLayer({
                   {/* Text box */}
                   {!isBeingEdited && (
                     <g>
-                      <rect
-                        x={boxLeft}
-                        y={boxTop}
-                        width={textW}
-                        height={boxH}
-                        fill="#ffffff"
-                        stroke={isSelected ? "#2563eb" : color}
-                        strokeWidth={isSelected ? "2.5" : "2"}
-                        strokeDasharray={isSelected ? "4,2" : "none"}
-                        rx="6"
-                        opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
-                        filter="drop-shadow(0 2px 8px rgba(0,0,0,0.18))"
-                      />
+                      {ann.isCloudy ? (
+                        <path
+                          d={buildCloudPath(boxLeft, boxTop, textW, boxH)}
+                          fill={ann.bgColor || "rgba(254, 226, 226, 0.45)"}
+                          stroke={isSelected ? "#2563eb" : color}
+                          strokeWidth={isSelected ? "2.5" : "2"}
+                          strokeDasharray={isSelected ? "4,2" : "none"}
+                          opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
+                          filter="drop-shadow(0 2px 8px rgba(0,0,0,0.18))"
+                        />
+                      ) : (
+                        <rect
+                          x={boxLeft}
+                          y={boxTop}
+                          width={textW}
+                          height={boxH}
+                          fill={ann.bgColor || "#ffffff"}
+                          stroke={isSelected ? "#2563eb" : color}
+                          strokeWidth={isSelected ? "2.5" : "2"}
+                          strokeDasharray={isSelected ? "4,2" : "none"}
+                          rx="6"
+                          opacity={typeof ann.opacity === "number" ? ann.opacity : 1.0}
+                          filter="drop-shadow(0 2px 8px rgba(0,0,0,0.18))"
+                        />
+                      )}
                       <text
                         x={boxLeft + textW / 2}
                         y={startY}
@@ -2401,7 +2951,7 @@ export default function AnnotationCanvasLayer({
                     <circle
                       cx={tipX}
                       cy={tipY}
-                      r={7}
+                      r={8}
                       fill="#2563eb"
                       stroke="#ffffff"
                       strokeWidth={2.5}
@@ -2429,15 +2979,16 @@ export default function AnnotationCanvasLayer({
               const cbX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const cbY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
               const fontSize = ann.fontSize || 50;
+              const isBold = ann.isBold !== false;
               const rawText = ann.text != null && String(ann.text).trim() !== "" ? String(ann.text) : "";
               const textLines = (rawText || "").split("\n");
               const lineCount = Math.max(textLines.length, 1);
               const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, "");
-              const fitW = Math.max(estimateTextWidth(longestLine, fontSize) + 24, 70);
-              const lineHeight = fontSize * 1.3;
-              const fitH = Math.max(lineCount * lineHeight + 12, fontSize + 16);
-              const textWidth = ann.customWidth || fitW;
-              const boxH = ann.customHeight || fitH;
+              const fitW = Math.max(estimateTextWidth(longestLine, fontSize, isBold) + 48, 320);
+              const lineHeight = fontSize * 1.35;
+              const fitH = Math.max(lineCount * lineHeight + 20, 85);
+              const textWidth = Math.max(ann.customWidth || 0, fitW);
+              const boxH = Math.max(ann.customHeight || 0, fitH);
               return (
                 <g
                   transform={`translate(${cbX - 8 + textWidth + 6}, ${cbY - boxH / 2 - 2})`}
@@ -2469,8 +3020,15 @@ export default function AnnotationCanvasLayer({
 
             {/* FLOATING ACTION TOOLBAR ON SELECTED SHAPE */}
             {isSelected && !isMarkupActive && ann.type !== "text" && ann.type !== "sticky-note" && ann.type !== "callout" && (() => {
-              const posX = ann.points ? getPointsBounds(ann.points).x + getPointsBounds(ann.points).width : ann.x + (ann.width || 60);
-              const posY = ann.points ? getPointsBounds(ann.points).y : ann.y;
+              let posX = ann.points ? getPointsBounds(ann.points).x + getPointsBounds(ann.points).width : ann.x + (ann.width || 60);
+              let posY = ann.points ? getPointsBounds(ann.points).y : ann.y;
+
+              if (ann.type === "line" || ann.type === "arrow") {
+                const pA = ann.startPt || { x: ann.x || 0, y: ann.y || 0 };
+                const pB = ann.currentPt || { x: (ann.x || 0) + (ann.width || 120), y: (ann.y || 0) + (ann.height || 0) };
+                posX = (pA.x + pB.x) / 2;
+                posY = Math.min(pA.y, pB.y) - 6 / scale;
+              }
 
               return (
                 <g transform={`translate(${posX}, ${posY - 14})`} style={{ pointerEvents: "all" }}>
@@ -2722,7 +3280,6 @@ export default function AnnotationCanvasLayer({
                 : "crosshair",
             pointerEvents: "all"
           }}
-          onMouseDown={handleCanvasMouseDown}
           onPointerDown={handleCanvasMouseDown}
           onDoubleClick={(e) => {
             if (isMultiPointTool && polyPoints.length >= 3) {
@@ -2778,38 +3335,156 @@ export default function AnnotationCanvasLayer({
             />
           )}
 
-          {drawingState.type === "line" && (
-            <line
-              x1={drawingState.startPt.x}
-              y1={drawingState.startPt.y}
-              x2={drawingState.currentPt.x}
-              y2={drawingState.currentPt.y}
-              stroke={drawingState.color}
-              strokeWidth={drawingState.strokeWidth}
-              strokeDasharray="4,4"
-            />
-          )}
+          {drawingState.type === "line" && (() => {
+            const pA = drawingState.startPt;
+            const pB = drawingState.currentPt;
+            return (
+              <g>
+                {/* Point A Anchor Dot */}
+                <circle
+                  cx={pA.x}
+                  cy={pA.y}
+                  r={Math.max(6 / scale, 4.5)}
+                  fill="#2563eb"
+                  stroke="#ffffff"
+                  strokeWidth={2 / scale}
+                />
+                <circle cx={pA.x} cy={pA.y} r={Math.max(2.5 / scale, 1.8)} fill="#ffffff" />
 
-          {drawingState.type === "arrow" && (
-            <line
-              x1={drawingState.startPt.x}
-              y1={drawingState.startPt.y}
-              x2={drawingState.currentPt.x}
-              y2={drawingState.currentPt.y}
-              stroke={drawingState.color}
-              strokeWidth={drawingState.strokeWidth}
-              markerEnd="url(#pdf-arrowhead)"
-            />
-          )}
+                {/* Line preview */}
+                <line
+                  x1={pA.x}
+                  y1={pA.y}
+                  x2={pB.x}
+                  y2={pB.y}
+                  stroke={drawingState.color}
+                  strokeWidth={drawingState.strokeWidth}
+                  strokeDasharray="5,3"
+                />
+
+                {/* Point B (Mouse) Dot */}
+                <circle
+                  cx={pB.x}
+                  cy={pB.y}
+                  r={Math.max(6 / scale, 4.5)}
+                  fill="#2563eb"
+                  stroke="#ffffff"
+                  strokeWidth={2 / scale}
+                />
+                <circle cx={pB.x} cy={pB.y} r={Math.max(2.5 / scale, 1.8)} fill="#ffffff" />
+
+                {/* Snap Indicator at Point A if snapped */}
+                {drawingState.snappedPtA && (
+                  <rect
+                    x={pA.x - 9 / scale}
+                    y={pA.y - 9 / scale}
+                    width={18 / scale}
+                    height={18 / scale}
+                    fill="none"
+                    stroke="#16a34a"
+                    strokeWidth={2 / scale}
+                  />
+                )}
+
+                {/* Snap Indicator at Point B if snapped */}
+                {drawingState.snappedPtB && (
+                  <rect
+                    x={pB.x - 9 / scale}
+                    y={pB.y - 9 / scale}
+                    width={18 / scale}
+                    height={18 / scale}
+                    fill="none"
+                    stroke="#16a34a"
+                    strokeWidth={2 / scale}
+                  />
+                )}
+              </g>
+            );
+          })()}
+
+          {drawingState.type === "arrow" && (() => {
+            const pA = drawingState.startPt;
+            const pB = drawingState.currentPt;
+            const lineEnd = computeArrowLineEnd(pA, pB, drawingState.strokeWidth);
+            return (
+              <g>
+                {/* Point A Anchor Dot */}
+                <circle
+                  cx={pA.x}
+                  cy={pA.y}
+                  r={Math.max(6 / scale, 4.5)}
+                  fill="#2563eb"
+                  stroke="#ffffff"
+                  strokeWidth={2 / scale}
+                />
+                <circle cx={pA.x} cy={pA.y} r={Math.max(2.5 / scale, 1.8)} fill="#ffffff" />
+
+                {/* Arrow Line Body */}
+                <line
+                  x1={pA.x}
+                  y1={pA.y}
+                  x2={lineEnd.x}
+                  y2={lineEnd.y}
+                  stroke={drawingState.color}
+                  strokeWidth={drawingState.strokeWidth}
+                  strokeLinecap="round"
+                />
+
+                {/* Arrow Head firmly attached at Point B */}
+                <polygon
+                  points={computeArrowHeadPoints(pA, pB, drawingState.strokeWidth)}
+                  fill={drawingState.color}
+                />
+
+                {/* Point B Target Dot */}
+                <circle
+                  cx={pB.x}
+                  cy={pB.y}
+                  r={Math.max(4.5 / scale, 3.5)}
+                  fill="#ffffff"
+                  stroke="#ef4444"
+                  strokeWidth={1.8 / scale}
+                />
+
+                {/* Snap Indicator at Point A if snapped */}
+                {drawingState.snappedPtA && (
+                  <rect
+                    x={pA.x - 9 / scale}
+                    y={pA.y - 9 / scale}
+                    width={18 / scale}
+                    height={18 / scale}
+                    fill="none"
+                    stroke="#16a34a"
+                    strokeWidth={2 / scale}
+                  />
+                )}
+
+                {/* Snap Indicator at Point B if snapped */}
+                {drawingState.snappedPtB && (
+                  <rect
+                    x={pB.x - 9 / scale}
+                    y={pB.y - 9 / scale}
+                    width={18 / scale}
+                    height={18 / scale}
+                    fill="none"
+                    stroke="#16a34a"
+                    strokeWidth={2 / scale}
+                  />
+                )}
+              </g>
+            );
+          })()}
 
           {drawingState.type === "callout" && (() => {
             const tipX = drawingState.startPt.x;
             const tipY = drawingState.startPt.y;
             const curX = drawingState.currentPt.x;
             const curY = drawingState.currentPt.y;
-            const textW = 120;
-            const boxH = 40;
-            const attach = getCalloutEdgeAttachment(curX - 8, curY - boxH / 2, textW, boxH, tipX, tipY);
+            const textW = 320;
+            const boxH = 85;
+            const boxLeft = curX - 8;
+            const boxTop = curY - boxH / 2;
+            const attach = getCalloutEdgeAttachment(boxLeft, boxTop, textW, boxH, tipX, tipY);
             return (
               <g>
                 <line
@@ -2818,19 +3493,30 @@ export default function AnnotationCanvasLayer({
                   x2={tipX}
                   y2={tipY}
                   stroke={drawingState.color}
-                  strokeWidth={drawingState.strokeWidth || 3.5}
+                  strokeWidth={drawingState.strokeWidth || 5}
                   markerEnd="url(#pdf-arrowhead)"
                 />
-                <rect
-                  x={curX - 8}
-                  y={curY - boxH / 2}
-                  width={textW}
-                  height={boxH}
-                  fill="#ffffff"
-                  stroke={drawingState.color}
-                  strokeWidth="2"
-                  rx="6"
-                />
+                {drawingState.isCloudy ? (
+                  <path
+                    d={buildCloudPath(boxLeft, boxTop, textW, boxH)}
+                    fill={drawingState.bgColor || "rgba(254, 226, 226, 0.45)"}
+                    stroke={drawingState.color}
+                    strokeWidth="2.5"
+                    opacity={0.95}
+                  />
+                ) : (
+                  <rect
+                    x={boxLeft}
+                    y={boxTop}
+                    width={textW}
+                    height={boxH}
+                    fill={drawingState.bgColor || "#ffffff"}
+                    stroke={drawingState.color}
+                    strokeWidth="2.5"
+                    rx="6"
+                    opacity={0.95}
+                  />
+                )}
               </g>
             );
           })()}
@@ -2848,6 +3534,20 @@ export default function AnnotationCanvasLayer({
             />
           )}
         </g>
+      )}
+
+      {/* ── ENDPOINT SNAP INDICATOR (Green square when endpoint snaps) ── */}
+      {endpointSnapPt && (
+        <rect
+          x={endpointSnapPt.x - 9 / scale}
+          y={endpointSnapPt.y - 9 / scale}
+          width={18 / scale}
+          height={18 / scale}
+          fill="none"
+          stroke="#16a34a"
+          strokeWidth={2.5 / scale}
+          pointerEvents="none"
+        />
       )}
 
       {/* ── STATUS MESSAGE TOAST ── */}
@@ -3332,13 +4032,13 @@ function InlineRichTextEditor({
             suppressContentEditableWarning
             style={{
               display: "inline-block",
-              minWidth: isCallout ? "80px" : (targetAnn.width ? `${targetAnn.width}px` : "320px"),
+              minWidth: isCallout ? (targetAnn.customWidth ? `${targetAnn.customWidth}px` : "320px") : (targetAnn.width ? `${targetAnn.width}px` : "320px"),
               maxWidth: "1400px",
-              minHeight: isCallout ? `${fSize + 16}px` : (targetAnn.height ? `${targetAnn.height}px` : "90px"),
-              padding: isCallout ? "6px 14px" : "16px 24px",
-              background: "#ffffff",
-              border: "2.5px solid #31456E",
-              borderRadius: "8px",
+              minHeight: isCallout ? (targetAnn.customHeight ? `${targetAnn.customHeight}px` : "85px") : (targetAnn.height ? `${targetAnn.height}px` : "90px"),
+              padding: isCallout ? "10px 18px" : "16px 24px",
+              background: isCallout ? (targetAnn.bgColor || "#ffffff") : "#ffffff",
+              border: `2.5px solid ${targetAnn.color || "#31456E"}`,
+              borderRadius: isCallout && targetAnn.isCloudy ? "14px" : "8px",
               boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
               outline: "none",
               fontSize: `${targetAnn.fontSize || 50}px`,

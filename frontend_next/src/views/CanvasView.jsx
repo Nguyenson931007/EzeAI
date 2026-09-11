@@ -5972,6 +5972,9 @@ export default function CanvasView({
               scaleValue={scaleValue}
               isShiftDown={isShiftDown}
               setInteractionMode={setInteractionMode}
+              isSnapEnabled={isWallSnapEnabled}
+              walls={walls}
+              rooms={rooms}
             />
 
           </g>

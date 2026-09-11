@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
+import CalloutStylePicker, { CALLOUT_STYLES } from "@/components/CalloutStylePicker";
 
 const PDF_ICONS = {
   Highlight: () => (
@@ -212,7 +213,10 @@ export default function PdfToolsRibbon({
     textUnderline = false,
     setTextUnderline,
     textStrikethrough = false,
-    setTextStrikethrough
+    setTextStrikethrough,
+    activeCalloutStyle = "red",
+    setActiveCalloutStyle,
+    setImportTarget
   } = useAppModel();
 
   // Selected annotation helper for dynamic formatting
@@ -474,12 +478,16 @@ export default function PdfToolsRibbon({
                 const file = e.target.files?.[0];
                 if (!file) return;
                 let targetJobName = file.name.replace(/\.[^/.]+$/, "");
-                if (setCurrentProjectName) setCurrentProjectName(targetJobName);
+                // KHÔNG ĐỔI TÊN NẾU JOB ĐÃ CÓ TÊN (Giữ nguyên tên hiện có như TestAI)
+                if (!currentProjectName || currentProjectName === "Untitled Project" || currentProjectName === "New Project") {
+                  if (setCurrentProjectName) setCurrentProjectName(targetJobName);
+                }
+                if (setImportTarget) setImportTarget("pdf_tools");
                 if (file.type === "application/pdf") {
                   if (loadPDF) loadPDF(file);
                 } else if (setPendingPages && setShowImportPageSelector) {
                   const url = URL.createObjectURL(file);
-                  setPendingPages([{ image: url, w: 2000, h: 1500, fileName: targetJobName }]);
+                  setPendingPages([{ image: url, w: 2000, h: 1500, fileName: targetJobName, category: "cladding", source: "pdf_tools" }]);
                   if (setImportSelectedPages) setImportSelectedPages([0]);
                   if (setIsAddingPagesMode) setIsAddingPagesMode(false);
                   setShowImportPageSelector(true);
@@ -564,13 +572,13 @@ export default function PdfToolsRibbon({
           {/* Text & Notes */}
           <div style={{ position: "relative", zIndex: openDropdown === "text" ? 1500 : 1 }}>
             <button
-              className={`ribbon-btn ${isTextToolActive || openDropdown === "text" ? "active" : ""}`}
+              className={`ribbon-btn ${(isTextToolActive && activeAnnotationTool !== "callout") || openDropdown === "text" ? "active" : ""}`}
               onClick={() => setOpenDropdown(prev => prev === "text" ? null : "text")}
-              title="Text & Notes (Text Box, Sticky Note, Callout)"
+              title="Text & Notes (Text Box, Sticky Note)"
             >
               <span className="icon"><PDF_ICONS.TextBox /></span>
               <span className="label">
-                {activeAnnotationTool === "text" ? "Text Box" : activeAnnotationTool === "sticky-note" ? "Sticky Note" : activeAnnotationTool === "callout" ? "Callout" : "Text & Notes ▾"}
+                {activeAnnotationTool === "text" ? "Text Box" : activeAnnotationTool === "sticky-note" ? "Sticky Note" : "Text & Notes ▾"}
               </span>
             </button>
             {openDropdown === "text" && (
@@ -609,12 +617,106 @@ export default function PdfToolsRibbon({
                 </button>
                 <button
                   className={`ribbon-btn ${activeAnnotationTool === "callout" ? "active" : ""}`}
-                  onClick={() => handleSelectTool("callout")}
+                  onClick={() => {
+                    handleSelectTool("callout");
+                    setOpenDropdown("callout");
+                  }}
                   style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "6px 10px", minWidth: "auto" }}
                 >
                   <span className="icon"><PDF_ICONS.Callout /></span>
-                  <span className="label">Callout</span>
+                  <span className="label">Callout...</span>
                 </button>
+              </div>
+            )}
+          </div>
+
+          {/* Callout Tool Button with Style Options Popover */}
+          <div style={{ position: "relative", zIndex: openDropdown === "callout" ? 2500 : 1 }}>
+            <button
+              className={`ribbon-btn ${(activeAnnotationTool === "callout" || (selectedAnn && selectedAnn.type === "callout") || openDropdown === "callout") ? "active" : ""}`}
+              onClick={() => {
+                if (activeAnnotationTool !== "callout") {
+                  handleSelectTool("callout");
+                }
+                setOpenDropdown(prev => prev === "callout" ? null : "callout");
+              }}
+              title="Callout Tool (Click to select & choose style)"
+            >
+              <span className="icon"><PDF_ICONS.Callout /></span>
+              <span className="label">Callout ▾</span>
+            </button>
+            {openDropdown === "callout" && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: "-40px",
+                  zIndex: 3500,
+                  background: "#ffffff",
+                  border: "1.5px solid #cbd5e1",
+                  borderRadius: "10px",
+                  boxShadow: "0 14px 38px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.1)",
+                  padding: "12px",
+                  width: "390px",
+                  maxHeight: "85vh",
+                  overflowY: "auto"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", paddingBottom: "6px", borderBottom: "1px solid #f1f5f9" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#0f172a" }}>
+                      🎨 CALLOUT STYLES
+                    </span>
+                    {selectedAnn && selectedAnn.type === "callout" && (
+                      <span style={{ fontSize: "10px", background: "#dbeafe", color: "#1d4ed8", padding: "1px 6px", borderRadius: "4px", fontWeight: 700 }}>
+                        Applying to Selected
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOpenDropdown(null)}
+                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", color: "#64748b", fontWeight: "bold" }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <CalloutStylePicker
+                  selectedStyleId={selectedAnn && selectedAnn.type === "callout" ? selectedAnn.calloutStyle : activeCalloutStyle}
+                  selectedColor={selectedAnn && selectedAnn.type === "callout" ? selectedAnn.color : undefined}
+                  isCloudy={selectedAnn && selectedAnn.type === "callout" ? selectedAnn.isCloudy : undefined}
+                  onSelectStyle={(styleItem) => {
+                    if (setActiveCalloutStyle) setActiveCalloutStyle(styleItem.id);
+                    // If a Callout annotation is currently selected on the canvas, apply immediately!
+                    if (selectedAnn && selectedAnn.type === "callout") {
+                      if (typeof pushAnnotationHistory === "function") {
+                        pushAnnotationHistory(annotationsByPage);
+                      }
+                      setAnnotationsByPage((prev) => {
+                        const list = prev[currentPage] || [];
+                        return {
+                          ...prev,
+                          [currentPage]: list.map((a) =>
+                            a.id === selectedAnn.id
+                              ? {
+                                  ...a,
+                                  color: styleItem.color,
+                                  bgColor: styleItem.bgColor,
+                                  isCloudy: styleItem.isCloudy,
+                                  calloutStyle: styleItem.id
+                                }
+                              : a
+                          )
+                        };
+                      });
+                    }
+                    if (activeAnnotationTool !== "callout" && !selectedAnn) {
+                      setActiveAnnotationTool("callout");
+                      if (setInteractionMode) setInteractionMode("markup");
+                    }
+                  }}
+                  size="compact"
+                />
               </div>
             )}
           </div>

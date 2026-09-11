@@ -27,6 +27,7 @@ import SearchSidebarView from "@/views/SearchSidebarView";
 import ThumbnailSidebarView from "@/views/ThumbnailSidebarView";
 import LeftRailView from "@/views/LeftRailView";
 import FloorTabBarView from "@/views/FloorTabBarView";
+import PdfModuleTabBarView from "@/views/PdfModuleTabBarView";
 import DoorTypePanel from "@/components/DoorTypePanel";
 import LintelCatalogPanel from "@/components/LintelCatalogPanel";
 import TrainButton from "@/components/TrainButton";
@@ -182,6 +183,10 @@ export default function App() {
   const {
     pages, setPages,
     currentPage, setCurrentPage,
+    levels, setLevels,
+    currentLevelIndex, setCurrentLevelIndex,
+    activePdfCategory, setActivePdfCategory,
+    importTarget, setImportTarget,
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
@@ -495,7 +500,8 @@ export default function App() {
     pdfOffsetsByPage, setPdfOffsetsByPage,
     roofsByPage, setRoofsByPage,
     lintelsByPage, setLintelsByPage,
-    scalesByPage, setScalesByPage
+    scalesByPage, setScalesByPage,
+    activePdfCategory, setActivePdfCategory
   );
 
   // ── Global Capture Escape Handler: Cancel ROI & Active Operations Reliably ──
@@ -842,6 +848,9 @@ export default function App() {
             setImgSize({ w: savedSession.pages[targetPage].w, h: savedSession.pages[targetPage].h });
           }
 
+          if (savedSession.activePdfCategory && setActivePdfCategory) {
+            setActivePdfCategory(savedSession.activePdfCategory);
+          }
           if (savedSession.activeTab) {
             setActiveTab(savedSession.activeTab);
           }
@@ -866,7 +875,7 @@ export default function App() {
     };
 
     restoreWorkspace();
-  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab]);
+  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
 
   // 2. Tự động lưu Workspace vào IndexedDB khi có thay đổi (debounce 400ms)
   useEffect(() => {
@@ -887,6 +896,7 @@ export default function App() {
         currentJobId,
         activeTab,
         realScale,
+        activePdfCategory,
         savedAt: Date.now()
       });
     }, 400);
@@ -894,7 +904,7 @@ export default function App() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, isLoggedIn]);
+  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
 
   // 2.5. Tự động lưu định kỳ theo thiết lập Cài đặt (Configurable Periodic Auto-Save)
   useEffect(() => {
@@ -1308,7 +1318,7 @@ export default function App() {
     }
   };
 
-  function confirmImport() {
+  function confirmImport(categoryAssignments = {}) {
     if (importSelectedPages.length === 0) {
       setShowImportPageSelector(false);
       setPendingPages([]);
@@ -1316,39 +1326,78 @@ export default function App() {
       return;
     }
 
-    const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => pendingPages[idx]);
+    const isLevel = importTarget === "level";
+    const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => {
+      const p = pendingPages[idx];
+      if (isLevel) {
+        return {
+          ...p,
+          category: null,
+          source: "design"
+        };
+      }
+      const assignedCat = (categoryAssignments && categoryAssignments[idx]) || p?.category || activePdfCategory || "cladding";
+      return {
+        ...p,
+        category: assignedCat,
+        source: "pdf_tools"
+      };
+    });
 
-    if (isAddingPagesMode) {
-      // Append the newly selected pages to the existing project as new independent entries
-      const startIdx = pages.length;
-      setPages(prev => [...prev, ...selectedData]);
+    if (isLevel) {
+      if (isAddingPagesMode) {
+        const startIdx = pages.length;
+        setPages(prev => [...prev, ...selectedData]);
+        setCurrentPage(startIdx);
+        setImage(selectedData[0].image);
+        setImgSize({
+          w: selectedData[0].w,
+          h: selectedData[0].h
+        });
+      } else {
+        // Clear previous drawing data when opening a new file for Level/Building
+        setRoomsByPage({});
+        setDoorsByPage({});
+        setWallsByPage({});
+        setWasteByPage({});
+        setPdfOffsetsByPage({});
+        setRoofsByPage({});
+        setLintelsByPage({});
+        if (setAnnotationsByPage) setAnnotationsByPage({});
+        if (!currentProjectName || currentProjectName === "Untitled Project" || currentProjectName === "New Project") {
+          if (setCurrentJobId) setCurrentJobId(null);
+        }
 
-      // Jump to the first newly added page
-      setCurrentPage(startIdx);
-      setImage(selectedData[0].image);
-      setImgSize({
-        w: selectedData[0].w,
-        h: selectedData[0].h
-      });
+        setPages(selectedData);
+        setCurrentPage(0);
+        setImage(selectedData[0].image);
+        setImgSize({
+          w: selectedData[0].w,
+          h: selectedData[0].h
+        });
+      }
     } else {
-      // Clear ALL previous data when opening a new file
-      setRoomsByPage({});
-      setDoorsByPage({});
-      setWallsByPage({});
-      setWasteByPage({});
-      setPdfOffsetsByPage({});
-      setRoofsByPage({});
-      setLintelsByPage({});
-      if (setAnnotationsByPage) setAnnotationsByPage({});
-      if (setCurrentJobId) setCurrentJobId(null);
+      // PDF Tools Import: ALWAYS preserve architectural level pages!
+      const levelPages = pages.filter(p => !p.category && p.source !== "pdf_tools");
+      const otherPdfToolsPages = isAddingPagesMode
+        ? pages.filter(p => p.category || p.source === "pdf_tools")
+        : [];
 
-      setPages(selectedData);
-      setCurrentPage(0);
-      setImage(selectedData[0].image);
-      setImgSize({
-        w: selectedData[0].w,
-        h: selectedData[0].h
-      });
+      const newPages = [...levelPages, ...otherPdfToolsPages, ...selectedData];
+      setPages(newPages);
+
+      const firstNewIdx = newPages.indexOf(selectedData[0]);
+      if (firstNewIdx >= 0) {
+        setCurrentPage(firstNewIdx);
+        setImage(selectedData[0].image);
+        setImgSize({
+          w: selectedData[0].w,
+          h: selectedData[0].h
+        });
+      }
+      if (setActivePdfCategory && selectedData[0]?.category) {
+        setActivePdfCategory(selectedData[0].category);
+      }
     }
 
     setShowImportPageSelector(false);
@@ -1359,8 +1408,13 @@ export default function App() {
     setTimeout(fitToScreen, 100);
   }
 
-  const openAddPagesSelector = (file) => {
+  const openAddPagesSelector = (file, targetCategory = null, targetMode = null) => {
     if (file) {
+      const mode = targetMode || (targetCategory ? "pdf_tools" : (activeTab === "PDF Tools" ? "pdf_tools" : "level"));
+      if (setImportTarget) setImportTarget(mode);
+      if (targetCategory && setActivePdfCategory) {
+        setActivePdfCategory(targetCategory);
+      }
       if (file.type === "application/pdf") {
         loadPDF(file, true);
       } else {
@@ -1371,7 +1425,8 @@ export default function App() {
           w: 2000,
           h: 1500,
           fileName: file.name ? file.name.replace(/\.[^/.]+$/, "") : "Image",
-          pageNumber: 1
+          pageNumber: 1,
+          category: targetCategory || null
         };
         setPendingPages([imgData]);
         setImportSelectedPages([0]);
@@ -1587,6 +1642,8 @@ export default function App() {
         lastAutoSaveTime={lastAutoSaveTime}
         isAutoSaving={isAutoSaving}
         exportRoofInput={exportRoofInput}
+        importTarget={importTarget}
+        setImportTarget={setImportTarget}
       />
 
       {activeTab === "Admin" ? (
@@ -1620,6 +1677,16 @@ export default function App() {
               setSelectedId={setSelectedId}
               setSelectedType={setSelectedType}
               setCurrentPoly={setCurrentPoly}
+              pages={pages}
+              currentPage={currentPage}
+              onPageClick={goPage}
+              roomsByPage={roomsByPage}
+              onAddFloorClick={openAddPagesSelector}
+              onDeleteFloor={handleDeletePage}
+              levels={levels}
+              setLevels={setLevels}
+              currentLevelIndex={currentLevelIndex}
+              setCurrentLevelIndex={setCurrentLevelIndex}
             />
           )}
 
@@ -1690,12 +1757,29 @@ export default function App() {
                     setSelectedType(null);
                   }
                 }}
+                isDrawingLintel={isDrawingLintel}
+                currentLintelType={lintelController?.currentLintelType}
+                onSelectType={(type) => lintelController?.startLintelDraw(type)}
+                onClose={() => {
+                  lintelController?.setShowCatalogPanel(false);
+                  lintelController?.cancelLintelDraw();
+                }}
               />
             </div>
           )}
 
           {/* ── 2D / 3D DUAL WORKSPACE CONTAINER ── */}
-          <div ref={splitContainerRef} className="cad-dual-workspace">
+          <div
+            className="cad-workspace-split-container"
+            style={{
+              display: "flex",
+              flex: 1,
+              width: "100%",
+              height: "100%",
+              overflow: "hidden",
+              position: "relative"
+            }}
+          >
             {/* ── 2D WORKSPACE PANEL ── */}
             {(workspaceMode === "2d" || workspaceMode === "split") && (
               <div
@@ -1717,12 +1801,19 @@ export default function App() {
                 </div>
 
                 <div className="cad-canvas-container" style={{ width: "100%", height: "100%" }}>
-                  <FloorTabBarView
+                  {/* 2 PHẦN CỐ ĐỊNH CHỨA PDF (CLADDING & EAVES) THẾ CHỖ CHO THANH NGANG CŨ */}
+                  <PdfModuleTabBarView
                     pages={pages}
+                    setPages={setPages}
                     currentPage={currentPage}
                     onPageClick={goPage}
-                    roomsByPage={roomsByPage}
-                    onAddPagesClick={openAddPagesSelector}
+                    activeCategory={activePdfCategory}
+                    setActiveCategory={setActivePdfCategory}
+                    onAddPagesClick={(file, cat) => openAddPagesSelector(file, cat, "pdf_tools")}
+                    onOpenImportSelector={() => {
+                      if (setImportTarget) setImportTarget("pdf_tools");
+                      setShowImportPageSelector(true);
+                    }}
                     onDeletePage={handleDeletePage}
                   />
                   <CanvasView

@@ -321,21 +321,49 @@ export const ApiService = {
 
   // --- Jobs ---
   async saveJob(payload) {
-    const res = await fetch(`${BASE_URL}/jobs`, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-      credentials: "include"
-    });
-    return handleResponse(res);
+    try {
+      const res = await fetch(`${BASE_URL}/jobs`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+        credentials: "include"
+      });
+      return handleResponse(res);
+    } catch (fetchErr) {
+      if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+        const directUrl = `http://${window.location.hostname}:8090/jobs`;
+        console.warn(`[saveJob] Proxy failed (${fetchErr.message}), retrying directly to ${directUrl}...`);
+        const directRes = await fetch(directUrl, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify(payload),
+          credentials: "include"
+        });
+        return handleResponse(directRes);
+      }
+      throw fetchErr;
+    }
   },
 
   async getJobData(jobId) {
-    const res = await fetch(`${BASE_URL}/jobs/data/${jobId}`, {
-      headers: getHeaders(),
-      credentials: "include"
-    });
-    return handleResponse(res);
+    try {
+      const res = await fetch(`${BASE_URL}/jobs/data/${jobId}`, {
+        headers: getHeaders(),
+        credentials: "include"
+      });
+      return handleResponse(res);
+    } catch (fetchErr) {
+      if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+        const directUrl = `http://${window.location.hostname}:8090/jobs/data/${jobId}`;
+        console.warn(`[getJobData] Proxy failed (${fetchErr.message}), retrying directly to ${directUrl}...`);
+        const directRes = await fetch(directUrl, {
+          headers: getHeaders(),
+          credentials: "include"
+        });
+        return handleResponse(directRes);
+      }
+      throw fetchErr;
+    }
   },
 
   async findJob(query) {

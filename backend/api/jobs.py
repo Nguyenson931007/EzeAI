@@ -620,6 +620,69 @@ async def get_tasklist_jobs(
     }
 
 
+@router.get("/task-steps")
+@router.get("/jobs/task-steps")
+@router.get("/api/jobs/task-steps")
+def get_task_steps(hw_id: Optional[str] = Query(None), job_number: Optional[str] = Query(None)):
+    """
+    Trả về danh sách các bước (steps) được cấu hình từ TaskList API:
+    Nếu job có cấu hình các step cụ thể, chỉ trả về đúng các step đó.
+    Nếu không có cấu hình cụ thể, trả về danh sách standard steps.
+    """
+    all_steps = [
+        {"step_number": 4, "id": "frame_hardware", "label": "Frame", "name": "Frame Hardware"},
+        {"step_number": 3, "id": "flooring_decking", "label": "Floor", "name": "Flooring & Decking"},
+        {"step_number": 5, "id": "insulation", "label": "Insu", "name": "Insulation"},
+        {"step_number": 2, "id": "eaves_soffit", "label": "Eaves", "name": "Eaves Soffit"},
+        {"step_number": 1, "id": "cladding", "label": "Cladding", "name": "Cladding"},
+        {"step_number": 6, "id": "lock_up", "label": "Lockup", "name": "Lockup"},
+        {"step_number": 9, "id": "shelving", "label": "Shelving", "name": "Shelving"},
+        {"step_number": 10, "id": "timber_posts", "label": "Beams", "name": "Beams & Posts"},
+        {"step_number": 12, "id": "power_truss_braces", "label": "Truss", "name": "Power Truss Braces"},
+        {"step_number": 11, "id": "fow_plumbing", "label": "Plumbing", "name": "FOW Plumbing"},
+        {"step_number": 7, "id": "fixout", "label": "Fixout", "name": "Fixout"},
+        {"step_number": 8, "id": "final_fit", "label": "Final", "name": "Final Fit"},
+        {"step_number": 13, "id": "hardies_fire_walls", "label": "Fire Wall", "name": "Hardies Fire Walls"},
+    ]
+
+    target_hw_id = str(hw_id).strip() if hw_id else None
+
+    # Nếu chưa có hw_id nhưng có job_number, tra cứu hw_id từ task_group_hw_cache
+    if not target_hw_id and job_number:
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT hw_id FROM task_group_hw_cache WHERE LOWER(TRIM(job_number)) = LOWER(TRIM(?)) LIMIT 1",
+                (str(job_number).strip(),)
+            )
+            row = cursor.fetchone()
+            if row:
+                target_hw_id = str(row["hw_id"] if isinstance(row, dict) else row[0]).strip()
+            conn.close()
+        except Exception as e:
+            logger.warning("[get_task_steps] Tra cứu hw_id theo job_number thất bại: %s", e)
+
+    selected_steps = all_steps
+    if target_hw_id:
+        try:
+            selections = _load_tasklist_module_selections([target_hw_id])
+            group_sel = selections.get(target_hw_id)
+            if group_sel and group_sel.get("configured") and group_sel.get("selected_modules"):
+                enabled_mods = set(group_sel.get("selected_modules"))
+                filtered = [s for s in all_steps if s["id"] in enabled_mods]
+                if filtered:
+                    selected_steps = filtered
+        except Exception as e:
+            logger.warning("[get_task_steps] Lỗi khi đọc module selections cho hw_id %s: %s", target_hw_id, e)
+
+    return {
+        "status": "success",
+        "total": len(selected_steps),
+        "steps": selected_steps
+    }
+
+
 @router.get("/jobs/progress-report")
 @router.get("/api/jobs/progress-report")
 def get_jobs_progress_report(

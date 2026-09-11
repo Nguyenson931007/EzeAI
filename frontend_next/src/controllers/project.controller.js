@@ -19,7 +19,8 @@ export const useProjectController = (
   pdfOffsetsByPage, setPdfOffsetsByPage,
   roofsByPage, setRoofsByPage,
   lintelsByPage, setLintelsByPage,
-  scalesByPage, setScalesByPage
+  scalesByPage, setScalesByPage,
+  activePdfCategory, setActivePdfCategory
 ) => {
   const { showAlert } = useDialog();
   
@@ -36,7 +37,10 @@ export const useProjectController = (
     
     const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
-    const jobData = { roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage };
+    const jobData = {
+      roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage,
+      activePdfCategory
+    };
 
     try {
       const payload = {
@@ -210,6 +214,13 @@ export const useProjectController = (
       setImage(jobData.pages[0].image);
       setImgSize({ w: jobData.pages[0].w, h: jobData.pages[0].h });
     }
+    if (jobData.activePdfCategory && setActivePdfCategory) {
+      setActivePdfCategory(jobData.activePdfCategory);
+    } else if (setActivePdfCategory && jobData.pages?.length > 0) {
+      const firstCat = jobData.pages.find(p => p.category)?.category;
+      if (firstCat) setActivePdfCategory(firstCat);
+    }
+
     setCurrentProjectName(name);
     if (id) {
       setCurrentJobId(id);

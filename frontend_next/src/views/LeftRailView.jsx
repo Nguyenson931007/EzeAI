@@ -1,5 +1,7 @@
 "use client";
 import React from "react";
+import { useAppModel } from "@/models/app.context";
+import { useDialog } from "@/components/DialogContext";
 
 export default function LeftRailView({
   interactionMode,
@@ -22,7 +24,52 @@ export default function LeftRailView({
   setSelectedId,
   setSelectedType,
   setCurrentPoly,
+  pages = [],
+  currentPage = 0,
+  onPageClick,
+  roomsByPage = {},
+  onAddFloorClick,
+  onDeleteFloor,
+  levels: propLevels,
+  setLevels: propSetLevels,
+  currentLevelIndex: propCurrentLevelIndex,
+  setCurrentLevelIndex: propSetCurrentLevelIndex,
 }) {
+  const { showConfirm } = useDialog();
+  const appModel = useAppModel() || {};
+  const currentPages = pages && pages.length > 0 ? pages : (appModel.pages || []);
+  const activeCurrentPage = currentPage !== undefined ? currentPage : (appModel.currentPage || 0);
+  const activeRoomsByPage = roomsByPage || appModel.roomsByPage || {};
+
+  // Lấy danh sách các tầng kiến trúc (Architectural floor levels - tách biệt hoàn toàn với PDF Tools)
+  const architecturalPages = currentPages
+    .map((p, originalIndex) => ({ ...p, originalIndex }))
+    .filter((p) => p?.category !== "cladding" && p?.category !== "eaves" && p?.source !== "pdf_tools");
+
+  const displayLevels = architecturalPages.length > 0
+    ? architecturalPages
+    : (currentPages.length > 0 && !currentPages.some(p => p?.category === 'cladding' || p?.category === 'eaves')
+        ? currentPages.map((p, originalIndex) => ({ ...p, originalIndex }))
+        : (propLevels || appModel.levels || [{ originalIndex: 0, name: "Level 1", code: "GF" }]));
+
+  const getFloorCode = (p, idx) => {
+    if (p.code) return p.code;
+    const raw = (p.floor_name || p.name || p.player_name || "").toUpperCase().trim();
+    if (raw.includes("ROOF") || raw.includes("MÁI")) return "RF";
+    if (raw === "GF" || raw.includes("GROUND") || idx === 0) return "GF";
+    if (raw === "FF" || raw.includes("FIRST") || idx === 1) return "FF";
+    if (raw === "SF" || raw.includes("SECOND") || idx === 2) return "SF";
+    return `L${idx + 1}`;
+  };
+
+  const getFloorName = (p, idx) => {
+    const raw = (p.floor_name || p.name || p.player_name || "").trim();
+    if (raw) return raw;
+    if (idx === 0) return "Ground Floor (Level 1)";
+    if (idx === 1) return "First Floor (Level 2)";
+    return `Level ${idx + 1}`;
+  };
+
   // Helper to reset all drawing/measuring modes
   const resetTools = () => {
     if (setDrawing) setDrawing(false);
@@ -58,6 +105,98 @@ export default function LeftRailView({
 
   return (
     <div className="cad-rail">
+      {/* ===== LEVEL SELECTOR (TẦNG - CHUYỂN TỪ HÌNH SỐ 1 QUA HÌNH SỐ 2) ===== */}
+      <div className="cad-rail-level-section" title="Building Levels (Tầng)">
+        <div className="cad-rail-level-header">LEVEL</div>
+        <div className="cad-rail-level-list">
+          {displayLevels.map((flr, idx) => {
+            const originalIdx = flr.originalIndex !== undefined ? flr.originalIndex : idx;
+            const isActive = originalIdx === activeCurrentPage;
+            const roomCount = (activeRoomsByPage[originalIdx] || []).length;
+            const code = getFloorCode(flr, idx);
+            const name = getFloorName(flr, idx);
+
+            return (
+              <button
+                key={flr.id || originalIdx}
+                type="button"
+                className={`cad-rail-level-btn ${isActive ? "active" : ""}`}
+                onClick={() => {
+                  if (onPageClick && originalIdx !== undefined) {
+                    onPageClick(originalIdx);
+                  } else if (appModel.setCurrentPage) {
+                    appModel.setCurrentPage(originalIdx);
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  const newName = window.prompt("Rename Level:", name);
+                  if (newName && newName.trim() && appModel.setPages) {
+                    const cleanName = newName.trim();
+                    appModel.setPages(prev =>
+                      prev.map((p, pIdx) => pIdx === originalIdx ? { ...p, name: cleanName, floor_name: cleanName } : p)
+                    );
+                  }
+                }}
+                title={`${name}${roomCount > 0 ? ` (${roomCount} rooms)` : ""}`}
+              >
+                <span className="cad-rail-level-code">{code}</span>
+                {roomCount > 0 && (
+                  <span className="cad-rail-level-badge">{roomCount}</span>
+                )}
+
+                {/* Nút X xoá tầng (Delete Level) khi import lỗi hoặc muốn xoá tầng */}
+                <span
+                  className="cad-rail-level-del-btn"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const confirmed = await showConfirm(`Xóa tầng ${name} (${code})?\nToàn bộ bản vẽ và dữ liệu của tầng này sẽ bị xóa.`);
+                    if (confirmed) {
+                      if (onDeleteFloor) {
+                        onDeleteFloor(originalIdx);
+                      } else if (appModel.setPages) {
+                        appModel.setPages(prev => prev.filter((_, pIdx) => pIdx !== originalIdx));
+                      }
+                    }
+                  }}
+                  title={`Xóa tầng ${name} (${code})`}
+                >
+                  ✕
+                </span>
+
+                <span className="tip">
+                  {name} {roomCount > 0 ? `• ${roomCount} rooms` : ""}
+                </span>
+              </button>
+            );
+          })}
+
+          {/* Add Floor / Level (+) Button with File Input */}
+          <label
+            title="Add New Level / Floor (+)"
+            style={{ display: "flex", alignItems: "center", cursor: "pointer", margin: 0 }}
+          >
+            <input
+              type="file"
+              accept=".pdf,image/*"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (onAddFloorClick) onAddFloorClick(file, null, "level");
+                e.target.value = "";
+              }}
+            />
+            <div className="cad-rail-level-add-btn" title="Add Level / Floor (+)">
+              <span>+</span>
+              <span className="tip">Add Level / Floor</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div className="cad-rail-divider" />
       {/* 1. SELECT OBJECT (↖ CAD Cursor) */}
       <button
         className={`cad-rail-btn ${isSelectActive ? "active" : ""}`}
