@@ -467,36 +467,6 @@ export default function PdfToolsRibbon({
       {/* ── 1. FILE & PROJECT ── */}
       <div className="ribbon-group" style={{ flexShrink: 0, overflow: "visible" }}>
         <div className="ribbon-buttons" style={{ overflow: "visible" }}>
-          <label className="ribbon-btn" title="Open PDF or drawing image" style={{ cursor: "pointer" }}>
-            <span className="icon"><PDF_ICONS.Open /></span>
-            <span className="label">Open File</span>
-            <input
-              type="file"
-              accept=".pdf,image/*"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                let targetJobName = file.name.replace(/\.[^/.]+$/, "");
-                // KHÔNG ĐỔI TÊN NẾU JOB ĐÃ CÓ TÊN (Giữ nguyên tên hiện có như TestAI)
-                if (!currentProjectName || currentProjectName === "Untitled Project" || currentProjectName === "New Project") {
-                  if (setCurrentProjectName) setCurrentProjectName(targetJobName);
-                }
-                if (setImportTarget) setImportTarget("pdf_tools");
-                if (file.type === "application/pdf") {
-                  if (loadPDF) loadPDF(file);
-                } else if (setPendingPages && setShowImportPageSelector) {
-                  const url = URL.createObjectURL(file);
-                  setPendingPages([{ image: url, w: 2000, h: 1500, fileName: targetJobName, category: "cladding", source: "pdf_tools" }]);
-                  if (setImportSelectedPages) setImportSelectedPages([0]);
-                  if (setIsAddingPagesMode) setIsAddingPagesMode(false);
-                  setShowImportPageSelector(true);
-                }
-                e.target.value = "";
-              }}
-            />
-          </label>
-
           <button className="ribbon-btn" onClick={handleSaveJob} title="Save project & annotations">
             <span className="icon"><PDF_ICONS.Save /></span>
             <span className="label">Save</span>

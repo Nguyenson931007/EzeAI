@@ -108,6 +108,32 @@ export default function Standalone3DViewPage() {
     }
   };
 
+  // Helper to filter out PDF Tools pages and keep only architectural Level pages
+  const isLevelPage = (p) => {
+    if (!p) return false;
+    if (p.source === "pdf_tools" || p.is_pdf_tool || p.isPdfTool) return false;
+    if (p.category && p.category !== "level") return false;
+    return true;
+  };
+
+  const levelPages = React.useMemo(() => {
+    const rawPages = syncedState.pages || [];
+    const filtered = rawPages
+      .map((p, originalIndex) => ({ ...p, originalIndex }))
+      .filter((p) => isLevelPage(p));
+    return filtered.length > 0 ? filtered : rawPages.map((p, originalIndex) => ({ ...p, originalIndex }));
+  }, [syncedState.pages]);
+
+  // Ensure active floor is a Level page
+  useEffect(() => {
+    if (levelPages.length > 0) {
+      const isCurrentInLevel = levelPages.some(lp => lp.originalIndex === syncedState.currentPage);
+      if (!isCurrentInLevel) {
+        setSyncedState(prev => ({ ...prev, currentPage: levelPages[0].originalIndex }));
+      }
+    }
+  }, [levelPages, syncedState.currentPage]);
+
   return (
     <div
       style={{
@@ -172,8 +198,8 @@ export default function Standalone3DViewPage() {
 
         {/* Right Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {/* Floor Level Selector */}
-          {syncedState.pages && syncedState.pages.length > 1 && (
+          {/* Floor Level Selector - Only show actual Level floors */}
+          {levelPages && levelPages.length > 1 && (
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>Active Floor:</span>
               <select
@@ -194,11 +220,14 @@ export default function Standalone3DViewPage() {
                   cursor: "pointer"
                 }}
               >
-                {syncedState.pages.map((pg, idx) => (
-                  <option key={idx} value={idx}>
-                    {pg.floor_name || `Floor ${idx + 1}`}
-                  </option>
-                ))}
+                {levelPages.map((pg, idx) => {
+                  const floorName = pg.floor_name || pg.name || (idx === 0 ? "Ground Floor (GF)" : `Level ${idx + 1}`);
+                  return (
+                    <option key={pg.originalIndex} value={pg.originalIndex}>
+                      {floorName}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           )}

@@ -219,14 +219,13 @@ export default function ThreeDView({
     return "int";
   }, [selected3DWall, wallsByPage, currentPage]);
 
-  // Initialize visibleLevels
-  useEffect(() => {
-    const initial = {};
-    pages.forEach((_, i) => {
-      initial[i] = true;
-    });
-    setVisibleLevels(initial);
-  }, [pages]);
+  // Helper to distinguish architectural Level pages from PDF Tools pages
+  const isLevelPage = (p) => {
+    if (!p) return false;
+    if (p.source === "pdf_tools" || p.is_pdf_tool || p.isPdfTool) return false;
+    if (p.category && p.category !== "level") return false;
+    return true;
+  };
 
   const getFloorLevel = (page, index) => {
     if (!page || !page.floor_name) return index;
@@ -245,11 +244,27 @@ export default function ThreeDView({
   };
 
   const sortedPageIndices = React.useMemo(() => {
-    return pages
+    const levelPages = pages
       .map((p, i) => ({ page: p, originalIndex: i, level: getFloorLevel(p, i) }))
+      .filter(({ page }) => isLevelPage(page));
+
+    const candidates = levelPages.length > 0
+      ? levelPages
+      : pages.map((p, i) => ({ page: p, originalIndex: i, level: getFloorLevel(p, i) }));
+
+    return candidates
       .sort((a, b) => a.level - b.level)
       .map(x => x.originalIndex);
   }, [pages]);
+
+  // Initialize visibleLevels
+  useEffect(() => {
+    const initial = {};
+    sortedPageIndices.forEach((origIdx) => {
+      initial[origIdx] = true;
+    });
+    setVisibleLevels(initial);
+  }, [sortedPageIndices]);
 
   // Calculate exact cumulative height for each page level
   const pageHeightsMm = React.useMemo(() => {
@@ -288,7 +303,7 @@ export default function ThreeDView({
   const center = React.useMemo(() => {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-    pages.forEach((_, i) => {
+    sortedPageIndices.forEach((i) => {
       const walls = wallsByPage[i] || [];
       const rooms = roomsByPage[i] || [];
 
@@ -321,9 +336,9 @@ export default function ThreeDView({
 
     const midX = (minX + maxX) / 2;
     const midZ = (minY + maxY) / 2;
-    const midY = (pages.length * wallHeight) / 4;
+    const midY = (sortedPageIndices.length * wallHeight) / 4;
     return new THREE.Vector3(midX - imgSize.w / 2, midY, midZ - imgSize.h / 2);
-  }, [pages, wallsByPage, roomsByPage, wallHeight, imgSize]);
+  }, [sortedPageIndices, wallsByPage, roomsByPage, wallHeight, imgSize]);
 
   // Utility to extract door properties using getDoorCenterline
   const getDoorProps = (door, pageWalls = []) => {
@@ -935,9 +950,9 @@ export default function ThreeDView({
         });
       }
 
-      // --- 1b. RENDER PDF UNDERLAY ---
-      if (showPDF && (page?.image || (originalIndex === 0 && image))) {
-        const imgSrc = page?.image || (originalIndex === 0 ? image : null);
+      // --- 1b. RENDER PDF UNDERLAY (Only for Level pages) ---
+      if (showPDF && isLevelPage(page)) {
+        const imgSrc = page?.image || (originalIndex === 0 && isLevelPage(pages[0]) ? image : null);
         if (imgSrc) {
           const loader = new THREE.TextureLoader();
           const texture = loader.load(imgSrc);
@@ -2582,27 +2597,31 @@ export default function ThreeDView({
                 />
               </label>
 
-              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#475569" }}>
-                <span style={{ color: visibleLevels[1] === false ? "#ef4444" : "#475569" }}>Hide Upper Floor (Level 1)</span>
-                <input
-                  type="checkbox"
-                  checked={visibleLevels[1] === false}
-                  onChange={(e) => {
-                    const hideL2 = e.target.checked;
-                    setVisibleLevels(prev => ({
-                      ...prev,
-                      1: !hideL2
-                    }));
-                  }}
-                  style={{
-                    width: "16px",
-                    height: "16px",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    accentColor: "#ef4444"
-                  }}
-                />
-              </label>
+              {sortedPageIndices.length > 1 && (
+                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#475569" }}>
+                  <span style={{ color: visibleLevels[sortedPageIndices[1]] === false ? "#ef4444" : "#475569" }}>
+                    Hide Upper Floor ({pages[sortedPageIndices[1]]?.floor_name || "Level 2"})
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={visibleLevels[sortedPageIndices[1]] === false}
+                    onChange={(e) => {
+                      const hideL2 = e.target.checked;
+                      setVisibleLevels(prev => ({
+                        ...prev,
+                        [sortedPageIndices[1]]: !hideL2
+                      }));
+                    }}
+                    style={{
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      accentColor: "#ef4444"
+                    }}
+                  />
+                </label>
+              )}
             </div>
 
             {/* Action Buttons */}

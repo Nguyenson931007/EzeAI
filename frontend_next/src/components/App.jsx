@@ -1000,13 +1000,19 @@ export default function App() {
 
     const channel = new BroadcastChannel("ezefloor_3d_sync");
 
+    const isLevel = (p) => !p || (p.source !== "pdf_tools" && !p.is_pdf_tool && !p.isPdfTool && (!p.category || p.category === "level"));
+    const isCurrentLevel = isLevel(pages[currentPage]);
+    const resolved3DCurrentPage = isCurrentLevel
+      ? currentPage
+      : (pages.findIndex(isLevel) >= 0 ? pages.findIndex(isLevel) : 0);
+
     const payload = {
       wallsByPage,
       doorsByPage: processedDoorsByPage,
       roomsByPage,
       roofsByPage,
       pages,
-      currentPage,
+      currentPage: resolved3DCurrentPage,
       realScale,
       imgSize,
       currentProjectName
@@ -2029,9 +2035,19 @@ export default function App() {
                   updateDoor={updateDoor}
                   roomsByPage={roomsByPage}
                   roofsByPage={roofsByPage}
-                  currentPage={currentPage}
+                  currentPage={
+                    (pages[currentPage]?.category || pages[currentPage]?.source === "pdf_tools" || pages[currentPage]?.is_pdf_tool)
+                      ? (pages.findIndex(p => !p.category && p.source !== "pdf_tools" && !p.is_pdf_tool) >= 0
+                          ? pages.findIndex(p => !p.category && p.source !== "pdf_tools" && !p.is_pdf_tool)
+                          : 0)
+                      : currentPage
+                  }
                   realScale={realScale}
-                  image={image}
+                  image={
+                    (pages[currentPage]?.category || pages[currentPage]?.source === "pdf_tools" || pages[currentPage]?.is_pdf_tool)
+                      ? (pages.find(p => !p.category && p.source !== "pdf_tools" && !p.is_pdf_tool)?.image || null)
+                      : image
+                  }
                   imgSize={imgSize}
                   selectedId={selectedId}
                   setSelectedId={setSelectedId}
