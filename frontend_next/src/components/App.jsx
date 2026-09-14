@@ -1332,7 +1332,6 @@ export default function App() {
   function confirmImport(categoryAssignments = {}) {
     if (importSelectedPages.length === 0) {
       setShowImportPageSelector(false);
-      setPendingPages([]);
       setIsAddingPagesMode(false);
       return;
     }
@@ -1343,15 +1342,19 @@ export default function App() {
       if (isLevel) {
         return {
           ...p,
+          id: p?.id || `level_pg_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
           category: null,
-          source: "design"
+          source: "design",
+          pageNumber: p?.pageNumber || (idx + 1)
         };
       }
       const assignedCat = (categoryAssignments && categoryAssignments[idx]) || p?.category || activePdfCategory || "cladding";
       return {
         ...p,
+        id: `pdf_pg_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
         category: assignedCat,
-        source: "pdf_tools"
+        source: "pdf_tools",
+        pageNumber: p?.pageNumber || (idx + 1)
       };
     });
 
@@ -1394,27 +1397,39 @@ export default function App() {
         ? pages.filter(p => p.category || p.source === "pdf_tools")
         : [];
 
-      const newPages = [...levelPages, ...otherPdfToolsPages, ...selectedData];
+      // Allow 1 page to be added to multiple tasks, but avoid identical duplicate in the SAME task
+      const toAdd = [];
+      for (const item of selectedData) {
+        const alreadyInSameCat = otherPdfToolsPages.some(
+          exist => exist.category === item.category &&
+                   ((item.pageNumber && exist.pageNumber === item.pageNumber) || (exist.image && exist.image === item.image))
+        );
+        if (!alreadyInSameCat) {
+          toAdd.push(item);
+        }
+      }
+
+      const newPages = [...levelPages, ...otherPdfToolsPages, ...(toAdd.length > 0 ? toAdd : selectedData)];
       setPages(newPages);
 
-      const firstNewIdx = newPages.indexOf(selectedData[0]);
+      const firstAdded = toAdd[0] || selectedData[0];
+      const firstNewIdx = newPages.indexOf(firstAdded);
       if (firstNewIdx >= 0) {
         setCurrentPage(firstNewIdx);
-        setImage(selectedData[0].image);
+        setImage(newPages[firstNewIdx].image);
         setImgSize({
-          w: selectedData[0].w,
-          h: selectedData[0].h
+          w: newPages[firstNewIdx].w,
+          h: newPages[firstNewIdx].h
         });
       }
-      if (setActivePdfCategory && selectedData[0]?.category) {
-        setActivePdfCategory(selectedData[0].category);
+      if (setActivePdfCategory && firstAdded?.category) {
+        setActivePdfCategory(firstAdded.category);
       }
     }
 
     setShowImportPageSelector(false);
     setImportSelectedPages([]);
     setIsAddingPagesMode(false);
-    setPendingPages([]); // Clear temporary import cache
 
     setTimeout(fitToScreen, 100);
   }
@@ -1823,6 +1838,29 @@ export default function App() {
                     onAddPagesClick={(file, cat) => openAddPagesSelector(file, cat, "pdf_tools")}
                     onOpenImportSelector={() => {
                       if (setImportTarget) setImportTarget("pdf_tools");
+                      if (setIsAddingPagesMode) setIsAddingPagesMode(true);
+                      if ((!pendingPages || pendingPages.length === 0) && pages.length > 0) {
+                        const seen = new Set();
+                        const uniqueList = [];
+                        pages.forEach((p, i) => {
+                          const key = p.pageNumber || p.image || i;
+                          if (!seen.has(key)) {
+                            seen.add(key);
+                            uniqueList.push({
+                              id: p.id,
+                              image: p.image,
+                              w: p.w,
+                              h: p.h,
+                              fileName: p.fileName || "PDF",
+                              pageNumber: p.pageNumber || (uniqueList.length + 1)
+                            });
+                          }
+                        });
+                        if (uniqueList.length > 0) {
+                          setPendingPages(uniqueList);
+                        }
+                      }
+                      setImportSelectedPages([]);
                       setShowImportPageSelector(true);
                     }}
                     onDeletePage={handleDeletePage}

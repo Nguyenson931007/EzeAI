@@ -2629,36 +2629,24 @@ export default function RibbonView({
                       display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16,
                       maxHeight: 'calc(90vh - 160px)'
                     }}>
-                      {/* Existing Pages (if adding) */}
-                      {isAddingPagesMode && pages.filter(p => p.category || p.source === "pdf_tools").map((pg, i) => (
-                        <div
-                          key={`existing-${i}`}
-                          style={{
-                            display: 'flex', flexDirection: 'column', padding: 12,
-                            borderRadius: 12, cursor: 'not-allowed',
-                            background: 'rgba(241, 245, 249, 0.8)',
-                            border: '1px solid #cbd5e1', opacity: 0.75
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>
-                              Page {i + 1} ({pg.category === "eaves" || pg.category === "eaves_soffit" ? "🏠 Eaves" : "🧱 Cladding"})
-                            </span>
-                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{pg.w} × {pg.h} px</span>
-                          </div>
-                          <div style={{ width: '100%', height: 200, background: '#ffffff', borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                          </div>
-                        </div>
-                      ))}
-
                       {/* Pending Pages to Select & Categorize */}
                       {pendingPages.map((pg, i) => {
+                        const pageNum = pg.pageNumber || (i + 1);
                         const isChecked = importSelectedPages.includes(i);
-                        const assignedCat = importPageCategories[i] || "cladding";
+                        const assignedCat = importPageCategories[i] || selectedStepId || "cladding";
                         const isCladding = assignedCat === "cladding";
                         const isEaves = assignedCat === "eaves" || assignedCat === "eaves_soffit";
                         const assignedStep = taskSteps.find(s => s.id === assignedCat) || { label: assignedCat, name: assignedCat, color: '#2563eb' };
+
+                        // Find any tasks/steps this page is already added to
+                        const alreadyInSteps = pages
+                          .filter(p => (p.category || p.source === "pdf_tools") && (p.pageNumber === pageNum || (p.image && p.image === pg.image)))
+                          .map(p => {
+                            const step = taskSteps.find(s => s.id === p.category);
+                            return step ? (step.label || step.name) : p.category;
+                          })
+                          .filter(Boolean);
+                        const uniqueAssignedSteps = [...new Set(alreadyInSteps)];
 
                         const cardBorderColor = isChecked
                           ? (isCladding ? '#3b82f6' : isEaves ? '#f59e0b' : (assignedStep.color || '#3b82f6'))
@@ -2689,7 +2677,7 @@ export default function RibbonView({
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
@@ -2705,8 +2693,24 @@ export default function RibbonView({
                                   style={{ accentColor: isCladding ? '#2563eb' : isEaves ? '#d97706' : assignedStep.color, width: 18, height: 18, cursor: 'pointer' }}
                                 />
                                 <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? (isCladding ? '#2563eb' : isEaves ? '#b45309' : assignedStep.color) : '#1e293b' }}>
-                                  Page {isAddingPagesMode ? pages.length + i + 1 : i + 1}
+                                  Page {pageNum}
                                 </span>
+                                {uniqueAssignedSteps.length > 0 && (
+                                  <span
+                                    title={`Already assigned to: ${uniqueAssignedSteps.join(", ")}`}
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      padding: '1px 6px',
+                                      borderRadius: 4,
+                                      background: '#f1f5f9',
+                                      color: '#475569',
+                                      border: '1px solid #cbd5e1'
+                                    }}
+                                  >
+                                    In: {uniqueAssignedSteps.join(", ")}
+                                  </span>
+                                )}
                               </div>
                               <span style={{ fontSize: 11, color: '#64748b' }}>{pg.w} × {pg.h} px</span>
                             </div>
@@ -2720,14 +2724,42 @@ export default function RibbonView({
                               <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                             </div>
 
-                            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                               <span style={{
                                 fontSize: 11,
                                 color: isChecked ? (assignedStep.color || (isCladding ? '#2563eb' : '#d97706')) : '#94a3b8',
-                                fontWeight: 700
+                                fontWeight: 700,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
                               }}>
                                 {isChecked ? `✓ Import as ${assignedStep.label || (isCladding ? "Cladding" : "Eaves")}` : "Click to select"}
                               </span>
+                              {isChecked && (
+                                <select
+                                  value={assignedCat}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setImportPageCategories(prev => ({ ...prev, [i]: e.target.value }));
+                                  }}
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: '2px 4px',
+                                    borderRadius: 4,
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#1e293b',
+                                    cursor: 'pointer',
+                                    maxWidth: '120px'
+                                  }}
+                                >
+                                  {taskSteps.map(st => (
+                                    <option key={st.id} value={st.id}>{st.label || st.name}</option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                           </div>
                         );
