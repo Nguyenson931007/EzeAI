@@ -81,6 +81,7 @@ import RoomPropertyPanel from "./right-property-pane/property-panels/RoomPropert
 import RoofPropertyPanel from "./right-property-pane/property-panels/RoofPropertyPanel";
 import LintelPropertyPanel from "./right-property-pane/property-panels/LintelPropertyPanel";
 import AnnotationPropertyPanel from "./right-property-pane/property-panels/AnnotationPropertyPanel";
+import { formatLintelCalloutText } from "../controllers/lintel.controller";
 
 /* ================================================================
    MAIN PANEL
@@ -234,6 +235,30 @@ export default function RightPropertyPaneView({
     // Determine whether this is a text annotation or a drawing shape
     const currentList = annotationsByPage[currentPage] || [];
     const target = currentList.find((a) => a.id === annId);
+
+    // Sync styles back to lintel if this is a lintel callout
+    if (target && target.isLintelCallout && target.lintelId && setLintelsByPageCtx) {
+      setLintelsByPageCtx((prev) => {
+        const pageLintels = prev[currentPage] || [];
+        const idx = pageLintels.findIndex((l) => l.id === target.lintelId);
+        if (idx >= 0) {
+          const updated = [...pageLintels];
+          const cur = updated[idx];
+          const lintelPatch = {};
+          if (patch.color) lintelPatch.calloutColor = patch.color;
+          if (patch.bgColor) lintelPatch.calloutBgColor = patch.bgColor;
+          if (patch.calloutStyle) lintelPatch.calloutStyle = patch.calloutStyle;
+          if (patch.fontSizePt !== undefined) lintelPatch.fontSizePt = patch.fontSizePt;
+          if (patch.dpi !== undefined) lintelPatch.dpi = patch.dpi;
+          if (Object.keys(lintelPatch).length > 0) {
+            updated[idx] = { ...cur, ...lintelPatch };
+            return { ...prev, [currentPage]: updated };
+          }
+        }
+        return prev;
+      });
+    }
+
     const isTextAnnotation = target && (target.type === "text" || target.type === "callout" || target.type === "sticky-note");
 
     if (target && target.type === "sticky-note") {
@@ -275,7 +300,7 @@ export default function RightPropertyPaneView({
     currentPage, setAnnotationsByPage, pushAnnotationHistory, annotationsByPage, selectedAnnotationIds,
     setAnnotationColor, setAnnotationStrokeWidth, setAnnotationOpacity, setAnnotationFillOpacity,
     setAnnotationFillMode, setAnnotationFontSize, setTextColor, setTextOpacity, setTextFontSize,
-    setTextBold, setTextItalic, setTextUnderline, setTextStrikethrough, setCalloutStrokeWidth
+    setTextBold, setTextItalic, setTextUnderline, setTextStrikethrough, setCalloutStrokeWidth, setLintelsByPageCtx
   ]);
 
   const handleDeleteAnnotation = React.useCallback((annId) => {
@@ -1099,7 +1124,18 @@ export default function RightPropertyPaneView({
         curDoors.forEach((d, idx) => {
           const dLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
           const rawType = String(d.door_type || d.type || "").toLowerCase();
-          const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
+          const isExt = Boolean(
+            d.is_ext ||
+            d.is_exterior ||
+            d.isExternal ||
+            d.location === "external" ||
+            d.scope === "external" ||
+            (d.doorTypeId && String(d.doorTypeId).startsWith("ext_")) ||
+            (d.class && String(d.class).includes("ext")) ||
+            (d.type && String(d.type).includes("ext")) ||
+            /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) ||
+            /entry|sliding|external/i.test(rawType)
+          );
           const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
 
           const category = d.category || (d.mode === "Loose" ? "Loose Jamb" : (d.mode === "Prehung" ? "Prehung" : "-"));
@@ -1866,11 +1902,13 @@ export default function RightPropertyPaneView({
       selectedRoofId ||
       selectedWall ||
       selectedDoor ||
-      selectedRoom
+      selectedRoom ||
+      selectedAnnotationId ||
+      (selectedAnnotationIds && selectedAnnotationIds.length > 0)
     );
 
     const currentKey = hasSelection
-      ? `${selectedType || ""}:${selectedId || ""}:${(selectedWallIds || []).join(",")}:${(selectedDoorIds || []).join(",")}:${(selectedRoomIds || []).join(",")}:${selectedRoofId || ""}`
+      ? `${selectedType || ""}:${selectedId || ""}:${(selectedWallIds || []).join(",")}:${(selectedDoorIds || []).join(",")}:${(selectedRoomIds || []).join(",")}:${selectedRoofId || ""}:${selectedAnnotationId || ""}:${(selectedAnnotationIds || []).join(",")}`
       : "none";
 
     // Skip on initial mount to preserve initial view
@@ -1883,7 +1921,7 @@ export default function RightPropertyPaneView({
       const isTaskActive = !!(activePaneTab && activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "collapsed");
 
       if (hasSelection) {
-        // Element selected (wall, door, room, roof, etc.):
+        // Element selected (wall, door, room, roof, annotation, etc.):
         // If user was on a task, keep user on that task!
         // If user was on properties / explorer or collapsed, open Properties table
         if (!isTaskActive) {
@@ -1909,6 +1947,8 @@ export default function RightPropertyPaneView({
     selectedRoomIds,
     selectedLintelIds,
     selectedRoofId,
+    selectedAnnotationId,
+    selectedAnnotationIds,
     activePaneTab
   ]);
 
@@ -2864,60 +2904,123 @@ export default function RightPropertyPaneView({
     });
   }, []);
 
-  // When on Lockup task: dynamic door calculation based on canvas selection
-  // Only auto-generate if lockupEntries is empty (don't overwrite AI-filled or DB-loaded data)
+  // When on Lockup task: dynamic door calculation and bidirectional synchronization with canvas selection
   React.useEffect(() => {
     if (activePaneTab === "lockup" || activePaneTab === "lock_up") {
-      // Skip auto-generation if entries already exist (from Auto Fill AI, DB load, or manual add)
-      if (lockupEntries && lockupEntries.length > 0) return;
-
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-      const targetDoors = curDoors;
+      const targetDoors = curDoors || [];
 
-      if (targetDoors.length > 0) {
-        const generated = targetDoors.map((d, idx) => {
-          const override = customLockupOverrides[d.id] || {};
-          const dLabel = (override.doorLabel || d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
-          const rawType = String(d.door_type || d.type || "").toLowerCase();
-          const isExt = /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) || /entry|sliding|external/i.test(rawType);
+      if (!targetDoors || targetDoors.length === 0) {
+        return;
+      }
 
-          const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
-          const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
-          const wallThick = d.wall_thickness || d.thickness_mm || 90;
-          const isLoose = override.category === "Loose Jamb" || (!isExt && d.mode === "Loose");
+      const getDoorIsExt = (d, dLabel, rawType) => {
+        return Boolean(
+          d.is_ext ||
+          d.is_exterior ||
+          d.isExternal ||
+          d.location === "external" ||
+          d.scope === "external" ||
+          (d.doorTypeId && String(d.doorTypeId).startsWith("ext_")) ||
+          (d.class && String(d.class).includes("ext")) ||
+          (d.type && String(d.type).includes("ext")) ||
+          /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) ||
+          /entry|sliding|external/i.test(rawType)
+        );
+      };
 
-          const dHinge = String(override.hung || d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
-          const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
-          const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
-          const hungVal = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
+      const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1).trim() === String(id2).trim();
 
-          return {
-            id: `lck-door-${d.id || Date.now()}-${idx}`,
-            doorId: d.id,
-            mode: override.category || (isExt ? "Prehung" : "Loose"),
-            scope: isExt ? "external" : "internal",
-            location: isExt ? "External" : "Internal",
-            label: dLabel,
-            door_name: dLabel,
-            height: dHeight,
-            width: dWidth,
-            thickness: isExt ? 40 : 35,
-            jamb_or_wall: `${wallThick}mm Wall`,
-            jamb_size: isLoose ? (override.jambSize || "112×19mm 5.4m Loose Jamb") : "",
-            hung: hungVal,
-            door_type: override.door_type || d.door_type || "",
-            type: "-",
-            door_stop: override.stop || (isExt ? "DS2 with Riser" : "Cushion"),
-            internal_type: override.hfHo || (isExt ? null : "HF"),
-            color: override.color || (isExt ? null : "CHR"),
-            default_qty: override.qty || 1
-          };
+      const buildEntry = (d, idx) => {
+        const override = customLockupOverrides[d.id] || {};
+        const dLabel = (override.doorLabel || d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
+        const rawType = String(d.door_type || d.type || "").toLowerCase();
+        const isExt = getDoorIsExt(d, dLabel, rawType);
+
+        const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
+        const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+        const wallThick = d.wall_thickness || d.thickness_mm || 90;
+        const isLoose = override.category === "Loose Jamb" || (!isExt && d.mode === "Loose");
+
+        const dHinge = String(override.hung || d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
+        const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
+        const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
+        const hungVal = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
+
+        return {
+          id: `lck-door-${d.id || Date.now()}-${idx}`,
+          doorId: d.id,
+          mode: override.category || (isExt ? "Prehung" : "Loose"),
+          scope: isExt ? "external" : "internal",
+          location: isExt ? "External" : "Internal",
+          label: dLabel,
+          door_name: dLabel,
+          height: dHeight,
+          width: dWidth,
+          thickness: isExt ? 40 : 35,
+          jamb_or_wall: `${wallThick}mm Wall`,
+          jamb_size: isLoose ? (override.jambSize || "112×19mm 5.4m Loose Jamb") : "",
+          hung: hungVal,
+          door_type: override.door_type || d.door_type || d.lockup_door_type || "",
+          type: "-",
+          door_stop: override.stop || (isExt ? "DS2 with Riser" : "Cushion"),
+          internal_type: override.hfHo || (isExt ? null : "HF"),
+          color: override.color || (isExt ? null : "CHR"),
+          default_qty: override.qty || 1
+        };
+      };
+
+      if (!lockupEntries || lockupEntries.length === 0) {
+        setLockupEntries(targetDoors.map((d, idx) => buildEntry(d, idx)));
+      } else {
+        let changed = false;
+        const existingEntries = [...lockupEntries];
+        const updatedEntries = existingEntries.map(entry => {
+          if (!entry.doorId) return entry;
+          const matchingDoor = targetDoors.find(d => matchId(d.id, entry.doorId));
+          if (!matchingDoor) return entry;
+
+          const override = customLockupOverrides[matchingDoor.id] || {};
+          const dLabel = (override.doorLabel || matchingDoor.door_name || matchingDoor.doorName || matchingDoor.doorLabel || entry.label || "").trim();
+          const rawType = String(matchingDoor.door_type || matchingDoor.type || "").toLowerCase();
+          const isExt = getDoorIsExt(matchingDoor, dLabel, rawType);
+          const expectedScope = isExt ? "external" : "internal";
+          const expectedLoc = isExt ? "External" : "Internal";
+          const expectedModel = override.door_type || matchingDoor.door_type || matchingDoor.lockup_door_type || entry.door_type || "";
+
+          const isScopeDiff = entry.scope !== expectedScope || entry.location !== expectedLoc;
+          const isModelDiff = !override.door_type && matchingDoor.door_type && entry.door_type !== matchingDoor.door_type;
+
+          if (isScopeDiff || isModelDiff) {
+            changed = true;
+            return {
+              ...entry,
+              scope: expectedScope,
+              location: expectedLoc,
+              door_type: isModelDiff ? expectedModel : entry.door_type,
+              thickness: isExt ? 40 : 35,
+              label: dLabel || entry.label,
+              door_name: dLabel || entry.door_name
+            };
+          }
+          return entry;
         });
 
-        setLockupEntries(generated);
+        // Add any targetDoors that don't have a matching lockup entry yet
+        targetDoors.forEach((d, idx) => {
+          const hasEntry = existingEntries.some(e => matchId(e.doorId, d.id));
+          if (!hasEntry) {
+            changed = true;
+            updatedEntries.push(buildEntry(d, idx));
+          }
+        });
+
+        if (changed) {
+          setLockupEntries(updatedEntries);
+        }
       }
     }
-  }, [activePaneTab, currentPage, doors, doorsByPageProp]);
+  }, [activePaneTab, currentPage, doors, doorsByPageProp, customLockupOverrides]);
 
   const [trussEntries, setTrussEntries] = React.useState([]);
   const [hardiesFireWallEntries, setHardiesFireWallEntries] = React.useState([]);
@@ -4013,9 +4116,91 @@ export default function RightPropertyPaneView({
                 ) : selectedType === "lintel" ? (
                   <LintelPropertyPanel
                     selectedLintel={(lintelsByPage[currentPage] || []).find((l) => l.id === selectedId)}
+                    selectedLintelIds={selectedLintelIds}
                     lintelController={lintelController}
                     deleteItem={deleteItem}
                     showConfirm={showConfirm}
+                    onClose={() => {
+                      if (setSelectedId) setSelectedId(null);
+                      if (setSelectedType) setSelectedType(null);
+                      if (setSelectedLintelIds) setSelectedLintelIds([]);
+                      if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
+                    }}
+                    onOpenPdfCallout={(lintel) => {
+                      if (!lintel) return;
+                      const calloutAnnId = `lintel_callout_${lintel.id}`;
+                      const pageLintels = lintelsByPage[currentPage] || [];
+                      const curLintel = pageLintels.find((l) => l.id === lintel.id) || lintel;
+                      const calloutText = formatLintelCalloutText(curLintel, pageLintels);
+
+                      const dpi = curLintel.dpi || (typeof window !== "undefined" && localStorage.getItem("ezefloor_dpi") ? parseFloat(localStorage.getItem("ezefloor_dpi")) : 250);
+                      const fontSizePt = curLintel.fontSizePt !== undefined ? curLintel.fontSizePt : 14;
+                      const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
+
+                      if (setAnnotationsByPage && currentPage != null) {
+                        setAnnotationsByPage((prev) => {
+                          const list = prev[currentPage] || [];
+                          const existingIdx = list.findIndex((a) => a.id === calloutAnnId);
+                          if (existingIdx >= 0) {
+                            const updatedList = [...list];
+                            updatedList[existingIdx] = {
+                              ...updatedList[existingIdx],
+                              text: calloutText,
+                              html: calloutText.replace(/\n/g, "<br>"),
+                              fontSizePt,
+                              fontSize: fontSizePx,
+                              dpi
+                            };
+                            return { ...prev, [currentPage]: updatedList };
+                          } else {
+                            let tipX = 100, tipY = 100;
+                            if (curLintel.points && curLintel.points.length >= 2) {
+                              tipX = (curLintel.points[0][0] + curLintel.points[1][0]) / 2;
+                              tipY = (curLintel.points[0][1] + curLintel.points[1][1]) / 2;
+                            }
+                            const offX = curLintel.calloutOffset?.x ?? 40;
+                            const offY = curLintel.calloutOffset?.y ?? 40;
+                            const boxX = tipX + offX;
+                            const boxY = tipY + offY;
+
+                            const newAnn = {
+                              id: calloutAnnId,
+                              type: "callout",
+                              isLintelCallout: true,
+                              lintelId: curLintel.id,
+                              text: calloutText,
+                              html: calloutText.replace(/\n/g, "<br>"),
+                              color: curLintel.calloutColor || "#DC2626",
+                              bgColor: curLintel.calloutBgColor || "#FFFF00",
+                              calloutStyle: curLintel.calloutStyle || "yellow",
+                              fontSize: fontSizePx,
+                              fontSizePt: fontSizePt,
+                              dpi: dpi,
+                              strokeWidth: 2,
+                              isBold: true,
+                              x: tipX,
+                              y: tipY,
+                              boxX: boxX,
+                              boxY: boxY,
+                              startPt: { x: tipX, y: tipY },
+                              currentPt: { x: boxX, y: boxY },
+                              customWidth: 160,
+                              customHeight: 60
+                            };
+                            return { ...prev, [currentPage]: [...list, newAnn] };
+                          }
+                        });
+                      }
+
+                      setSelectedId(null);
+                      setSelectedType(null);
+                      if (setSelectedLintelIds) setSelectedLintelIds([]);
+                      if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
+                      if (setSelectedAnnotationId) setSelectedAnnotationId(calloutAnnId);
+                      if (setSelectedAnnotationIds) setSelectedAnnotationIds([calloutAnnId]);
+                      setActivePaneTab("explorer");
+                      setExplorerViewMode("properties");
+                    }}
                   />
                 ) : (selectedType === "roof" || selectedRoofId) && (roofsByPage[currentPage] || []).find((r) => r.id === (selectedRoofId || selectedId)) ? (
                   <RoofPropertyPanel
@@ -4069,6 +4254,15 @@ export default function RightPropertyPaneView({
                     onDuplicateAnnotation={handleDuplicateAnnotation}
                     realScale={realScale}
                     scaleValue={scaleValue}
+                    onSelectLintel={(lintelId) => {
+                      if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+                      if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+                      setSelectedId(lintelId);
+                      setSelectedType("lintel");
+                      if (setSelectedLintelIds) setSelectedLintelIds([lintelId]);
+                      setActivePaneTab("explorer");
+                      setExplorerViewMode("properties");
+                    }}
                   />
                 ) : (
                   <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, lintel, roof, or drawing to edit properties.</div>

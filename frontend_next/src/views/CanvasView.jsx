@@ -22,6 +22,7 @@ import { TrussEngine, TRUSS_COLORS } from "@/engines/Truss/TrussEngine";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
+import { formatLintelCalloutText } from "../controllers/lintel.controller";
 import { getBrushCursor } from "@/utils/cursorUtils";
 import {
   distancePointToSegment,
@@ -138,17 +139,33 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, 
 // ==========================================
 const LintelsLayer = React.memo(({
   lintels = [],
+  allLintels = [],
   walls = [],
   rooms = [],
   layerVisibility,
   selectedId,
   selectedType,
   selectedLintelIds = [],
+  setSelectedLintelIds,
   setSelectedId,
   setSelectedType,
   setHoverId,
-  hoverId
+  hoverId,
+  scale = 1,
+  setLintelsByPage,
+  currentPage,
+  pushHistory,
+  annotationsByPage = {},
+  setAnnotationsByPage,
+  selectedAnnotationId,
+  setSelectedAnnotationId,
+  selectedAnnotationIds = [],
+  setSelectedAnnotationIds,
+  isDrawingLintel = false,
+  lintelController,
+  setInteractionMode
 }) => {
+  const lastCalloutClickRef = React.useRef({ id: null, time: 0 });
   if (layerVisibility?.lintel === false) return null;
 
   return (
@@ -160,16 +177,16 @@ const LintelsLayer = React.memo(({
         // Resolve lintel start/end coordinates
         let startPt, endPt, wallThickness;
 
-        if (!l.wallId && l.points && l.points.length === 2) {
-          // Standalone or cross-wall lintel — uses absolute coordinates
+        const getBaseWallId = (id) => id ? String(id).split('-A-')[0].split('-B-')[0] : '';
+        const wall = l.wallId ? walls.find(w => w.id === l.wallId || getBaseWallId(w.id) === getBaseWallId(l.wallId)) : null;
+
+        if (l.isAutoDoorLintel && l.points && l.points.length === 2) {
+          // Auto door lintels store exact opening coordinates along wall centerline
           startPt = { x: l.points[0][0], y: l.points[0][1] };
           endPt = { x: l.points[1][0], y: l.points[1][1] };
-          wallThickness = 20; // default thickness for standalone
-        } else {
+          wallThickness = wall?.thickness_px || l.wallThickness_px || 20;
+        } else if (wall && wall.centerline && wall.centerline.length === 2 && l.startOffset !== null && l.startOffset !== undefined && l.endOffset !== null && l.endOffset !== undefined) {
           // Wall-attached lintel — resolve from wall centerline + parametric offsets
-          const wall = walls.find(w => w.id === l.wallId);
-          if (!wall || !wall.centerline || wall.centerline.length !== 2) return null;
-
           const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
           const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
           const dx = p2.x - p1.x;
@@ -178,167 +195,404 @@ const LintelsLayer = React.memo(({
           startPt = { x: p1.x + l.startOffset * dx, y: p1.y + l.startOffset * dy };
           endPt = { x: p1.x + l.endOffset * dx, y: p1.y + l.endOffset * dy };
           wallThickness = wall.thickness_px || 20;
+        } else if (l.points && l.points.length === 2) {
+          // Standalone, cross-wall, or door opening points
+          startPt = { x: l.points[0][0], y: l.points[0][1] };
+          endPt = { x: l.points[1][0], y: l.points[1][1] };
+          wallThickness = wall?.thickness_px || l.wallThickness_px || 20;
+        } else {
+          return null;
         }
 
         const len = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
-        // Render lintel slightly thinner than the wall: 70% of wall thickness
         const lintelThickness = wallThickness * 0.7;
-
         const angle = Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x);
         const angleDeg = angle * 180 / Math.PI;
 
         const cx = (startPt.x + endPt.x) / 2;
         const cy = (startPt.y + endPt.y) / 2;
 
-        const color = isSelected ? "#FF5722" : (isHovered ? "#3b82f6" : "#f59e0b");
+        // Color on the wall
+        const wallIndicatorColor = isSelected ? "#FF5722" : (isHovered ? "#3b82f6" : "#DC2626");
 
-        // Determine text offset direction based on lintel direction
+        // 1. DPI and Font Size (pt to px conversion)
+        const appDpi = (typeof window !== 'undefined' && localStorage.getItem('ezefloor_dpi'))
+          ? parseFloat(localStorage.getItem('ezefloor_dpi'))
+          : 250;
+        const dpi = (l.dpi && Number(l.dpi) > 0) ? Number(l.dpi) : appDpi;
+
+        // Default font size is 14pt (minimum 1pt)
+        const fontSizePt = Math.max(1, (l.fontSizePt !== undefined && l.fontSizePt !== null && !isNaN(Number(l.fontSizePt)))
+          ? Number(l.fontSizePt)
+          : 14);
+
+        // Calculate font size in px: px = Math.round(pt * (dpi / 72))
+        const calculatedPx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
+
+        // Linked PDF Annotation ID
+        const calloutAnnId = `lintel_callout_${l.id}`;
+        const pageAnnotations = (annotationsByPage && annotationsByPage[currentPage]) || [];
+        const linkedAnn = pageAnnotations.find(a => a.id === calloutAnnId);
+        const isCalloutSelected = selectedAnnotationId === calloutAnnId || (selectedAnnotationIds && selectedAnnotationIds.includes(calloutAnnId));
+        const fontSizePx = (linkedAnn && typeof linkedAnn.fontSize === "number") ? linkedAnn.fontSize : calculatedPx;
+
+        // 2. Format lintel callout text: e.g. "L1: 140x45 LVL 14 1/1.2"
+        const fullList = allLintels && allLintels.length > 0 ? allLintels : lintels;
+        const catList = fullList.filter(item => (item.category || 'lintel') === (l.category || 'lintel'));
+        const catIdx = catList.findIndex(item => item.id === l.id) + 1;
+        const calloutText = formatLintelCalloutText(l, fullList);
+
+        // 3. Callout Box Sizing & Spacing:
+        // boxH is 17pt (converted via DPI). If fontSizePt > 14, scale as Math.max(17, fontSizePt + 3)
+        const boxHPt = Math.max(17, fontSizePt + 3);
+        const boxH = Math.round(boxHPt * (dpi / 72));
+
+        // Space from start of box to number/text is 10pt, and from text to end of box is 10pt
+        const paddingPt = 10;
+        const paddingPx = Math.round(paddingPt * (dpi / 72));
+        const charWidthPx = fontSizePx * 0.62;
+        const textWidthPx = Math.round(calloutText.length * charWidthPx);
+        const boxW = Math.max(Math.round(fontSizePx * 5), textWidthPx + (2 * paddingPx));
+
+        // 4. Smart default placement:
+        // Clear space next to vertical or horizontal walls
         const dx = endPt.x - startPt.x;
         const dy = endPt.y - startPt.y;
-        const segmentLen = Math.hypot(dx, dy) || 1;
-        const ux = dx / segmentLen;
-        const uy = dy / segmentLen;
+        const isVertical = Math.abs(dy) >= Math.abs(dx);
+        let defDx = isVertical ? -Math.round(boxW / 2 + 40) : 0;
+        let defDy = isVertical ? (catIdx % 2 === 1 ? -1 : 1) * 12 : -Math.round(boxH / 2 + 35);
 
-        // Default perpendicular normal (points up/left)
-        let nx = -uy;
-        let ny = ux;
-        if (ny > 0) {
-          nx = -nx;
-          ny = -ny;
-        } else if (ny === 0 && nx > 0) {
-          nx = -nx;
-          ny = -ny;
-        }
+        const offsetX = l.calloutOffset ? l.calloutOffset.x : defDx;
+        const offsetY = l.calloutOffset ? l.calloutOffset.y : defDy;
 
-        // For wall-attached exterior walls, determine inside vs outside of the floor area
-        const parentWall = l.wallId ? walls.find(w => w.id === l.wallId) : null;
-        const isExterior = parentWall ? getWallClass(parentWall) === "exterior_wall" : false;
-        if (isExterior && rooms.length > 0) {
-          const testDist = 15;
-          const pPos = { x: cx + nx * testDist, y: cy + ny * testDist };
-          const pNeg = { x: cx - nx * testDist, y: cy - ny * testDist };
-          const inRoomPos = rooms.some(r => pointInPolygon(pPos, r.polygon));
-          const inRoomNeg = rooms.some(r => pointInPolygon(pNeg, r.polygon));
+        const boxCenterX = cx + offsetX;
+        const boxCenterY = cy + offsetY;
 
-          if (inRoomPos && !inRoomNeg) {
-            // pPos points inside room, so text should go negative (outside)
-            nx = -nx;
-            ny = -ny;
-          } else if (inRoomNeg && !inRoomPos) {
-            // pNeg points inside room, so text should go positive (outside)
-            // nx and ny remain positive
+        const boxLeft = boxCenterX - boxW / 2;
+        const boxTop = boxCenterY - boxH / 2;
+        const boxRight = boxLeft + boxW;
+        const boxBottom = boxTop + boxH;
+
+        // Anchor tip on the lintel opening
+        const tipX = cx;
+        const tipY = cy;
+
+        // Leader line geometry scaled with fontSizePx
+        const shoulderLen = Math.max(16, Math.round(fontSizePx * 0.35));
+        const barbLen = Math.max(12, Math.round(fontSizePx * 0.28));
+        const leaderStrokeW = Math.max(1.75, Math.round(fontSizePx * 0.035 * 10) / 10);
+
+        // Leader line landing / shoulder attachment to callout box
+        let attachX, attachY, shoulderX, shoulderY;
+        if (tipX >= boxRight) {
+          attachX = boxRight;
+          attachY = boxCenterY;
+          shoulderX = Math.min(boxRight + shoulderLen, (boxRight + tipX) / 2);
+          shoulderY = boxCenterY;
+        } else if (tipX <= boxLeft) {
+          attachX = boxLeft;
+          attachY = boxCenterY;
+          shoulderX = Math.max(boxLeft - shoulderLen, (boxLeft + tipX) / 2);
+          shoulderY = boxCenterY;
+        } else {
+          attachX = Math.max(boxLeft + 12, Math.min(boxRight - 12, tipX));
+          if (tipY >= boxBottom) {
+            attachY = boxBottom;
+            shoulderX = attachX;
+            shoulderY = Math.min(boxBottom + shoulderLen, (boxBottom + tipY) / 2);
+          } else {
+            attachY = boxTop;
+            shoulderX = attachX;
+            shoulderY = Math.max(boxTop - shoulderLen, (boxTop + tipY) / 2);
           }
         }
 
-        const isHorizontal = Math.abs(dx) >= Math.abs(dy);
-        let textAngle = angleDeg;
-        if (isHorizontal) {
-          if (textAngle > 90 || textAngle < -90) textAngle += 180;
-        } else {
-          if (textAngle > 0) textAngle -= 180;
-          else if (textAngle < -180) textAngle += 180;
-        }
+        // Arrowhead barb geometry at tipX, tipY
+        const arrowAngle = Math.atan2(tipY - shoulderY, tipX - shoulderX);
+        const barbSpread = 28 * Math.PI / 180;
+        const a1 = arrowAngle + Math.PI - barbSpread;
+        const a2 = arrowAngle + Math.PI + barbSpread;
+        const barb1X = tipX + barbLen * Math.cos(a1);
+        const barb1Y = tipY + barbLen * Math.sin(a1);
+        const barb2X = tipX + barbLen * Math.cos(a2);
+        const barb2Y = tipY + barbLen * Math.sin(a2);
 
-        let prefix = "L";
-        if (l.category === "beam") prefix = "B";
-        else if (l.category === "bh") prefix = "BH";
+        // Styling (allows customization from PDF tool annotation)
+        const boxBg = (linkedAnn && linkedAnn.bgColor) || "#FFFF00";
+        const calloutBorderColor = isCalloutSelected ? "#2563eb" : ((linkedAnn && linkedAnn.color) || (isHovered ? "#EF4444" : "#DC2626"));
+        const textColor = (linkedAnn && linkedAnn.textColor) || "#000000";
 
-        let typeStr = "";
-        const plyValue = l.ply || 1;
-        if (l.height && l.width) {
-          typeStr = `${prefix} - ${l.height}x${l.width} - ${plyValue}ply`;
-        } else if (l.size) {
-          typeStr = `${prefix} - ${l.size} - ${plyValue}ply`;
-        }
-        const dimStr = `${(l.isRounded ? l.finalLength : l.measuredLength || 0).toFixed(2)}m`;
+        // Helper to sync lintel callout data to annotationsByPage without changing selection
+        const syncCalloutAnnotationData = (customLeft, customCenterY) => {
+          if (setAnnotationsByPage && currentPage != null) {
+            setAnnotationsByPage((prev) => {
+              const list = prev[currentPage] || [];
+              const existingIdx = list.findIndex((a) => a.id === calloutAnnId);
+              const bLeft = customLeft !== undefined ? customLeft : boxLeft;
+              const bCenterY = customCenterY !== undefined ? customCenterY : boxCenterY;
 
-        // Final text offset distance (add extra padding for two lines)
-        const offsetDist = lintelThickness / 2 + (typeStr ? 16 : 8);
-        const tx = cx + nx * offsetDist;
-        const ty = cy + ny * offsetDist;
+              const calloutData = {
+                id: calloutAnnId,
+                type: "callout",
+                isLintelCallout: true,
+                lintelId: l.id,
+                text: calloutText,
+                html: calloutText.replace(/\n/g, "<br>"),
+                color: (linkedAnn && linkedAnn.color) || l.calloutColor || "#DC2626",
+                bgColor: (linkedAnn && linkedAnn.bgColor) || l.calloutBgColor || "#FFFF00",
+                calloutStyle: (linkedAnn && linkedAnn.calloutStyle) || l.calloutStyle || "yellow",
+                fontSize: fontSizePx,
+                fontSizePt: fontSizePt,
+                dpi: dpi,
+                strokeWidth: 2,
+                isBold: true,
+                x: tipX,
+                y: tipY,
+                boxX: bLeft,
+                boxY: bCenterY,
+                startPt: { x: tipX, y: tipY },
+                currentPt: { x: bLeft, y: bCenterY },
+                customWidth: boxW,
+                customHeight: boxH
+              };
+
+              if (existingIdx >= 0) {
+                const updated = [...list];
+                updated[existingIdx] = {
+                  ...updated[existingIdx],
+                  ...calloutData,
+                  text: calloutText,
+                  html: calloutText.replace(/\n/g, "<br>"),
+                  color: updated[existingIdx].color || calloutData.color,
+                  bgColor: updated[existingIdx].bgColor || calloutData.bgColor
+                };
+                return { ...prev, [currentPage]: updated };
+              } else {
+                return { ...prev, [currentPage]: [...list, calloutData] };
+              }
+            });
+          }
+        };
+
+        // Double-click or click handler to open both lintel panels (catalog on left + property panel on right)
+        const openBothLintelPanels = () => {
+          if (lintelController?.clearCurrentLintel) lintelController.clearCurrentLintel();
+          if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
+          if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
+          if (setInteractionMode) setInteractionMode("select");
+          if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+          if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+          setSelectedId(l.id);
+          setSelectedType("lintel");
+          if (setSelectedLintelIds) setSelectedLintelIds([l.id]);
+          if (lintelController?.setShowCatalogPanel) {
+            lintelController.setShowCatalogPanel(true);
+          }
+          syncCalloutAnnotationData(boxLeft, boxCenterY);
+        };
+
+        // Pointer drag handler for moving callout box
+        const handleBoxPointerDown = (e) => {
+          e.stopPropagation();
+          if (e.button !== 0) return;
+
+          if (isDrawingLintel) {
+            if (lintelController?.clearCurrentLintel) lintelController.clearCurrentLintel();
+            if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
+            if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
+            if (setInteractionMode) setInteractionMode("select");
+          }
+
+          const startClientX = e.clientX;
+          const startClientY = e.clientY;
+          const initialOffset = l.calloutOffset ? { ...l.calloutOffset } : { x: defDx, y: defDy };
+          let hasMoved = false;
+
+          const onPointerMove = (ev) => {
+            ev.stopPropagation();
+            if (isDrawingLintel && lintelController?.clearCurrentLintel) {
+              lintelController.clearCurrentLintel();
+            }
+            const currentScale = scale || 1;
+            const moveDx = (ev.clientX - startClientX) / currentScale;
+            const moveDy = (ev.clientY - startClientY) / currentScale;
+            if (Math.hypot(moveDx, moveDy) > 3) {
+              hasMoved = true;
+              lastCalloutClickRef.current = { id: null, time: 0 };
+            }
+            const newOffset = {
+              x: Math.round(initialOffset.x + moveDx),
+              y: Math.round(initialOffset.y + moveDy)
+            };
+
+            if (setLintelsByPage && currentPage != null) {
+              setLintelsByPage(prev => {
+                const curList = prev[currentPage] || [];
+                return {
+                  ...prev,
+                  [currentPage]: curList.map(item =>
+                    item.id === l.id ? { ...item, calloutOffset: newOffset } : item
+                  )
+                };
+              });
+            }
+          };
+
+          const onPointerUp = (ev) => {
+            if (ev) ev.stopPropagation();
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            if (hasMoved) {
+              syncCalloutAnnotationData();
+              if (pushHistory) {
+                // Record history state if needed
+              }
+            }
+          };
+
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", onPointerUp);
+        };
 
         return (
           <g
             key={l.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedId(l.id);
-              setSelectedType("lintel");
-            }}
             onMouseEnter={() => setHoverId(l.id)}
             onMouseLeave={() => setHoverId(null)}
-            style={{ cursor: "pointer" }}
           >
-            {/* Lintel body */}
+            {/* 1. Lintel body rectangle on wall */}
             <rect
               x={-len / 2}
               y={-lintelThickness / 2}
               width={len}
               height={lintelThickness}
               transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
-              fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(59, 130, 246, 0.12)" : "rgba(245, 158, 11, 0.1)")}
-              stroke={color}
-              strokeWidth={1.5}
+              fill={isSelected ? "rgba(255, 87, 34, 0.2)" : (isHovered ? "rgba(59, 130, 246, 0.15)" : "rgba(220, 38, 38, 0.12)")}
+              stroke={wallIndicatorColor}
+              strokeWidth={isSelected ? 2 : 1.5}
+              style={{
+                cursor: isDrawingLintel ? "crosshair" : "pointer",
+                pointerEvents: isDrawingLintel ? "none" : "auto"
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isDrawingLintel) return;
+                openBothLintelPanels();
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                openBothLintelPanels();
+              }}
             />
 
-            {/* Inner guideline */}
+            {/* 2. Inner guideline on wall */}
             <line
               x1={startPt.x}
               y1={startPt.y}
               x2={endPt.x}
               y2={endPt.y}
-              stroke={color}
+              stroke={wallIndicatorColor}
               strokeWidth={1}
               strokeDasharray="4,2"
               opacity={0.8}
+              style={{ pointerEvents: 'none' }}
             />
 
-            {/* Lintel Label (Type and Length) */}
-            <g transform={`translate(${tx}, ${ty}) rotate(${textAngle})`}>
-              {typeStr ? (
-                <>
-                  <text
-                    x={0}
-                    y={-8}
-                    dominantBaseline="central"
-                    fontSize="16"
-                    textAnchor="middle"
-                    fill={color}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none' }}
-                  >
-                    {typeStr}
-                  </text>
-                  <text
-                    x={0}
-                    y={6}
-                    dominantBaseline="central"
-                    fontSize="10"
-                    textAnchor="middle"
-                    fill={color}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none' }}
-                  >
-                    {dimStr}
-                  </text>
-                </>
-              ) : (
-                <text
-                  x={0}
-                  y={0}
-                  dominantBaseline="central"
-                  fontSize="10"
-                  textAnchor="middle"
-                  fill={color}
-                  fontFamily="Inter, sans-serif"
-                  fontWeight="bold"
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {dimStr}
-                </text>
+            {/* 3. Leader Line (Landing shoulder + angled segment to lintel) */}
+            <path
+              d={`M ${attachX} ${attachY} L ${shoulderX} ${shoulderY} L ${tipX} ${tipY}`}
+              stroke={calloutBorderColor}
+              strokeWidth={isCalloutSelected ? leaderStrokeW + 0.5 : leaderStrokeW}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity={0.95}
+              style={{ pointerEvents: 'none' }}
+            />
+
+            {/* 4. Arrowhead (Open sharp barb pointing directly into lintel opening) */}
+            <path
+              d={`M ${barb1X} ${barb1Y} L ${tipX} ${tipY} L ${barb2X} ${barb2Y}`}
+              stroke={calloutBorderColor}
+              strokeWidth={isCalloutSelected ? leaderStrokeW + 0.6 : leaderStrokeW + 0.2}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ pointerEvents: 'none' }}
+            />
+
+            {/* 5. Callout Box (Architectural yellow fill, red border, black bold text, draggable) */}
+            <g
+              transform={`translate(${boxLeft}, ${boxTop})`}
+              style={{ cursor: isDrawingLintel ? "move" : "grab" }}
+              onPointerDown={handleBoxPointerDown}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+              }}
+              onMouseUp={(e) => {
+                e.stopPropagation();
+              }}
+              onContextMenu={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
+                if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
+                if (setInteractionMode) setInteractionMode("select");
+                openBothLintelPanels();
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
+                if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
+                if (setInteractionMode) setInteractionMode("select");
+                openBothLintelPanels();
+              }}
+            >
+              {/* Outer Selection Ring / Halo */}
+              {(isSelected || isCalloutSelected) && !isDrawingLintel && (
+                <rect
+                  x={-3}
+                  y={-3}
+                  width={boxW + 6}
+                  height={boxH + 6}
+                  fill="none"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  strokeDasharray="4,2"
+                  rx={2}
+                  style={{ pointerEvents: 'none' }}
+                />
               )}
+
+              {/* Callout Box Background & Border */}
+              <rect
+                x={0}
+                y={0}
+                width={boxW}
+                height={boxH}
+                fill={boxBg}
+                stroke={calloutBorderColor}
+                strokeWidth={isCalloutSelected && !isDrawingLintel ? 2.2 : 1.75}
+                filter={isHovered || isSelected || isCalloutSelected ? "drop-shadow(0 2px 6px rgba(0,0,0,0.25))" : "drop-shadow(0 1px 3px rgba(0,0,0,0.15))"}
+              />
+
+              {/* Callout Text */}
+              <text
+                x={boxW / 2}
+                y={boxH / 2 + 1}
+                dominantBaseline="central"
+                textAnchor="middle"
+                fill={textColor}
+                fontSize={`${fontSizePx}px`}
+                fontFamily="'Inter', 'Outfit', 'Segoe UI', sans-serif"
+                fontWeight="700"
+                style={{ userSelect: 'none', pointerEvents: 'none' }}
+              >
+                {calloutText}
+              </text>
             </g>
           </g>
         );
@@ -347,11 +601,21 @@ const LintelsLayer = React.memo(({
   );
 }, (prev, next) => (
   prev.lintels === next.lintels &&
+  prev.allLintels === next.allLintels &&
   prev.walls === next.walls &&
   prev.layerVisibility?.lintel === next.layerVisibility?.lintel &&
   prev.selectedId === next.selectedId &&
   prev.selectedType === next.selectedType &&
-  prev.hoverId === next.hoverId
+  prev.selectedLintelIds === next.selectedLintelIds &&
+  prev.hoverId === next.hoverId &&
+  prev.scale === next.scale &&
+  prev.currentPage === next.currentPage &&
+  prev.annotationsByPage === next.annotationsByPage &&
+  prev.selectedAnnotationId === next.selectedAnnotationId &&
+  prev.selectedAnnotationIds === next.selectedAnnotationIds &&
+  prev.isDrawingLintel === next.isDrawingLintel &&
+  prev.lintelController === next.lintelController &&
+  prev.setInteractionMode === next.setInteractionMode
 ));
 
 // ==========================================
@@ -377,6 +641,7 @@ const RoomPolygonLayer = React.memo(({
   isMeasuring,
   isDistancing,
   isAddingPoint,
+  isDrawingLintel = false,
   getRoomStyle,
   config,
   heatmapMode,
@@ -432,13 +697,13 @@ const RoomPolygonLayer = React.memo(({
               strokeDasharray={isText ? "4,3" : undefined}
               opacity={opacity}
               style={{
-                pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+                pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) ? "none" : "auto"
               }}
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={(e) => {
                 if (interactionMode === "draw-wall") return;
-                if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
+                if (drawing || isMeasuring || isDistancing || isDrawingDoor || isDrawingLintel) return;
                 if (e.shiftKey || isAddingPoint) return;
                 e.stopPropagation();
                 setSelectedId(r.id);
@@ -449,7 +714,7 @@ const RoomPolygonLayer = React.memo(({
                 e.preventDefault();
                 e.stopPropagation();
                 if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
-                if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
+                if (drawing || isMeasuring || isDistancing || isDrawingDoor || isDrawingLintel) return;
                 if (handleRoomDoubleClick) {
                   handleRoomDoubleClick(e, r);
                 }
@@ -472,6 +737,7 @@ const RoomPolygonLayer = React.memo(({
     prev.isMeasuring === next.isMeasuring &&
     prev.isDistancing === next.isDistancing &&
     prev.isAddingPoint === next.isAddingPoint &&
+    prev.isDrawingLintel === next.isDrawingLintel &&
     prev.heatmapMode === next.heatmapMode &&
     prev.config === next.config &&
     prev.dragging === next.dragging &&
@@ -1288,7 +1554,8 @@ const WallHandlesLayer = React.memo(({
   selectWall,
   setSelectedId,
   setSelectedType,
-  setSelectedWallIds
+  setSelectedWallIds,
+  isDrawingLintel = false
 }) => {
   if (interactionMode === "cut-wall" || !layerVisibility?.wall || layerVisibility?.labels === false) return null;
 
@@ -1375,8 +1642,9 @@ const WallHandlesLayer = React.memo(({
             {/* 2D Wall Name Badge */}
             <g
               transform={`translate(${mx}, ${my}) rotate(${angle}) translate(0, ${offsetY})`}
-              style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+              style={{ cursor: isDrawingLintel ? 'crosshair' : 'pointer', pointerEvents: isDrawingLintel ? 'none' : 'auto' }}
               onClick={(e) => {
+                if (isDrawingLintel) return;
                 e.stopPropagation();
                 handleSelectWall(w.id, e.shiftKey || e.ctrlKey || e.metaKey);
               }}
@@ -1513,6 +1781,7 @@ const DoorLayer = React.memo(({
   isDrawingDoor,
   isMeasuring,
   isDistancing,
+  isDrawingLintel = false,
   setSelectedId,
   setSelectedType,
   selectedDoorIds = [],
@@ -1959,7 +2228,7 @@ const DoorLayer = React.memo(({
                   return;
                 }
                 if (interactionMode === "draw-wall") return;
-                if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                if (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) return;
                 const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
                 if (isMulti) {
                   // Already handled in onMouseDown, do not toggle twice!
@@ -1974,14 +2243,14 @@ const DoorLayer = React.memo(({
               }}
               onDoubleClick={(e) => {
                 if (interactionMode === "draw-wall") return;
-                if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                if (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) return;
                 e.stopPropagation();
                 if (onEditDoor) onEditDoor(d);
               }}
               onMouseDown={(e) => {
                 lastMouseDownSelectedId.current = selectedId;
                 if (interactionMode === "draw-wall") return;
-                if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+                if (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) return;
                 const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
                 if (isMulti) {
                   e.stopPropagation();
@@ -2001,7 +2270,7 @@ const DoorLayer = React.memo(({
                   startDrag(d.id, null, 'door-move');
                 }
               }}
-              style={{ cursor: 'pointer', pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto" }}
+              style={{ cursor: isDrawingLintel ? 'crosshair' : 'pointer', pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) ? "none" : "auto" }}
               onContextMenu={(e) => { if (onDoorContextMenu) onDoorContextMenu(e, d); }}
               onMouseEnter={() => setHoverId(d.id)}
               onMouseLeave={() => setHoverId(null)}
@@ -2251,6 +2520,7 @@ const DoorLayer = React.memo(({
     prev.isDrawingDoor === next.isDrawingDoor &&
     prev.isMeasuring === next.isMeasuring &&
     prev.isDistancing === next.isDistancing &&
+    prev.isDrawingLintel === next.isDrawingLintel &&
     prev.setSelectedId === next.setSelectedId &&
     prev.setSelectedType === next.setSelectedType &&
     prev.startDrag === next.startDrag &&
@@ -2281,6 +2551,7 @@ const OCRLabelLayer = React.memo(({
   isDrawingDoor,
   isMeasuring,
   isDistancing,
+  isDrawingLintel = false,
   config,
   heatmapMode,
   selectedId,
@@ -2400,13 +2671,13 @@ const OCRLabelLayer = React.memo(({
                 <g
                   style={{
                     cursor: 'text',
-                    pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing) ? "none" : "auto"
+                    pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) ? "none" : "auto"
                   }}
                   onMouseDown={stopEvent}
                   onMouseUp={stopEvent}
                   onClick={stopEvent}
                   onDoubleClick={(e) => {
-                    if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
+                    if (drawing || isMeasuring || isDistancing || isDrawingDoor || isDrawingLintel) return;
                     stopEvent(e);
                     setEditingRoomId(r.id);
                     setEditValue(r.room_name);
@@ -2634,12 +2905,12 @@ const OCRLabelLayer = React.memo(({
               </foreignObject>
             ) : (
               <g
-                style={{ cursor: 'text' }}
+                style={{ cursor: isDrawingLintel ? 'crosshair' : 'text', pointerEvents: isDrawingLintel ? 'none' : 'auto' }}
                 onMouseDown={stopEvent}
                 onMouseUp={stopEvent}
                 onClick={stopEvent}
                 onDoubleClick={(e) => {
-                  if (drawing || isMeasuring || isDistancing || isDrawingDoor) return;
+                  if (drawing || isMeasuring || isDistancing || isDrawingDoor || isDrawingLintel) return;
                   stopEvent(e);
                   setEditingRoomId(r.id);
                   setEditValue(r.room_name);
@@ -2704,6 +2975,7 @@ const OCRLabelLayer = React.memo(({
     prev.drawing === next.drawing &&
     prev.isMeasuring === next.isMeasuring &&
     prev.isDistancing === next.isDistancing &&
+    prev.isDrawingLintel === next.isDrawingLintel &&
     prev.heatmapMode === next.heatmapMode &&
     prev.config === next.config &&
     prev.selectedId === next.selectedId
@@ -2996,7 +3268,23 @@ export default function CanvasView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const { config, heatmapMode } = useAIConfigStore();
-  const { activeAnnotationTool, annotationColor, setSelectedAnnotationId, roofsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage, trussesByPage = {}, setTrussesByPage, setDoorsByPage } = useAppModel();
+  const {
+    activeAnnotationTool,
+    annotationColor,
+    setSelectedAnnotationId,
+    selectedAnnotationId,
+    selectedAnnotationIds = [],
+    setSelectedAnnotationIds,
+    annotationsByPage = {},
+    setAnnotationsByPage,
+    roofsByPage,
+    setRoofsByPage,
+    lintelsByPage,
+    setLintelsByPage,
+    trussesByPage = {},
+    setTrussesByPage,
+    setDoorsByPage
+  } = useAppModel();
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -3063,11 +3351,26 @@ export default function CanvasView({
           if (setDistancePoints) setDistancePoints([]);
           if (setInteractionMode) setInteractionMode("select");
         }
+        // When user clicks ESC: close all lintel panels & deselect lintel
+        if (selectedType === "lintel" || selectedId || (selectedLintelIds && selectedLintelIds.length > 0) || lintelController?.showCatalogPanel || isDrawingLintel) {
+          if (setSelectedId) setSelectedId(null);
+          if (setSelectedType) setSelectedType(null);
+          if (setSelectedLintelIds) setSelectedLintelIds([]);
+          if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
+          if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isDistancing, setIsDistancing, setDistancePoints, setInteractionMode]);
+  }, [isDistancing, setIsDistancing, setDistancePoints, setInteractionMode, selectedType, selectedId, selectedLintelIds, lintelController, isDrawingLintel, setSelectedId, setSelectedType, setSelectedLintelIds]);
+
+  // When lintel is deselected or not active, ensure catalog panel is closed
+  useEffect(() => {
+    if (selectedType !== "lintel" && !isDrawingLintel && !lintelController?.isDrawingLintel && lintelController?.showCatalogPanel) {
+      lintelController.setShowCatalogPanel(false);
+    }
+  }, [selectedType, isDrawingLintel, lintelController]);
 
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
@@ -4163,6 +4466,10 @@ export default function CanvasView({
           }}
           onClick={(e) => {
             if (editingRoomId || activeAnnotationTool) return;
+            // When drawing a lintel or selecting from catalog, ignore canvas clicks
+            // to avoid cancelling draw mode or deselecting the newly created lintel
+            if (isDrawingLintel || lintelController?.isDrawingLintel || lintelController?.showCatalogPanel) return;
+
             if (handleClick) handleClick(e);
             closeDoorContextMenu();
             closeWallContextMenu();
@@ -4176,7 +4483,7 @@ export default function CanvasView({
               (e.target.classList && e.target.classList.contains('canvas-background'));
 
             if (isBg) {
-              if (isDrawingLintel) return; // Don't deselect during lintel draw mode
+              if (isDrawingLintel || lintelController?.isDrawingLintel) return;
               if (setSelectedId) setSelectedId(null);
               if (setSelectedType) setSelectedType(null);
               if (setSelectedWallIds) setSelectedWallIds([]);
@@ -4186,6 +4493,7 @@ export default function CanvasView({
               if (setSelectedRoofId) setSelectedRoofId(null);
               if (setSelectedWallVertex) setSelectedWallVertex(null);
               if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+              if (lintelController?.setShowCatalogPanel && !isDrawingLintel && !lintelController?.isDrawingLintel) lintelController.setShowCatalogPanel(false);
             }
           }}
           onDoubleClick={(e) => {
@@ -4999,6 +5307,7 @@ export default function CanvasView({
                 isMeasuring={isMeasuring}
                 isDistancing={isDistancing}
                 isAddingPoint={isAddingPoint}
+                isDrawingLintel={isDrawingLintel || lintelController?.isDrawingLintel}
                 getRoomStyle={getRoomStyle}
                 config={config}
                 heatmapMode={heatmapMode}
@@ -5057,6 +5366,7 @@ export default function CanvasView({
                 isDrawingDoor={isDrawingDoor}
                 isMeasuring={isMeasuring}
                 isDistancing={isDistancing}
+                isDrawingLintel={isDrawingLintel || lintelController?.isDrawingLintel}
                 setSelectedId={setSelectedId}
                 setSelectedType={setSelectedType}
                 startDrag={startDrag}
@@ -5074,16 +5384,31 @@ export default function CanvasView({
             {/* Lintel Layer */}
             <LintelsLayer
               lintels={displayLintels}
-              walls={displayWalls}
+              allLintels={lintelsByPage[currentPage] || []}
+              walls={walls}
               rooms={displayRooms}
               layerVisibility={layerVisibility}
               selectedId={selectedId}
               selectedType={selectedType}
               selectedLintelIds={selectedLintelIds}
+              setSelectedLintelIds={setSelectedLintelIds}
               setSelectedId={setSelectedId}
               setSelectedType={setSelectedType}
               setHoverId={setHoverId}
               hoverId={hoverId}
+              scale={scale}
+              setLintelsByPage={setLintelsByPage}
+              currentPage={currentPage}
+              pushHistory={pushHistory}
+              annotationsByPage={annotationsByPage}
+              setAnnotationsByPage={setAnnotationsByPage}
+              selectedAnnotationId={selectedAnnotationId}
+              setSelectedAnnotationId={setSelectedAnnotationId}
+              selectedAnnotationIds={selectedAnnotationIds}
+              setSelectedAnnotationIds={setSelectedAnnotationIds}
+              isDrawingLintel={isDrawingLintel}
+              lintelController={lintelController}
+              setInteractionMode={setInteractionMode}
             />
 
             {/* Memoized Layer 4.5: Wall Handles (Rendered on top of doors for easy dragging) */}
@@ -5105,6 +5430,7 @@ export default function CanvasView({
                 onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
                 interactionMode={interactionMode}
                 hoverId={hoverId}
+                isDrawingLintel={isDrawingLintel || lintelController?.isDrawingLintel}
               />
             )}
 
@@ -5128,6 +5454,7 @@ export default function CanvasView({
                 isMeasuring={isMeasuring}
                 isDrawingDoor={isDrawingDoor}
                 isDistancing={isDistancing}
+                isDrawingLintel={isDrawingLintel || lintelController?.isDrawingLintel}
                 config={config}
                 heatmapMode={heatmapMode}
                 selectedId={selectedId}
@@ -6378,7 +6705,7 @@ export default function CanvasView({
           <div className="status-item">
             {drawing && <span style={{ color: "#3b82f6" }}>● Drawing Room</span>}
             {isMeasuring && <span style={{ color: "#facc15" }}>● Setting Scale</span>}
-            {isDistancing && <span style={{ color: "#00e5ff" }}>📐 Distance Mode{distancePoints.length === 1 ? " — click điểm thứ 2" : " — click điểm thứ 1"}{isShiftDown ? " [Snap 90°]" : ""}</span>}
+            {isDistancing && <span style={{ color: "#00e5ff" }}>📐 Distance Mode{distancePoints.length === 1 ? " — click second points" : " — click first points"}{isShiftDown ? " [Snap 90°]" : ""}</span>}
             {!drawing && !isMeasuring && !isDistancing && <span>Ready</span>}
           </div>
         </div>

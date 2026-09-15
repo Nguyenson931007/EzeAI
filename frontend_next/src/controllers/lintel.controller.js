@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDialog } from '@/components/DialogContext';
 
 // Epsilon for rounding formula to guard against floating-point errors
@@ -96,9 +96,46 @@ function applyShiftConstraint(startPt, endPt) {
   };
 }
 
+/**
+ * Formats standard lintel callout text: e.g. "L1: 140x45 LVL 14 1/1.2"
+ */
+export function formatLintelCalloutText(l, allLintels = []) {
+  if (!l) return "";
+  let prefix = "L";
+  if (l.category === "beam") prefix = "B";
+  else if (l.category === "bh") prefix = "BH";
+
+  const fullList = allLintels && allLintels.length > 0 ? allLintels : [l];
+  const catList = fullList.filter(item => (item.category || 'lintel') === (l.category || 'lintel'));
+  const catIdx = catList.findIndex(item => item.id === l.id) + 1;
+  const lintelCode = l.label && l.label.trim() ? l.label.trim() : `${prefix}${catIdx > 0 ? catIdx : 1}`;
+
+  const sizeStr = l.height && l.width ? `${l.height}x${l.width}` : (l.size && l.width ? `${l.size}x${l.width}` : (l.size ? `${l.size}` : "90x35"));
+
+  // Grade: default is "14" (placeholder customizable per customer)
+  const gradeStr = (l.grade !== undefined && l.grade !== null && String(l.grade).trim() !== "")
+    ? String(l.grade).trim()
+    : "14";
+
+  // Clean any duplicate "14" or "15" from l.type so grade is clean
+  const rawType = (l.type || "LVL").trim();
+  const cleanType = rawType.replace(/\b14\b|\b15\b/g, '').trim() || "LVL";
+  const typeStr = `${cleanType} ${gradeStr}`;
+
+  const plyVal = l.ply || 1;
+  const numMeasured = typeof l.measuredLength === "number" ? l.measuredLength : (l.baseLength || 0);
+  const finalLen = (l.isRounded && l.finalLength) ? l.finalLength : numMeasured;
+  const formattedLen = Number.isInteger(Math.round(finalLen * 100) / 10) ? finalLen.toFixed(1) : finalLen.toFixed(2);
+  const plyLenStr = `${plyVal}/${formattedLen}`;
+
+  return `${lintelCode}: ${sizeStr} ${typeStr} ${plyLenStr}`;
+}
+
 export function useLintelController({
   lintelsByPage,
   setLintelsByPage,
+  annotationsByPage,
+  setAnnotationsByPage,
   wallsByPage,
   currentPage,
   realScale,
@@ -106,14 +143,40 @@ export function useLintelController({
   pushHistory,
   setSelectedId,
   setSelectedType,
+  setSelectedLintelIds,
   setInteractionMode,
   doorsByPage
 }) {
   const [isDrawingLintel, setIsDrawingLintel] = useState(false);
+  const [isPostDrawCatalog, setIsPostDrawCatalog] = useState(false);
+  const [activeLintelConfig, setActiveLintelConfig] = useState({
+    catalogId: '800053733',
+    type: 'LVL',
+    size: 90,
+    width: 35,
+    height: 90,
+    description: 'Lintel',
+    ply: 1
+  });
   // During drawing: { startWallId, t_start, startPoint: {x,y} }
   const [currentLintel, setCurrentLintel] = useState(null);
   const [lintelPreview, setLintelPreview] = useState(null); // Preview data for CanvasView
-  const [showCatalogPanel, setShowCatalogPanel] = useState(false);
+  const [showCatalogPanel, _setShowCatalogPanel] = useState(false);
+  const isDrawingLintelRef = useRef(false);
+
+  useEffect(() => {
+    isDrawingLintelRef.current = isDrawingLintel;
+  }, [isDrawingLintel]);
+
+  const setShowCatalogPanel = useCallback((val) => {
+    // In drawing mode, the lintel category won't turn off in phases drawing!
+    // It will only turn off when user presses esc, or escapes the drawing mode.
+    if (isDrawingLintelRef.current && !val) {
+      return;
+    }
+    _setShowCatalogPanel(val);
+  }, []);
+
   const { showAlert } = useDialog();
 
   const [globalLengthOffset, setGlobalLengthOffset] = useState(() => {
@@ -123,6 +186,16 @@ export function useLintelController({
     }
     return 0;
   });
+
+  const deselectLintel = useCallback(() => {
+    if (!isDrawingLintelRef.current) {
+      _setShowCatalogPanel(false);
+    }
+    setIsPostDrawCatalog(false);
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+  }, [setSelectedId, setSelectedType, setSelectedLintelIds]);
 
   const getCurrentLintels = useCallback(() => {
     return lintelsByPage[currentPage] || [];
@@ -135,6 +208,45 @@ export function useLintelController({
   const getCurrentDoors = useCallback(() => {
     return doorsByPage ? (doorsByPage[currentPage] || []) : [];
   }, [doorsByPage, currentPage]);
+
+  /**
+   * Synchronizes callout annotations in annotationsByPage whenever lintel properties change
+   */
+  const syncLintelAnnotations = useCallback((updatedLintelsList) => {
+    if (!setAnnotationsByPage || currentPage == null) return;
+
+    setAnnotationsByPage(prev => {
+      const pageAnns = prev[currentPage] || [];
+      if (!pageAnns || pageAnns.length === 0) return prev;
+
+      let hasChanges = false;
+      const updatedAnns = pageAnns.map(ann => {
+        if (!ann.isLintelCallout || !ann.lintelId) return ann;
+        const matchedLintel = updatedLintelsList.find(l => l.id === ann.lintelId);
+        if (!matchedLintel) return ann;
+
+        const newText = formatLintelCalloutText(matchedLintel, updatedLintelsList);
+        const dpi = matchedLintel.dpi || ann.dpi || 250;
+        const fontSizePt = matchedLintel.fontSizePt !== undefined ? matchedLintel.fontSizePt : (ann.fontSizePt || 14);
+        const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
+
+        if (ann.text !== newText || ann.fontSizePt !== fontSizePt || ann.dpi !== dpi || ann.fontSize !== fontSizePx) {
+          hasChanges = true;
+          return {
+            ...ann,
+            text: newText,
+            html: newText.replace(/\n/g, "<br>"),
+            fontSizePt,
+            fontSize: fontSizePx,
+            dpi
+          };
+        }
+        return ann;
+      });
+
+      return hasChanges ? { ...prev, [currentPage]: updatedAnns } : prev;
+    });
+  }, [setAnnotationsByPage, currentPage]);
 
   const updateGlobalLengthOffset = useCallback((newOffset) => {
     localStorage.setItem('ezefloor_global_lintel_offset', String(newOffset));
@@ -156,28 +268,67 @@ export function useLintelController({
       ...prev,
       [currentPage]: updated
     }));
+    syncLintelAnnotations(updated);
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations]);
 
   const startLintelDraw = useCallback(() => {
+    isDrawingLintelRef.current = true;
     setIsDrawingLintel(true);
+    setIsPostDrawCatalog(false);
     setCurrentLintel(null);
     setLintelPreview(null);
-    setShowCatalogPanel(false);
+    _setShowCatalogPanel(true);
     if (setInteractionMode) {
       setInteractionMode('draw-lintel');
     }
   }, [setInteractionMode]);
 
-  const cancelLintelDraw = useCallback(() => {
-    setIsDrawingLintel(false);
+  /**
+   * Resumes drawing mode after catalog selection (post-draw).
+   * Deselects current lintel, re-enables drawing, keeps catalog open.
+   */
+  const resumeLintelDraw = useCallback(() => {
+    isDrawingLintelRef.current = true;
+    setIsDrawingLintel(true);
+    setIsPostDrawCatalog(false);
     setCurrentLintel(null);
     setLintelPreview(null);
-    setShowCatalogPanel(false);
+    _setShowCatalogPanel(true);
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setInteractionMode) {
+      setInteractionMode('draw-lintel');
+    }
+  }, [setSelectedId, setSelectedType, setSelectedLintelIds, setInteractionMode]);
+
+  const cancelLintelDraw = useCallback(() => {
+    isDrawingLintelRef.current = false;
+    setIsDrawingLintel(false);
+    setIsPostDrawCatalog(false);
+    setCurrentLintel(null);
+    setLintelPreview(null);
+    _setShowCatalogPanel(false);
     if (setInteractionMode) {
       setInteractionMode('select');
     }
-  }, [setInteractionMode]);
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+  }, [setInteractionMode, setSelectedId, setSelectedType, setSelectedLintelIds]);
+
+  const clearCurrentLintel = useCallback(() => {
+    isDrawingLintelRef.current = false;
+    setIsDrawingLintel(false);
+    setIsPostDrawCatalog(false);
+    setCurrentLintel(null);
+    setLintelPreview(null);
+    _setShowCatalogPanel(false);
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+  }, [setSelectedId, setSelectedType, setSelectedLintelIds]);
 
   /**
    * Mouse down handler — determines start point.
@@ -185,7 +336,8 @@ export function useLintelController({
    * If clicking empty space, uses raw canvas point.
    */
   const handleMouseDown = useCallback((canvasPoint, scale) => {
-    if (!isDrawingLintel) return false;
+    if (!isDrawingLintelRef.current) return false;
+    _setShowCatalogPanel(true);
 
     const walls = getCurrentWalls();
     const hit = findNearestWall(canvasPoint, walls, scale);
@@ -365,6 +517,9 @@ export function useLintelController({
           if (measuredLength <= 0.001 || pxLen < 1.0) {
             setCurrentLintel(null);
             setLintelPreview(null);
+            if (isDrawingLintelRef.current) {
+              _setShowCatalogPanel(true);
+            }
             return true;
           }
 
@@ -381,13 +536,13 @@ export function useLintelController({
             isRounded: false,
             measuredLength: newMeasured,
             finalLength: newMeasured,
-            catalogId: '800053733',
-            type: 'LVL',
-            size: 90,
-            width: 35,
-            height: 90,
-            description: 'Lintel',
-            ply: 1
+            catalogId: activeLintelConfig?.catalogId || '800053733',
+            type: activeLintelConfig?.type || 'LVL',
+            size: activeLintelConfig?.size || 90,
+            width: activeLintelConfig?.width || 35,
+            height: activeLintelConfig?.height || 90,
+            description: activeLintelConfig?.description || 'Lintel',
+            ply: activeLintelConfig?.ply || 1
           };
 
           const updatedLintels = [...getCurrentLintels(), newLintel];
@@ -396,11 +551,15 @@ export function useLintelController({
             [currentPage]: updatedLintels
           }));
           pushHistory(null, getCurrentWalls(), getCurrentDoors(), updatedLintels);
+          // Select the newly created lintel and open catalog for type/ply selection
           setSelectedId(newLintel.id);
           setSelectedType('lintel');
+          if (setSelectedLintelIds) setSelectedLintelIds([newLintel.id]);
           setCurrentLintel(null);
           setLintelPreview(null);
-          setShowCatalogPanel(true);
+          // Keep isDrawingLintel=true — we're still in the drawing workflow
+          setIsPostDrawCatalog(true);
+          _setShowCatalogPanel(true);
           return true;
         }
       }
@@ -425,6 +584,9 @@ export function useLintelController({
     if (measuredLength <= 0.001 || pxLen < 1.0) {
       setCurrentLintel(null);
       setLintelPreview(null);
+      if (isDrawingLintelRef.current) {
+        _setShowCatalogPanel(true);
+      }
       return true;
     }
 
@@ -442,13 +604,13 @@ export function useLintelController({
       isRounded: false,
       measuredLength: newMeasured,
       finalLength: newMeasured,
-      catalogId: '800053733',
-      type: 'LVL',
-      size: 90,
-      width: 35,
-      height: 90,
-      description: 'Lintel',
-      ply: 1
+      catalogId: activeLintelConfig?.catalogId || '800053733',
+      type: activeLintelConfig?.type || 'LVL',
+      size: activeLintelConfig?.size || 90,
+      width: activeLintelConfig?.width || 35,
+      height: activeLintelConfig?.height || 90,
+      description: activeLintelConfig?.description || 'Lintel',
+      ply: activeLintelConfig?.ply || 1
     };
 
     const updatedLintels = [...getCurrentLintels(), newLintel];
@@ -457,13 +619,17 @@ export function useLintelController({
       [currentPage]: updatedLintels
     }));
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updatedLintels);
+    // Select the newly created lintel and open catalog for type/ply selection
     setSelectedId(newLintel.id);
     setSelectedType('lintel');
+    if (setSelectedLintelIds) setSelectedLintelIds([newLintel.id]);
     setCurrentLintel(null);
     setLintelPreview(null);
-    setShowCatalogPanel(true);
+    // Keep isDrawingLintel=true — we're still in the drawing workflow
+    setIsPostDrawCatalog(true);
+    _setShowCatalogPanel(true);
     return true;
-  }, [isDrawingLintel, currentLintel, getCurrentWalls, getCurrentLintels, getCurrentDoors, currentPage, realScale, scaleValue, setLintelsByPage, pushHistory, setSelectedId, setSelectedType, globalLengthOffset]);
+  }, [isDrawingLintel, currentLintel, getCurrentWalls, getCurrentLintels, getCurrentDoors, currentPage, realScale, scaleValue, setLintelsByPage, pushHistory, setSelectedId, setSelectedType, setSelectedLintelIds, globalLengthOffset, activeLintelConfig]);
 
   /**
    * Recalculates or toggles finalLength for a single lintel using the rounding formula
@@ -486,8 +652,9 @@ export function useLintelController({
       ...prev,
       [currentPage]: updated
     }));
+    syncLintelAnnotations(updated);
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations]);
 
   /**
    * Rounds all unrounded lintels on the current page (preserves already rounded ones)
@@ -513,10 +680,11 @@ export function useLintelController({
         ...prev,
         [currentPage]: updated
       }));
+      syncLintelAnnotations(updated);
       pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
     }
     return updated;
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations]);
 
   const updateLintel = useCallback((updatedLintel) => {
     const currentScale = scaleValue || (realScale ? realScale / 1000 : 0.02);
@@ -612,25 +780,54 @@ export function useLintelController({
       ...prev,
       [currentPage]: updated
     }));
-
+    syncLintelAnnotations(updated);
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, globalLengthOffset, realScale, scaleValue]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations, globalLengthOffset, realScale, scaleValue]);
 
-  const deleteLintel = useCallback((lintelId) => {
+  const deleteLintels = useCallback((lintelIds = []) => {
+    if (!lintelIds || lintelIds.length === 0) return;
+    const targetIds = Array.isArray(lintelIds) ? lintelIds : [lintelIds];
     const lintels = getCurrentLintels();
-    const updated = lintels.filter(l => l.id !== lintelId);
+    const updated = lintels.filter(l => !targetIds.includes(l.id));
 
     setLintelsByPage(prev => ({
       ...prev,
       [currentPage]: updated
     }));
+    if (setAnnotationsByPage && currentPage != null) {
+      setAnnotationsByPage(prev => {
+        const pageAnns = prev[currentPage] || [];
+        const filtered = pageAnns.filter(a =>
+          !(a.isLintelCallout && targetIds.includes(a.lintelId)) &&
+          !targetIds.some(id => a.id === `lintel_callout_${id}`)
+        );
+        return { ...prev, [currentPage]: filtered };
+      });
+    }
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory]);
+    if (!isDrawingLintelRef.current) {
+      _setShowCatalogPanel(false);
+    }
+    if (setSelectedId) setSelectedId(null);
+    if (setSelectedType) setSelectedType(null);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, setAnnotationsByPage, pushHistory, setSelectedId, setSelectedType, setSelectedLintelIds]);
+
+  const deleteLintel = useCallback((lintelId) => {
+    deleteLintels([lintelId]);
+  }, [deleteLintels]);
 
   return {
     isDrawingLintel,
+    isPostDrawCatalog,
+    setIsPostDrawCatalog,
+    activeLintelConfig,
+    setActiveLintelConfig,
     startLintelDraw,
+    resumeLintelDraw,
     cancelLintelDraw,
+    clearCurrentLintel,
+    deselectLintel,
     lintelPreview,
     showCatalogPanel,
     setShowCatalogPanel,
@@ -641,6 +838,7 @@ export function useLintelController({
     roundAllLintels,
     updateLintel,
     deleteLintel,
+    deleteLintels,
     globalLengthOffset,
     updateGlobalLengthOffset
   };

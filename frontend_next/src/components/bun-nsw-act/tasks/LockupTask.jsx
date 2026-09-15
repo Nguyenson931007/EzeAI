@@ -132,11 +132,22 @@ export default function LockupTask({
 
   const handleStartEdit = (row) => {
     setEditingRowId(row.id);
-    const isExt = row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
+    const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
+    const effDoorIsExt = Boolean(
+      effCanvasDoor && (
+        effCanvasDoor.is_ext ||
+        effCanvasDoor.is_exterior ||
+        effCanvasDoor.isExternal ||
+        effCanvasDoor.location === "external" ||
+        effCanvasDoor.scope === "external" ||
+        (effCanvasDoor.doorTypeId && String(effCanvasDoor.doorTypeId).startsWith("ext_")) ||
+        (effCanvasDoor.class && String(effCanvasDoor.class).includes("ext")) ||
+        (effCanvasDoor.type && String(effCanvasDoor.type).includes("ext"))
+      )
+    );
+    const isExt = effDoorIsExt || row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
     const isLoose = row.mode === "Loose" || row.category === "Loose Jamb" || String(row.category || "").toLowerCase().includes("loose");
     const isPrehung = row.mode === "Prehung" || row.category === "Prehung";
-
-    const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
     const rawHinge = String(
       row.hung ||
       row.hingeSide ||
@@ -752,7 +763,17 @@ export default function LockupTask({
         const doorLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
         const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
         const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
-        const isExt = Boolean(d.isExternal || /entry|front|sliding|patio|balcony|garage|external/i.test(doorLabel));
+        const isExt = Boolean(
+          d.is_ext ||
+          d.is_exterior ||
+          d.isExternal ||
+          d.location === "external" ||
+          d.scope === "external" ||
+          (d.doorTypeId && String(d.doorTypeId).startsWith("ext_")) ||
+          (d.class && String(d.class).includes("ext")) ||
+          (d.type && String(d.type).includes("ext")) ||
+          /entry|front|sliding|patio|balcony|garage|external/i.test(doorLabel)
+        );
         const isLoose = !isExt && d.mode === "Loose";
 
         // Right -> Hung A, Left -> Hung B
@@ -796,7 +817,17 @@ export default function LockupTask({
       // Map rows to entries (same mapping as LockoutJobsModal)
       const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
         const origDoor = enrichedDoors[idx] || targetDoors[idx] || {};
-        const isExt = r.scope === "external" || r.isExternal || origDoor.isExternal || String(r.location || "").toLowerCase().includes("ext");
+        const origIsExt = Boolean(
+          origDoor.is_ext ||
+          origDoor.is_exterior ||
+          origDoor.isExternal ||
+          origDoor.location === "external" ||
+          origDoor.scope === "external" ||
+          (origDoor.doorTypeId && String(origDoor.doorTypeId).startsWith("ext_")) ||
+          (origDoor.class && String(origDoor.class).includes("ext")) ||
+          (origDoor.type && String(origDoor.type).includes("ext"))
+        );
+        const isExt = r.scope === "external" || r.isExternal || origIsExt || String(r.location || "").toLowerCase().includes("ext");
         const doorLabel = (r.label || origDoor.door_name || origDoor.doorName || origDoor.doorLabel || (origDoor.label && !/single|sliding|window|door/i.test(origDoor.label) ? origDoor.label : null) || `D-${idx + 1}`).trim();
         const isLoose = r.mode === "Loose" || origDoor.mode === "Loose";
 
@@ -1885,13 +1916,25 @@ export default function LockupTask({
                     const isRowEditing = editingRowId === row.id;
                     const rowBg = isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")));
 
-                    const isExt = row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
+                    // Synchronize door label and external classification with canvas UI door
+                    const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
+                    const effDoorIsExt = Boolean(
+                      effCanvasDoor && (
+                        effCanvasDoor.is_ext ||
+                        effCanvasDoor.is_exterior ||
+                        effCanvasDoor.isExternal ||
+                        effCanvasDoor.location === "external" ||
+                        effCanvasDoor.scope === "external" ||
+                        (effCanvasDoor.doorTypeId && String(effCanvasDoor.doorTypeId).startsWith("ext_")) ||
+                        (effCanvasDoor.class && String(effCanvasDoor.class).includes("ext")) ||
+                        (effCanvasDoor.type && String(effCanvasDoor.type).includes("ext"))
+                      )
+                    );
+                    const isExt = effDoorIsExt || row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
                     const categoryDisplay = row.mode === "Prehung" || row.category === "Prehung" ? "Prehung" : (row.mode === "Loose" || row.category === "Loose Jamb" ? "Loose Jamb" : "-");
                     const isLooseJamb = categoryDisplay === "Loose Jamb";
                     const locationDisplay = isExt ? "External" : "Internal";
 
-                    // Synchronize door label with canvas UI door
-                    const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
                     const canvasDoorLabel = effCanvasDoor ? (effCanvasDoor.door_name || effCanvasDoor.doorName || effCanvasDoor.doorLabel) : null;
                     const isGenericLabel = (lbl) => !lbl || /^(door|internal hinged door|external hinged door|single door|sliding door|single|sliding|window)$/i.test(String(lbl).trim());
                     const labelDisplay = (!isGenericLabel(row.label) ? row.label : null) || canvasDoorLabel || row.door_name || row.doorName || row.doorLabel || `D-${idx + 1}`;

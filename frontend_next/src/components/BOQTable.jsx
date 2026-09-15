@@ -1741,6 +1741,7 @@ export default function BOQTable({
   pages = EMPTY_ARRAY,
   doors = EMPTY_ARRAY,
   scalesByPage = {},
+  defaultScale = null,
   wasteInternal = 10,
   wasteExternal = 15,
   initialPageIndex = 0,
@@ -1899,7 +1900,10 @@ export default function BOQTable({
       }
 
       const rooms = findRoomsFromDoor(d, page, center);
-      const pageScale = scalesByPage[d.page_index] ? scalesByPage[d.page_index] / 1000 : null;
+      const rawScale = (scalesByPage && scalesByPage[d.page_index] !== undefined)
+        ? scalesByPage[d.page_index]
+        : defaultScale;
+      const pageScale = rawScale ? rawScale / 1000 : null;
       const width = getDoorWidth(d, pageScale);
       const height = getDoorHeight(d);
       
@@ -1982,7 +1986,7 @@ export default function BOQTable({
   }, [enrichedDoors]);
 
   const baseList = useMemo(() => {
-    if (Object.keys(scalesByPage || {}).length === 0) return [];
+    if (Object.keys(scalesByPage || {}).length === 0 && !defaultScale) return [];
     const rows = [];
     const activePages = selectedPageIndex === "all"
       ? pages
@@ -1990,7 +1994,10 @@ export default function BOQTable({
 
     activePages.forEach(p => {
       const actualPageIndex = pages.indexOf(p);
-      const pageScale = scalesByPage[actualPageIndex] ? scalesByPage[actualPageIndex] / 1000 : null;
+      const rawScale = (scalesByPage && scalesByPage[actualPageIndex] !== undefined)
+        ? scalesByPage[actualPageIndex]
+        : defaultScale;
+      const pageScale = rawScale ? rawScale / 1000 : null;
       if (!pageScale) return;
 
       (p.objects || []).forEach((r) => {
@@ -2820,7 +2827,10 @@ export default function BOQTable({
         if (pts && pts.length >= 2) {
           const dx = (pts[1].x || pts[1][0]) - (pts[0].x || pts[0][0]);
           const dy = (pts[1].y || pts[1][1]) - (pts[0].y || pts[0][1]);
-          const pageScale = scalesByPage[w.page_index] ? scalesByPage[w.page_index] / 1000 : 0.05;
+          const rawScale = (scalesByPage && scalesByPage[w.page_index] !== undefined)
+            ? scalesByPage[w.page_index]
+            : defaultScale;
+          const pageScale = rawScale ? rawScale / 1000 : 0.05;
           total += Math.hypot(dx, dy) * pageScale;
         }
       });
@@ -3915,9 +3925,9 @@ export default function BOQTable({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const missingScalePages = pages.filter((p, i) => !scalesByPage[i]);
+  const missingScalePages = pages.filter((p, i) => scalesByPage[i] === undefined && !defaultScale);
 
-  if (Object.keys(scalesByPage || {}).length === 0)
+  if (Object.keys(scalesByPage || {}).length === 0 && !defaultScale)
     return (
       <div style={styles.card}>
         <h3>📊 BOQ – Floor Area</h3>

@@ -17,6 +17,40 @@
  *   - migrateLegacyDoor(): Normalizes legacy/AI-detected door objects to new schema
  */
 // ──────────────────────────────────────────────────────────────
+//  DOOR CONFIG STORE
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Reads user-configured door defaults from localStorage.
+ * Falls back to 2040mm height, 'SCX1 D/C' external, 'H1 PCM' internal.
+ */
+export function getStoredDoorConfig() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return {
+      doorHeight: 2040,
+      extDoorType: 'SCX1 D/C',
+      intDoorType: 'H1 PCM',
+    };
+  }
+  try {
+    const saved = localStorage.getItem('ezefloor_door_config');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        doorHeight: Number(parsed?.doorHeight) > 0 ? Number(parsed.doorHeight) : 2040,
+        extDoorType: parsed?.extDoorType || 'SCX1 D/C',
+        intDoorType: parsed?.intDoorType || 'H1 PCM',
+      };
+    }
+  } catch (_) {}
+  return {
+    doorHeight: 2040,
+    extDoorType: 'SCX1 D/C',
+    intDoorType: 'H1 PCM',
+  };
+}
+
+// ──────────────────────────────────────────────────────────────
 //  DOOR TYPE REGISTRY
 // ──────────────────────────────────────────────────────────────
 
@@ -43,8 +77,8 @@ export const DOOR_TYPE_REGISTRY = {
     minWidth: 600,
     maxWidth: 1200,
     presetSizes: [
-      { w: 820, h: 2040, label: '2040h × 820w' },
-      { w: 920, h: 2040, label: '2040h × 920w' },
+      { w: 820, label: '820 mm' },
+      { w: 920, label: '920 mm' },
     ],
     iconType: 'single',
   },
@@ -61,8 +95,8 @@ export const DOOR_TYPE_REGISTRY = {
     minWidth: 1200,
     maxWidth: 2400,
     presetSizes: [
-      { w: 1640, h: 2040, label: '2040h × 1640w' },
-      { w: 1840, h: 2040, label: '2040h × 1840w' },
+      { w: 1640, label: '1640 mm' },
+      { w: 1840, label: '1840 mm' },
     ],
     iconType: 'double',
   },
@@ -75,12 +109,12 @@ export const DOOR_TYPE_REGISTRY = {
     doorType: 'sliding',
     headOffset: 50,
     defaultWidth: 1800,
-    defaultHeight: 2100,
+    defaultHeight: 2040,
     minWidth: 1200,
     maxWidth: 4000,
     presetSizes: [
-      { w: 1800, h: 2100, label: '2100h × 1800w' },
-      { w: 2400, h: 2100, label: '2100h × 2400w' },
+      { w: 1800, label: '1800 mm' },
+      { w: 2400, label: '2400 mm' },
     ],
     iconType: 'sliding',
   },
@@ -93,12 +127,12 @@ export const DOOR_TYPE_REGISTRY = {
     doorType: 'bifold',
     headOffset: 75,
     defaultWidth: 2400,
-    defaultHeight: 2100,
+    defaultHeight: 2040,
     minWidth: 1500,
     maxWidth: 6000,
     presetSizes: [
-      { w: 2400, h: 2100, label: '2100h × 2400w' },
-      { w: 3000, h: 2100, label: '2100h × 3000w' },
+      { w: 2400, label: '2400 mm' },
+      { w: 3000, label: '3000 mm' },
     ],
     iconType: 'bifold',
   },
@@ -115,8 +149,8 @@ export const DOOR_TYPE_REGISTRY = {
     minWidth: 2100,
     maxWidth: 6000,
     presetSizes: [
-      { w: 4800, h: 2200, label: '2200h × 4800w' },
-      { w: 2400, h: 2100, label: '2100h × 2400w' },
+      { w: 4800, h: 2200, label: '4800 mm' },
+      { w: 2400, h: 2200, label: '2400 mm' },
     ],
     iconType: 'garage',
   },
@@ -135,8 +169,13 @@ export const DOOR_TYPE_REGISTRY = {
     minWidth: 400,
     maxWidth: 4000,
     presetSizes: [
-      { w: 1200, h: 1200, label: '1200h × 1200w' },
-      { w: 1800, h: 1200, label: '1200h × 1800w' },
+      { w: 600, h: 1200, label: '600 mm' },
+      { w: 900, h: 1200, label: '900 mm' },
+      { w: 1200, h: 1200, label: '1200 mm' },
+      { w: 1500, h: 1200, label: '1500 mm' },
+      { w: 1800, h: 1200, label: '1800 mm' },
+      { w: 2100, h: 1200, label: '2100 mm' },
+      { w: 2400, h: 1200, label: '2400 mm' },
     ],
     iconType: 'window',
   },
@@ -150,14 +189,16 @@ export const DOOR_TYPE_REGISTRY = {
     renderClass: 'single_door',
     doorType: 'single',
     headOffset: 100,
-    defaultWidth: 810,
-    defaultHeight: 1980,
+    defaultWidth: 820,
+    defaultHeight: 2040,
     minWidth: 600,
     maxWidth: 1100,
     presetSizes: [
-      { w: 810, h: 1980, label: '1980h × 810w' },
-      { w: 760, h: 1980, label: '1980h × 760w' },
-      { w: 760, h: 2200, label: '2200h × 760w' },
+      { w: 720, label: '720 mm' },
+      { w: 760, label: '760 mm' },
+      { w: 820, label: '820 mm' },
+      { w: 870, label: '870 mm' },
+      { w: 920, label: '920 mm' },
     ],
     iconType: 'single',
   },
@@ -169,13 +210,15 @@ export const DOOR_TYPE_REGISTRY = {
     renderClass: 'double_door',
     doorType: 'double',
     headOffset: 100,
-    defaultWidth: 1520,
-    defaultHeight: 1980,
+    defaultWidth: 1640,
+    defaultHeight: 2040,
     minWidth: 1200,
     maxWidth: 2200,
     presetSizes: [
-      { w: 1520, h: 1980, label: '1980h × 1520w' },
-      { w: 1620, h: 2040, label: '2040h × 1620w' },
+      { w: 1440, label: '1440 mm' },
+      { w: 1520, label: '1520 mm' },
+      { w: 1640, label: '1640 mm' },
+      { w: 1840, label: '1840 mm' },
     ],
     iconType: 'double',
   },
@@ -187,13 +230,15 @@ export const DOOR_TYPE_REGISTRY = {
     renderClass: 'sliding_door',
     doorType: 'sliding',
     headOffset: 50,
-    defaultWidth: 810,
-    defaultHeight: 1980,
+    defaultWidth: 820,
+    defaultHeight: 2040,
     minWidth: 600,
     maxWidth: 1500,
     presetSizes: [
-      { w: 810, h: 1980, label: '1980h × 810w' },
-      { w: 760, h: 1980, label: '1980h × 760w' },
+      { w: 720, label: '720 mm' },
+      { w: 760, label: '760 mm' },
+      { w: 820, label: '820 mm' },
+      { w: 920, label: '920 mm' },
     ],
     iconType: 'sliding',
   },
@@ -205,14 +250,15 @@ export const DOOR_TYPE_REGISTRY = {
     renderClass: 'cavity_slider_door',
     doorType: 'sliding',
     headOffset: 50,
-    defaultWidth: 760,
-    defaultHeight: 1980,
+    defaultWidth: 820,
+    defaultHeight: 2040,
     minWidth: 600,
     maxWidth: 1200,
     presetSizes: [
-      { w: 760, h: 1980, label: '1980h × 760w' },
-      { w: 760, h: 2200, label: '2200h × 760w' },
-      { w: 760, h: 2400, label: '2400h × 760w' },
+      { w: 720, label: '720 mm' },
+      { w: 760, label: '760 mm' },
+      { w: 820, label: '820 mm' },
+      { w: 920, label: '920 mm' },
     ],
     iconType: 'sliding',
   },
@@ -225,13 +271,14 @@ export const DOOR_TYPE_REGISTRY = {
     doorType: 'sliding',
     headOffset: 50,
     defaultWidth: 1520,
-    defaultHeight: 1980,
+    defaultHeight: 2040,
     minWidth: 1200,
     maxWidth: 2400,
     presetSizes: [
-      { w: 1520, h: 1980, label: '1980h × 1520w' },
-      { w: 1520, h: 2200, label: '2200h × 1520w' },
-      { w: 1520, h: 2400, label: '2400h × 1520w' },
+      { w: 1440, label: '1440 mm' },
+      { w: 1520, label: '1520 mm' },
+      { w: 1640, label: '1640 mm' },
+      { w: 1840, label: '1840 mm' },
     ],
     iconType: 'sliding',
   },
@@ -244,102 +291,16 @@ export const DOOR_TYPE_REGISTRY = {
     doorType: 'bifold',
     headOffset: 75,
     defaultWidth: 1500,
-    defaultHeight: 1980,
+    defaultHeight: 2040,
     minWidth: 900,
     maxWidth: 3600,
     presetSizes: [
-      { w: 1500, h: 1980, label: '1980h × 1500w' },
-      { w: 1800, h: 1980, label: '1980h × 1800w' },
+      { w: 1500, label: '1500 mm' },
+      { w: 1800, label: '1800 mm' },
+      { w: 2400, label: '2400 mm' },
     ],
     iconType: 'bifold',
   },
-  // door_custom: {
-  //   id: 'door_custom',
-  //   label: 'Custom Door',
-  //   shortLabel: 'Custom Door',
-  //   category: 'internal',
-  //   renderClass: 'single_door',
-  //   doorType: 'single',
-  //   headOffset: 100,
-  //   defaultWidth: 820,
-  //   defaultHeight: 2040,
-  //   minWidth: 400,
-  //   maxWidth: 3000,
-  //   presetSizes: [
-  //     { w: 820, h: 2040, label: 'Custom (Drag to draw)' }
-  //   ],
-  //   iconType: 'single',
-  // },
-  // door_double_custom: {
-  //   id: 'door_double_custom',
-  //   label: 'Custom Double Door',
-  //   shortLabel: 'Custom Double',
-  //   category: 'internal',
-  //   renderClass: 'double_door',
-  //   doorType: 'double',
-  //   headOffset: 100,
-  //   defaultWidth: 1600,
-  //   defaultHeight: 2040,
-  //   minWidth: 800,
-  //   maxWidth: 4000,
-  //   presetSizes: [
-  //     { w: 1600, h: 2040, label: 'Custom (Drag to draw)' }
-  //   ],
-  //   iconType: 'double',
-  // },
-  // door_sliding_custom: {
-  //   id: 'door_sliding_custom',
-  //   label: 'Custom Sliding Door',
-  //   shortLabel: 'Custom Sliding',
-  //   category: 'internal',
-  //   renderClass: 'sliding_door',
-  //   doorType: 'sliding',
-  //   headOffset: 50,
-  //   defaultWidth: 1800,
-  //   defaultHeight: 2100,
-  //   minWidth: 800,
-  //   maxWidth: 4000,
-  //   presetSizes: [
-  //     { w: 1800, h: 2100, label: 'Custom (Drag to draw)' }
-  //   ],
-  //   iconType: 'sliding',
-  // },
-  win_standard: {
-    id: 'win_standard',
-    label: 'Standard Window',
-    shortLabel: 'Std Window',
-    category: 'external',
-    renderClass: 'window',
-    doorType: 'window',
-    headOffset: 200,
-    defaultWidth: 1200,
-    defaultHeight: 1200,
-    minWidth: 400,
-    maxWidth: 3000,
-    presetSizes: [
-      { w: 1200, h: 1200, label: '1200h × 1200w' },
-      { w: 1500, h: 1200, label: '1200h × 1500w' },
-      { w: 1800, h: 1200, label: '1200h × 1800w' },
-    ],
-    iconType: 'window',
-  },
-  // win_custom: {
-  //   id: 'win_custom',
-  //   label: 'Custom Window',
-  //   shortLabel: 'Custom Win',
-  //   category: 'external',
-  //   renderClass: 'window',
-  //   doorType: 'window',
-  //   headOffset: 200,
-  //   defaultWidth: 1200,
-  //   defaultHeight: 1200,
-  //   minWidth: 200,
-  //   maxWidth: 6000,
-  //   presetSizes: [
-  //     { w: 1200, h: 1200, label: 'Custom (Drag to draw)' }
-  //   ],
-  //   iconType: 'window',
-  // },
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -392,6 +353,7 @@ export function getPresetCategories() {
       id: key,
       name: def.label,
       class: def.renderClass,
+      category: def.category,
       sizes: def.presetSizes,
     });
   }
@@ -402,13 +364,15 @@ export function getPresetCategories() {
 /**
  * Returns a flat array of door type options for dropdowns/selects.
  */
-export function getDoorTypeOptions() {
-  return Object.entries(DOOR_TYPE_REGISTRY).map(([key, def]) => ({
-    value: key,
-    label: def.label,
-    category: def.category,
-    renderClass: def.renderClass,
-  }));
+export function getDoorTypeOptions(category = null) {
+  return Object.entries(DOOR_TYPE_REGISTRY)
+    .filter(([_, def]) => !category || def.category === category)
+    .map(([key, def]) => ({
+      value: key,
+      label: def.label,
+      category: def.category,
+      renderClass: def.renderClass,
+    }));
 }
 
 /**
@@ -466,22 +430,27 @@ export const FIRE_RATING_OPTIONS = [
 
 /**
  * Computes door height from wall class and door type.
+ * Default standard door height is dynamically resolved from localStorage setting (default 2040mm).
+ * Garage defaults to 2200mm, window defaults to 1200mm.
  *
  * @param {string} wallClassName - Wall class (e.g., "exterior_wall", "interior_wall")
  * @param {string} doorTypeId   - Door type registry key (e.g., "int_hinged_single")
  * @param {number} [wallHeightOverride] - Optional explicit wall height in mm
  * @returns {number} Door height in mm
  */
-export function computeDoorHeight(wallClassName, doorTypeId, wallHeightOverride = null) {
+export function computeDoorHeight(wallClassName, doorTypeId, heightOverride = null) {
+  if (heightOverride && heightOverride > 0) {
+    return heightOverride;
+  }
   const doorDef = DOOR_TYPE_REGISTRY[doorTypeId];
   if (doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard') {
     return doorDef?.defaultHeight || 1200;
   }
-  const wallDef = WALL_TYPE_DEFAULTS[wallClassName] || WALL_TYPE_DEFAULTS.interior_wall;
-  const wallHeight = wallHeightOverride || wallDef.heightMm;
-  const headOffset = doorDef ? doorDef.headOffset : 100;
-
-  return Math.max(300, wallHeight - headOffset);
+  if (doorDef?.doorType === 'garage' || doorDef?.renderClass === 'garage_door' || doorTypeId === 'ext_garage') {
+    return doorDef?.defaultHeight || 2200;
+  }
+  const stored = getStoredDoorConfig();
+  return stored.doorHeight || doorDef?.defaultHeight || 2040;
 }
 
 /**
@@ -648,11 +617,26 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
   const wallClass = parentWall?.class_name || 'interior_wall';
   const wallHeight = parentWall?.height || WALL_TYPE_DEFAULTS[wallClass]?.heightMm || 2400;
 
+  const isWindow = doorDef.doorType === 'window' || doorDef.renderClass === 'window' || doorTypeId === 'win_standard';
+  const isGarage = doorDef.doorType === 'garage' || doorDef.renderClass === 'garage_door' || doorTypeId === 'ext_garage';
+
+  const isExt = overrides.is_ext !== undefined
+    ? Boolean(overrides.is_ext)
+    : (isWindow || isGarage || doorDef.category === 'external');
+  const location = overrides.location || (isExt ? 'external' : 'internal');
+  const scope = overrides.scope || location;
+
+  const doorConfig = getStoredDoorConfig();
+  const defaultModel = isExt ? doorConfig.extDoorType : doorConfig.intDoorType;
+  const lockupModel = isWindow
+    ? (overrides.door_type || overrides.lockup_door_type || 'Window')
+    : (overrides.door_type || overrides.lockup_door_type || defaultModel);
+
   const cx = (p1.x + p2.x) / 2;
   const cy = (p1.y + p2.y) / 2;
   const widthPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-  const widthMm = realScale ? Math.round(widthPx * realScale) : doorDef.defaultWidth;
-  const heightMm = computeDoorHeight(wallClass, doorTypeId, wallHeight);
+  const widthMm = overrides.width_mm || (realScale ? Math.round(widthPx * realScale) : doorDef.defaultWidth);
+  const heightMm = computeDoorHeight(wallClass, doorTypeId, overrides.height_mm || overrides.height);
   const thicknessMm = parentWall?.thickness || WALL_TYPE_DEFAULTS[wallClass]?.defaultThicknessMm || 90;
   const rotation = Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
 
@@ -661,7 +645,6 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
 
   const now = new Date().toISOString();
 
-  const isWindow = doorDef.doorType === 'window' || doorDef.renderClass === 'window' || doorTypeId === 'win_standard';
   const doorName = overrides.doorName || overrides.door_name || (isWindow ? nextWindowName() : nextDoorName());
 
   return {
@@ -674,6 +657,15 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
     type: doorDef.doorType,
     class: doorDef.renderClass,
 
+    // ── Penetration & Lockup BIM fields ──
+    is_ext: isExt,
+    is_exterior: isExt,
+    location: location,
+    scope: scope,
+    door_type: lockupModel,
+    lockup_door_type: lockupModel,
+    product: lockupModel,
+
     // ── Relationships ──
     parentWallId: parentWall?.id || null,
     hingeT: parentWall ? projectPointToHingeT({ x: cx, y: cy }, parentWall, widthPx) : 0.5,
@@ -684,6 +676,8 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
     // ── Dimensions (mm) ──
     width_mm: widthMm,
     height_mm: heightMm,
+    height: heightMm,
+    heightMm: heightMm,
     thickness_mm: thicknessMm,
 
     // ── Computed Metrics ──
@@ -711,7 +705,7 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
     angle: 90,             // Legacy alias
 
     // ── BIM Metadata ──
-    material: 'timber',
+    material: isWindow ? 'glass' : 'timber',
     fireRating: 'none',
     loadBearingRelation: 'non-load',
     hardwareType: 'passage',
@@ -825,18 +819,28 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
   if (!widthMm) {
     widthMm = doorDef.defaultWidth;
   }
+  const storedConfig = getStoredDoorConfig();
   let heightMm = door.height_mm || door.heightMm;
   if (!heightMm) {
     if (isWindowObj) {
       heightMm = doorDef.defaultHeight || 1200;
+    } else if (doorDef.doorType === 'garage' || doorDef.renderClass === 'garage_door' || doorTypeId === 'ext_garage') {
+      heightMm = 2200;
     } else if (parentWall) {
       const wallClass = parentWall.class_name || 'interior_wall';
       const wallHeight = parentWall.height || WALL_TYPE_DEFAULTS[wallClass]?.heightMm || 2400;
       heightMm = computeDoorHeight(wallClass, doorTypeId, wallHeight);
     } else {
-      heightMm = doorDef.defaultHeight || 1980;
+      heightMm = storedConfig.doorHeight || doorDef.defaultHeight || 2040;
     }
   }
+
+  const defaultModel = isExternal ? storedConfig.extDoorType : storedConfig.intDoorType;
+  const lockupModel = isWindowObj
+    ? (door.door_type || 'Window')
+    : (door.door_type || door.lockup_door_type || defaultModel);
+  const location = door.location || (isExternal ? 'external' : 'internal');
+  const scope = door.scope || location;
 
   const now = new Date().toISOString();
 
@@ -914,8 +918,17 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     class: isWindowObj ? 'window' : doorDef.renderClass,
     is_window: isWindowObj,
     windowConvertedToSliding: windowConvertedToSliding,
+    is_ext: isExternal,
+    is_exterior: isExternal,
+    location: location,
+    scope: scope,
+    door_type: door.door_type || lockupModel,
+    lockup_door_type: door.lockup_door_type || door.door_type || lockupModel,
+    product: door.product || door.door_type || lockupModel,
     width_mm: widthMm,
     height_mm: heightMm,
+    height: heightMm,
+    heightMm: heightMm,
     hingeSide: door.hingeSide || door.hinge_side || 'left',
     hinge_side: door.hinge_side || door.hingeSide || 'left',
     swingDirection: door.swingDirection || door.swing_direction || door.swing || 'inward',

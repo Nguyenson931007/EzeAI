@@ -201,6 +201,7 @@ export default function App() {
     currentJobId, setCurrentJobId,
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage,
+    defaultScale, setDefaultScale,
     annotationsByPage, setAnnotationsByPage
   } = useAppModel();
 
@@ -393,8 +394,11 @@ export default function App() {
   } = useInteractionController(svgRef, layerVisibility);
 
   useEffect(() => {
-    setRealScale(scalesByPage[currentPage] || null);
-  }, [currentPage, scalesByPage, setRealScale]);
+    const effectiveScale = (scalesByPage && scalesByPage[currentPage] !== undefined)
+      ? scalesByPage[currentPage]
+      : (defaultScale || null);
+    setRealScale(effectiveScale);
+  }, [currentPage, scalesByPage, defaultScale, setRealScale]);
 
   // Tự động reset selectedId/selectedType khi layer tương ứng bị tắt
   useEffect(() => {
@@ -412,6 +416,13 @@ export default function App() {
     if (!layerVisibility.door && selectedType === "door") {
       setSelectedId(null);
       setSelectedType(null);
+    }
+    if (layerVisibility?.lintel === false) {
+      if (setSelectedLintelIds) setSelectedLintelIds([]);
+      if (selectedType === "lintel") {
+        setSelectedId(null);
+        setSelectedType(null);
+      }
     }
     if (setHoverId) setHoverId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -491,7 +502,7 @@ export default function App() {
     isSmartDetecting,
     smartProgress,
     generateRoomsFromWalls
-  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage, setWallsByPage, doorsByPage, wallsByPage, pushHistory);
+  } = useAIController(image, currentPage, setRoomsByPage, realScale, roomsByPage, setDoorsByPage, setWallsByPage, doorsByPage, wallsByPage, pushHistory, setLayerVisibility);
   const { handleLogin: authLogin, handleLogout: authLogout } = useAuthController(user, setUser, setIsLoggedIn);
   const { handleSaveJob: apiSaveJob, handleLoadJob } = useProjectController(
     user, pages, roomsByPage, realScale, wasteByPage, setCurrentProjectName,
@@ -501,6 +512,7 @@ export default function App() {
     roofsByPage, setRoofsByPage,
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage,
+    defaultScale, setDefaultScale,
     activePdfCategory, setActivePdfCategory,
     annotationsByPage, setAnnotationsByPage
   );
@@ -515,11 +527,22 @@ export default function App() {
         }
         if (cancelROI) cancelROI();
         if (cancelSmartDetect) cancelSmartDetect();
+        if (lintelController?.setShowCatalogPanel) {
+          lintelController.setShowCatalogPanel(false);
+        }
+        if (lintelController?.cancelLintelDraw) {
+          lintelController.cancelLintelDraw();
+        }
+        if (selectedType === 'lintel') {
+          setSelectedId(null);
+          setSelectedType(null);
+          if (setSelectedLintelIds) setSelectedLintelIds([]);
+        }
       }
     };
     window.addEventListener("keydown", handleGlobalEscape, true);
     return () => window.removeEventListener("keydown", handleGlobalEscape, true);
-  }, [roiRect, clearROI, setRoiRect, cancelROI, cancelSmartDetect]);
+  }, [roiRect, clearROI, setRoiRect, cancelROI, cancelSmartDetect, lintelController, selectedType, setSelectedId, setSelectedType, setSelectedLintelIds]);
 
   // ── 1. Tải project chia sẻ qua token bảo mật ──
   const loadSharedProject = useCallback(async (token) => {
@@ -833,6 +856,13 @@ export default function App() {
           if (savedSession.wallsByPage) setWallsByPage(savedSession.wallsByPage);
           if (savedSession.doorsByPage) setDoorsByPage(savedSession.doorsByPage);
           if (savedSession.scalesByPage) setScalesByPage(savedSession.scalesByPage);
+          if (savedSession.defaultScale && setDefaultScale) {
+            setDefaultScale(savedSession.defaultScale);
+          } else if (savedSession.realScale && setDefaultScale) {
+            setDefaultScale(savedSession.realScale);
+          } else if (savedSession.scalesByPage && savedSession.scalesByPage[0] && setDefaultScale) {
+            setDefaultScale(savedSession.scalesByPage[0]);
+          }
           if (savedSession.roofsByPage) setRoofsByPage(savedSession.roofsByPage);
           if (savedSession.lintelsByPage) setLintelsByPage(savedSession.lintelsByPage);
           if (savedSession.annotationsByPage && setAnnotationsByPage) setAnnotationsByPage(savedSession.annotationsByPage);
@@ -891,6 +921,7 @@ export default function App() {
         wallsByPage,
         doorsByPage,
         scalesByPage,
+        defaultScale,
         roofsByPage,
         lintelsByPage,
         annotationsByPage,
@@ -907,7 +938,7 @@ export default function App() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, roofsByPage, lintelsByPage, annotationsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
+  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, defaultScale, roofsByPage, lintelsByPage, annotationsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
 
   // 2.5. Tự động lưu định kỳ theo thiết lập Cài đặt (Configurable Periodic Auto-Save)
   useEffect(() => {
@@ -939,6 +970,7 @@ export default function App() {
             wallsByPage,
             doorsByPage,
             scalesByPage,
+            defaultScale,
             roofsByPage,
             lintelsByPage,
             annotationsByPage,
@@ -1362,6 +1394,17 @@ export default function App() {
       if (isAddingPagesMode) {
         const startIdx = pages.length;
         setPages(prev => [...prev, ...selectedData]);
+        if (defaultScale && setScalesByPage) {
+          setScalesByPage(prev => {
+            const updated = { ...prev };
+            selectedData.forEach((_, idx) => {
+              if (updated[startIdx + idx] === undefined) {
+                updated[startIdx + idx] = defaultScale;
+              }
+            });
+            return updated;
+          });
+        }
         setCurrentPage(startIdx);
         setImage(selectedData[0].image);
         setImgSize({
@@ -1377,6 +1420,8 @@ export default function App() {
         setPdfOffsetsByPage({});
         setRoofsByPage({});
         setLintelsByPage({});
+        setScalesByPage({});
+        if (setDefaultScale) setDefaultScale(null);
         if (setAnnotationsByPage) setAnnotationsByPage({});
         if (!currentProjectName || currentProjectName === "Untitled Project" || currentProjectName === "New Project") {
           if (setCurrentJobId) setCurrentJobId(null);
@@ -1474,6 +1519,7 @@ export default function App() {
       setRoofsByPage({});
       setLintelsByPage({});
       setScalesByPage({});
+      if (setDefaultScale) setDefaultScale(null);
       setWasteByPage({});
       setPdfOffsetsByPage({});
       if (setAnnotationsByPage) setAnnotationsByPage({});
@@ -1747,7 +1793,7 @@ export default function App() {
             </div>
           )}
 
-          {workspaceMode !== "3d" && (lintelController?.showCatalogPanel || (selectedType === 'lintel' && !isDrawingLintel)) && (
+          {workspaceMode !== "3d" && lintelController?.showCatalogPanel && (
             <div
               style={{
                 zIndex: 10,
@@ -1757,38 +1803,67 @@ export default function App() {
             >
               <LintelCatalogPanel
                 selectedLintel={(lintelsByPage[currentPage] || []).find(l => l.id === selectedId)}
+                activeLintelConfig={lintelController?.activeLintelConfig}
                 onSelectCatalogItem={(item) => {
                   const pageLintels = lintelsByPage[currentPage] || [];
+                  const config = {
+                    catalogId: item.id,
+                    size: item.height,
+                    width: item.width,
+                    height: item.height,
+                    type: item.type,
+                    description: item.description || 'Lintel',
+                    ply: item.ply || 1
+                  };
+                  if (lintelController?.setActiveLintelConfig) {
+                    lintelController.setActiveLintelConfig(config);
+                  }
                   if (selectedId && selectedType === 'lintel') {
                     const selectedLintel = pageLintels.find(l => l.id === selectedId);
                     if (selectedLintel) {
-                      const cat = selectedLintel.category || 'lintel';
-                      const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
                       const updated = {
                         ...selectedLintel,
-                        catalogId: item.id,
-                        size: item.height,
-                        width: item.width,
-                        height: item.height,
-                        type: item.type,
-                        description: desc,
-                        ply: item.ply || 1
+                        ...config
                       };
                       lintelController.updateLintel(updated);
                     }
                   }
-                  if (isDrawingLintel) {
+                  if (isDrawingLintel || lintelController?.isDrawingLintel) {
+                    // IN DRAWING MODE: The catalog category won't turn off in phases drawing!
+                    // Catalog stays open, drawing mode stays active.
+                    if (lintelController?.setShowCatalogPanel) {
+                      lintelController.setShowCatalogPanel(true);
+                    }
+                  } else {
+                    // Just changing type on existing lintel: close catalog and do NOT activate drawing mode
                     lintelController.setShowCatalogPanel(false);
-                    setSelectedId(null);
-                    setSelectedType(null);
                   }
                 }}
-                isDrawingLintel={isDrawingLintel}
-                currentLintelType={lintelController?.currentLintelType}
-                onSelectType={(type) => lintelController?.startLintelDraw(type)}
+                onUpdatePly={(ply) => {
+                  if (lintelController?.setActiveLintelConfig) {
+                    lintelController.setActiveLintelConfig(prev => ({
+                      ...prev,
+                      ply
+                    }));
+                  }
+                  const pageLintels = lintelsByPage[currentPage] || [];
+                  if (selectedId && selectedType === 'lintel') {
+                    const selectedLintel = pageLintels.find(l => l.id === selectedId);
+                    if (selectedLintel) {
+                      lintelController.updateLintel({
+                        ...selectedLintel,
+                        ply
+                      });
+                    }
+                  }
+                }}
+                isDrawingLintel={isDrawingLintel || lintelController?.isDrawingLintel}
                 onClose={() => {
-                  lintelController?.setShowCatalogPanel(false);
-                  lintelController?.cancelLintelDraw();
+                  if (isDrawingLintel || lintelController?.isDrawingLintel) {
+                    lintelController?.cancelLintelDraw();
+                  } else {
+                    lintelController?.setShowCatalogPanel(false);
+                  }
                 }}
               />
             </div>
@@ -2230,11 +2305,12 @@ export default function App() {
               <h3>📊 BOQ – Enterprise</h3>
               <button className="boq-close-btn" onClick={() => setShowBOQ(false)}>✕ Close</button>
             </div>
-            {Object.keys(scalesByPage).length > 0 ? (
+            {Object.keys(scalesByPage).length > 0 || defaultScale ? (
               <BOQTable
                 pages={boqPages}
                 doors={allDoors}
                 scalesByPage={scalesByPage}
+                defaultScale={defaultScale}
                 wasteInternal={wasteByPage[currentPage]?.internal ?? 10}
                 wasteExternal={wasteByPage[currentPage]?.external ?? 15}
                 initialPageIndex={currentPage}

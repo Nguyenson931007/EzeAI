@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getPresetCategories } from '@/models/DoorTypeRegistry';
+import { getPresetCategories, getStoredDoorConfig } from '@/models/DoorTypeRegistry';
 
 // Preset door list — dynamically derived from the centralized DoorTypeRegistry
 const PRESET_CATEGORIES = getPresetCategories();
@@ -224,10 +224,14 @@ export default function DoorTypePanel({
                             gap: '6px'
                           }}>
                             {item.sizes.map((size, sIdx) => {
+                              const doorConfig = getStoredDoorConfig();
+                              const isGarage = item.class === 'garage_door' || item.id === 'ext_garage';
+                              const isWindow = item.class === 'window' || item.id?.startsWith('win_');
+                              const dynamicHeight = isGarage ? 2200 : (isWindow ? 1200 : (doorConfig?.doorHeight || 2040));
+
                               const isActive = activePreset && 
                                 activePreset.id === item.id && 
-                                activePreset.width === size.w && 
-                                activePreset.height === size.h;
+                                activePreset.width === size.w;
 
                               return (
                                 <div
@@ -236,8 +240,9 @@ export default function DoorTypePanel({
                                     id: item.id,
                                     name: item.name,
                                     class: item.class,
+                                    category: item.category || category.id,
                                     width: size.w,
-                                    height: size.h
+                                    height: dynamicHeight
                                   })}
                                   style={{
                                     border: isActive ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
@@ -273,12 +278,12 @@ export default function DoorTypePanel({
                                   
                                   {/* Title Label */}
                                   <span style={{ fontSize: '11px', fontWeight: 700, color: isActive ? '#2563eb' : '#1e293b' }}>
-                                    {size.label}
+                                    {size.label || `${size.w} mm`}
                                   </span>
 
                                   {/* Hint Subtitle */}
                                   <span style={{ fontSize: '9px', color: '#64748b' }}>
-                                    Select Height and Width
+                                    {`${dynamicHeight} mm Height`}
                                   </span>
                                 </div>
                               );

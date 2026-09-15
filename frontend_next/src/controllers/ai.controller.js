@@ -395,7 +395,197 @@ function applyROIResults(existing, detected, roiRect, mode) {
   return [...existing, ...detected];
 }
 
+/**
+ * Automatically generates lintels for detected openings (doors and windows).
+ *
+ * Sizing Rule:
+ *   - Wall width <= 75mm (standard 70mm internal/partition wall) -> 90x35 LVL (catalogId: '800053733')
+ *   - Wall width >  75mm (standard 90mm internal/exterior wall)   -> 90x45 LVL (catalogId: '800053734')
+ *
+ * Span Rule:
+ *   - Spans across the entire opening (from p1 to p2 along parent wall centerline).
+ *
+ * Lifecycle:
+ *   - Preserves user-drawn manual lintels (!l.isAutoDoorLintel).
+ *   - Replaces auto-generated door lintels on fresh runs.
+ */
+export function generateLintelsForOpenings(
+  openings,
+  walls,
+  realScale,
+  existingLintels = [],
+  roiRect = null,
+  roiMode = null,
+  pdfOffset = { x: 0, y: 0 }
+) {
+  if (!openings || openings.length === 0) return existingLintels || [];
 
+  // Separate manual lintels from auto-generated lintels
+  let keptLintels = (existingLintels || []).filter(l => !l.isAutoDoorLintel);
+
+  // If in ROI replace mode, preserve auto lintels that are outside the ROI
+  if (roiRect && roiMode === "replace") {
+    const rx = roiRect.x + (pdfOffset?.x || 0);
+    const ry = roiRect.y + (pdfOffset?.y || 0);
+    const autoLintelsOutsideROI = (existingLintels || []).filter(l => {
+      if (!l.isAutoDoorLintel) return false;
+      if (l.points && l.points.length >= 2) {
+        const mx = (l.points[0][0] + l.points[1][0]) / 2;
+        const my = (l.points[0][1] + l.points[1][1]) / 2;
+        const inROI = (mx >= rx && mx <= rx + roiRect.w && my >= ry && my <= ry + roiRect.h);
+        return !inROI;
+      }
+      return true;
+    });
+    keptLintels = [...keptLintels, ...autoLintelsOutsideROI];
+  }
+
+  const newAutoLintels = [];
+  const now = Date.now();
+
+  const getBaseWallId = (id) => id ? String(id).split('-A-')[0].split('-B-')[0] : '';
+
+  openings.forEach((opening, idx) => {
+    // Determine opening endpoints p1, p2
+    let p1, p2;
+    if (opening.points && opening.points.length >= 2) {
+      const pt0 = opening.points[0];
+      const pt1 = opening.points[1];
+      p1 = Array.isArray(pt0) ? { x: Number(pt0[0]), y: Number(pt0[1]) } : { x: Number(pt0.x), y: Number(pt0.y) };
+      p2 = Array.isArray(pt1) ? { x: Number(pt1[0]), y: Number(pt1[1]) } : { x: Number(pt1.x), y: Number(pt1.y) };
+    } else if (opening.bbox && opening.bbox.length >= 4) {
+      const [x1, y1, x2, y2] = opening.bbox;
+      const w = Math.abs(x2 - x1);
+      const h = Math.abs(y2 - y1);
+      if (w >= h) {
+        p1 = { x: Number(x1), y: Number((y1 + y2) / 2) };
+        p2 = { x: Number(x2), y: Number((y1 + y2) / 2) };
+      } else {
+        p1 = { x: Number((x1 + x2) / 2), y: Number(y1) };
+        p2 = { x: Number((x1 + x2) / 2), y: Number(y2) };
+      }
+    } else {
+      return;
+    }
+
+    const openingLenPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (openingLenPx < 1.0) return;
+
+    // Find parent wall or nearest wall
+    let parentWall = null;
+    if (opening.parentWallId && walls && walls.length > 0) {
+      const targetBaseId = getBaseWallId(opening.parentWallId);
+      parentWall = walls.find(w => w.id === opening.parentWallId || getBaseWallId(w.id) === targetBaseId);
+    }
+
+    if (!parentWall && walls && walls.length > 0) {
+      const midOpening = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      let bestDist = 80;
+      for (const w of walls) {
+        if (!w.centerline || w.centerline.length !== 2) continue;
+        const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+        const wdx = wp2.x - wp1.x;
+        const wdy = wp2.y - wp1.y;
+        const wLen = Math.hypot(wdx, wdy);
+        if (wLen < 1) continue;
+        const dist = Math.abs(wdx * (midOpening.y - wp1.y) - wdy * (midOpening.x - wp1.x)) / wLen;
+        if (dist < bestDist) {
+          bestDist = dist;
+          parentWall = w;
+        }
+      }
+    }
+
+    // Determine wall thickness in mm
+    let wallThicknessMm = 70;
+    if (parentWall) {
+      if (typeof parentWall.thickness === 'number' && parentWall.thickness > 0) {
+        wallThicknessMm = parentWall.thickness;
+      } else if (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior) {
+        wallThicknessMm = 90;
+      } else if (parentWall.thickness_px && realScale && realScale > 0 && realScale !== 1.0) {
+        wallThicknessMm = Math.round(parentWall.thickness_px * realScale);
+      } else {
+        const isIntPart = parentWall.class_name === 'interior_wall' || parentWall.class_name === 'partition_wall' || parentWall.type === 'int';
+        wallThicknessMm = isIntPart ? 70 : 90;
+      }
+    } else if (opening.is_ext || opening.is_exterior || opening.location === 'external' || opening.scope === 'external') {
+      wallThicknessMm = 90;
+    }
+
+    // Sizing rule:
+    // <= 75mm -> 90x35 LVL
+    // > 75mm  -> 90x45 LVL
+    const is90x45 = wallThicknessMm > 75;
+    const catalogId = is90x45 ? '800053734' : '800053733';
+    const lintelWidth = is90x45 ? 45 : 35;
+    const lintelHeight = 90;
+
+    // Project endpoints onto parent wall centerline if available
+    let startOffset = null;
+    let endOffset = null;
+    let lintelPoints = [[p1.x, p1.y], [p2.x, p2.y]];
+
+    if (parentWall && parentWall.centerline && parentWall.centerline.length === 2) {
+      const wp1 = { x: parentWall.centerline[0][0], y: parentWall.centerline[0][1] };
+      const wp2 = { x: parentWall.centerline[1][0], y: parentWall.centerline[1][1] };
+      const wdx = wp2.x - wp1.x;
+      const wdy = wp2.y - wp1.y;
+      const wLen2 = wdx * wdx + wdy * wdy;
+      if (wLen2 > 1e-6) {
+        const t1 = Math.max(0, Math.min(1, ((p1.x - wp1.x) * wdx + (p1.y - wp1.y) * wdy) / wLen2));
+        const t2 = Math.max(0, Math.min(1, ((p2.x - wp1.x) * wdx + (p2.y - wp1.y) * wdy) / wLen2));
+        startOffset = Math.min(t1, t2);
+        endOffset = Math.max(t1, t2);
+
+        // Projected endpoints along wall centerline
+        const projP1 = { x: wp1.x + startOffset * wdx, y: wp1.y + startOffset * wdy };
+        const projP2 = { x: wp1.x + endOffset * wdx, y: wp1.y + endOffset * wdy };
+        lintelPoints = [[projP1.x, projP1.y], [projP2.x, projP2.y]];
+      }
+    }
+
+    // Measured length in meters
+    let measuredLengthM = 0;
+    if (opening.width_mm && opening.width_mm > 0) {
+      measuredLengthM = Math.round((opening.width_mm / 1000) * 1000) / 1000;
+    } else if (realScale && realScale > 0 && realScale !== 1.0) {
+      measuredLengthM = Math.round(((openingLenPx * realScale) / 1000) * 1000) / 1000;
+    } else {
+      measuredLengthM = Math.round(openingLenPx * 0.02 * 1000) / 1000;
+    }
+
+    const wallThicknessPx = parentWall?.thickness_px || (realScale && realScale > 0 ? wallThicknessMm / realScale : 20);
+
+    newAutoLintels.push({
+      id: `lintel_auto_${now}_${idx}`,
+      wallId: parentWall ? parentWall.id : null,
+      startOffset,
+      endOffset,
+      points: lintelPoints,
+      wallThickness_px: wallThicknessPx,
+      baseLength: measuredLengthM,
+      lengthOffset: 0,
+      category: 'lintel',
+      isRounded: false,
+      measuredLength: measuredLengthM,
+      finalLength: measuredLengthM,
+      catalogId,
+      type: 'LVL',
+      size: 90,
+      width: lintelWidth,
+      height: lintelHeight,
+      description: 'Lintels',
+      ply: 1,
+      isAutoDoorLintel: true,
+      doorId: opening.id,
+      openingName: opening.doorName || opening.door_name || opening.label || opening.id
+    });
+  });
+
+  return [...keptLintels, ...newAutoLintels];
+}
 
 export const useAIController = (
   image,
@@ -407,9 +597,10 @@ export const useAIController = (
   setWallsByPage,
   doorsByPage,
   wallsByPage,
-  pushHistory
+  pushHistory,
+  setLayerVisibility
 ) => {
-  const { pages, pdfOffsetsByPage, setRoofsByPage } = useAppModel();
+  const { pages, pdfOffsetsByPage, setRoofsByPage, lintelsByPage, setLintelsByPage } = useAppModel();
   const { showAlert } = useDialog();
   const pdfOffset = pdfOffsetsByPage?.[currentPage] || { x: 0, y: 0 };
 
@@ -419,6 +610,7 @@ export const useAIController = (
   const wallsByPageRef = useRef(wallsByPage);
   const doorsByPageRef = useRef(doorsByPage);
   const roomsByPageRef = useRef(roomsByPage);
+  const lintelsByPageRef = useRef(lintelsByPage);
 
   useEffect(() => {
     wallsByPageRef.current = wallsByPage;
@@ -431,6 +623,10 @@ export const useAIController = (
   useEffect(() => {
     roomsByPageRef.current = roomsByPage;
   }, [roomsByPage]);
+
+  useEffect(() => {
+    lintelsByPageRef.current = lintelsByPage;
+  }, [lintelsByPage]);
   const doorDetectRunCountRef = useRef({});
   const [cacheStatus, setCacheStatus] = useState("idle"); // idle, processing, cached, completed, canceled, failed
   const [inferenceTiming, setInferenceTiming] = useState("");
@@ -975,12 +1171,23 @@ export const useAIController = (
     }
   };
 
-  const detectDoorSeg = async (roiRect, roiMode) => {
+  const detectDoorSeg = async (roiRect, roiMode, doorConfig = null) => {
     if (!realScale || realScale === 1.0) {
-      showAlertalert("Please calibrate scale before running AI detection!");
+      showAlert("Please calibrate scale before running AI detection!");
       return;
     }
     if (!image) return showAlert("No image to detect");
+
+    let activeDoorConfig = doorConfig;
+    if (!activeDoorConfig) {
+      try {
+        const saved = localStorage.getItem('ezefloor_door_config');
+        if (saved) activeDoorConfig = JSON.parse(saved);
+      } catch (e) { }
+    }
+    const chosenDoorHeight = Number(activeDoorConfig?.doorHeight) > 0 ? Number(activeDoorConfig.doorHeight) : 2040;
+    const chosenExtDoorType = activeDoorConfig?.extDoorType || "SCX1 D/C";
+    const chosenIntDoorType = activeDoorConfig?.intDoorType || "H1 PCM";
 
     const job = startROIJob();
     try {
@@ -1062,8 +1269,55 @@ export const useAIController = (
           })
           : detectedDoors;
 
+        // Apply chosen door height and external / internal door types
+        const configuredDoors = snappedDoors.map(d => {
+          const isWin = d.is_window || d.type === "window" || d.class === "window" || String(d.id || "").startsWith("win_");
+          if (isWin) {
+            return d;
+          }
+
+          const pw = d.parentWallId ? uncutWalls.find(w => w.id === d.parentWallId) : null;
+          const isParentExt = pw && (
+            pw.class_name === 'exterior_wall' ||
+            pw.type === 'ext' ||
+            pw.wall_type === 'ext' ||
+            pw.is_ext ||
+            pw.is_exterior
+          );
+
+          const isExt = Boolean(
+            isParentExt ||
+            d.is_ext ||
+            d.is_exterior ||
+            d.location === 'external' ||
+            d.scope === 'external' ||
+            (d.doorTypeId && String(d.doorTypeId).includes('ext')) ||
+            (d.class && String(d.class).includes('ext')) ||
+            (d.door_name && String(d.door_name).toLowerCase().includes('external'))
+          );
+
+          const assignedType = isExt ? chosenExtDoorType : chosenIntDoorType;
+          const widthMm = d.width_mm || 820;
+
+          return {
+            ...d,
+            is_ext: isExt,
+            is_exterior: isExt,
+            location: isExt ? "external" : "internal",
+            scope: isExt ? "external" : "internal",
+            door_type: assignedType,
+            lockup_door_type: assignedType,
+            product: assignedType,
+            height_mm: chosenDoorHeight,
+            height: chosenDoorHeight,
+            heightMm: chosenDoorHeight,
+            area_mm2: widthMm * chosenDoorHeight,
+            perimeter_mm: 2 * (widthMm + chosenDoorHeight)
+          };
+        });
+
         // Filter out any detected windows that do not sit on a wall
-        const validDoors = snappedDoors.filter(d => {
+        const validDoors = configuredDoors.filter(d => {
           const isWin = d.is_window || d.type === "window" || d.class === "window" || String(d.id || "").startsWith("win_");
           if (isWin && uncutWalls.length > 0) {
             return isWindowOnWall(d, uncutWalls, 80);
@@ -1087,13 +1341,35 @@ export const useAIController = (
         }
 
         // Cut existing walls at the new doors and recalculate polygons immediately
+        let cutWalls = currentWalls;
         if (setWallsByPage && wallsByPageRef.current) {
           if (currentWalls.length > 0) {
-            const cutWalls = cutWallsByDoors(currentWalls, mergedDoors);
+            cutWalls = cutWallsByDoors(currentWalls, mergedDoors);
             setWallsByPage(prev => ({
               ...prev,
               [currentPage]: recalculateAllWallsPolygons(cutWalls)
             }));
+          }
+        }
+
+        // Auto-generate lintels for all detected openings (doors and windows)
+        if (setLintelsByPage) {
+          const currentLintels = (lintelsByPageRef.current && lintelsByPageRef.current[currentPage]) || [];
+          const updatedLintels = generateLintelsForOpenings(
+            mergedDoors,
+            uncutWalls.length > 0 ? uncutWalls : currentWalls,
+            realScale,
+            currentLintels,
+            roiRect,
+            roiMode,
+            pdfOffset
+          );
+          setLintelsByPage(prev => ({
+            ...prev,
+            [currentPage]: updatedLintels
+          }));
+          if (setLayerVisibility) {
+            setLayerVisibility(prev => (prev?.lintel === false ? { ...prev, lintel: true } : prev));
           }
         }
 
@@ -1164,6 +1440,7 @@ export const useAIController = (
       setDoorsByPage(prev => ({ ...prev, [currentPage]: [] }));
       setWallsByPage(prev => ({ ...prev, [currentPage]: [] }));
       setRoomsByPage(prev => ({ ...prev, [currentPage]: [] }));
+      if (setLintelsByPage) setLintelsByPage(prev => ({ ...prev, [currentPage]: [] }));
     }
 
     try {
@@ -1194,6 +1471,15 @@ export const useAIController = (
 
         if (doorsArray.length > 0) {
           const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
+          let autoDoorCfg = null;
+          try {
+            const saved = localStorage.getItem('ezefloor_door_config');
+            if (saved) autoDoorCfg = JSON.parse(saved);
+          } catch (e) { }
+          const autoHeight = Number(autoDoorCfg?.doorHeight) > 0 ? Number(autoDoorCfg.doorHeight) : 2040;
+          const autoExtType = autoDoorCfg?.extDoorType || "SCX1 D/C";
+          const autoIntType = autoDoorCfg?.intDoorType || "H1 PCM";
+
           detectedDoors = doorsArray.map(d => {
             const migrated = migrateLegacyDoor(d, currentWalls, currentPage, realScale);
             const shiftedPoints = migrated.points ? migrated.points.map(pt => ({
@@ -1212,13 +1498,33 @@ export const useAIController = (
               x: pt.x + pdfOffset.x,
               y: pt.y + pdfOffset.y
             })) : null;
+
+            const isWin = migrated.is_window || migrated.type === "window" || migrated.class === "window" || String(migrated.id || "").startsWith("win_");
+            const isExt = Boolean(migrated.is_ext || migrated.is_exterior || migrated.location === 'external' || migrated.scope === 'external');
+            const assignedType = isExt ? autoExtType : autoIntType;
+            const widthMm = migrated.width_mm || 820;
+
             return {
               ...migrated,
               points: shiftedPoints,
               centerPoint: shiftedCenter,
               polygon: shiftedPolygon,
               mask_polygon: shiftedMaskPolygon,
-              review_state: 'AI_GENERATED'
+              review_state: 'AI_GENERATED',
+              ...(isWin ? {} : {
+                is_ext: isExt,
+                is_exterior: isExt,
+                location: isExt ? "external" : "internal",
+                scope: isExt ? "external" : "internal",
+                door_type: assignedType,
+                lockup_door_type: assignedType,
+                product: assignedType,
+                height_mm: autoHeight,
+                height: autoHeight,
+                heightMm: autoHeight,
+                area_mm2: widthMm * autoHeight,
+                perimeter_mm: 2 * (widthMm + autoHeight)
+              })
             };
           });
 
@@ -1231,6 +1537,27 @@ export const useAIController = (
             ...prev,
             [currentPage]: mergedDoors
           }));
+
+          if (setLintelsByPage) {
+            const currentLintels = clearExisting ? [] : ((lintelsByPageRef.current && lintelsByPageRef.current[currentPage]) || []);
+            const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
+            const updatedLintels = generateLintelsForOpenings(
+              mergedDoors,
+              currentWalls,
+              realScale,
+              currentLintels,
+              null,
+              null,
+              pdfOffset
+            );
+            setLintelsByPage(prev => ({
+              ...prev,
+              [currentPage]: updatedLintels
+            }));
+            if (setLayerVisibility) {
+              setLayerVisibility(prev => (prev?.lintel === false ? { ...prev, lintel: true } : prev));
+            }
+          }
         }
 
         setSmartProgress(prev => ({

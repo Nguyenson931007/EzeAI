@@ -1155,6 +1155,14 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  async getLockoutDoorTypes() {
+    const res = await fetch(`${BASE_URL}/api/lockout/door-types`, {
+      headers: getHeaders(null),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };
 

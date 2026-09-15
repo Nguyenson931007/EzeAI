@@ -1,12 +1,15 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { ApiService } from "@/models/api.service";
 import {
   DOOR_TYPE_REGISTRY,
+  getStoredDoorConfig,
   resolveDoorTypeId,
   getDoorTypeOptions,
   MATERIAL_OPTIONS,
   FIRE_RATING_OPTIONS
 } from "@/models/DoorTypeRegistry";
 import { getDoorWindowDisplayWidthMm } from "../UIComponents";
+import SearchableSelect from "@/components/SearchableSelect";
 
 export default function DoorWindowPropertyPanel({
   selectedDoor,
@@ -26,6 +29,39 @@ export default function DoorWindowPropertyPanel({
   scaleValue,
   showConfirm = window.confirm
 }) {
+  const [lockoutDoorTypes, setLockoutDoorTypes] = useState({ internal: [], external: [] });
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadTypes = async () => {
+      try {
+        let data = null;
+        if (ApiService.getLockoutDoorTypes) {
+          const res = await ApiService.getLockoutDoorTypes();
+          data = res?.data;
+        } else {
+          const res = await fetch("/api/lockout/door-types");
+          if (res.ok) {
+            const json = await res.json();
+            data = json?.data;
+          }
+        }
+        if (isMounted && data) {
+          const extSet = new Set(Array.isArray(data.external) ? data.external : []);
+          extSet.add("SCX1 D/C");
+          const intSet = new Set(Array.isArray(data.internal) ? data.internal : []);
+          intSet.add("H1 PCM");
+          setLockoutDoorTypes({
+            external: Array.from(extSet).sort(),
+            internal: Array.from(intSet).sort()
+          });
+        }
+      } catch (_) { }
+    };
+    loadTypes();
+    return () => { isMounted = false; };
+  }, []);
+
   const isMulti = selectedDoorIds && selectedDoorIds.length > 1;
   const selectedDoors = (doors || []).filter((d) => (selectedDoorIds || []).includes(d.id));
 
@@ -236,11 +272,14 @@ export default function DoorWindowPropertyPanel({
 
         <div className="panel-field">
           <span className="panel-label">Window Type</span>
-          <select
-            className="panel-select"
+          <SearchableSelect
             value={activeDoor.doorTypeId || activeDoor.penetration_type || activeDoor.penetrationType || "win_standard"}
-            onChange={(e) => {
-              const typeId = e.target.value;
+            options={getDoorTypeOptions().filter((o) => {
+              const def = DOOR_TYPE_REGISTRY[o.value];
+              return def?.doorType === "window" || def?.renderClass === "window" || o.value.includes("win_");
+            })}
+            placeholder="Search window type..."
+            onChange={(typeId) => {
               const def = DOOR_TYPE_REGISTRY[typeId];
               handleApplyProperty({
                 doorTypeId: typeId,
@@ -249,18 +288,7 @@ export default function DoorWindowPropertyPanel({
                 type: def?.doorType || "window"
               });
             }}
-          >
-            {getDoorTypeOptions()
-              .filter((o) => {
-                const def = DOOR_TYPE_REGISTRY[o.value];
-                return def?.doorType === "window" || def?.renderClass === "window" || o.value.includes("win_");
-              })
-              .map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-          </select>
+          />
         </div>
 
         <div className="panel-field">
@@ -575,13 +603,19 @@ export default function DoorWindowPropertyPanel({
             const nextCat = e.target.value;
             const newTypeId = resolveDoorTypeId(activeDoorTypeId, nextCat);
             const def = DOOR_TYPE_REGISTRY[newTypeId];
+            const storedConfig = getStoredDoorConfig();
+            const newModel = nextCat === "external" ? storedConfig.extDoorType : storedConfig.intDoorType;
             handleApplyProperty({
               is_ext: nextCat === "external",
               is_exterior: nextCat === "external",
               location: nextCat,
+              scope: nextCat,
               doorTypeId: newTypeId,
               penetration_type: def?.renderClass || activeDoor.penetration_type,
-              class: def?.renderClass || activeDoor.class
+              class: def?.renderClass || activeDoor.class,
+              door_type: newModel,
+              lockup_door_type: newModel,
+              product: newModel
             });
           }}
         >
@@ -592,11 +626,11 @@ export default function DoorWindowPropertyPanel({
 
       <div className="panel-field">
         <span className="panel-label">Door Type</span>
-        <select
-          className="panel-select"
+        <SearchableSelect
           value={activeDoorTypeId}
-          onChange={(e) => {
-            const typeId = e.target.value;
+          options={getDoorTypeOptions(category)}
+          placeholder="Search door type (e.g. Single, Sliding)..."
+          onChange={(typeId) => {
             const def = DOOR_TYPE_REGISTRY[typeId];
             handleApplyProperty({
               doorTypeId: typeId,
@@ -605,13 +639,24 @@ export default function DoorWindowPropertyPanel({
               type: def?.doorType || "door"
             });
           }}
-        >
-          {getDoorTypeOptions(category).map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        />
+      </div>
+
+      <div className="panel-field">
+        <span className="panel-label">Door Model (Lockup)</span>
+        <SearchableSelect
+          value={isMulti ? "" : (activeDoor.door_type || activeDoor.lockup_door_type || activeDoor.product || "")}
+          options={category === "external" ? (lockoutDoorTypes.external.length > 0 ? lockoutDoorTypes.external : ["SCX1 D/C", "SCX1 P/PLY", "SCX1 PCM", "SCX1 SPM"]) : (lockoutDoorTypes.internal.length > 0 ? lockoutDoorTypes.internal : ["H1 PCM", "H1 SPM", "H1 PCLC 4.75mm"])}
+          placeholder={isMulti ? "(Multiple door models)" : (category === "external" ? "Search model (e.g. SCX1 D/C)..." : "Search model (e.g. H1 PCM)...")}
+          allowCustom={true}
+          onChange={(val) => {
+            handleApplyProperty({
+              door_type: val,
+              lockup_door_type: val,
+              product: val
+            });
+          }}
+        />
       </div>
 
       <div className="panel-field">

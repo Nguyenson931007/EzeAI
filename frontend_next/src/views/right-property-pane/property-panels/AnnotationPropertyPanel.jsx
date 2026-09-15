@@ -16,7 +16,7 @@ const PALETTE_COLORS = [
 ];
 
 const STROKE_WIDTH_OPTIONS = [1, 2, 4, 8, 12, 16, 24, 32];
-const FONT_SIZE_OPTIONS = [14, 18, 24, 30, 36, 40, 50, 60, 72, 90, 100, 120];
+const FONT_SIZE_PT_OPTIONS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
 
 export default function AnnotationPropertyPanel({
   annotation,
@@ -26,7 +26,7 @@ export default function AnnotationPropertyPanel({
   onDeleteAnnotation,
   onDuplicateAnnotation,
   realScale,
-  scaleValue
+  onSelectLintel
 }) {
   if (!annotation) return null;
 
@@ -144,11 +144,27 @@ export default function AnnotationPropertyPanel({
   const currentFillMode = annotation.fillMode || "both";
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
   const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
-  const currentFontSize = annotation.fontSize || 50;
+  const currentDpi = annotation.dpi || (typeof window !== "undefined" && localStorage.getItem("ezefloor_dpi") ? parseFloat(localStorage.getItem("ezefloor_dpi")) : 250);
+  const currentFontSizePt = (typeof annotation.fontSizePt === "number" && annotation.fontSizePt > 0)
+    ? annotation.fontSizePt
+    : Math.max(1, Math.round((annotation.fontSize || 50) * 72 / currentDpi));
+  const currentFontSizePx = annotation.fontSize || Math.max(6, Math.round(currentFontSizePt * (currentDpi / 72)));
 
   const handleUpdate = (field, val) => {
     if (onUpdateAnnotation) {
       onUpdateAnnotation(annotation.id, { [field]: val });
+    }
+  };
+
+  const handleFontSizePtChange = (newPt) => {
+    const ptVal = Math.max(1, parseInt(newPt, 10) || 1);
+    const pxVal = Math.max(6, Math.round(ptVal * (currentDpi / 72)));
+    if (onUpdateAnnotation) {
+      onUpdateAnnotation(annotation.id, {
+        fontSize: pxVal,
+        fontSizePt: ptVal,
+        dpi: currentDpi
+      });
     }
   };
 
@@ -250,6 +266,68 @@ export default function AnnotationPropertyPanel({
           </div>
         </div>
       )}
+
+      {/* Linked Lintel Callout Notification Banner & Bidirectional Switch Button */}
+      {(() => {
+        const isLinkedLintel = Boolean(
+          annotation.isLintelCallout ||
+          annotation.lintelId ||
+          (annotation.id && String(annotation.id).startsWith("lintel_callout_"))
+        );
+        const linkedLintelId = annotation.lintelId || (annotation.id && String(annotation.id).startsWith("lintel_callout_") ? String(annotation.id).replace("lintel_callout_", "") : null);
+
+        if (!isLinkedLintel) return null;
+
+        return (
+          <div style={{
+            background: "linear-gradient(135deg, #fffbeb, #fef3c7)",
+            border: "1.5px solid #f59e0b",
+            borderRadius: "8px",
+            padding: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            boxShadow: "0 2px 6px rgba(245, 158, 11, 0.15)"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  🏷️ LINKED LINTEL CALLOUT
+                </div>
+                <div style={{ fontSize: "13px", color: "#78350f", fontWeight: 700, marginTop: "2px" }}>
+                  {annotation.text || "Architectural Tag"}
+                </div>
+              </div>
+            </div>
+            {onSelectLintel && linkedLintelId && (
+              <button
+                type="button"
+                className="rp-action-btn"
+                onClick={() => onSelectLintel(linkedLintelId)}
+                style={{
+                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                  color: "#ffffff",
+                  fontWeight: "bold",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  width: "100%",
+                  boxShadow: "0 1px 4px rgba(217, 119, 6, 0.3)",
+                  transition: "all 0.15s ease"
+                }}
+                title="Switch back to Lintel Property Panel"
+              >
+                <span>🧱 Open in Lintel Property Panel</span>
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Callout Style Preset Gallery (14 Thumbnails) */}
       {isCallout && (
@@ -493,34 +571,34 @@ export default function AnnotationPropertyPanel({
       {/* 6. Text Formatting & Sizing (For Text, Callout, Sticky Note) */}
       {isTextLike && (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {/* Font Size */}
+          {/* Font Size (pt) */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-                Font Size
+                Font Size (pt)
               </label>
               <span style={{ fontSize: "12px", fontWeight: 700, color: "#31456E" }}>
-                {currentFontSize} px
+                {currentFontSizePt} pt <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 500 }}>(= {currentFontSizePx}px @ {currentDpi} DPI)</span>
               </span>
             </div>
             <input
               type="range"
-              min="14"
-              max="160"
-              step="2"
-              value={currentFontSize}
-              onChange={(e) => handleUpdate("fontSize", parseInt(e.target.value, 10))}
+              min="1"
+              max="72"
+              step="1"
+              value={currentFontSizePt}
+              onChange={(e) => handleFontSizePtChange(e.target.value)}
               style={{ width: "100%", cursor: "pointer", accentColor: "#31456E" }}
             />
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-              {FONT_SIZE_OPTIONS.map((s) => (
+              {FONT_SIZE_PT_OPTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
-                  onClick={() => handleUpdate("fontSize", s)}
+                  onClick={() => handleFontSizePtChange(s)}
                   style={{
-                    background: currentFontSize === s ? "#31456E" : "#f1f5f9",
-                    color: currentFontSize === s ? "#ffffff" : "#475569",
+                    background: currentFontSizePt === s ? "#31456E" : "#f1f5f9",
+                    color: currentFontSizePt === s ? "#ffffff" : "#475569",
                     border: "1px solid #cbd5e1",
                     borderRadius: "4px",
                     padding: "2px 6px",
@@ -529,7 +607,7 @@ export default function AnnotationPropertyPanel({
                     cursor: "pointer"
                   }}
                 >
-                  {s}
+                  {s}pt
                 </button>
               ))}
             </div>

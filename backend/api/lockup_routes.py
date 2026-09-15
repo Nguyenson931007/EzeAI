@@ -474,7 +474,7 @@ async def calculate_lockout(payload: DoorCalcPayload):
         d_height = float(d.get("height_mm") or d.get("height") or 2040.0)
 
         # 1. Scope: Lấy theo Door Type (External vs Internal Penetrations)
-        explicit_scope = str(d.get("scope") or "").strip().lower()
+        explicit_scope = str(d.get("scope") or d.get("location") or "").strip().lower()
         raw_type = str(
             d.get("doorType") or
             d.get("doorTypeId") or 
@@ -483,8 +483,11 @@ async def calculate_lockout(payload: DoorCalcPayload):
         ).lower()
 
         ext_keywords = ["external", "ext_", "garage"]
+        is_ext_flag = bool(d.get("is_ext") or d.get("is_exterior") or d.get("isExternal"))
         if explicit_scope in {"internal", "external"}:
             scope_val = explicit_scope
+        elif is_ext_flag:
+            scope_val = "external"
         elif any(kw in raw_type for kw in ext_keywords):
             scope_val = "external"
         else:

@@ -1968,7 +1968,9 @@ export default function AnnotationCanvasLayer({
       </defs>
 
       {/* ── BACKGROUND CLICK CATCHER (Deselect when clicking outside on empty canvas in Select Mode) ── */}
-      {!isMarkupActive && (selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0) || editingTextId || activeNotePopup) && (
+      {!isMarkupActive &&
+        !(selectedAnnotationId && String(selectedAnnotationId).startsWith("lintel_callout_") && (!selectedAnnotationIds || selectedAnnotationIds.every(id => String(id).startsWith("lintel_callout_")))) &&
+        (selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0) || editingTextId || activeNotePopup) && (
         <rect
           x="-200000"
           y="-200000"
@@ -2784,6 +2786,7 @@ export default function AnnotationCanvasLayer({
 
             {/* 16. CALLOUT (Multiline, unified object, nearest edge attachment, draggable anchor) */}
             {ann.type === "callout" && (() => {
+              if (ann.isLintelCallout) return null;
               const isBeingEdited = editingTextId === ann.id;
               const isBold = ann.isBold !== false;
               const isItalic = !!ann.isItalic;
@@ -2975,7 +2978,7 @@ export default function AnnotationCanvasLayer({
             })()}
 
             {/* CALLOUT FLOATING DELETE BUTTON when selected */}
-            {ann.type === "callout" && isSelected && !isMarkupActive && (() => {
+            {/* {ann.type === "callout" && isSelected && !isMarkupActive && (() => {
               const cbX = ann.boxX || ann.currentPt?.x || (ann.x + 40);
               const cbY = ann.boxY || ann.currentPt?.y || (ann.y + 40);
               const fontSize = ann.fontSize || 50;
@@ -3003,7 +3006,7 @@ export default function AnnotationCanvasLayer({
                   <text x="0" y="3.5" fill="#ffffff" fontSize="11" fontWeight="800" textAnchor="middle">✕</text>
                 </g>
               );
-            })()}
+            })()} */}
 
             {/* 17. STAMP IMAGE */}
             {ann.type === "stamp" && ann.src && (

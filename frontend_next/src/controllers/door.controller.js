@@ -16,6 +16,7 @@
 import { useState, useRef, useCallback } from 'react';
 import {
   DOOR_TYPE_REGISTRY,
+  getStoredDoorConfig,
   createDoorFromGeometry,
   validateDoorPlacement,
   findParentWall,
@@ -138,6 +139,22 @@ export function useDoorController({
     const walls = getCurrentWalls();
     const doors = getCurrentDoors();
 
+    const storedConfig = getStoredDoorConfig();
+    const doorDef = DOOR_TYPE_REGISTRY[doorTypeId];
+    const isWin = doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard';
+    const isGar = doorDef?.doorType === 'garage' || doorDef?.renderClass === 'garage_door' || doorTypeId === 'ext_garage';
+
+    // Penetration category: External Penetrations, Garage, Window -> external; Internal Penetrations -> internal
+    const isExt = isWin || isGar || doorDef?.category === 'external' || doorPreset?.category === 'external';
+    const location = isExt ? 'external' : 'internal';
+    const scope = location;
+
+    // Height: window = 1200, garage = 2200, others from stored default (2040)
+    const heightMm = isGar ? 2200 : (isWin ? 1200 : (doorPreset?.height || storedConfig.doorHeight || 2040));
+
+    // Lockup model: window -> 'Window', external -> extDoorType ('SCX1 D/C'), internal -> intDoorType ('H1 PCM')
+    const doorModel = isWin ? 'Window' : (isExt ? storedConfig.extDoorType : storedConfig.intDoorType);
+
     // Create BIM-compliant door
     const newDoor = createDoorFromGeometry(
       p1, p2,
@@ -152,6 +169,17 @@ export function useDoorController({
         swingDirection: previewSwing,
         swing: previewSwing,
         swing_direction: previewSwing,
+        is_ext: isExt,
+        is_exterior: isExt,
+        location: location,
+        scope: scope,
+        door_type: doorModel,
+        lockup_door_type: doorModel,
+        product: doorModel,
+        height_mm: heightMm,
+        height: heightMm,
+        heightMm: heightMm,
+        ...(doorPreset?.width ? { width_mm: doorPreset.width } : {})
       }
     );
 
@@ -207,7 +235,7 @@ export function useDoorController({
     setShowTypeSelector(false);
     setIsDrawingDoor(false);
     setDoorPreset(null);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setIsDrawingDoor, setDoorPreset]);
+  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setIsDrawingDoor, setDoorPreset, doorPreset]);
 
   /**
    * Step 2: Records the first click point (mousedown).

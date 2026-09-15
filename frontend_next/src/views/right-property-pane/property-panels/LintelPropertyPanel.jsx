@@ -2,16 +2,53 @@ import React from "react";
 
 export default function LintelPropertyPanel({
   selectedLintel,
+  selectedLintelIds = [],
   lintelController,
   deleteItem,
-  showConfirm = window.confirm
+  showConfirm = window.confirm,
+  onOpenPdfCallout,
+  onClose
 }) {
   if (!selectedLintel) {
     return <div className="panel-hint" style={{ padding: "8px 0" }}>Lintel not found.</div>;
   }
 
+  const handleClose = () => {
+    if (onClose) {
+      onClose();
+    } else if (lintelController?.deselectLintel) {
+      lintelController.deselectLintel();
+    } else {
+      if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
+    }
+  };
+
   return (
     <>
+      {selectedLintelIds && selectedLintelIds.length > 1 && (
+        <div style={{
+          background: "rgba(59, 130, 246, 0.15)",
+          border: "1px solid rgba(59, 130, 246, 0.3)",
+          color: "#60a5fa",
+          borderRadius: 4,
+          padding: "6px 10px",
+          marginBottom: 10,
+          fontSize: 12,
+          fontWeight: 600,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center"
+        }}>
+          <span>Multiple Lintels Selected</span>
+          <span style={{
+            background: "#2563eb",
+            color: "#fff",
+            borderRadius: 10,
+            padding: "1px 7px",
+            fontSize: 11
+          }}>{selectedLintelIds.length}</span>
+        </div>
+      )}
       <div className="panel-field">
         <span className="panel-label">Lintel ID</span>
         <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: "bold" }}>
@@ -39,6 +76,48 @@ export default function LintelPropertyPanel({
         </select>
       </div>
 
+      {/* <div className="panel-field">
+        <span className="panel-label">Callout Tag / Label</span>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <input
+            type="text"
+            className="panel-input"
+            placeholder={selectedLintel.category === 'beam' ? 'B1' : (selectedLintel.category === 'bh' ? 'BH1' : 'L1')}
+            value={selectedLintel.label || ""}
+            onChange={(e) => {
+              if (lintelController) {
+                lintelController.updateLintel({
+                  ...selectedLintel,
+                  label: e.target.value
+                });
+              }
+            }}
+          />
+          {selectedLintel.calloutOffset && (
+            <button
+              className="rp-action-btn"
+              title="Reset callout position back to default"
+              style={{
+                fontSize: 10,
+                padding: "4px 6px",
+                background: "#334155",
+                color: "#94a3b8",
+                whiteSpace: "nowrap",
+                cursor: "pointer"
+              }}
+              onClick={() => {
+                if (lintelController) {
+                  const updated = { ...selectedLintel };
+                  delete updated.calloutOffset;
+                  lintelController.updateLintel(updated);
+                }
+              }}
+            >
+              Reset Pos
+            </button>
+          )}
+        </div>
+      </div> */}
       <div className="panel-field">
         <span className="panel-label">Size</span>
         <div style={{ fontSize: 13 }}>
@@ -64,6 +143,24 @@ export default function LintelPropertyPanel({
                   ply: val === "" ? null : val
                 });
               }
+            }
+          }}
+        />
+      </div>
+
+      <div className="panel-field">
+        <span className="panel-label">Grade</span>
+        <input
+          type="text"
+          className="panel-input"
+          placeholder="14"
+          value={selectedLintel.grade !== undefined && selectedLintel.grade !== null ? selectedLintel.grade : "14"}
+          onChange={(e) => {
+            if (lintelController) {
+              lintelController.updateLintel({
+                ...selectedLintel,
+                grade: e.target.value
+              });
             }
           }}
         />
@@ -152,6 +249,124 @@ export default function LintelPropertyPanel({
         </div>
       </div>
 
+
+
+      {/* <div className="panel-field">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span className="panel-label">Callout Font Size (pt)</span>
+          <span style={{ fontSize: "12px", color: "#38bdf8", fontWeight: "bold" }}>
+            {selectedLintel.fontSizePt !== undefined ? selectedLintel.fontSizePt : 14} pt
+            {` (= ${Math.round((selectedLintel.fontSizePt !== undefined ? Number(selectedLintel.fontSizePt) : 14) * ((selectedLintel.dpi || 250) / 72))} px)`}
+          </span>
+        </div>
+        <input
+          type="number"
+          min="1"
+          max="120"
+          step="1"
+          className="panel-input"
+          value={selectedLintel.fontSizePt !== undefined ? selectedLintel.fontSizePt : 14}
+          onChange={(e) => {
+            const val = e.target.value === "" ? "" : Math.max(1, parseInt(e.target.value, 10) || 1);
+            if (lintelController) {
+              lintelController.updateLintel({
+                ...selectedLintel,
+                fontSizePt: val
+              });
+            }
+          }}
+        />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "6px" }}>
+          {[10, 12, 14, 16, 18, 24, 36].map((pt) => {
+            const curPt = selectedLintel.fontSizePt !== undefined ? Number(selectedLintel.fontSizePt) : 14;
+            return (
+              <button
+                key={pt}
+                type="button"
+                onClick={() => {
+                  if (lintelController) {
+                    lintelController.updateLintel({
+                      ...selectedLintel,
+                      fontSizePt: pt
+                    });
+                  }
+                }}
+                style={{
+                  background: curPt === pt ? "#3b82f6" : "#1e293b",
+                  color: curPt === pt ? "#ffffff" : "#94a3b8",
+                  border: "1px solid #475569",
+                  borderRadius: "4px",
+                  padding: "2px 6px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+              >
+                {pt}pt
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="panel-field">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span className="panel-label">DPI Setting</span>
+          <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+            {selectedLintel.dpi || 250} DPI
+          </span>
+        </div>
+        <input
+          type="number"
+          min="50"
+          max="1200"
+          step="10"
+          className="panel-input"
+          value={selectedLintel.dpi || 250}
+          onChange={(e) => {
+            const val = parseInt(e.target.value, 10) || 250;
+            if (typeof window !== "undefined") {
+              localStorage.setItem("ezefloor_dpi", String(val));
+            }
+            if (lintelController) {
+              lintelController.updateLintel({
+                ...selectedLintel,
+                dpi: val
+              });
+            }
+          }}
+        />
+        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "3px" }}>
+          Formula: px = pt * (DPI / 72). Default: 250 DPI.
+        </div>
+      </div> */}
+
+      {onOpenPdfCallout && (
+        <button
+          type="button"
+          className="rp-action-btn"
+          style={{
+            background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+            color: "#ffffff",
+            fontWeight: "bold",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            marginTop: "6px",
+            padding: "8px 10px",
+            borderRadius: "6px",
+            border: "none",
+            cursor: "pointer"
+          }}
+          onClick={() => onOpenPdfCallout(selectedLintel)}
+        >
+          <span>🎨 Open in PDF Callout Tool</span>
+        </button>
+      )}
+
+
+
       <div className="panel-field">
         <span className="panel-label">Final Length (Rounded)</span>
         <div style={{ fontSize: 18, color: "#f59e0b", fontWeight: "bold" }}>
@@ -181,28 +396,39 @@ export default function LintelPropertyPanel({
         </button>
       </div>
 
-      <div className="panel-field">
+      {/* <div className="panel-field">
         <span className="panel-label">Parent Wall ID</span>
         <div style={{ fontSize: 11, color: "#94a3b8" }}>
           {selectedLintel.wallId || "None (Standalone)"}
         </div>
-      </div>
+      </div> */}
 
       <div style={{ marginTop: 12 }}>
         <button
           className="rp-action-btn rp-action-btn--danger"
           onClick={async (e) => {
             e.stopPropagation();
-            if (await showConfirm("Are you sure you want to delete this lintel?")) {
-              if (lintelController) {
-                lintelController.deleteLintel(selectedLintel.id);
-              } else if (deleteItem) {
+            const count = (selectedLintelIds && selectedLintelIds.length > 1) ? selectedLintelIds.length : 1;
+            const confirmMsg = count > 1
+              ? `Are you sure you want to delete ${count} selected lintels?`
+              : "Are you sure you want to delete this lintel?";
+            if (await showConfirm(confirmMsg)) {
+              if (deleteItem) {
                 deleteItem();
+              } else if (lintelController) {
+                if (count > 1 && lintelController.deleteLintels) {
+                  lintelController.deleteLintels(selectedLintelIds);
+                } else {
+                  lintelController.deleteLintel(selectedLintel.id);
+                }
               }
+              handleClose();
             }
           }}
         >
-          Delete Selected Lintel
+          {selectedLintelIds && selectedLintelIds.length > 1
+            ? `Delete All Selected Lintels (${selectedLintelIds.length})`
+            : "Delete Selected Lintel"}
         </button>
       </div>
     </>

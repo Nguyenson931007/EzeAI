@@ -20,6 +20,7 @@ export const useProjectController = (
   roofsByPage, setRoofsByPage,
   lintelsByPage, setLintelsByPage,
   scalesByPage, setScalesByPage,
+  defaultScale, setDefaultScale,
   activePdfCategory, setActivePdfCategory,
   annotationsByPage, setAnnotationsByPage
 ) => {
@@ -30,7 +31,9 @@ export const useProjectController = (
     if (pages.length === 0) { if (!silent) await showAlert("Nothing to save"); return; }
 
     const totalArea = Object.entries(roomsByPage).reduce((acc, [pageIdx, pageRooms]) => {
-      const pageScale = scalesByPage[pageIdx];
+      const pageScale = (scalesByPage && scalesByPage[pageIdx] !== undefined)
+        ? scalesByPage[pageIdx]
+        : (defaultScale || realScale || null);
       const scaleValue = pageScale ? pageScale / 1000 : null;
       return acc + (pageRooms || []).reduce((pAcc, room) => 
         pAcc + (scaleValue ? polygonAreaM2(room.polygon, scaleValue) : 0), 0);
@@ -39,7 +42,7 @@ export const useProjectController = (
     const roomCount = Object.values(roomsByPage).reduce((acc, pageRooms) => acc + (pageRooms || []).length, 0);
 
     const jobData = {
-      roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage,
+      roomsByPage, doorsByPage, wallsByPage, totalArea, roomCount, pages, realScale, scalesByPage, defaultScale, wasteByPage, pdfOffsetsByPage, roofsByPage, lintelsByPage,
       annotationsByPage: annotationsByPage || {},
       activePdfCategory
     };
@@ -136,7 +139,9 @@ export const useProjectController = (
           const pWalls = wallsByPage[pIdx] || [];
           const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
           const pageName = pages && pages[pIdx] ? (pages[pIdx].name || `Tầng ${pIdx + 1}`) : `Tầng ${pIdx + 1}`;
-          const pScale = scalesByPage ? scalesByPage[pIdx] : null;
+          const pScale = (scalesByPage && scalesByPage[pIdx] !== undefined)
+            ? scalesByPage[pIdx]
+            : (defaultScale || realScale || null);
           processWalls(pWalls, pDoors, pageName, pScale);
         });
       }
@@ -200,6 +205,14 @@ export const useProjectController = (
       setScalesByPage(fallback);
     } else {
       setScalesByPage({});
+    }
+
+    if (jobData.defaultScale && setDefaultScale) {
+      setDefaultScale(jobData.defaultScale);
+    } else if (jobData.realScale && setDefaultScale) {
+      setDefaultScale(jobData.realScale);
+    } else if (jobData.scalesByPage && jobData.scalesByPage[0] && setDefaultScale) {
+      setDefaultScale(jobData.scalesByPage[0]);
     }
     
     if (jobData.realScale) setRealScale(jobData.realScale);

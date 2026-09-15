@@ -5,6 +5,7 @@ import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { clearWorkspaceState } from "@/utils/workspaceStorage";
 import WallThicknessDialog from "@/components/WallThicknessDialog";
+import DoorConfigDialog from "@/components/DoorConfigDialog";
 import FrameworkJobsModal from "@/components/FrameworkJobsModal";
 import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
 import InsulationJobsModal from "@/components/InsulationJobsModal";
@@ -420,6 +421,7 @@ export default function RibbonView({
     trussesByPage, setTrussesByPage,
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage,
+    defaultScale, setDefaultScale,
     wasteByPage, setWasteByPage,
     currentJobId, setCurrentJobId,
     realScale,
@@ -440,6 +442,7 @@ export default function RibbonView({
   const [isExportingProcurement, setIsExportingProcurement] = useState(false);
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
   const [showWallConfig, setShowWallConfig] = useState(false);
+  const [showDoorConfig, setShowDoorConfig] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -803,6 +806,7 @@ export default function RibbonView({
     if (setRoofsByPage) setRoofsByPage({});
     if (setLintelsByPage) setLintelsByPage({});
     if (setScalesByPage) setScalesByPage({});
+    if (setDefaultScale) setDefaultScale(null);
     if (setWasteByPage) setWasteByPage({});
     if (setAnnotationsByPage) setAnnotationsByPage({});
     if (setAnnotationsHistory) setAnnotationsHistory([]);
@@ -1598,8 +1602,7 @@ export default function RibbonView({
                       showAlert("You need to scale before running AI");
                       return;
                     }
-                    setActiveAiTask("door");
-                    detectDoorSeg(roiRect, roiMode);
+                    setShowDoorConfig(true);
                   }}
                   disabled={isDetecting || isSmartDetecting}
                   style={isDetecting && activeAiTask !== "door" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
@@ -1722,6 +1725,13 @@ export default function RibbonView({
                   title="Toggle Doors Layer"
                 >
                   <span className="icon"><CAD_ICONS.Door /></span><span className="label">Door</span>
+                </button>
+                <button
+                  className={`ribbon-btn ${layerVisibility?.lintel !== false ? "active" : ""}`}
+                  onClick={() => setLayerVisibility && setLayerVisibility(prev => ({ ...prev, lintel: prev?.lintel === false }))}
+                  title="Toggle Lintel / Beam Layer"
+                >
+                  <span className="icon"><CAD_ICONS.Lintel /></span><span className="label">Lintel</span>
                 </button>
                 <button
                   className={`ribbon-btn ${layerVisibility?.ocr ? "active" : ""}`}
@@ -2225,7 +2235,13 @@ export default function RibbonView({
 
               <button
                 className={`roi-btn-detect doors ${isDetecting ? "pulsing" : ""}`}
-                onClick={() => detectDoorSeg(roiRect, roiMode)}
+                onClick={() => {
+                  if (!realScale || realScale === 1.0) {
+                    showAlert("Please calibrate scale before running AI detection!");
+                    return;
+                  }
+                  setShowDoorConfig(true);
+                }}
                 disabled={isDetecting}
                 title="Nhận diện cửa trong vùng cắt (ROI)"
               >
@@ -2811,6 +2827,15 @@ export default function RibbonView({
           detectWallFromFloorAI(config, roiRect);
         }}
         onClose={() => setShowWallConfig(false)}
+      />
+      <DoorConfigDialog
+        visible={showDoorConfig}
+        onConfirm={(config) => {
+          setShowDoorConfig(false);
+          setActiveAiTask("door");
+          detectDoorSeg(roiRect, roiMode, config);
+        }}
+        onClose={() => setShowDoorConfig(false)}
       />
       <FrameworkJobsModal
         visible={showFrameworkModal}

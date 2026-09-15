@@ -56,7 +56,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
         setExtThickness(s.ext || 90);
         setIntThickness(s.int || 70);
         setPartThickness(s.part || 70);
-        
+
         const h = s.defaultHeight || 2700;
         if (WALL_HEIGHT_OPTIONS.includes(h)) {
           setDefaultHeight(h);
@@ -185,16 +185,6 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
           >✕</button>
         </div>
 
-        {/* Subtitle */}
-        <div style={{
-          fontSize: 12, color: '#1e40af', marginBottom: 18,
-          padding: '10px 12px', background: '#eff6ff',
-          border: '1px solid #bfdbfe', borderRadius: 8,
-          lineHeight: '1.45'
-        }}>
-          💡 Choose wall thickness for each type. These will be applied to AI-detected walls.
-        </div>
-
         {/* Thickness Section */}
         <div style={{
           fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
@@ -259,7 +249,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
             ))}
             <option value="custom">Custom...</option>
           </select>
-          
+
           {isCustomHeight && (
             <div style={{ marginTop: 8 }}>
               <input

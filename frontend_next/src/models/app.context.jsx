@@ -33,6 +33,7 @@ export const AppProvider = ({ children }) => {
   });
   const [realScale, setRealScale] = useState(null);
   const [scalesByPage, setScalesByPage] = useState({});
+  const [defaultScale, setDefaultScale] = useState(null);
   const [wasteByPage, setWasteByPage] = useState({});
   const [pdfOffsetsByPage, setPdfOffsetsByPage] = useState({});
   const [roofsByPage, setRoofsByPage] = useState({});
@@ -174,6 +175,7 @@ export const AppProvider = ({ children }) => {
     currentProjectName, setCurrentProjectName,
     realScale, setRealScale,
     scalesByPage, setScalesByPage,
+    defaultScale, setDefaultScale,
     wasteByPage, setWasteByPage,
     pdfOffsetsByPage, setPdfOffsetsByPage,
     roofsByPage, setRoofsByPage,

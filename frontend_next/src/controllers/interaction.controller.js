@@ -189,14 +189,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
     roofsByPage, setRoofsByPage,
+    pages = [],
     currentPage, realScale, setRealScale,
+    defaultScale, setDefaultScale,
     activeTab,
     pdfOffsetsByPage, setPdfOffsetsByPage,
     scalesByPage, setScalesByPage,
     lintelsByPage, setLintelsByPage,
     activeAnnotationTool, setActiveAnnotationTool, setSelectedAnnotationId,
     selectedAnnotationIds, setSelectedAnnotationIds,
-    annotationsByPage,
+    annotationsByPage, setAnnotationsByPage,
     annotationsHistory = [], annotationsFuture = [],
     undoAnnotation, redoAnnotation
   } = useAppModel();
@@ -329,6 +331,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   const lintelController = useLintelController({
     lintelsByPage,
     setLintelsByPage,
+    annotationsByPage,
+    setAnnotationsByPage,
     wallsByPage,
     currentPage,
     realScale,
@@ -336,6 +340,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushHistory,
     setSelectedId,
     setSelectedType,
+    setSelectedLintelIds,
     setInteractionMode,
     doorsByPage
   });
@@ -530,6 +535,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         }
         if (lintelController) {
           lintelController.cancelLintelDraw();
+          if (lintelController.setShowCatalogPanel) {
+            lintelController.setShowCatalogPanel(false);
+          }
         }
         setIsDrawingRoof(false);
         setRoofInteractionState(RoofInteractionState.IDLE);
@@ -540,6 +548,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         setSelectedId(null);
         setSelectedType(null);
         setSelectedWallIds([]);
+        setSelectedDoorIds([]);
+        setSelectedRoomIds([]);
+        setSelectedLintelIds([]);
         setMultiSelect([]);
         setRect(null);
         setDrawingWall(null);
@@ -896,6 +907,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function selectWall(wallId, isAppend = false) {
+    if (lintelController?.setShowCatalogPanel && !lintelController?.isDrawingLintel) lintelController.setShowCatalogPanel(false);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
     setSelectedType("wall");
     setSelectedPointIndex(null);
     if (isAppend) {
@@ -925,6 +938,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function selectDoor(doorId, isAppend = false, targetType = "door") {
+    if (lintelController?.setShowCatalogPanel && !lintelController?.isDrawingLintel) lintelController.setShowCatalogPanel(false);
     setSelectedType(targetType);
     setSelectedPointIndex(null);
     setSelectedWallIds([]);
@@ -1603,6 +1617,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (lintelIdsToDelete.length > 0) {
       currentLintels = currentLintels.filter(l => !lintelIdsToDelete.includes(l.id));
       setLintelsByPage(prev => ({ ...prev, [currentPage]: currentLintels }));
+      if (setAnnotationsByPage && currentPage != null) {
+        setAnnotationsByPage(prev => {
+          const pageAnns = prev[currentPage] || [];
+          const filtered = pageAnns.filter(a =>
+            !(a.isLintelCallout && lintelIdsToDelete.includes(a.lintelId)) &&
+            !lintelIdsToDelete.some(id => a.id === `lintel_callout_${id}`)
+          );
+          return { ...prev, [currentPage]: filtered };
+        });
+      }
       setSelectedLintelIds([]);
       hasDeletedAny = true;
     }
@@ -1616,7 +1640,22 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (wallIdsToDelete.length > 0) {
       const targetBaseIds = wallIdsToDelete.map(id => getBaseWallId(id));
       currentWalls = currentWalls.filter(w => (!wallIdsToDelete.includes(w.id) && !targetBaseIds.includes(w.id) && !targetBaseIds.includes(getBaseWallId(w.id))) || w.locked);
+      
+      const removedLintelIds = currentLintels
+        .filter(l => wallIdsToDelete.includes(l.wallId) || targetBaseIds.includes(l.wallId))
+        .map(l => l.id);
       currentLintels = currentLintels.filter(l => !wallIdsToDelete.includes(l.wallId) && !targetBaseIds.includes(l.wallId));
+
+      if (removedLintelIds.length > 0 && setAnnotationsByPage && currentPage != null) {
+        setAnnotationsByPage(prev => {
+          const pageAnns = prev[currentPage] || [];
+          const filtered = pageAnns.filter(a =>
+            !(a.isLintelCallout && removedLintelIds.includes(a.lintelId)) &&
+            !removedLintelIds.some(id => a.id === `lintel_callout_${id}`)
+          );
+          return { ...prev, [currentPage]: filtered };
+        });
+      }
 
       setWallsByPage(prev => ({ ...prev, [currentPage]: currentWalls }));
       setLintelsByPage(prev => ({ ...prev, [currentPage]: currentLintels }));
@@ -1648,6 +1687,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const pageLintels = lintelsByPage[currentPage] || [];
         const newLintels = pageLintels.filter(l => l.id !== selectedId);
         setLintelsByPage(prev => ({ ...prev, [currentPage]: newLintels }));
+        if (setAnnotationsByPage && currentPage != null) {
+          setAnnotationsByPage(prev => {
+            const pageAnns = prev[currentPage] || [];
+            const filtered = pageAnns.filter(a =>
+              !(a.isLintelCallout && a.lintelId === selectedId) &&
+              a.id !== `lintel_callout_${selectedId}`
+            );
+            return { ...prev, [currentPage]: filtered };
+          });
+        }
         pushHistory(null, wallsByPage[currentPage] || [], doorsByPage[currentPage] || [], newLintels);
       } else if (selectedType === 'wall') {
         deleteWalls([selectedId]);
@@ -1667,6 +1716,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     setSelectedLintelIds([]);
     setSelectedRoofId(null);
     setSelectedWallVertex(null);
+    if (lintelController?.setShowCatalogPanel) {
+      lintelController.setShowCatalogPanel(false);
+    }
   }
 
   const deleteAllRooms = async (skipConfirm = false) => {
@@ -2191,8 +2243,25 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         if (realMm && realMm > 0 && pixelDist > 0) {
           const newScale = realMm / pixelDist;
           setRealScale(newScale);
-          setScalesByPage(prev => ({ ...prev, [currentPage]: newScale }));
-          // await showAlert(`Scale set: ${(realMm / pixelDist / 1000).toFixed(6)} m/px`, { x: e.clientX, y: e.clientY });
+
+          // Check if this is the first time scale is being calibrated
+          const isFirstTime = !defaultScale && Object.keys(scalesByPage || {}).length === 0;
+
+          if (isFirstTime) {
+            if (setDefaultScale) setDefaultScale(newScale);
+            const allScales = {};
+            const pageCount = pages && pages.length > 0 ? pages.length : 1;
+            for (let i = 0; i < pageCount; i++) {
+              allScales[i] = newScale;
+            }
+            allScales[currentPage] = newScale;
+            setScalesByPage(allScales);
+            await showAlert(`Drawing scale calibrated and applied to all pages as default: ${(newScale / 1000).toFixed(6)} m/px`, { x: e.clientX, y: e.clientY });
+          } else {
+            // Subsequent calibration: override specifically for the current page only
+            setScalesByPage(prev => ({ ...prev, [currentPage]: newScale }));
+            await showAlert(`Scale updated for Page ${currentPage + 1} only: ${(newScale / 1000).toFixed(6)} m/px (other pages keep default)`, { x: e.clientX, y: e.clientY });
+          }
         }
         setMeasurePoints([]);
         setIsMeasuring(false);
@@ -2227,6 +2296,10 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     setSelectedWallIds([]); // Clear wall selection when clicking rooms or empty canvas
     setSelectedWallVertex(null);
     setSelectedVertices([]);
+    if (!found) {
+      if (setSelectedLintelIds) setSelectedLintelIds([]);
+      if (lintelController?.setShowCatalogPanel && !lintelController?.isDrawingLintel) lintelController.setShowCatalogPanel(false);
+    }
 
     // Vertex Selection (Check if user clicked exactly on a point)
     if (found) {
@@ -4117,11 +4190,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
       for (let i = pageRoofs.length - 1; i >= 0; i--) {
         const roof = pageRoofs[i];
-        const bbox = getBoundingBox(roof.polygon);
-        const tol = 20 / scale;
+        if (!roof.points || roof.points.length < 3) continue;
 
-        // Bounding box spatial filter
-        if (p.x < bbox.minX - tol || p.x > bbox.maxX + tol || p.y < bbox.minY - tol || p.y > bbox.maxY + tol) {
+        // Bounding box filter for quick rejection
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let j = 0; j < roof.points.length; j++) {
+          const pt = roof.points[j];
+          if (pt[0] < minX) minX = pt[0];
+          if (pt[0] > maxX) maxX = pt[0];
+          if (pt[1] < minY) minY = pt[1];
+          if (pt[1] > maxY) maxY = pt[1];
+        }
+
+        const margin = 20;
+        if (snappedP.x < minX - margin || snappedP.x > maxX + margin ||
+          snappedP.y < minY - margin || snappedP.y > maxY + margin) {
           continue;
         }
 
@@ -4221,6 +4304,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (doorController.showTypeSelector) return;
     if (isDrawingLintel) {
       if (e.button === 0) {
+        if (setSelectedId) setSelectedId(null);
+        if (setSelectedType) setSelectedType(null);
+        if (setSelectedLintelIds) setSelectedLintelIds([]);
         const p = getMouse(e);
         lintelController.handleMouseDown(p, scale);
       } else if (e.button === 2) {
@@ -4376,7 +4462,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         if (interactionMode === "select" && !isSpaceDown && e.button === 0) {
           // Check if near any wall centerline or door to avoid starting marquee on them
           let isNearWallOrDoor = false;
-          const pageWalls = wallsByPage[currentPage] || [];
+          const pageWalls = (layerVisibility?.wall !== false) ? (wallsByPage[currentPage] || []) : [];
           for (const w of pageWalls) {
             if (w.centerline && w.centerline.length === 2) {
               const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
@@ -4389,7 +4475,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             }
           }
           if (!isNearWallOrDoor) {
-            const pageDoors = doorsByPage[currentPage] || [];
+            const pageDoors = (layerVisibility?.door !== false) ? (doorsByPage[currentPage] || []) : [];
             for (const d of pageDoors) {
               const bbox = getDoorBoundingBox(d) || [];
               if (bbox.length >= 3 && pointInPolygon(p, bbox)) {
@@ -4413,6 +4499,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function onMouseUp(e) {
     if (isDrawingLintel) {
+      ignoreClickRef.current = true;
       const p = getMouse(e);
       lintelController.handleMouseUp(p, scale, isShiftDown);
       return;
@@ -4733,8 +4820,27 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         // 4. Matched Lintels
         const pageLintels = (layerVisibility?.lintel !== false) ? (lintelsByPage && lintelsByPage[currentPage] ? lintelsByPage[currentPage] : []) : [];
+        const rawWalls = wallsByPage[currentPage] || [];
         const matchedLintels = pageLintels.filter(l => {
-          if (l.start && l.end && segIntersectsBox(l.start, l.end)) return true;
+          let p1, p2;
+          if (!l.wallId && l.points && l.points.length === 2) {
+            p1 = { x: l.points[0][0] ?? l.points[0].x, y: l.points[0][1] ?? l.points[0].y };
+            p2 = { x: l.points[1][0] ?? l.points[1].x, y: l.points[1][1] ?? l.points[1].y };
+          } else if (l.wallId) {
+            const wall = rawWalls.find(w => w.id === l.wallId);
+            if (wall && wall.centerline && wall.centerline.length === 2) {
+              const wp1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+              const wp2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+              const sOffset = l.startOffset !== undefined ? l.startOffset : 0;
+              const eOffset = l.endOffset !== undefined ? l.endOffset : 1;
+              p1 = { x: wp1.x + sOffset * (wp2.x - wp1.x), y: wp1.y + sOffset * (wp2.y - wp1.y) };
+              p2 = { x: wp1.x + eOffset * (wp2.x - wp1.x), y: wp1.y + eOffset * (wp2.y - wp1.y) };
+            }
+          } else if (l.start && l.end) {
+            p1 = l.start;
+            p2 = l.end;
+          }
+          if (p1 && p2 && segIntersectsBox(p1, p2)) return true;
           if (l.polygon && l.polygon.length >= 3 && polyIntersectsBox(l.polygon)) return true;
           return false;
         });
@@ -4774,13 +4880,24 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           return false;
         });
 
+        // Include lintels whose callout annotations were captured in the marquee box
+        matchedAnns.forEach(ann => {
+          const lId = ann.lintelId || (ann.id && String(ann.id).startsWith("lintel_callout_") ? String(ann.id).replace("lintel_callout_", "") : null);
+          if (lId) {
+            const foundLintel = pageLintels.find(l => l.id === lId);
+            if (foundLintel && !matchedLintels.some(l => l.id === lId)) {
+              matchedLintels.push(foundLintel);
+            }
+          }
+        });
+
         const matchedDoorIds = matchedDoors.map(d => d.id);
         const matchedRoomIds = matchedRooms.map(r => r.id);
         const matchedLintelIds = matchedLintels.map(l => l.id);
         const matchedAnnotationIds = matchedAnns.map(a => a.id);
 
         if (isAppend) {
-          if (matchedWallIds.length > 0) setSelectedWallIds(prev => Array.from(new Set([...prev, ...matchedWallIds])));
+          if (matchedWallIds.length > 0 && layerVisibility?.wall !== false && selectedType !== "lintel") setSelectedWallIds(prev => Array.from(new Set([...prev, ...matchedWallIds])));
           if (matchedDoorIds.length > 0) setSelectedDoorIds(prev => Array.from(new Set([...prev, ...matchedDoorIds])));
           if (matchedRoomIds.length > 0) setSelectedRoomIds(prev => Array.from(new Set([...prev, ...matchedRoomIds])));
           if (matchedLintelIds.length > 0) setSelectedLintelIds(prev => Array.from(new Set([...prev, ...matchedLintelIds])));
@@ -4788,7 +4905,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             setSelectedAnnotationIds(prev => Array.from(new Set([...(prev || []), ...matchedAnnotationIds])));
           }
         } else {
-          setSelectedWallIds(matchedWallIds);
+          if (matchedLintelIds.length > 0 && (layerVisibility?.wall === false || selectedType === "lintel")) {
+            setSelectedWallIds([]);
+          } else {
+            setSelectedWallIds(matchedWallIds);
+          }
           setSelectedDoorIds(matchedDoorIds);
           setSelectedRoomIds(matchedRoomIds);
           setSelectedLintelIds(matchedLintelIds);
@@ -4803,7 +4924,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         const totalMatched = matchedWallIds.length + matchedDoorIds.length + matchedRoomIds.length + matchedLintelIds.length + matchedRoofs.length + matchedAnnotationIds.length;
         if (totalMatched > 0) {
-          if (matchedWallIds.length > 0) {
+          // If lintels matched and either no walls matched, wall layer is hidden, or selectedType was already lintel
+          if (matchedLintelIds.length > 0 && (matchedWallIds.length === 0 || selectedType === "lintel" || layerVisibility?.wall === false)) {
+            setSelectedId(matchedLintelIds[matchedLintelIds.length - 1]);
+            setSelectedType("lintel");
+          } else if (matchedWallIds.length > 0) {
             setSelectedId(matchedWallIds[matchedWallIds.length - 1]);
             setSelectedType("wall");
           } else if (matchedDoorIds.length > 0) {

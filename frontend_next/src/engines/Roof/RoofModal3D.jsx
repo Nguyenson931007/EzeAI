@@ -161,14 +161,14 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
             roofColorMode={roofColorMode}
             singleRoofColor={singleRoofColor}
             showOutlines={showOutlines}
-            // NOTE: Phần Truss tạm thời comment lại theo yêu cầu, sẽ sử dụng lại nên không xóa hay revert lại comment đó.
-            /*
-            showTruss={showTruss}
-            trussSpacingMm={trussSpacingMm}
-            xrayMode={xrayMode}
-            hideRoofShell={hideRoofShell}
-            onTrussCalculated={setTrussStats}
-            */
+          // NOTE: Phần Truss tạm thời comment lại theo yêu cầu, sẽ sử dụng lại nên không xóa hay revert lại comment đó.
+          /*
+          showTruss={showTruss}
+          trussSpacingMm={trussSpacingMm}
+          xrayMode={xrayMode}
+          hideRoofShell={hideRoofShell}
+          onTrussCalculated={setTrussStats}
+          */
           />
 
           {/* Navigation Hint */}

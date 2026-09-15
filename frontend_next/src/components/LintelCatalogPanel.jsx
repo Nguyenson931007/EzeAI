@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 
 export default function LintelCatalogPanel({
   selectedLintel,
-  onSelectCatalogItem
+  activeLintelConfig,
+  onSelectCatalogItem,
+  onUpdatePly,
+  onClose
 }) {
   const [catalog, setCatalog] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,10 +57,33 @@ export default function LintelCatalogPanel({
       }}
     >
       {/* Panel Header */}
-      <div style={{ padding: '16px 14px 10px', borderBottom: '1px solid #e2e8f0' }}>
-        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
-          Lintel Catalog
-        </h3>
+      <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
+            Lintel Catalog
+          </h3>
+          {onClose && (
+            <button
+              onClick={onClose}
+              title="Close catalog panel"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#94a3b8',
+                fontSize: '16px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                lineHeight: 1
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+              onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
+            >
+              ✕
+            </button>
+          )}
+        </div>
         <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#64748b' }}>
           Select a catalog size to assign to the active lintel
         </p>
@@ -101,7 +127,9 @@ export default function LintelCatalogPanel({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {filteredCatalog.map(item => {
-              const isSelected = selectedLintel && selectedLintel.catalogId === item.id;
+              const isSelected = selectedLintel
+                ? selectedLintel.catalogId === item.id
+                : (activeLintelConfig && activeLintelConfig.catalogId === item.id);
               const isLocked = false;
 
               return (
@@ -157,7 +185,7 @@ export default function LintelCatalogPanel({
                         type="number"
                         min="1"
                         placeholder={item.ply ?? 1}
-                        value={isSelected ? (selectedLintel.ply || "") : (customPlys[item.id] || "")}
+                        value={isSelected ? (selectedLintel ? (selectedLintel.ply || "") : (activeLintelConfig?.ply || "")) : (customPlys[item.id] || "")}
                         disabled={isLocked}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
@@ -175,10 +203,14 @@ export default function LintelCatalogPanel({
                             }
 
                             if (isSelected) {
-                              onSelectCatalogItem({
-                                ...item,
-                                ply: val === "" ? (item.ply || 1) : val
-                              });
+                              if (onUpdatePly) {
+                                onUpdatePly(val === "" ? (item.ply || 1) : val);
+                              } else {
+                                onSelectCatalogItem({
+                                  ...item,
+                                  ply: val === "" ? (item.ply || 1) : val
+                                });
+                              }
                             }
                           }
                         }}
