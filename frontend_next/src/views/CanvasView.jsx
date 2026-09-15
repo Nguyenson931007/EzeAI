@@ -9,7 +9,7 @@
  *   - Double-click OCR Correction Panel mapping corrected bounding coordinates
  *   - Visual Confidence and review-state outlines
  */
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import AIDoor from "../components/AIDoor";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
@@ -18,6 +18,7 @@ import DoorTypeSelector from "../components/DoorTypeSelector";
 import WallContextMenu from "../components/WallContextMenu";
 import WallVertexMenu from "../components/WallVertexMenu";
 import RoofContextMenu from "../components/RoofContextMenu";
+import { TrussEngine, TRUSS_COLORS } from "@/engines/Truss/TrussEngine";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
@@ -1350,8 +1351,8 @@ const WallHandlesLayer = React.memo(({
         const isBlockWall = wallCls === "block_wall";
         const isPartWall = wallCls === "partition_wall" || w.wall_type === "part";
         const isLbw = isPartWall && Boolean(
-          w.is_lbw || 
-          w.is_load_bearing || 
+          w.is_lbw ||
+          w.is_load_bearing ||
           w.lbw
         );
 
@@ -1387,32 +1388,32 @@ const WallHandlesLayer = React.memo(({
                 height={badgeHeight}
                 rx={3}
                 fill={
-                  isSelected 
-                    ? "rgba(245, 158, 11, 0.95)" 
-                    : (isHovered 
-                        ? "rgba(59, 130, 246, 0.92)" 
-                        : (isBlockWall 
-                            ? "rgba(71, 85, 105, 0.95)" 
-                            : (isLbw 
-                                ? "rgba(234, 88, 12, 0.95)" 
-                                : "rgba(30, 41, 59, 0.88)"
-                              )
-                          )
+                  isSelected
+                    ? "rgba(245, 158, 11, 0.95)"
+                    : (isHovered
+                      ? "rgba(59, 130, 246, 0.92)"
+                      : (isBlockWall
+                        ? "rgba(71, 85, 105, 0.95)"
+                        : (isLbw
+                          ? "rgba(234, 88, 12, 0.95)"
+                          : "rgba(30, 41, 59, 0.88)"
+                        )
                       )
+                    )
                 }
                 stroke={
-                  isSelected 
-                    ? "#fef3c7" 
-                    : (isHovered 
-                        ? "#93c5fd" 
-                        : (isBlockWall 
-                            ? "#cbd5e1" 
-                            : (isLbw 
-                                ? "#fed7aa" 
-                                : "rgba(148, 163, 184, 0.5)"
-                              )
-                          )
+                  isSelected
+                    ? "#fef3c7"
+                    : (isHovered
+                      ? "#93c5fd"
+                      : (isBlockWall
+                        ? "#cbd5e1"
+                        : (isLbw
+                          ? "#fed7aa"
+                          : "rgba(148, 163, 184, 0.5)"
+                        )
                       )
+                    )
                 }
                 strokeWidth={isBlockWall || isLbw ? 1.5 : 1}
                 style={{ pointerEvents: 'none' }}
@@ -3028,6 +3029,31 @@ export default function CanvasView({
     return (roofsByPage[currentPage] || []).filter(r => !hiddenItemIds?.has(r.id));
   }, [roofsByPage, currentPage, layerVisibility, hiddenItemIds]);
 
+  const handleToggleRoofTruss2D = useCallback((roofId) => {
+    if (!roofId || typeof setRoofsByPage !== 'function') return;
+    setRoofsByPage(prev => {
+      const pageRoofs = prev[currentPage] || [];
+      return {
+        ...prev,
+        [currentPage]: pageRoofs.map(r =>
+          r.id === roofId ? { ...r, showTruss2D: !r.showTruss2D } : r
+        )
+      };
+    });
+  }, [currentPage, setRoofsByPage]);
+
+  // Listen for external toggle events (e.g. from RoofInspectorCard)
+  useEffect(() => {
+    const handleToggleTruss2D = (e) => {
+      const roofId = e.detail?.roofId;
+      if (roofId) {
+        handleToggleRoofTruss2D(roofId);
+      }
+    };
+    window.addEventListener('ezefloor:toggle-truss-2d', handleToggleTruss2D);
+    return () => window.removeEventListener('ezefloor:toggle-truss-2d', handleToggleTruss2D);
+  }, [handleToggleRoofTruss2D]);
+
   // Distance Tool & Global Escape handler
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -4130,10 +4156,10 @@ export default function CanvasView({
             height: "100%",
             cursor: (isPanning || interactionMode === "pan") ? "grab"
               : (drawing || isDrawingRoof || isDistancing || isMeasuring || isAddingPoint || interactionMode === "draw-ext-rect" || interactionMode === "draw-wall" || interactionMode === "fill-room") ? "crosshair"
-              : interactionMode === "align-pdf" ? "move"
-              : activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor)
-              : activeAnnotationTool ? "crosshair"
-              : "default"
+                : interactionMode === "align-pdf" ? "move"
+                  : activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor)
+                    : activeAnnotationTool ? "crosshair"
+                      : "default"
           }}
           onClick={(e) => {
             if (editingRoomId || activeAnnotationTool) return;
@@ -4142,10 +4168,10 @@ export default function CanvasView({
             closeWallContextMenu();
             closeRoofContextMenu();
             if (setVertexMenu) setVertexMenu({ visible: false, x: 0, y: 0, vertex: null });
-            
-            const isBg = e.target === svgRef.current || 
-              e.target.tagName === 'svg' || 
-              e.target.tagName === 'image' || 
+
+            const isBg = e.target === svgRef.current ||
+              e.target.tagName === 'svg' ||
+              e.target.tagName === 'image' ||
               e.target.id === 'pdf-background-image' ||
               (e.target.classList && e.target.classList.contains('canvas-background'));
 
@@ -4444,9 +4470,9 @@ export default function CanvasView({
                         const isDutchFace = (Array.isArray(roof.dutchEdges) && roof.dutchEdges.includes(face.contour_edge_index));
                         const activeEdgeIdx = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined) ? selectedRoofEdgeIndex : roofInteractionState?.edgeIndex;
                         const isDrawingDutchThisEdge = (interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") &&
-                                                      (selectedRoofId === roof.id || roofInteractionState?.roofId === roof.id) &&
-                                                      activeEdgeIdx !== null && activeEdgeIdx !== undefined &&
-                                                      activeEdgeIdx === face.contour_edge_index;
+                          (selectedRoofId === roof.id || roofInteractionState?.roofId === roof.id) &&
+                          activeEdgeIdx !== null && activeEdgeIdx !== undefined &&
+                          activeEdgeIdx === face.contour_edge_index;
 
                         const FACE_COLORS = [
                           'rgba(245, 158, 11, 0.12)',
@@ -4519,7 +4545,12 @@ export default function CanvasView({
                         let opacity = isHighlighted ? 1.0 : 0.85;
                         let dash = "none";
 
-                        if (edge.is_contour) {
+                        if (edge.edge_type === 'flashing_wall') {
+                          strokeColor = isHighlighted ? "#ea580c" : "#f97316"; // distinct orange for vertical flashing wall step
+                          strokeWidth = (isHighlighted ? 3.2 : 2.2) / scale;
+                          dash = `${5 / scale},${3 / scale}`;
+                          opacity = 1.0;
+                        } else if (edge.is_contour) {
                           strokeColor = isHighlighted ? "#f59e0b" : "#64748b";
                           strokeWidth = (isHighlighted ? 3.2 : 2.0) / scale;
                           opacity = isHighlighted ? 1.0 : 0.85;
@@ -4555,6 +4586,198 @@ export default function CanvasView({
                       })}
                     </g>
                   )}
+
+                  {/* NOTE: Phần Truss 2D tạm thời comment lại theo yêu cầu, sẽ sử dụng lại nên không xóa hay revert lại comment này */}
+                  {false && roof.showTruss2D && roof.v3Data && (() => {
+                    let trussLayout = null;
+                    try {
+                      const polyMm = (roof.v3Data?.points && roof.v3Data.points.length >= 3)
+                        ? roof.v3Data.points
+                        : (Array.isArray(roof.polygon) && roof.polygon.length >= 3
+                          ? roof.polygon.map(p => [
+                            (typeof p.x === 'number' ? p.x : p[0]) * mmPerPx,
+                            (typeof p.y === 'number' ? p.y : p[1]) * mmPerPx
+                          ])
+                          : null);
+
+                      trussLayout = TrussEngine.generateTrussesFromRoofV3(roof.v3Data, {
+                        spacingMm: roof.trussSpacingMm || 600,
+                        polygon: polyMm,
+                        points: polyMm
+                      });
+                    } catch (err) {
+                      console.warn("Failed to generate 2D truss layout:", err);
+                    }
+                    if (!trussLayout?.trusses?.length) return null;
+
+                    return (
+                      <g pointerEvents="none" className="roof-truss-2d-layer">
+                        {/* 1. Partitioned Rectangular Boxes (Virtual Rectangle Decomposition) */}
+                        {(trussLayout.partitionBoxes || []).map((box, bIdx) => {
+                          const ptsStr = (box.polygon || []).map(p => `${p.x / mmPerPx},${p.y / mmPerPx}`).join(' ');
+                          const cx = box.centroid ? (box.centroid.x / mmPerPx) : 0;
+                          const cy = box.centroid ? (box.centroid.y / mmPerPx) : 0;
+                          const strokeCol = box.color || (box.isDominant ? "#f59e0b" : "#06b6d4");
+                          const fillCol = box.isDominant ? "rgba(245, 158, 11, 0.08)" : (bIdx % 2 === 0 ? "rgba(6, 182, 212, 0.08)" : "rgba(168, 85, 247, 0.08)");
+
+                          return (
+                            <g key={`partition-box-${roof.id}-${bIdx}`}>
+                              <polygon
+                                points={ptsStr}
+                                fill={fillCol}
+                                stroke={strokeCol}
+                                strokeWidth={2.4 / scale}
+                                strokeDasharray={`${8 / scale},${4 / scale}`}
+                              />
+                              {box.centroid && (
+                                <g transform={`translate(${cx}, ${cy})`}>
+                                  <rect
+                                    x={-75 / scale}
+                                    y={-12 / scale}
+                                    width={150 / scale}
+                                    height={24 / scale}
+                                    rx={4 / scale}
+                                    fill="rgba(15, 23, 42, 0.88)"
+                                    stroke={strokeCol}
+                                    strokeWidth={1.2 / scale}
+                                  />
+                                  <text
+                                    x={0}
+                                    y={3.5 / scale}
+                                    fill="#f8fafc"
+                                    fontSize={8.5 / scale}
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                  >
+                                    {box.label || (box.isDominant ? 'Mái Hip Chính' : `Khối Phụ ${bIdx}`)} ({box.areaM2} m²)
+                                  </text>
+                                </g>
+                              )}
+                            </g>
+                          );
+                        })}
+
+                        {/* 2. Partition Guide Lines (Magenta Eave Extension & Cyan Ridge Dóng) - Ẩn trên 2D theo yêu cầu */}
+                        {false && (trussLayout.guideLines || []).map((gl, gIdx) => {
+                          const gx1 = gl.p1.x / mmPerPx;
+                          const gy1 = gl.p1.y / mmPerPx;
+                          const gx2 = gl.p2.x / mmPerPx;
+                          const gy2 = gl.p2.y / mmPerPx;
+                          const isEave = gl.type === 'eave_extension';
+                          const lineCol = isEave ? "#ec4899" : "#06b6d4";
+
+                          return (
+                            <g key={`partition-guide-${roof.id}-${gIdx}`}>
+                              <line
+                                x1={gx1}
+                                y1={gy1}
+                                x2={gx2}
+                                y2={gy2}
+                                stroke={lineCol}
+                                strokeWidth={(isEave ? 2.8 : 1.8) / scale}
+                                strokeDasharray={isEave ? `${6 / scale},${3 / scale}` : `${4 / scale},${3 / scale}`}
+                                opacity={0.95}
+                              />
+                              <circle cx={gx1} cy={gy1} r={(isEave ? 3.5 : 2.5) / scale} fill={lineCol} stroke="#ffffff" strokeWidth={1 / scale} />
+                              <circle cx={gx2} cy={gy2} r={(isEave ? 3.5 : 2.5) / scale} fill={lineCol} stroke="#ffffff" strokeWidth={1 / scale} />
+                              {isEave && (
+                                <g transform={`translate(${(gx1 + gx2) / 2}, ${(gy1 + gy2) / 2})`}>
+                                  <rect
+                                    x={-42 / scale}
+                                    y={-18 / scale}
+                                    width={84 / scale}
+                                    height={15 / scale}
+                                    rx={3 / scale}
+                                    fill="rgba(236, 72, 153, 0.9)"
+                                  />
+                                  <text
+                                    x={0}
+                                    y={-7 / scale}
+                                    fill="#ffffff"
+                                    fontSize={7.5 / scale}
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                  >
+                                    Dóng Phân Rã
+                                  </text>
+                                </g>
+                              )}
+                            </g>
+                          );
+                        })}
+
+                        {/* 3. Roof Trusses */}
+                        {trussLayout.trusses.map((t, tIdx) => {
+                          const isGirder = t.type === 'girder';
+                          const color = TRUSS_COLORS[t.type] || '#94a3b8';
+                          const strokeW = (isGirder ? 2.8 : 1.6) / scale;
+
+                          let p1x, p1y, p2x, p2y;
+                          if (t.p1 && t.p2) {
+                            p1x = t.p1.x / mmPerPx;
+                            p1y = t.p1.y / mmPerPx;
+                            p2x = t.p2.x / mmPerPx;
+                            p2y = t.p2.y / mmPerPx;
+                          } else {
+                            p1x = (t.isX ? t.pos : t.spanLo) / mmPerPx;
+                            p1y = (t.isX ? t.spanLo : t.pos) / mmPerPx;
+                            p2x = (t.isX ? t.pos : t.spanHi) / mmPerPx;
+                            p2y = (t.isX ? t.spanHi : t.pos) / mmPerPx;
+                          }
+
+                          return (
+                            <g key={`truss-2d-${roof.id}-${tIdx}`}>
+                              <line
+                                x1={p1x}
+                                y1={p1y}
+                                x2={p2x}
+                                y2={p2y}
+                                stroke={color}
+                                strokeWidth={strokeW}
+                                strokeDasharray={t.type === 'sidejack' ? `${4 / scale},${2 / scale}` : "none"}
+                                opacity={0.9}
+                              />
+                              {/* Label at truss start point */}
+                              <text
+                                x={p1x + (4 / scale)}
+                                y={p1y - (2 / scale)}
+                                fill={color}
+                                fontSize={9 / scale}
+                                fontWeight="bold"
+                                opacity={0.85}
+                              >
+                                {t.code}
+                              </text>
+                            </g>
+                          );
+                        })}
+                        {/* 4. Virtual Mirror Hip Lines (Đoạn Hip Nét Đứt Mảnh) */}
+                        {(trussLayout.virtualHips || []).map((vh, vhIdx) => {
+                          const vx1 = vh.p1.x / mmPerPx;
+                          const vy1 = vh.p1.y / mmPerPx;
+                          const vx2 = vh.p2.x / mmPerPx;
+                          const vy2 = vh.p2.y / mmPerPx;
+                          const hipColor = vh.color || "#a855f7";
+                          return (
+                            <g key={`virtual-hip-${roof.id}-${vhIdx}`}>
+                              <line
+                                x1={vx1}
+                                y1={vy1}
+                                x2={vx2}
+                                y2={vy2}
+                                stroke={hipColor}
+                                strokeWidth={1.4 / scale}
+                                strokeDasharray={`${6 / scale},${4 / scale}`}
+                                opacity={0.9}
+                              />
+                              <circle cx={vx1} cy={vy1} r={2.2 / scale} fill={hipColor} stroke="#ffffff" strokeWidth={0.8 / scale} />
+                              <circle cx={vx2} cy={vy2} r={2.2 / scale} fill={hipColor} stroke="#ffffff" strokeWidth={0.8 / scale} />
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
 
                   {/* Active Selected / Hovered Edge Highlight (Dynamically mapped to outer eave contour on OVH) */}
                   {(roof.polygon || []).map((_, eIdx) => {
@@ -5656,27 +5879,27 @@ export default function CanvasView({
             })()}
 
             {(interactionMode === "draw-dutch" || roofInteractionState?.type === "draw-dutch") &&
-             (selectedRoofId || roofInteractionState?.roofId) &&
-             currentMouse && (() => {
-              const targetRoofId = selectedRoofId || roofInteractionState?.roofId;
-              const rawEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
-                ? selectedRoofEdgeIndex
-                : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
-                ? roofInteractionState.edgeIndex
-                : null;
-              if (rawEdgeIndex === null || rawEdgeIndex === undefined || typeof rawEdgeIndex !== 'number') return null;
-              const targetEdgeIndex = rawEdgeIndex;
-              const roof = (roofs || []).find(r => r.id === targetRoofId);
-              if (!roof) return null;
-              
-              const topo = roof.v3Data?.topology2D;
-              const nodes = topo?.nodes || [];
-              const faces = topo?.faces || [];
-              const mmPerPx = (typeof realScale === 'number' && realScale > 0)
-                      ? realScale
-                      : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+              (selectedRoofId || roofInteractionState?.roofId) &&
+              currentMouse && (() => {
+                const targetRoofId = selectedRoofId || roofInteractionState?.roofId;
+                const rawEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
+                  ? selectedRoofEdgeIndex
+                  : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
+                    ? roofInteractionState.edgeIndex
+                    : null;
+                if (rawEdgeIndex === null || rawEdgeIndex === undefined || typeof rawEdgeIndex !== 'number') return null;
+                const targetEdgeIndex = rawEdgeIndex;
+                const roof = (roofs || []).find(r => r.id === targetRoofId);
+                if (!roof) return null;
 
-              const getNodeCoord = (ref) => {
+                const topo = roof.v3Data?.topology2D;
+                const nodes = topo?.nodes || [];
+                const faces = topo?.faces || [];
+                const mmPerPx = (typeof realScale === 'number' && realScale > 0)
+                  ? realScale
+                  : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
+
+                const getNodeCoord = (ref) => {
                   if (ref == null) return null;
                   let node = null;
                   if (typeof ref === 'object' && ref !== null) node = ref;
@@ -5691,268 +5914,268 @@ export default function CanvasView({
                   const rawX = typeof node.x === 'number' ? node.x : (Array.isArray(node) ? node[0] : parseFloat(node.x));
                   const rawY = typeof node.y === 'number' ? node.y : (Array.isArray(node) ? node[1] : parseFloat(node.y));
                   return { x: rawX / mmPerPx, y: rawY / mmPerPx };
-              };
+                };
 
-              const poly = roof.polygon || [];
-              const nPts = poly.length;
-              if (nPts < 3 || targetEdgeIndex < 0 || targetEdgeIndex >= nPts) return null;
+                const poly = roof.polygon || [];
+                const nPts = poly.length;
+                if (nPts < 3 || targetEdgeIndex < 0 || targetEdgeIndex >= nPts) return null;
 
-              const eaveP1 = poly[targetEdgeIndex];
-              const eaveP2 = poly[(targetEdgeIndex + 1) % nPts];
-              if (!eaveP1 || !eaveP2) return null;
+                const eaveP1 = poly[targetEdgeIndex];
+                const eaveP2 = poly[(targetEdgeIndex + 1) % nPts];
+                if (!eaveP1 || !eaveP2) return null;
 
-              const e1x = typeof eaveP1.x === 'number' ? eaveP1.x : (Array.isArray(eaveP1) ? eaveP1[0] : 0);
-              const e1y = typeof eaveP1.y === 'number' ? eaveP1.y : (Array.isArray(eaveP1) ? eaveP1[1] : 0);
-              const e2x = typeof eaveP2.x === 'number' ? eaveP2.x : (Array.isArray(eaveP2) ? eaveP2[0] : 0);
-              const e2y = typeof eaveP2.y === 'number' ? eaveP2.y : (Array.isArray(eaveP2) ? eaveP2[1] : 0);
+                const e1x = typeof eaveP1.x === 'number' ? eaveP1.x : (Array.isArray(eaveP1) ? eaveP1[0] : 0);
+                const e1y = typeof eaveP1.y === 'number' ? eaveP1.y : (Array.isArray(eaveP1) ? eaveP1[1] : 0);
+                const e2x = typeof eaveP2.x === 'number' ? eaveP2.x : (Array.isArray(eaveP2) ? eaveP2[0] : 0);
+                const e2y = typeof eaveP2.y === 'number' ? eaveP2.y : (Array.isArray(eaveP2) ? eaveP2[1] : 0);
 
-              const eMidX = (e1x + e2x) / 2;
-              const eMidY = (e1y + e2y) / 2;
-              const edx = e2x - e1x;
-              const edy = e2y - e1y;
-              const elen = Math.hypot(edx, edy) || 1;
-              const ux = edx / elen;
-              const uy = edy / elen;
+                const eMidX = (e1x + e2x) / 2;
+                const eMidY = (e1y + e2y) / 2;
+                const edx = e2x - e1x;
+                const edy = e2y - e1y;
+                const elen = Math.hypot(edx, edy) || 1;
+                const ux = edx / elen;
+                const uy = edy / elen;
 
-              // Roof centroid for inward orientation
-              let cPolyX = 0, cPolyY = 0;
-              poly.forEach(p => {
-                cPolyX += (typeof p.x === 'number' ? p.x : p[0]) / nPts;
-                cPolyY += (typeof p.y === 'number' ? p.y : p[1]) / nPts;
-              });
+                // Roof centroid for inward orientation
+                let cPolyX = 0, cPolyY = 0;
+                poly.forEach(p => {
+                  cPolyX += (typeof p.x === 'number' ? p.x : p[0]) / nPts;
+                  cPolyY += (typeof p.y === 'number' ? p.y : p[1]) / nPts;
+                });
 
-              let inx = -uy;
-              let iny = ux;
-              if ((cPolyX - eMidX) * inx + (cPolyY - eMidY) * iny < 0) {
-                inx = -inx;
-                iny = -iny;
-              }
-
-              // 1. Direct and exact target face matching
-              let targetFace = null;
-              if (faces && faces.length > 0) {
-                targetFace = faces.find(f => f.contour_edge_index === targetEdgeIndex);
-              }
-
-              let vertCoords = [];
-              if (targetFace && Array.isArray(targetFace.vertices) && targetFace.vertices.length >= 3) {
-                vertCoords = targetFace.vertices.map(vRef => getNodeCoord(vRef)).filter(Boolean);
-              }
-              if (vertCoords.length < 3) {
-                vertCoords = [
-                  { x: e1x, y: e1y },
-                  { x: e2x, y: e2y },
-                  { x: cPolyX, y: cPolyY }
-                ];
-              }
-
-              // Face centroid for guidance badge
-              const fCentroidX = vertCoords.reduce((s, v) => s + v.x, 0) / vertCoords.length;
-              const fCentroidY = vertCoords.reduce((s, v) => s + v.y, 0) / vertCoords.length;
-
-              // 2. Point in polygon test: Is mouse inside this target roof face?
-              let isMouseInside = false;
-              for (let i = 0, j = vertCoords.length - 1; i < vertCoords.length; j = i++) {
-                const xi = vertCoords[i].x, yi = vertCoords[i].y;
-                const xj = vertCoords[j].x, yj = vertCoords[j].y;
-                const intersect = ((yi > currentMouse.y) !== (yj > currentMouse.y))
-                    && (currentMouse.x < (xj - xi) * (currentMouse.y - yi) / (yj - yi) + xi);
-                if (intersect) isMouseInside = !isMouseInside;
-              }
-
-              // 3. Magnetic Snap to Ridge Apex vertices of this face
-              const snapThreshold = 32 / scale;
-              let isSnapped = false;
-              let snapVertex = null;
-
-              for (const pt of vertCoords) {
-                const dist = Math.hypot(currentMouse.x - pt.x, currentMouse.y - pt.y);
-                if (dist < snapThreshold) {
-                  if (!snapVertex || dist < snapVertex.dist) {
-                    snapVertex = {
-                      x: pt.x,
-                      y: pt.y,
-                      dist,
-                      label: "Ridge Apex"
-                    };
-                    isSnapped = true;
-                  }
+                let inx = -uy;
+                let iny = ux;
+                if ((cPolyX - eMidX) * inx + (cPolyY - eMidY) * iny < 0) {
+                  inx = -inx;
+                  iny = -iny;
                 }
-              }
 
-              const isHoveringFace = isMouseInside || isSnapped;
+                // 1. Direct and exact target face matching
+                let targetFace = null;
+                if (faces && faces.length > 0) {
+                  targetFace = faces.find(f => f.contour_edge_index === targetEdgeIndex);
+                }
 
-              // 4. Compute parallel cut line strictly inside target face
-              let cutLineP1 = null;
-              let cutLineP2 = null;
-              let closestPt = null;
+                let vertCoords = [];
+                if (targetFace && Array.isArray(targetFace.vertices) && targetFace.vertices.length >= 3) {
+                  vertCoords = targetFace.vertices.map(vRef => getNodeCoord(vRef)).filter(Boolean);
+                }
+                if (vertCoords.length < 3) {
+                  vertCoords = [
+                    { x: e1x, y: e1y },
+                    { x: e2x, y: e2y },
+                    { x: cPolyX, y: cPolyY }
+                  ];
+                }
 
-              if (isHoveringFace) {
-                const mouseX = isSnapped ? snapVertex.x : currentMouse.x;
-                const mouseY = isSnapped ? snapVertex.y : currentMouse.y;
+                // Face centroid for guidance badge
+                const fCentroidX = vertCoords.reduce((s, v) => s + v.x, 0) / vertCoords.length;
+                const fCentroidY = vertCoords.reduce((s, v) => s + v.y, 0) / vertCoords.length;
 
-                const inx = -uy;
-                const iny = ux;
+                // 2. Point in polygon test: Is mouse inside this target roof face?
+                let isMouseInside = false;
+                for (let i = 0, j = vertCoords.length - 1; i < vertCoords.length; j = i++) {
+                  const xi = vertCoords[i].x, yi = vertCoords[i].y;
+                  const xj = vertCoords[j].x, yj = vertCoords[j].y;
+                  const intersect = ((yi > currentMouse.y) !== (yj > currentMouse.y))
+                    && (currentMouse.x < (xj - xi) * (currentMouse.y - yi) / (yj - yi) + xi);
+                  if (intersect) isMouseInside = !isMouseInside;
+                }
 
-                const intersections = [];
-                for (let i = 0; i < vertCoords.length; i++) {
-                  const p1 = vertCoords[i];
-                  const p2 = vertCoords[(i + 1) % vertCoords.length];
-                  const d1 = inx * (p1.x - mouseX) + iny * (p1.y - mouseY);
-                  const d2 = inx * (p2.x - mouseX) + iny * (p2.y - mouseY);
+                // 3. Magnetic Snap to Ridge Apex vertices of this face
+                const snapThreshold = 32 / scale;
+                let isSnapped = false;
+                let snapVertex = null;
 
-                  if ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) {
-                    if (Math.abs(d1 - d2) > 1e-6) {
-                      const s = d1 / (d1 - d2);
-                      const ix = p1.x + s * (p2.x - p1.x);
-                      const iy = p1.y + s * (p2.y - p1.y);
-                      const tAlongU = (ix - eMidX) * ux + (iy - eMidY) * uy;
-                      intersections.push({ x: ix, y: iy, tAlongU });
+                for (const pt of vertCoords) {
+                  const dist = Math.hypot(currentMouse.x - pt.x, currentMouse.y - pt.y);
+                  if (dist < snapThreshold) {
+                    if (!snapVertex || dist < snapVertex.dist) {
+                      snapVertex = {
+                        x: pt.x,
+                        y: pt.y,
+                        dist,
+                        label: "Ridge Apex"
+                      };
+                      isSnapped = true;
                     }
                   }
                 }
 
-                // Deduplicate intersections
-                const uniqueInts = [];
-                for (const pt of intersections) {
-                  if (!uniqueInts.some(u => Math.hypot(u.x - pt.x, u.y - pt.y) < 0.1)) {
-                    uniqueInts.push(pt);
+                const isHoveringFace = isMouseInside || isSnapped;
+
+                // 4. Compute parallel cut line strictly inside target face
+                let cutLineP1 = null;
+                let cutLineP2 = null;
+                let closestPt = null;
+
+                if (isHoveringFace) {
+                  const mouseX = isSnapped ? snapVertex.x : currentMouse.x;
+                  const mouseY = isSnapped ? snapVertex.y : currentMouse.y;
+
+                  const inx = -uy;
+                  const iny = ux;
+
+                  const intersections = [];
+                  for (let i = 0; i < vertCoords.length; i++) {
+                    const p1 = vertCoords[i];
+                    const p2 = vertCoords[(i + 1) % vertCoords.length];
+                    const d1 = inx * (p1.x - mouseX) + iny * (p1.y - mouseY);
+                    const d2 = inx * (p2.x - mouseX) + iny * (p2.y - mouseY);
+
+                    if ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) {
+                      if (Math.abs(d1 - d2) > 1e-6) {
+                        const s = d1 / (d1 - d2);
+                        const ix = p1.x + s * (p2.x - p1.x);
+                        const iy = p1.y + s * (p2.y - p1.y);
+                        const tAlongU = (ix - eMidX) * ux + (iy - eMidY) * uy;
+                        intersections.push({ x: ix, y: iy, tAlongU });
+                      }
+                    }
+                  }
+
+                  // Deduplicate intersections
+                  const uniqueInts = [];
+                  for (const pt of intersections) {
+                    if (!uniqueInts.some(u => Math.hypot(u.x - pt.x, u.y - pt.y) < 0.1)) {
+                      uniqueInts.push(pt);
+                    }
+                  }
+                  uniqueInts.sort((a, b) => a.tAlongU - b.tAlongU);
+
+                  if (uniqueInts.length >= 2) {
+                    cutLineP1 = uniqueInts[0];
+                    cutLineP2 = uniqueInts[uniqueInts.length - 1];
+                    closestPt = {
+                      x: isSnapped ? snapVertex.x : (cutLineP1.x + cutLineP2.x) / 2,
+                      y: isSnapped ? snapVertex.y : (cutLineP1.y + cutLineP2.y) / 2
+                    };
                   }
                 }
-                uniqueInts.sort((a, b) => a.tAlongU - b.tAlongU);
 
-                if (uniqueInts.length >= 2) {
-                  cutLineP1 = uniqueInts[0];
-                  cutLineP2 = uniqueInts[uniqueInts.length - 1];
-                  closestPt = {
-                    x: isSnapped ? snapVertex.x : (cutLineP1.x + cutLineP2.x) / 2,
-                    y: isSnapped ? snapVertex.y : (cutLineP1.y + cutLineP2.y) / 2
-                  };
-                }
-              }
+                const commitCut = (e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (closestPt) {
+                    const targetPoint = isSnapped ? [snapVertex.x, snapVertex.y] : [closestPt.x, closestPt.y];
+                    if (updateDutchCutPoints) updateDutchCutPoints(targetRoofId, targetEdgeIndex, targetPoint);
+                  }
+                  if (setInteractionMode) setInteractionMode('select');
+                  if (setRoofInteractionState) setRoofInteractionState(null);
+                };
 
-              const commitCut = (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                if (closestPt) {
-                  const targetPoint = isSnapped ? [snapVertex.x, snapVertex.y] : [closestPt.x, closestPt.y];
-                  if (updateDutchCutPoints) updateDutchCutPoints(targetRoofId, targetEdgeIndex, targetPoint);
-                }
-                if (setInteractionMode) setInteractionMode('select');
-                if (setRoofInteractionState) setRoofInteractionState(null);
-              };
+                return (
+                  <g style={{ pointerEvents: 'all' }}>
+                    {/* Highlight mặt mái được chọn (Tô viền đỏ bao quanh) */}
+                    <polygon
+                      points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
+                      fill={isHoveringFace ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.16)"}
+                      stroke="#ef4444"
+                      strokeWidth={(isHoveringFace ? 3.2 : 2.5) / scale}
+                      onMouseDown={commitCut}
+                      style={{ cursor: "crosshair" }}
+                    />
 
-              return (
-                <g style={{ pointerEvents: 'all' }}>
-                  {/* Highlight mặt mái được chọn (Tô viền đỏ bao quanh) */}
-                  <polygon
-                     points={vertCoords.map(p => `${p.x},${p.y}`).join(" ")}
-                     fill={isHoveringFace ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.16)"}
-                     stroke="#ef4444"
-                     strokeWidth={(isHoveringFace ? 3.2 : 2.5) / scale}
-                     onMouseDown={commitCut}
-                     style={{ cursor: "crosshair" }}
-                  />
+                    {/* Đường preview vết cắt song song với eave edge (Chỉ render khi di chuột vào mặt mái) */}
+                    {isHoveringFace && cutLineP1 && cutLineP2 && (
+                      <>
+                        <line
+                          x1={cutLineP1.x}
+                          y1={cutLineP1.y}
+                          x2={cutLineP2.x}
+                          y2={cutLineP2.y}
+                          stroke={isSnapped ? "#fbbf24" : "#ef4444"}
+                          strokeWidth={(isSnapped ? 3.5 : 2.6) / scale}
+                          strokeDasharray={`${8 / scale},${5 / scale}`}
+                          pointerEvents="none"
+                        />
+                        {/* Điểm snap trên sống mái / viền */}
+                        <circle
+                          cx={closestPt.x}
+                          cy={closestPt.y}
+                          r={(isSnapped ? 7 : 5.5) / scale}
+                          fill={isSnapped ? "#fbbf24" : "#ef4444"}
+                          stroke="#fff"
+                          strokeWidth={2 / scale}
+                          pointerEvents="none"
+                        />
+                      </>
+                    )}
 
-                  {/* Đường preview vết cắt song song với eave edge (Chỉ render khi di chuột vào mặt mái) */}
-                  {isHoveringFace && cutLineP1 && cutLineP2 && (
-                    <>
-                      <line
-                        x1={cutLineP1.x}
-                        y1={cutLineP1.y}
-                        x2={cutLineP2.x}
-                        y2={cutLineP2.y}
-                        stroke={isSnapped ? "#fbbf24" : "#ef4444"}
-                        strokeWidth={(isSnapped ? 3.5 : 2.6) / scale}
-                        strokeDasharray={`${8 / scale},${5 / scale}`}
-                        pointerEvents="none"
-                      />
-                      {/* Điểm snap trên sống mái / viền */}
-                      <circle
-                        cx={closestPt.x}
-                        cy={closestPt.y}
-                        r={(isSnapped ? 7 : 5.5) / scale}
-                        fill={isSnapped ? "#fbbf24" : "#ef4444"}
-                        stroke="#fff"
-                        strokeWidth={2 / scale}
-                        pointerEvents="none"
-                      />
-                    </>
-                  )}
+                    {/* Magnetic Snap Target Indicator */}
+                    {isSnapped && snapVertex && (
+                      <g pointerEvents="none">
+                        <circle
+                          cx={snapVertex.x}
+                          cy={snapVertex.y}
+                          r={13 / scale}
+                          fill="none"
+                          stroke="#fbbf24"
+                          strokeWidth={2.5 / scale}
+                          strokeDasharray={`${4 / scale},${3 / scale}`}
+                        />
+                        <circle
+                          cx={snapVertex.x}
+                          cy={snapVertex.y}
+                          r={5 / scale}
+                          fill="#fbbf24"
+                          stroke="#ffffff"
+                          strokeWidth={1.5 / scale}
+                        />
+                        <rect
+                          x={snapVertex.x - 52 / scale}
+                          y={snapVertex.y - 30 / scale}
+                          width={104 / scale}
+                          height={20 / scale}
+                          rx={4 / scale}
+                          fill="rgba(15, 23, 42, 0.92)"
+                          stroke="#fbbf24"
+                          strokeWidth={1 / scale}
+                        />
+                        <text
+                          x={snapVertex.x}
+                          y={snapVertex.y - 19 / scale}
+                          fill="#fef08a"
+                          fontSize={10.5 / scale}
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                        >
+                          📍 Snap {snapVertex.label}
+                        </text>
+                      </g>
+                    )}
 
-                  {/* Magnetic Snap Target Indicator */}
-                  {isSnapped && snapVertex && (
-                    <g pointerEvents="none">
-                      <circle
-                        cx={snapVertex.x}
-                        cy={snapVertex.y}
-                        r={13 / scale}
-                        fill="none"
-                        stroke="#fbbf24"
-                        strokeWidth={2.5 / scale}
-                        strokeDasharray={`${4 / scale},${3 / scale}`}
-                      />
-                      <circle
-                        cx={snapVertex.x}
-                        cy={snapVertex.y}
-                        r={5 / scale}
-                        fill="#fbbf24"
-                        stroke="#ffffff"
-                        strokeWidth={1.5 / scale}
-                      />
-                      <rect
-                        x={snapVertex.x - 52 / scale}
-                        y={snapVertex.y - 30 / scale}
-                        width={104 / scale}
-                        height={20 / scale}
-                        rx={4 / scale}
-                        fill="rgba(15, 23, 42, 0.92)"
-                        stroke="#fbbf24"
-                        strokeWidth={1 / scale}
-                      />
-                      <text
-                        x={snapVertex.x}
-                        y={snapVertex.y - 19 / scale}
-                        fill="#fef08a"
-                        fontSize={10.5 / scale}
-                        fontWeight="bold"
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                      >
-                        📍 Snap {snapVertex.label}
-                      </text>
-                    </g>
-                  )}
-
-                  {/* Khi chuột chưa vào mặt mái: hiện gợi ý nhẹ tại tâm mặt mái */}
-                  {!isHoveringFace && (
-                    <g pointerEvents="none" opacity={0.85}>
-                      <rect
-                        x={fCentroidX - 58 / scale}
-                        y={fCentroidY - 12 / scale}
-                        width={116 / scale}
-                        height={24 / scale}
-                        rx={5 / scale}
-                        fill="rgba(15, 23, 42, 0.88)"
-                        stroke="#ef4444"
-                        strokeWidth={1 / scale}
-                      />
-                      <text
-                        x={fCentroidX}
-                        y={fCentroidY}
-                        fill="#fca5a5"
-                        fontSize={10 / scale}
-                        fontWeight="600"
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                      >
-                        ✏️ Hover to draw cut
-                      </text>
-                    </g>
-                  )}
-                </g>
-              );
-            })()}
+                    {/* Khi chuột chưa vào mặt mái: hiện gợi ý nhẹ tại tâm mặt mái */}
+                    {!isHoveringFace && (
+                      <g pointerEvents="none" opacity={0.85}>
+                        <rect
+                          x={fCentroidX - 58 / scale}
+                          y={fCentroidY - 12 / scale}
+                          width={116 / scale}
+                          height={24 / scale}
+                          rx={5 / scale}
+                          fill="rgba(15, 23, 42, 0.88)"
+                          stroke="#ef4444"
+                          strokeWidth={1 / scale}
+                        />
+                        <text
+                          x={fCentroidX}
+                          y={fCentroidY}
+                          fill="#fca5a5"
+                          fontSize={10 / scale}
+                          fontWeight="600"
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                        >
+                          ✏️ Hover to draw cut
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })()}
 
             {/* ── PDF MARKUP / ANNOTATION LAYER ── */}
             <AnnotationCanvasLayer
@@ -6246,10 +6469,12 @@ export default function CanvasView({
         onUpdateRoofType={updateRoofType}
         onTrimEdge={trimRoofEdge}
         onExportRoofInput={exportRoofInput}
+        onToggleTruss2D={handleToggleRoofTruss2D}
         onDeleteRoof={deleteRoof}
       />
 
       {/* ===== WALL VERTEX MENU OVERLAY ===== */}
+
       <WallVertexMenu
         visible={vertexMenu.visible}
         x={vertexMenu.x}

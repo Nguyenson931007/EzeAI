@@ -142,6 +142,7 @@ class RoofGraph:
         cgal_data: Dict[str, Any],
         angles: Optional[List[float]] = None,
         default_eave_z: float = 2700.0,
+        eave_heights: Optional[List[float]] = None,
     ) -> "RoofGraph":
         graph = cls()
 
@@ -190,12 +191,16 @@ class RoofGraph:
             if angles and 0 <= contour_idx < len(angles):
                 pitch = angles[contour_idx]
 
+            face_eave_h = default_eave_z
+            if eave_heights and 0 <= contour_idx < len(eave_heights):
+                face_eave_h = float(eave_heights[contour_idx])
+
             face = RoofFace(
                 id=f["id"],
                 vertices=f["vertices"],
                 contour_edge_index=contour_idx,
                 pitch_angle=pitch,
-                eave_height=default_eave_z,
+                eave_height=face_eave_h,
             )
             graph.faces.append(face)
 

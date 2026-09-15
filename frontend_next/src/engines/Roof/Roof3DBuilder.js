@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import TrussEngine, { TRUSS_COLORS } from '../Truss/TrussEngine.js';
 
 /**
  * 🎨 10 Curated Harmonious Palette Colors for Multi-Color Roof Facets
@@ -167,7 +168,11 @@ export function buildRoof3DSceneObjects({
   singleRoofColor = "#334155", // default uniform color (or customizable)
   showOutlines = true,
   renderSampleWalls = true,
-  hasUserWalls = false
+  hasUserWalls = false,
+  showTrusses = false,
+  trussSpacingMm = 600,
+  trussXrayMode = true,
+  hideRoofShell = false
 }) {
   const createdObjects = [];
   if (!roof || !roof.v3Data) return createdObjects;
@@ -188,104 +193,133 @@ export function buildRoof3DSceneObjects({
   ];
 
   // ── 1. RENDER SLOPING ROOF FACETS (SINGLE TONE VS MULTI-COLOR PALETTE) ──
-  const groupedFaces = groupRoofTriangles({
-    graphFaces,
-    roofMeshVerts: rVerts,
-    roofMeshTris: rTris,
-    faceGroups
-  });
-
-  if (roofColorMode === "single") {
-    // ── UNIFIED SINGLE TONE ROOF MESH ──
-    const allPositions = [];
-    groupedFaces.forEach(faceGroup => {
-      const triangles = faceGroup.triangles || [];
-      triangles.forEach(tri => {
-        const v0 = getVertexCoords(rVerts[tri[0]]);
-        const v1 = getVertexCoords(rVerts[tri[1]]);
-        const v2 = getVertexCoords(rVerts[tri[2]]);
-        if (!v0 || !v1 || !v2) return;
-
-        const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
-        const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
-        const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
-
-        allPositions.push(...p0, ...p1, ...p2);
-      });
+  if (!hideRoofShell) {
+    const groupedFaces = groupRoofTriangles({
+      graphFaces,
+      roofMeshVerts: rVerts,
+      roofMeshTris: rTris,
+      faceGroups
     });
 
-    if (allPositions.length > 0) {
-      const unifiedGeom = new THREE.BufferGeometry();
-      unifiedGeom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
-      unifiedGeom.computeVertexNormals();
+    const isXray = showTrusses && trussXrayMode;
 
-      const faceMat = new THREE.MeshStandardMaterial({
-        color: singleRoofColor || "#334155",
-        roughness: 0.45,
-        metalness: 0.1,
-        side: THREE.DoubleSide
+    if (roofColorMode === "single") {
+      // ── UNIFIED SINGLE TONE ROOF MESH ──
+      const allPositions = [];
+      groupedFaces.forEach(faceGroup => {
+        const triangles = faceGroup.triangles || [];
+        triangles.forEach(tri => {
+          const v0 = getVertexCoords(rVerts[tri[0]]);
+          const v1 = getVertexCoords(rVerts[tri[1]]);
+          const v2 = getVertexCoords(rVerts[tri[2]]);
+          if (!v0 || !v1 || !v2) return;
+
+          const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
+          const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
+          const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
+
+          allPositions.push(...p0, ...p1, ...p2);
+        });
       });
 
-      const fMesh = new THREE.Mesh(unifiedGeom, faceMat);
-      fMesh.castShadow = enableShadows;
-      fMesh.receiveShadow = enableShadows;
-      createdObjects.push(fMesh);
+      if (allPositions.length > 0) {
+        const unifiedGeom = new THREE.BufferGeometry();
+        unifiedGeom.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
+        unifiedGeom.computeVertexNormals();
 
-      // Clean crease-only CAD lines (only at > 15 deg ridges, hips, valleys)
-      if (showOutlines) {
-        const edgesGeom = new THREE.EdgesGeometry(unifiedGeom, 15);
-        const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1.5 });
-        const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
-        createdObjects.push(lineSegments);
-      }
-    }
-  } else {
-    // ── MULTI-COLOR PALETTE ROOF FACETS ──
-    groupedFaces.forEach((faceGroup, fIdx) => {
-      const triangles = faceGroup.triangles || [];
-      if (triangles.length === 0) return;
-
-      const positions = [];
-      triangles.forEach(tri => {
-        const v0 = getVertexCoords(rVerts[tri[0]]);
-        const v1 = getVertexCoords(rVerts[tri[1]]);
-        const v2 = getVertexCoords(rVerts[tri[2]]);
-        if (!v0 || !v1 || !v2) return;
-
-        const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
-        const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
-        const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
-
-        positions.push(...p0, ...p1, ...p2);
-      });
-
-      if (positions.length > 0) {
-        const faceGeom = new THREE.BufferGeometry();
-        faceGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        faceGeom.computeVertexNormals();
-
-        const color = ROOF_FACE_PALETTE[fIdx % ROOF_FACE_PALETTE.length];
         const faceMat = new THREE.MeshStandardMaterial({
-          color,
-          roughness: 0.35,
-          metalness: 0.15,
-          side: THREE.DoubleSide
+          color: singleRoofColor || "#334155",
+          roughness: 0.45,
+          metalness: 0.1,
+          side: THREE.DoubleSide,
+          transparent: isXray,
+          opacity: isXray ? 0.35 : 1.0,
+          depthWrite: !isXray
         });
 
-        const fMesh = new THREE.Mesh(faceGeom, faceMat);
-        fMesh.castShadow = enableShadows;
+        const fMesh = new THREE.Mesh(unifiedGeom, faceMat);
+        fMesh.castShadow = enableShadows && !isXray;
         fMesh.receiveShadow = enableShadows;
         createdObjects.push(fMesh);
 
-        // Crisp White CAD Outline Lines
+        // Clean crease-only CAD lines (only at > 15 deg ridges, hips, valleys)
         if (showOutlines) {
-          const edgesGeom = new THREE.EdgesGeometry(faceGeom, 15);
-          const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+          const edgesGeom = new THREE.EdgesGeometry(unifiedGeom, 15);
+          const edgesMat = new THREE.LineBasicMaterial({
+            color: 0xffffff,
+            linewidth: 1.5,
+            transparent: isXray,
+            opacity: isXray ? 0.4 : 1.0
+          });
           const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
           createdObjects.push(lineSegments);
         }
       }
-    });
+    } else {
+      // ── MULTI-COLOR PALETTE ROOF FACETS ──
+      groupedFaces.forEach((faceGroup, fIdx) => {
+        const triangles = faceGroup.triangles || [];
+        if (triangles.length === 0) return;
+
+        const positions = [];
+        triangles.forEach(tri => {
+          const v0 = getVertexCoords(rVerts[tri[0]]);
+          const v1 = getVertexCoords(rVerts[tri[1]]);
+          const v2 = getVertexCoords(rVerts[tri[2]]);
+          if (!v0 || !v1 || !v2) return;
+
+          const p0 = toSceneCoords(v0[0], v0[1], v0[2]);
+          const p1 = toSceneCoords(v1[0], v1[1], v1[2]);
+          const p2 = toSceneCoords(v2[0], v2[1], v2[2]);
+
+          positions.push(...p0, ...p1, ...p2);
+        });
+
+        if (positions.length > 0) {
+          const faceGeom = new THREE.BufferGeometry();
+          faceGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+          faceGeom.computeVertexNormals();
+
+          const edgeIdx = (faceGroup.contourEdgeIndex !== undefined && faceGroup.contourEdgeIndex !== null && faceGroup.contourEdgeIndex >= 0)
+            ? faceGroup.contourEdgeIndex
+            : fIdx;
+          const color = ROOF_FACE_PALETTE[edgeIdx % ROOF_FACE_PALETTE.length];
+          const faceMat = new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.35,
+            metalness: 0.15,
+            side: THREE.DoubleSide,
+            transparent: isXray,
+            opacity: isXray ? 0.35 : 1.0,
+            depthWrite: !isXray
+          });
+
+          const fMesh = new THREE.Mesh(faceGeom, faceMat);
+          fMesh.userData = {
+            faceId: faceGroup.faceId,
+            contourEdgeIndex: faceGroup.contourEdgeIndex,
+            edgeIndex: edgeIdx,
+            roofId: roof.id
+          };
+          fMesh.castShadow = enableShadows && !isXray;
+          fMesh.receiveShadow = enableShadows;
+          createdObjects.push(fMesh);
+
+          // Crisp White CAD Outline Lines
+          if (showOutlines) {
+            const edgesGeom = new THREE.EdgesGeometry(faceGeom, 15);
+            const edgesMat = new THREE.LineBasicMaterial({
+              color: 0xffffff,
+              linewidth: 2,
+              transparent: isXray,
+              opacity: isXray ? 0.4 : 1.0
+            });
+            const lineSegments = new THREE.LineSegments(edgesGeom, edgesMat);
+            createdObjects.push(lineSegments);
+          }
+        }
+      });
+    }
   }
 
   // ── 2. RENDER GABLE WALLS (TƯỜNG THU HỒI ĐẦU HỒI) ──
@@ -372,6 +406,59 @@ export function buildRoof3DSceneObjects({
       createdObjects.push(eaveWallMesh);
     }
   }
+
+  // NOTE: Phần Truss tạm thời comment lại theo yêu cầu, sẽ sử dụng lại nên không xóa hay revert lại comment đó.
+  /*
+  // ── 4. RENDER ROOF TRUSS FRAMING (3D TIMBER SYSTEM) ──
+  if (showTrusses) {
+    try {
+      let polyMm = (roof.v3Data && Array.isArray(roof.v3Data.points) && roof.v3Data.points.length >= 3)
+        ? roof.v3Data.points
+        : (Array.isArray(roof.polygon) && roof.polygon.length >= 3
+          ? roof.polygon.map(p => [
+              (typeof p.x === 'number' ? p.x : p[0]) * mmPerPx,
+              (typeof p.y === 'number' ? p.y : p[1]) * mmPerPx
+            ])
+          : null);
+
+      const trussResult = TrussEngine.generateTrussesFromRoofV3(roof.v3Data, {
+        spacingMm: trussSpacingMm,
+        wallHeightMm,
+        polygon: polyMm,
+        points: polyMm
+      });
+
+      if (trussResult && Array.isArray(trussResult.segments3D) && trussResult.segments3D.length > 0) {
+        const colorMap = {};
+        for (const item of trussResult.segments3D) {
+          const colorHex = item.color || TRUSS_COLORS[item.type] || '#94a3b8';
+          if (!colorMap[colorHex]) colorMap[colorHex] = [];
+          for (const [p1, p2] of item.segments) {
+            const sp1 = toSceneCoords(p1.x, p1.y, p1.z);
+            const sp2 = toSceneCoords(p2.x, p2.y, p2.z);
+            colorMap[colorHex].push(...sp1, ...sp2);
+          }
+        }
+
+        Object.entries(colorMap).forEach(([colorHex, coords]) => {
+          if (!coords.length) return;
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+          const mat = new THREE.LineBasicMaterial({
+            color: colorHex,
+            linewidth: 2,
+            depthTest: true
+          });
+          const lineSegments = new THREE.LineSegments(geom, mat);
+          lineSegments.userData = { isTruss: true, roofId: roof.id };
+          createdObjects.push(lineSegments);
+        });
+      }
+    } catch (err) {
+      console.warn("Could not generate 3D trusses in buildRoof3DSceneObjects:", err);
+    }
+  }
+  */
 
   return createdObjects;
 }

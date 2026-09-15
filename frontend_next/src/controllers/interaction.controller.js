@@ -1246,7 +1246,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       });
     }
 
-    if (field === "height") {
+    if (field === "height" || field === "height_mm") {
       const pageDoors = doorsByPage[currentPage] || [];
       const updatedDoors = pageDoors.map(d => {
         if (!d.parentWallId) return d;
@@ -1266,6 +1266,87 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         ...prev,
         [currentPage]: updatedDoors
       }));
+
+      // Synchronize wall height changes to connected roofs
+      const pageRoofs = roofsByPage[currentPage] || [];
+      const newHeightNum = Number(value);
+      if (pageRoofs.length > 0 && newHeightNum > 0) {
+        let anyRoofChanged = false;
+        const updatedRoofs = pageRoofs.map(roof => {
+          if (!roof.polygon || roof.polygon.length < 3) return roof;
+          const n = roof.polygon.length;
+          const currentWallHeights = Array.isArray(roof.wallHeights) && roof.wallHeights.length === n
+            ? [...roof.wallHeights]
+            : Array(n).fill(roof.wallHeight || 2700);
+          const currentWallIds = Array.isArray(roof.wallIds) && roof.wallIds.length === n
+            ? roof.wallIds
+            : (Array.isArray(roof.sourceWallIds) && roof.sourceWallIds.length === n ? roof.sourceWallIds : []);
+
+          let changed = false;
+          for (let i = 0; i < n; i++) {
+            const edgeWallId = currentWallIds[i];
+            const isMatched = edgeWallId && wallIds.some(wId =>
+              wId === edgeWallId ||
+              getBaseWallId(wId) === getBaseWallId(edgeWallId) ||
+              edgeWallId.includes(wId) ||
+              wId.includes(edgeWallId)
+            );
+
+            if (isMatched) {
+              currentWallHeights[i] = newHeightNum;
+              changed = true;
+            }
+          }
+
+          if (changed) {
+            anyRoofChanged = true;
+            const validH = currentWallHeights.filter(h => typeof h === 'number' && h > 0);
+            const minH = validH.length > 0 ? Math.min(...validH) : newHeightNum;
+            const updatedR = {
+              ...roof,
+              wallHeights: currentWallHeights,
+              wallHeight: minH,
+              isDirty: true
+            };
+
+            RoofEngine.computeRoofPipeline({
+              roof: updatedR,
+              scaleFactor: scaleValue,
+              realScale
+            }).then(v3Data => {
+              if (v3Data) {
+                setRoofsByPage(prev => {
+                  const currentList = prev[currentPage] || [];
+                  return {
+                    ...prev,
+                    [currentPage]: currentList.map(item => {
+                      if (item.id !== roof.id) return item;
+                      const hasValidNormPoly = Array.isArray(v3Data.polygon) && v3Data.polygon.length === item.polygon.length &&
+                        typeof v3Data.polygon[0]?.x === 'number';
+                      return {
+                        ...item,
+                        polygon: hasValidNormPoly ? v3Data.polygon : item.polygon,
+                        angles: v3Data.angles || item.angles,
+                        overhangs: v3Data.overhangs || item.overhangs,
+                        v3Data,
+                        isDirty: false
+                      };
+                    })
+                  };
+                });
+              }
+            }).catch(e => console.warn("[RoofSync] Recompute pipeline error:", e));
+
+            return updatedR;
+          }
+          return roof;
+        });
+
+        if (anyRoofChanged) {
+          pushRoofHistory(updatedRoofs);
+        }
+      }
+
       pushHistory(null, finalized, updatedDoors);
       return;
     }
@@ -2320,7 +2401,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pushRoofHistory(updated);
   }
 
-  function applyDefaultSettingsToAll(roofId, pitch, overhang) {
+  function applyDefaultSettingsToAll(roofId, pitch, overhang, heelHeight) {
     if (!roofId) return;
     const pageRoofs = roofsByPage[currentPage] || [];
     const pitchVal = (pitch !== undefined && pitch !== null)
@@ -2328,6 +2409,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       : null;
     const ovhVal = (overhang !== undefined && overhang !== null)
       ? Math.max(0, parseFloat(overhang) || 0.0)
+      : null;
+    const heelVal = (heelHeight !== undefined && heelHeight !== null)
+      ? Math.max(0, parseFloat(heelHeight) || 0.0)
       : null;
 
     const updated = pageRoofs.map(r => {
@@ -2339,11 +2423,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const newOverhangs = ovhVal !== null
           ? Array(n).fill(ovhVal)
           : (Array.isArray(r.overhangs) && r.overhangs.length === n ? [...r.overhangs] : Array(n).fill(0.0));
+        const newHeelHeights = heelVal !== null
+          ? Array(n).fill(heelVal)
+          : (Array.isArray(r.heelHeights) && r.heelHeights.length === n ? [...r.heelHeights] : Array(n).fill(0.0));
         return {
           ...r,
           angles: newAngles,
           pitchAngle: pitchVal !== null ? pitchVal : r.pitchAngle,
           overhangs: newOverhangs,
+          heelHeights: newHeelHeights,
           isDirty: true
         };
       }
@@ -2354,12 +2442,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function applyDefaultPitchToAll(roofId, pitch) {
     if (!roofId || pitch === undefined) return;
-    applyDefaultSettingsToAll(roofId, pitch, null);
+    applyDefaultSettingsToAll(roofId, pitch, null, null);
   }
 
   function applyDefaultOverhangToAll(roofId, overhang) {
     if (!roofId || overhang === undefined) return;
-    applyDefaultSettingsToAll(roofId, null, overhang);
+    applyDefaultSettingsToAll(roofId, null, overhang, null);
+  }
+
+  function applyDefaultHeelHeightToAll(roofId, heelHeight) {
+    if (!roofId || heelHeight === undefined) return;
+    applyDefaultSettingsToAll(roofId, null, null, heelHeight);
   }
 
   function updateRoofEdgeAngle(roofId, edgeIndex, angle) {
@@ -2394,6 +2487,26 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         return {
           ...r,
           overhangs: currentOverhangs,
+          isDirty: true
+        };
+      }
+      return r;
+    });
+    pushRoofHistory(updated);
+  }
+
+  function updateRoofEdgeHeelHeight(roofId, edgeIndex, heelHeight) {
+    const pageRoofs = roofsByPage[currentPage] || [];
+    const updated = pageRoofs.map(r => {
+      if (r.id === roofId) {
+        const n = r.polygon?.length || 0;
+        const currentHeelHeights = Array.isArray(r.heelHeights) && r.heelHeights.length === n
+          ? [...r.heelHeights]
+          : Array(n).fill(0.0);
+        currentHeelHeights[edgeIndex] = Math.max(0, heelHeight);
+        return {
+          ...r,
+          heelHeights: currentHeelHeights,
           isDirty: true
         };
       }
@@ -2620,10 +2733,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const roofName = `Roof ${String.fromCharCode(65 + (pageRoofs.length % 26))}`;
     const n = points.length;
 
+    // Ensure polygon is CCW in Cartesian coordinates (signedArea > 0)
+    const { polygon: ccwPoints } = RoofEngine.ensurePolygonCCW(points);
+
     const newRoof = {
       id: roofId,
       name: roofName,
-      polygon: points.map(p => ({ x: p.x, y: p.y })),
+      polygon: ccwPoints.map(p => ({ x: p.x, y: p.y })),
       angles: Array(n).fill(22.5),       // Mặc định 22.5° cho N cạnh
       overhangs: Array(n).fill(0.0),     // Mặc định 0 mm cho N cạnh
       roofType: 'hip_gable',
@@ -2660,8 +2776,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
       const updated = pageRoofs.map(r => {
         if (r.id === roofId) {
+          const hasValidNormPoly = Array.isArray(v3Data.polygon) && v3Data.polygon.length === r.polygon.length &&
+            typeof v3Data.polygon[0]?.x === 'number';
           return {
             ...r,
+            polygon: hasValidNormPoly ? v3Data.polygon : r.polygon,
+            angles: v3Data.angles || r.angles,
+            overhangs: v3Data.overhangs || r.overhangs,
             v3Data,
             isDirty: false
           };
@@ -4860,7 +4981,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     hoveredRoofTarget, setHoveredRoofTarget,
     activeRoofDragTarget,
     roofHistory, roofFuture,
-    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultHeelHeightToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, updateRoofEdgeHeelHeight, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
     setRoofEdgeMode,
     exportRoofIO,
     exportRoofInput,

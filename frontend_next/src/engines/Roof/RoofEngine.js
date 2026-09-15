@@ -20,9 +20,112 @@ export function getMmPerPx(scaleFactor, realScale) {
 
 export const getRealScaleMm = getMmPerPx;
 
+/**
+ * Calculates the signed Shoelace area of a 2D polygon: sum(x1*y2 - x2*y1).
+ * In Cartesian coordinates, positive value indicates Counter-Clockwise (CCW).
+ * In Screen/Canvas coordinates (where Y points downward), positive value indicates Clockwise (CW)
+ * on screen, which maps to Counter-Clockwise (CCW) in Cartesian coordinates.
+ * @param {Array} polygon - Array of points ({x, y} or [x, y] or {pdfX, pdfY})
+ * @returns {number} Signed area
+ */
+export function getPolygonSignedArea(polygon) {
+  if (!polygon || !Array.isArray(polygon) || polygon.length < 3) return 0;
+  let signedArea = 0;
+  const n = polygon.length;
+  for (let i = 0; i < n; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % n];
+    if (!p1 || !p2) continue;
+    const x1 = p1.x !== undefined ? p1.x : (p1.pdfX !== undefined ? p1.pdfX : p1[0]);
+    const y1 = p1.y !== undefined ? p1.y : (p1.pdfY !== undefined ? p1.pdfY : p1[1]);
+    const x2 = p2.x !== undefined ? p2.x : (p2.pdfX !== undefined ? p2.pdfX : p2[0]);
+    const y2 = p2.y !== undefined ? p2.y : (p2.pdfY !== undefined ? p2.pdfY : p2[1]);
+    signedArea += (x1 * y2 - x2 * y1);
+  }
+  return signedArea;
+}
+
+/**
+ * Ensures a 2D polygon is oriented in Counter-Clockwise (CCW) direction in Cartesian space (signedArea > 0).
+ * If signedArea < 0, reverses the vertex order.
+ * @param {Array} polygon - Array of points
+ * @returns {{ polygon: Array, isReversed: boolean, signedArea: number }}
+ */
+export function ensurePolygonCCW(polygon) {
+  if (!polygon || !Array.isArray(polygon) || polygon.length < 3) {
+    return { polygon: polygon || [], isReversed: false, signedArea: 0 };
+  }
+  const signedArea = getPolygonSignedArea(polygon);
+  if (signedArea < 0) {
+    return {
+      polygon: polygon.slice().reverse(),
+      isReversed: true,
+      signedArea: -signedArea
+    };
+  }
+  return {
+    polygon: polygon.slice(),
+    isReversed: false,
+    signedArea
+  };
+}
+
+/**
+ * Normalizes a Roof object so that its polygon is guaranteed CCW (signedArea > 0).
+ * When reversed, all corresponding per-edge arrays (angles, overhangs, wallHeights, heelHeights, etc.)
+ * are synchronized by reversing and left-shifting by 1, and edge indices are remapped.
+ * @param {Object} roof - EzeFloor Roof state object
+ * @returns {Object} Normalized Roof state object (new copy if reversed)
+ */
+export function ensureRoofCCW(roof) {
+  if (!roof || !roof.polygon || !Array.isArray(roof.polygon) || roof.polygon.length < 3) {
+    return roof;
+  }
+  const { polygon: ccwPoly, isReversed } = ensurePolygonCCW(roof.polygon);
+  if (!isReversed) {
+    return roof;
+  }
+
+  const n = roof.polygon.length;
+  // Edge attributes array transformation when vertices are reversed:
+  // Original edge i: V_i -> V_{i+1}. Reversed vertices W_0 = V_{n-1}, W_1 = V_{n-2}, ...
+  // New edge 0: W_0 -> W_1 = V_{n-1} -> V_{n-2} (reverse of original edge n-2).
+  // Hence: arr.slice().reverse() then rotate left by 1: arr.push(arr.shift())
+  const reverseAndShift = (arr) => {
+    if (!Array.isArray(arr) || arr.length !== n) return arr;
+    const rev = arr.slice().reverse();
+    return rev.slice(1).concat(rev.slice(0, 1));
+  };
+
+  const remapIndex = (idx) => {
+    if (typeof idx !== 'number' || idx < 0 || idx >= n) return idx;
+    return (n - 2 - idx + n) % n;
+  };
+
+  return {
+    ...roof,
+    polygon: ccwPoly,
+    angles: reverseAndShift(roof.angles),
+    overhangs: reverseAndShift(roof.overhangs),
+    wallHeights: reverseAndShift(roof.wallHeights),
+    heelHeights: reverseAndShift(roof.heelHeights),
+    wallIds: reverseAndShift(roof.wallIds),
+    sourceWallIds: reverseAndShift(roof.sourceWallIds),
+    dutchOverhangs: reverseAndShift(roof.dutchOverhangs),
+    dutchRakeOverhangs: reverseAndShift(roof.dutchRakeOverhangs),
+    dutchCutPoints: reverseAndShift(roof.dutchCutPoints),
+    eaveEdgeIndex: remapIndex(roof.eaveEdgeIndex),
+    dutchEdges: Array.isArray(roof.dutchEdges) ? roof.dutchEdges.map(remapIndex) : roof.dutchEdges,
+    _isReversedToCCW: true
+  };
+}
+
 const RoofEngine = {
   getMmPerPx,
   getRealScaleMm,
+  getPolygonSignedArea,
+  ensurePolygonCCW,
+  ensureRoofCCW,
   /**
    * Prepares payload matching roof_1_input_v3.json format
    * @param {Object} params
@@ -33,7 +136,9 @@ const RoofEngine = {
   createRoofPayload: function({ roof, scaleFactor, realScale }) {
     if (!roof || !roof.polygon || roof.polygon.length < 3) return null;
 
-    const points = roof.polygon;
+    // Ensure CCW orientation (Cartesian CCW / signedArea > 0)
+    const normalizedRoof = ensureRoofCCW(roof);
+    const points = normalizedRoof.polygon;
     const n = points.length;
     const mmPerPx = getRealScaleMm(scaleFactor, realScale);
 
@@ -50,42 +155,52 @@ const RoofEngine = {
       return [px, py];
     });
 
-    const finalAngles = Array.isArray(roof.angles) && roof.angles.length === n
-      ? roof.angles
+    const finalAngles = Array.isArray(normalizedRoof.angles) && normalizedRoof.angles.length === n
+      ? normalizedRoof.angles
       : Array(n).fill(22.5);
 
-    const finalOverhangs = Array.isArray(roof.overhangs) && roof.overhangs.length === n
-      ? roof.overhangs
+    const finalOverhangs = Array.isArray(normalizedRoof.overhangs) && normalizedRoof.overhangs.length === n
+      ? normalizedRoof.overhangs
+      : Array(n).fill(0.0);
+
+    const finalWallHeights = Array.isArray(normalizedRoof.wallHeights) && normalizedRoof.wallHeights.length === n
+      ? normalizedRoof.wallHeights
+      : Array(n).fill(normalizedRoof.wallHeight || 2700);
+
+    const finalHeelHeights = Array.isArray(normalizedRoof.heelHeights) && normalizedRoof.heelHeights.length === n
+      ? normalizedRoof.heelHeights
       : Array(n).fill(0.0);
 
     const payload = {
       points: pointsMm,
       angles: finalAngles,
       overhangs: finalOverhangs,
+      wall_heights: finalWallHeights,
+      heel_heights: finalHeelHeights,
       mode: 'topology',
-      roof_type: roof.roofType || 'hip_gable',
-      eave_edge_index: roof.eaveEdgeIndex || 0,
-      wall_height: roof.wallHeight || 2700,
+      roof_type: normalizedRoof.roofType || 'hip_gable',
+      eave_edge_index: normalizedRoof.eaveEdgeIndex || 0,
+      wall_height: normalizedRoof.wallHeight || 2700,
       scale_factor: mmPerPx,
       raw_points_pixels: rawPointsPixels,
-      dutch_edges: Array.isArray(roof.dutchEdges) ? roof.dutchEdges : [],
-      dutch_overhangs: Array.isArray(roof.dutchOverhangs) ? roof.dutchOverhangs.map(v => typeof v === 'number' ? v : 0.0) : [],
-      dutch_rake_overhangs: Array.isArray(roof.dutchRakeOverhangs) ? roof.dutchRakeOverhangs.map(v => typeof v === 'number' ? v : 0.0) : [],
-      dutch_cut_points: Array.isArray(roof.dutchCutPoints) ? roof.dutchCutPoints.map(pt => {
+      dutch_edges: Array.isArray(normalizedRoof.dutchEdges) ? normalizedRoof.dutchEdges : [],
+      dutch_overhangs: Array.isArray(normalizedRoof.dutchOverhangs) ? normalizedRoof.dutchOverhangs.map(v => typeof v === 'number' ? v : 0.0) : [],
+      dutch_rake_overhangs: Array.isArray(normalizedRoof.dutchRakeOverhangs) ? normalizedRoof.dutchRakeOverhangs.map(v => typeof v === 'number' ? v : 0.0) : [],
+      dutch_cut_points: Array.isArray(normalizedRoof.dutchCutPoints) ? normalizedRoof.dutchCutPoints.map(pt => {
         if (!pt || !Array.isArray(pt) || pt.length < 2) return null;
         return [pt[0] * mmPerPx, pt[1] * mmPerPx];
       }) : []
     };
 
-    if (roof.holes && roof.holes.length > 0) {
-      payload.holes = roof.holes.map(h => h.map(pt => {
+    if (normalizedRoof.holes && normalizedRoof.holes.length > 0) {
+      payload.holes = normalizedRoof.holes.map(h => h.map(pt => {
         const px = pt.x !== undefined ? pt.x : (pt.pdfX !== undefined ? pt.pdfX : pt[0]);
         const py = pt.y !== undefined ? pt.y : (pt.pdfY !== undefined ? pt.pdfY : pt[1]);
         return [px * mmPerPx, py * mmPerPx];
       }));
-      payload.hole_angles = Array.isArray(roof.holeAngles) && roof.holeAngles.length === roof.holes.length
-        ? roof.holeAngles
-        : roof.holes.map(h => Array(h.length).fill(22.5));
+      payload.hole_angles = Array.isArray(normalizedRoof.holeAngles) && normalizedRoof.holeAngles.length === normalizedRoof.holes.length
+        ? normalizedRoof.holeAngles
+        : normalizedRoof.holes.map(h => Array(h.length).fill(22.5));
     }
 
     return payload;
@@ -107,6 +222,10 @@ const RoofEngine = {
     angles,
     overhangs,
     wallHeight = 2700,
+    wall_heights = null,
+    heel_heights = null,
+    wallHeights = null,
+    heelHeights = null,
     roofType = 'hip_gable',
     eaveEdgeIndex = 0,
     baseZ = 0.0,
@@ -120,6 +239,9 @@ const RoofEngine = {
     dutchRakeOverhangs = [],
     dutchCutPoints = []
   }) {
+    const resolvedWallHeights = wall_heights || wallHeights;
+    const resolvedHeelHeights = heel_heights || heelHeights;
+
     const buildPayload = {
       topology,
       points: pointsMm,
@@ -127,6 +249,8 @@ const RoofEngine = {
       overhangs,
       hole_angles: holeAngles,
       wall_height: wallHeight,
+      wall_heights: resolvedWallHeights,
+      heel_heights: resolvedHeelHeights,
       roof_type: roofType,
       eave_edge_index: eaveEdgeIndex,
       base_z: baseZ,
@@ -144,7 +268,8 @@ const RoofEngine = {
    * Returns a ready-to-cache v3Data object.
    */
   computeRoofPipeline: async function({ roof, scaleFactor, realScale }) {
-    const payload = this.createRoofPayload({ roof, scaleFactor, realScale });
+    const normalizedRoof = ensureRoofCCW(roof);
+    const payload = this.createRoofPayload({ roof: normalizedRoof, scaleFactor, realScale });
     if (!payload) throw new Error("Invalid roof geometry (need at least 3 points)");
 
     // Step 1: Compute 2D Straight Skeleton topology
@@ -161,6 +286,8 @@ const RoofEngine = {
       angles: payload.angles,
       overhangs: payload.overhangs,
       wallHeight: payload.wall_height,
+      wall_heights: payload.wall_heights,
+      heel_heights: payload.heel_heights,
       roofType: payload.roof_type,
       eaveEdgeIndex: payload.eave_edge_index,
       holeAngles: payload.hole_angles || [],
@@ -205,12 +332,23 @@ const RoofEngine = {
     };
 
     return {
+      points: payload.points,
+      polygon: normalizedRoof.polygon,
+      raw_points_pixels: payload.raw_points_pixels,
+      wall_height: payload.wall_height,
+      wall_heights: payload.wall_heights,
+      angles: payload.angles,
+      overhangs: payload.overhangs,
       topology2D: finalTopology2D,
       mesh3D: planesRes.mesh,
       roofMesh: planesRes.roof_mesh,
       wallMesh: planesRes.wall_mesh,
       gableMesh: planesRes.gable_mesh || planesRes.wall_mesh?.gable_mesh,
       graph: planesRes.graph,
+      structureLines: planesRes.structure_lines || [],
+      structure_lines: planesRes.structure_lines || [],
+      edgeEndTypes: planesRes.edge_end_types || [],
+      edge_end_types: planesRes.edge_end_types || [],
       maxPlanarityErrorMm: planesRes.max_planarity_error_mm || 0.0,
       isDirty: false
     };
@@ -304,6 +442,8 @@ const RoofEngine = {
         wallMesh: trimRes.wall_mesh,
         gableMesh: trimRes.gable_mesh || trimRes.wall_mesh?.gable_mesh,
         graph: trimRes.graph,
+        structureLines: trimRes.structure_lines || [],
+        structure_lines: trimRes.structure_lines || [],
         maxPlanarityErrorMm: trimRes.max_planarity_error_mm || 0.0,
         isDirty: false
       }
@@ -621,6 +761,8 @@ const RoofEngine = {
 
     const finalVertices = [];
     const finalThicknesses = [];
+    const finalHeights = [];
+    const finalWallIds = [];
     let avgHeight = 2700;
     const count = ordered.length;
 
@@ -640,23 +782,33 @@ const RoofEngine = {
           // L-shaped or angled corner intersection: replaces the joint vertex cleanly
           finalVertices.push(corner);
           finalThicknesses.push(curr.thicknessMm);
+          finalHeights.push(curr.heightMm || avgHeight);
+          finalWallIds.push(curr.id || null);
         } else {
           // Collinear / Parallel (U-shaped recess bridge)
           finalVertices.push(prev.p2);
           finalThicknesses.push(prev.thicknessMm);
+          finalHeights.push(prev.heightMm || avgHeight);
+          finalWallIds.push(prev.id || null);
           finalVertices.push(curr.p1);
           finalThicknesses.push(curr.thicknessMm);
+          finalHeights.push(curr.heightMm || avgHeight);
+          finalWallIds.push(curr.id || null);
         }
       } else {
         // Normal continuous joint: vertex is curr.p1
         finalVertices.push(curr.p1);
         finalThicknesses.push(curr.thicknessMm);
+        finalHeights.push(curr.heightMm || avgHeight);
+        finalWallIds.push(curr.id || null);
       }
     }
 
     return {
       vertices: finalVertices,
       thicknesses: finalThicknesses,
+      heights: finalHeights,
+      wallIds: finalWallIds,
       avgHeight
     };
   },
@@ -757,6 +909,8 @@ const RoofEngine = {
 
     const loopVerticesPixels = bridged.vertices;
     const loopThicknessesMm = bridged.thicknesses;
+    const loopHeightsMm = bridged.heights || Array(bridged.vertices.length).fill(bridged.avgHeight || 2700);
+    const loopWallIds = bridged.wallIds || Array(bridged.vertices.length).fill(null);
     const avgWallHeightMm = bridged.avgHeight;
 
     // 4. Ensure CCW in Cartesian space (CW in screen space where Y points down)
@@ -772,13 +926,23 @@ const RoofEngine = {
       loopVerticesPixels.reverse();
       loopThicknessesMm.reverse();
       loopThicknessesMm.push(loopThicknessesMm.shift());
+      loopHeightsMm.reverse();
+      loopHeightsMm.push(loopHeightsMm.shift());
+      loopWallIds.reverse();
+      loopWallIds.push(loopWallIds.shift());
     }
+
+    // Compute base wall height as the MINIMUM wall height among all exterior walls
+    const validHeights = loopHeightsMm.filter(h => typeof h === 'number' && h > 0);
+    const minWallHeightMm = validHeights.length > 0 ? Math.min(...validHeights) : 2700;
 
     return {
       verticesPixels: loopVerticesPixels,
       verticesMm: loopVerticesPixels.map(p => [p.x * mmPerPx, p.y * mmPerPx]),
       edgeThicknessesMm: loopThicknessesMm,
-      wallHeightMm: avgWallHeightMm || 2700
+      edgeHeightsMm: loopHeightsMm,
+      edgeWallIds: loopWallIds,
+      wallHeightMm: minWallHeightMm || 2700
     };
   },
 
@@ -944,20 +1108,86 @@ const RoofEngine = {
       outerPolygonPixels = loopData.verticesPixels.map(p => ({ x: p.x, y: p.y }));
     }
 
+    // Ensure extracted outer polygon is CCW in Cartesian space (CW in screen space where Y points down)
+    const { polygon: ccwOuterPixels } = ensurePolygonCCW(outerPolygonPixels);
+    outerPolygonPixels = ccwOuterPixels;
+
     const m = outerPolygonPixels.length;
     const resolvedName = roofName || `Roof ${String.fromCharCode(65 + (roofIndex % 26))}`;
     const resolvedId = roofId || `roof_${Date.now()}_${roofIndex}`;
 
-    // Stage 3: Create pristine Roof object (baseline OVH = 0mm)
+    // Stage 3: Remap outerPolygonPixels edges to original wall segments geometrically
+    const remappedHeights = [];
+    const remappedWallIds = [];
+    const hasLoopWallData = Array.isArray(loopData.verticesPixels) && loopData.verticesPixels.length >= 3 &&
+                            Array.isArray(loopData.edgeHeightsMm) && loopData.edgeHeightsMm.length > 0;
+
+    for (let i = 0; i < m; i++) {
+      if (!hasLoopWallData) {
+        remappedHeights.push(loopData.wallHeightMm || wallHeight);
+        remappedWallIds.push(null);
+        continue;
+      }
+
+      const p1 = outerPolygonPixels[i];
+      const p2 = outerPolygonPixels[(i + 1) % m];
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      const lenI = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const uX = lenI > 1e-4 ? (p2.x - p1.x) / lenI : 0;
+      const uY = lenI > 1e-4 ? (p2.y - p1.y) / lenI : 0;
+
+      let bestJ = 0;
+      let bestScore = Infinity;
+      const nLoop = loopData.verticesPixels.length;
+
+      for (let j = 0; j < nLoop; j++) {
+        const w1 = loopData.verticesPixels[j];
+        const w2 = loopData.verticesPixels[(j + 1) % nLoop];
+        const lenJ = Math.hypot(w2.x - w1.x, w2.y - w1.y);
+        if (lenJ < 1e-4) continue;
+
+        const vX = (w2.x - w1.x) / lenJ;
+        const vY = (w2.y - w1.y) / lenJ;
+        const dot = Math.abs(uX * vX + uY * vY);
+
+        // Perpendicular distance from eave edge midpoint to wall segment line
+        const distLine = Math.abs((w2.y - w1.y) * midX - (w2.x - w1.x) * midY + w2.x * w1.y - w2.y * w1.x) / lenJ;
+
+        // Projection scalar t of midpoint along wall segment
+        const t = ((midX - w1.x) * (w2.x - w1.x) + (midY - w1.y) * (w2.y - w1.y)) / (lenJ * lenJ);
+        const projPenalty = (t < -0.25 || t > 1.25) ? 5000 : 0;
+
+        const score = distLine + (1.0 - dot) * 3000 + projPenalty;
+        if (score < bestScore) {
+          bestScore = score;
+          bestJ = j;
+        }
+      }
+
+      remappedHeights.push(loopData.edgeHeightsMm[bestJ] || loopData.wallHeightMm || wallHeight);
+      remappedWallIds.push((loopData.edgeWallIds && loopData.edgeWallIds[bestJ]) || null);
+    }
+
+    const validRemappedHeights = remappedHeights.filter(h => typeof h === 'number' && h > 0);
+    const resolvedBaseWallHeight = validRemappedHeights.length > 0
+      ? Math.min(...validRemappedHeights)
+      : (loopData.wallHeightMm || wallHeight);
+
+    // Stage 4: Create pristine Roof object (baseline OVH = 0mm)
     const newRoof = {
       id: resolvedId,
       name: resolvedName,
       polygon: outerPolygonPixels,
       angles: Array(m).fill(defaultPitch),
       overhangs: Array(m).fill(0.0), // Baseline OVH = 0mm
+      wallHeights: remappedHeights,
+      wallIds: remappedWallIds,
+      sourceWallIds: remappedWallIds,
+      heelHeights: Array(m).fill(0.0),
       roofType: 'hip_gable',
       eaveEdgeIndex: 0,
-      wallHeight: loopData.wallHeightMm || wallHeight,
+      wallHeight: resolvedBaseWallHeight,
       holes: [],
       holeAngles: [],
       v3Data: null,

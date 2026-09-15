@@ -155,6 +155,10 @@ export default function ThreeDView({
   const [roofColorMode, setRoofColorMode] = useState("palette"); // "palette" | "single"
   const [singleRoofColor, setSingleRoofColor] = useState("#334155"); // Elegant Slate Charcoal Roof Color
   const [showRoofOutlines, setShowRoofOutlines] = useState(true); // Toggle white CAD outline lines
+  const [showRoofTrusses, setShowRoofTrusses] = useState(false); // Toggle 3D roof truss framing
+  const [trussSpacingMm, setTrussSpacingMm] = useState(600);
+  const [trussXrayMode, setTrussXrayMode] = useState(true);
+  const [hideRoofShell, setHideRoofShell] = useState(false);
   const [isControlsCollapsed, setIsControlsCollapsed] = useState(false);
 
   // ── 3D Wall Color Mode & Custom Colors ──
@@ -886,12 +890,18 @@ export default function ThreeDView({
           if (!poly || poly.length < 3) return;
 
           const n = poly.length;
-          const topYOffset = yOffset + levelWallHeight;
           const mmPerPx = (typeof realScale === 'number' && realScale > 0)
             ? realScale
             : ((typeof scaleValue === 'number' && scaleValue > 0) ? (scaleValue > 1 ? scaleValue : scaleValue * 1000) : 20.0);
           const roofThickness = 120 / mmPerPx;
-          const wallHeightMm = roof.wallHeight || 2700;
+
+          const edgeHeights = Array.isArray(roof.wallHeights) ? roof.wallHeights.filter(h => typeof h === 'number' && h > 0) : [];
+          const roofBaseHeightMm = typeof roof.wallHeight === 'number' && roof.wallHeight > 0
+            ? roof.wallHeight
+            : (edgeHeights.length > 0 ? Math.min(...edgeHeights) : 2700);
+
+          const topYOffset = yOffset + (roofBaseHeightMm / mmPerPx);
+          const wallHeightMm = roofBaseHeightMm;
 
           // Case 1: Roof has V3 computed 3D Mesh
           if (roof.v3Data && (roof.v3Data.roofMesh || roof.v3Data.roof_mesh || roof.v3Data.mesh3D || roof.v3Data.mesh)) {
@@ -907,7 +917,11 @@ export default function ThreeDView({
               singleRoofColor,
               showOutlines: showRoofOutlines,
               hasUserWalls,
-              renderSampleWalls: !hasUserWalls
+              renderSampleWalls: !hasUserWalls,
+              showTrusses: showRoofTrusses,
+              trussSpacingMm,
+              trussXrayMode,
+              hideRoofShell
             });
 
             roofObjects.forEach(obj => {
@@ -2014,6 +2028,7 @@ export default function ThreeDView({
     wallColorMode, extWallColor, intWallColor, partWallColor, blockWallColor, showExtWalls, showIntWalls, showPartWalls, showBlockWalls,
     heightTier1Color, heightTier2Color, heightTier3Color, heightTier4Color,
     roofColorMode, singleRoofColor, showRoofOutlines,
+    showRoofTrusses, trussSpacingMm, trussXrayMode, hideRoofShell,
     selected3DWall, selectedId, levelBaseYOffsets, pageHeightsMm
   ]);
 
@@ -2408,115 +2423,193 @@ export default function ThreeDView({
               )}
             </div>
 
-        {/* 🏠 ROOF COLOR MODE & CUSTOMIZATION */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
-          <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>🏠 ROOF STYLING</span>
-            <span style={{ fontSize: "10px", color: roofColorMode === "single" ? "#34d399" : "#f59e0b", fontWeight: "600" }}>
-              {roofColorMode === "single" ? "Single Color" : "Multi Color (CAD)"}
-            </span>
-          </div>
+            {/* 🏠 ROOF COLOR MODE & CUSTOMIZATION */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "12px" }}>
+              <div style={{ fontSize: "11px", fontWeight: "bold", color: "#60a5fa", letterSpacing: "0.05em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>🏠 ROOF STYLING</span>
+                <span style={{ fontSize: "10px", color: roofColorMode === "single" ? "#34d399" : "#f59e0b", fontWeight: "600" }}>
+                  {roofColorMode === "single" ? "Single Color" : "Multi Color (CAD)"}
+                </span>
+              </div>
 
-          <div style={{ display: "flex", gap: "4px", backgroundColor: "rgba(15, 23, 42, 0.6)", padding: "4px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
-            <button
-              onClick={() => setRoofColorMode("palette")}
-              style={{
-                flex: 1,
-                padding: "5px 6px",
-                fontSize: "11px",
-                fontWeight: "bold",
-                borderRadius: "6px",
-                border: "none",
-                backgroundColor: roofColorMode === "palette" ? "#3b82f6" : "transparent",
-                color: roofColorMode === "palette" ? "#ffffff" : "#9ca3af",
-                cursor: "pointer",
-                transition: "all 0.2s"
-              }}
-            >
-              🎨 Multi Color
-            </button>
-            <button
-              onClick={() => setRoofColorMode("single")}
-              style={{
-                flex: 1,
-                padding: "5px 6px",
-                fontSize: "11px",
-                fontWeight: "bold",
-                borderRadius: "6px",
-                border: "none",
-                backgroundColor: roofColorMode === "single" ? "#10b981" : "transparent",
-                color: roofColorMode === "single" ? "#ffffff" : "#9ca3af",
-                cursor: "pointer",
-                transition: "all 0.2s"
-              }}
-            >
-              🏠 Single Color
-            </button>
-          </div>
+              <div style={{ display: "flex", gap: "4px", backgroundColor: "rgba(15, 23, 42, 0.6)", padding: "4px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                <button
+                  onClick={() => setRoofColorMode("palette")}
+                  style={{
+                    flex: 1,
+                    padding: "5px 6px",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    borderRadius: "6px",
+                    border: "none",
+                    backgroundColor: roofColorMode === "palette" ? "#3b82f6" : "transparent",
+                    color: roofColorMode === "palette" ? "#ffffff" : "#9ca3af",
+                    cursor: "pointer",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  🎨 Multi Color
+                </button>
+                <button
+                  onClick={() => setRoofColorMode("single")}
+                  style={{
+                    flex: 1,
+                    padding: "5px 6px",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    borderRadius: "6px",
+                    border: "none",
+                    backgroundColor: roofColorMode === "single" ? "#10b981" : "transparent",
+                    color: roofColorMode === "single" ? "#ffffff" : "#9ca3af",
+                    cursor: "pointer",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  🏠 Single Color
+                </button>
+              </div>
 
-          {/* Color Picker & Presets for Single Tone Roof */}
-          {roofColorMode === "single" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
-                <span>Roof color:</span>
+              {/* Color Picker & Presets for Single Tone Roof */}
+              {roofColorMode === "single" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#d1d5db" }}>
+                    <span>Roof color:</span>
+                    <input
+                      type="color"
+                      value={singleRoofColor}
+                      onChange={(e) => setSingleRoofColor(e.target.value)}
+                      style={{ width: "26px", height: "26px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                    />
+                  </div>
+
+                  {/* Quick Presets for Roof Color */}
+                  <div style={{ display: "flex", gap: "5px" }}>
+                    {[
+                      { name: "Gray-Black", color: "#334155" },
+                      { name: "Red tile", color: "#b91c1c" },
+                      { name: "Dark Blue", color: "#1e3a8a" },
+                      { name: "Moss Green", color: "#0f766e" }
+                    ].map(p => (
+                      <button
+                        key={p.color}
+                        onClick={() => setSingleRoofColor(p.color)}
+                        style={{
+                          flex: 1,
+                          padding: "4px 0",
+                          fontSize: "10px",
+                          fontWeight: "bold",
+                          borderRadius: "5px",
+                          border: singleRoofColor === p.color ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.1)",
+                          backgroundColor: p.color,
+                          color: "#ffffff",
+                          cursor: "pointer",
+                          textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+                          boxShadow: singleRoofColor === p.color ? "0 0 8px rgba(56, 189, 248, 0.5)" : "none"
+                        }}
+                        title={p.name}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Outline Toggle */}
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db", marginTop: "2px" }}>
+                <span>Display Outlines</span>
                 <input
-                  type="color"
-                  value={singleRoofColor}
-                  onChange={(e) => setSingleRoofColor(e.target.value)}
-                  style={{ width: "26px", height: "26px", padding: 0, border: "none", borderRadius: "4px", cursor: "pointer", backgroundColor: "transparent" }}
+                  type="checkbox"
+                  checked={showRoofOutlines}
+                  onChange={() => setShowRoofOutlines(v => !v)}
+                  style={{
+                    width: "16px",
+                    height: "16px",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    accentColor: "#3b82f6"
+                  }}
                 />
-              </div>
+              </label>
 
-              {/* Quick Presets for Roof Color */}
-              <div style={{ display: "flex", gap: "5px" }}>
-                {[
-                  { name: "Gray-Black", color: "#334155" },
-                  { name: "Red tile", color: "#b91c1c" },
-                  { name: "Dark Blue", color: "#1e3a8a" },
-                  { name: "Moss Green", color: "#0f766e" }
-                ].map(p => (
-                  <button
-                    key={p.color}
-                    onClick={() => setSingleRoofColor(p.color)}
-                    style={{
-                      flex: 1,
-                      padding: "4px 0",
-                      fontSize: "10px",
-                      fontWeight: "bold",
-                      borderRadius: "5px",
-                      border: singleRoofColor === p.color ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.1)",
-                      backgroundColor: p.color,
-                      color: "#ffffff",
-                      cursor: "pointer",
-                      textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-                      boxShadow: singleRoofColor === p.color ? "0 0 8px rgba(56, 189, 248, 0.5)" : "none"
-                    }}
-                    title={p.name}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Outline Toggle */}
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db", marginTop: "2px" }}>
-            <span> Display Outlines</span>
+              {/* Roof Truss Framing Toggle */}
+              {/* <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "12px", color: "#d1d5db", marginTop: "4px" }}>
+            <span style={{ color: showRoofTrusses ? "#f59e0b" : "#d1d5db", fontWeight: showRoofTrusses ? "600" : "normal" }}>
+              🦴 Roof Trusses (Framing)
+            </span>
             <input
               type="checkbox"
-              checked={showRoofOutlines}
-              onChange={() => setShowRoofOutlines(v => !v)}
+              checked={showRoofTrusses}
+              onChange={() => setShowRoofTrusses(v => !v)}
               style={{
                 width: "16px",
                 height: "16px",
                 borderRadius: "4px",
                 cursor: "pointer",
-                accentColor: "#3b82f6"
+                accentColor: "#f59e0b"
               }}
             />
-          </label>
-        </div>
+          </label> */}
+
+              {/* Truss Sub-options when enabled */}
+              {/* {showRoofTrusses && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", padding: "6px 8px", backgroundColor: "rgba(15, 23, 42, 0.6)", borderRadius: "6px", border: "1px solid rgba(245, 158, 11, 0.3)", marginTop: "2px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px", color: "#94a3b8" }}>
+                <span>Spacing</span>
+                <select
+                  value={trussSpacingMm}
+                  onChange={(e) => setTrussSpacingMm(Number(e.target.value))}
+                  style={{
+                    backgroundColor: "#1e293b",
+                    color: "#f8fafc",
+                    border: "1px solid #475569",
+                    borderRadius: "4px",
+                    fontSize: "11px",
+                    padding: "2px 4px",
+                    cursor: "pointer"
+                  }}
+                >
+                  <option value={450}>450 mm centres</option>
+                  <option value={600}>600 mm centres (Standard)</option>
+                  <option value={900}>900 mm centres (Economical)</option>
+                  <option value={1200}>1200 mm centres</option>
+                </select>
+              </div>
+
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "11px", color: "#cbd5e1" }}>
+                <span>X-Ray Roof Shell</span>
+                <input
+                  type="checkbox"
+                  checked={trussXrayMode}
+                  onChange={(e) => setTrussXrayMode(e.target.checked)}
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    accentColor: "#f59e0b"
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", fontSize: "11px", color: "#cbd5e1" }}>
+                <span>Hide Roof Shell</span>
+                <input
+                  type="checkbox"
+                  checked={hideRoofShell}
+                  onChange={(e) => setHideRoofShell(e.target.checked)}
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                    accentColor: "#f59e0b"
+                  }}
+                />
+              </label>
+            </div>
+          )} */}
+            </div>
 
             {/* Toggles */}
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(203, 213, 225, 0.5)", paddingTop: "12px" }}>

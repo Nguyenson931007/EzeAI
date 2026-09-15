@@ -54,6 +54,24 @@
     "ply": 1
   },
   {
+    "id": "800000001",
+    "description": "Lintels",
+    "type": "LVL",
+    "height": 150,
+    "width": 35,
+    "unit": "LM",
+    "ply": 1
+  },
+  {
+    "id": "800000002",
+    "description": "Lintels",
+    "type": "LVL",
+    "height": 150,
+    "width": 45,
+    "unit": "LM",
+    "ply": 1
+  },
+  {
     "id": "800054892",
     "description": "Lintels",
     "type": "LVL",
@@ -85,6 +103,24 @@
     "description": "Lintels",
     "type": "LVL",
     "height": 190,
+    "width": 45,
+    "unit": "LM",
+    "ply": 1
+  },
+  {
+    "id": "800000003",
+    "description": "Lintels",
+    "type": "LVL",
+    "height": 200,
+    "width": 35,
+    "unit": "LM",
+    "ply": 1
+  },
+  {
+    "id": "800000004",
+    "description": "Lintels",
+    "type": "LVL",
+    "height": 200,
     "width": 45,
     "unit": "LM",
     "ply": 1

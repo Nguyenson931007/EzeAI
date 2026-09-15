@@ -17,7 +17,9 @@ class ComputeRoofRequestV3(BaseModel):
     mode: str = "topology"                           # "topology" or "extrusion"
     roof_type: str = "hip_gable"                     # "hip_gable" or "shed"
     eave_edge_index: Optional[int] = 0               # low eave edge for shed roof
-    wall_height: Optional[float] = 2700.0            # wall height in mm
+    wall_height: Optional[float] = 2700.0            # default wall height in mm
+    wall_heights: Optional[List[float]] = None       # optional individual wall height per edge (mm)
+    heel_heights: Optional[List[float]] = None       # optional individual heel height raise per edge (mm)
 
     # Dutch Gable extensions
     dutch_edges: Optional[List[int]] = None          # absolute edge indices for dutch gable
@@ -27,8 +29,12 @@ class ComputeRoofRequestV3(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def map_camel_case_dutch(cls, data: Any):
+    def map_camel_case_fields(cls, data: Any):
         if isinstance(data, dict):
+            if "wallHeights" in data and "wall_heights" not in data:
+                data["wall_heights"] = data["wallHeights"]
+            if "heelHeights" in data and "heel_heights" not in data:
+                data["heel_heights"] = data["heelHeights"]
             if "dutchEdges" in data and "dutch_edges" not in data:
                 data["dutch_edges"] = data["dutchEdges"]
             if "dutchOverhangs" in data and "dutch_overhangs" not in data:
@@ -65,6 +71,8 @@ class BuildPlanesRequestV3(BaseModel):
     hole_angles: Optional[List[List[float]]] = None
     default_eave_z: float = 0.0
     wall_height: Optional[float] = 2700.0
+    wall_heights: Optional[List[float]] = None
+    heel_heights: Optional[List[float]] = None
     base_z: float = 0.0
     roof_type: str = "hip_gable"
     eave_edge_index: Optional[int] = 0
@@ -77,8 +85,12 @@ class BuildPlanesRequestV3(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def map_camel_case_dutch(cls, data: Any):
+    def map_camel_case_fields(cls, data: Any):
         if isinstance(data, dict):
+            if "wallHeights" in data and "wall_heights" not in data:
+                data["wall_heights"] = data["wallHeights"]
+            if "heelHeights" in data and "heel_heights" not in data:
+                data["heel_heights"] = data["heelHeights"]
             if "dutchEdges" in data and "dutch_edges" not in data:
                 data["dutch_edges"] = data["dutchEdges"]
             if "dutchOverhangs" in data and "dutch_overhangs" not in data:

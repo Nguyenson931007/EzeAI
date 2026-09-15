@@ -481,7 +481,7 @@ export default function RibbonView({
             }
           }
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // Nếu đã có activeModules từ TaskList, lọc đúng các step đó (0ms)
       if (activeModules && activeModules.length > 0) {
@@ -542,107 +542,107 @@ export default function RibbonView({
     };
   }, [showImportPageSelector, currentProjectName]);
 
-  const handleGenerateTruss = () => {
-    try {
-      const currentRoofs = roofsByPage?.[currentPage] || [];
-      const currentRooms = roomsByPage?.[currentPage] || [];
-      const currentWalls = wallsByPage?.[currentPage] || [];
+  // const handleGenerateTruss = () => {
+  //   try {
+  //     const currentRoofs = roofsByPage?.[currentPage] || [];
+  //     const currentRooms = roomsByPage?.[currentPage] || [];
+  //     const currentWalls = wallsByPage?.[currentPage] || [];
 
-      let newTruss = null;
+  //     let newTruss = null;
 
-      if (currentRoofs && currentRoofs.length > 0) {
-        const selectedRoof = currentRoofs[0];
-        newTruss = TrussEngine.generateTrussesFromRoof(selectedRoof, scaleValue, realScale);
-      } else if (currentRooms.length > 0 || currentWalls.length > 0) {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        currentRooms.forEach(room => {
-          (room.polygon || []).forEach(p => {
-            if (p.x < minX) minX = p.x;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.y > maxY) maxY = p.y;
-          });
-        });
-        currentWalls.forEach(wall => {
-          if (wall.p1) {
-            if (wall.p1.x < minX) minX = wall.p1.x;
-            if (wall.p1.x > maxX) maxX = wall.p1.x;
-            if (wall.p1.y < minY) minY = wall.p1.y;
-            if (wall.p1.y > maxY) maxY = wall.p1.y;
-          }
-          if (wall.p2) {
-            if (wall.p2.x < minX) minX = wall.p2.x;
-            if (wall.p2.x > maxX) maxX = wall.p2.x;
-            if (wall.p2.y < minY) minY = wall.p2.y;
-            if (wall.p2.y > maxY) maxY = wall.p2.y;
-          }
-        });
+  //     if (currentRoofs && currentRoofs.length > 0) {
+  //       const selectedRoof = currentRoofs[0];
+  //       newTruss = TrussEngine.generateTrussesFromRoof(selectedRoof, scaleValue, realScale);
+  //     } else if (currentRooms.length > 0 || currentWalls.length > 0) {
+  //       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  //       currentRooms.forEach(room => {
+  //         (room.polygon || []).forEach(p => {
+  //           if (p.x < minX) minX = p.x;
+  //           if (p.x > maxX) maxX = p.x;
+  //           if (p.y < minY) minY = p.y;
+  //           if (p.y > maxY) maxY = p.y;
+  //         });
+  //       });
+  //       currentWalls.forEach(wall => {
+  //         if (wall.p1) {
+  //           if (wall.p1.x < minX) minX = wall.p1.x;
+  //           if (wall.p1.x > maxX) maxX = wall.p1.x;
+  //           if (wall.p1.y < minY) minY = wall.p1.y;
+  //           if (wall.p1.y > maxY) maxY = wall.p1.y;
+  //         }
+  //         if (wall.p2) {
+  //           if (wall.p2.x < minX) minX = wall.p2.x;
+  //           if (wall.p2.x > maxX) maxX = wall.p2.x;
+  //           if (wall.p2.y < minY) minY = wall.p2.y;
+  //           if (wall.p2.y > maxY) maxY = wall.p2.y;
+  //         }
+  //       });
 
-        if (minX < maxX && minY < maxY) {
-          const scale = (scaleValue && scaleValue > 0) ? (1 / scaleValue) : (realScale || 0.02);
-          const widthM = (maxX - minX) * scale;
-          const heightM = (maxY - minY) * scale;
-          const spanM = Math.max(3, Math.min(widthM, heightM) || 8.5);
-          const runLengthM = Math.max(4, Math.max(widthM, heightM) || 12.0);
+  //       if (minX < maxX && minY < maxY) {
+  //         const scale = (scaleValue && scaleValue > 0) ? (1 / scaleValue) : (realScale || 0.02);
+  //         const widthM = (maxX - minX) * scale;
+  //         const heightM = (maxY - minY) * scale;
+  //         const spanM = Math.max(3, Math.min(widthM, heightM) || 8.5);
+  //         const runLengthM = Math.max(4, Math.max(widthM, heightM) || 12.0);
 
-          let startPoint, endPoint;
-          if (widthM <= heightM) {
-            startPoint = { x: minX, y: minY };
-            endPoint = { x: maxX, y: minY };
-          } else {
-            startPoint = { x: minX, y: minY };
-            endPoint = { x: minX, y: maxY };
-          }
+  //         let startPoint, endPoint;
+  //         if (widthM <= heightM) {
+  //           startPoint = { x: minX, y: minY };
+  //           endPoint = { x: maxX, y: minY };
+  //         } else {
+  //           startPoint = { x: minX, y: minY };
+  //           endPoint = { x: minX, y: maxY };
+  //         }
 
-          newTruss = TrussEngine.generateParallelTrussLayout({
-            startPoint,
-            endPoint,
-            spanM,
-            runLengthM,
-            spacingMm: 600,
-            pitchDeg: 22.5,
-            label: "T01 (Auto-Building)"
-          });
-        }
-      }
+  //         newTruss = TrussEngine.generateParallelTrussLayout({
+  //           startPoint,
+  //           endPoint,
+  //           spanM,
+  //           runLengthM,
+  //           spacingMm: 600,
+  //           pitchDeg: 22.5,
+  //           label: "T01 (Auto-Building)"
+  //         });
+  //       }
+  //     }
 
-      if (!newTruss) {
-        // Fallback: place in middle of drawing/image
-        const cx = (imgSize?.w || 1200) * 0.35;
-        const cy = (imgSize?.h || 900) * 0.35;
-        const spanPx = (imgSize?.w || 1200) * 0.3;
-        const runPx = (imgSize?.h || 900) * 0.35;
+  //     if (!newTruss) {
+  //       // Fallback: place in middle of drawing/image
+  //       const cx = (imgSize?.w || 1200) * 0.35;
+  //       const cy = (imgSize?.h || 900) * 0.35;
+  //       const spanPx = (imgSize?.w || 1200) * 0.3;
+  //       const runPx = (imgSize?.h || 900) * 0.35;
 
-        newTruss = TrussEngine.generateParallelTrussLayout({
-          startPoint: { x: cx, y: cy },
-          endPoint: { x: cx + spanPx, y: cy },
-          spanM: 8.5,
-          runLengthM: 14.0,
-          spacingMm: 600,
-          pitchDeg: 22.5,
-          label: "T01 (Layout)"
-        });
-      }
+  //       newTruss = TrussEngine.generateParallelTrussLayout({
+  //         startPoint: { x: cx, y: cy },
+  //         endPoint: { x: cx + spanPx, y: cy },
+  //         spanM: 8.5,
+  //         runLengthM: 14.0,
+  //         spacingMm: 600,
+  //         pitchDeg: 22.5,
+  //         label: "T01 (Layout)"
+  //       });
+  //     }
 
-      if (newTruss && setTrussesByPage) {
-        setTrussesByPage(prev => {
-          const existing = prev?.[currentPage] || [];
-          return {
-            ...prev,
-            [currentPage]: [...existing, newTruss]
-          };
-        });
-        if (setLayerVisibility) {
-          setLayerVisibility(prev => ({ ...prev, truss: true }));
-        }
-        if (showAlert) {
-          showAlert(`⚡ Generated ${newTruss.quantity} roof trusses (Span: ${newTruss.spanM}m, Spacing: ${newTruss.spacingMm}mm) successfully!`);
-        }
-      }
-    } catch (err) {
-      console.error("[Truss] Error generating trusses:", err);
-    }
-  };
+  //     if (newTruss && setTrussesByPage) {
+  //       setTrussesByPage(prev => {
+  //         const existing = prev?.[currentPage] || [];
+  //         return {
+  //           ...prev,
+  //           [currentPage]: [...existing, newTruss]
+  //         };
+  //       });
+  //       if (setLayerVisibility) {
+  //         setLayerVisibility(prev => ({ ...prev, truss: true }));
+  //       }
+  //       if (showAlert) {
+  //         showAlert(`⚡ Generated ${newTruss.quantity} roof trusses (Span: ${newTruss.spanM}m, Spacing: ${newTruss.spacingMm}mm) successfully!`);
+  //       }
+  //     }
+  //   } catch (err) {
+  //     console.error("[Truss] Error generating trusses:", err);
+  //   }
+  // };
 
 
   useEffect(() => {
@@ -1214,7 +1214,7 @@ export default function RibbonView({
         <div style={{ display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "10px" }}>
           <button
             onClick={undo}
-            title="Hoàn tác / Undo (Ctrl+Z)"
+            title="Undo (Ctrl+Z)"
             style={{
               background: "transparent",
               border: "none",
@@ -1234,7 +1234,7 @@ export default function RibbonView({
           </button>
           <button
             onClick={redo}
-            title="Làm lại / Redo (Ctrl+Y)"
+            title="Redo (Ctrl+Y)"
             style={{
               background: "transparent",
               border: "none",
@@ -1550,17 +1550,6 @@ export default function RibbonView({
                 <button className="ribbon-btn" onClick={() => setActiveTab("Saved Jobs")} title="View saved projects library">
                   <span className="icon"><CAD_ICONS.Projects /></span> <span className="label">Projects</span>
                 </button>
-                <button
-                  className="ribbon-btn"
-                  onClick={() => {
-                    if (generateRoofFromWalls) {
-                      generateRoofFromWalls();
-                    }
-                  }}
-                  title="Auto-generate 3D Roof from wall footprint & thickness"
-                >
-                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Wall → Roof</span>
-                </button>
               </div>
               <span className="ribbon-group-title">PROJECT</span>
             </div>
@@ -1605,12 +1594,16 @@ export default function RibbonView({
                 <button
                   className="ribbon-btn accent"
                   onClick={() => {
+                    if (!realScale || realScale === 1.0) {
+                      showAlert("You need to scale before running AI");
+                      return;
+                    }
                     setActiveAiTask("door");
-                    detectDoorSeg();
+                    detectDoorSeg(roiRect, roiMode);
                   }}
                   disabled={isDetecting || isSmartDetecting}
                   style={isDetecting && activeAiTask !== "door" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
-                  title="Run YOLO Door AI detection"
+                  title={roiRect ? "Nhận diện cửa trong vùng cắt (ROI)" : "Run YOLO Door AI detection"}
                 >
                   <span className="icon" style={activeAiTask === "door" && isDetecting ? { color: "#2563eb" } : {}}>
                     {activeAiTask === "door" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Door />}
@@ -1631,6 +1624,17 @@ export default function RibbonView({
                     {activeAiTask === "room" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Sparkles />}
                   </span>
                   <span className="label">Wall &rarr; Room</span>
+                </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => {
+                    if (generateRoofFromWalls) {
+                      generateRoofFromWalls();
+                    }
+                  }}
+                  title="Auto-generate 3D Roof from wall footprint & thickness"
+                >
+                  <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Wall → Roof</span>
                 </button>
               </div>
             </div>

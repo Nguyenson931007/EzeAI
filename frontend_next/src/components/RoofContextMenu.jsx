@@ -16,6 +16,7 @@ const RoofContextMenu = ({
   onUpdateRoofType,
   onTrimEdge,
   onExportRoofInput,
+  onToggleTruss2D,
   onDeleteRoof
 }) => {
   const menuRef = useRef(null);
@@ -246,6 +247,29 @@ const RoofContextMenu = ({
         <span>✂️</span>
         <span>Trim Eave Overhang</span>
       </div>
+
+      {/* Toggle 2D Truss Layout */}
+      {/*<div
+        style={{
+          padding: '7px 12px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          borderTop: '1px solid #1e293b',
+          color: roof.showTruss2D ? '#fbbf24' : '#cbd5e1'
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1e293b')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleTruss2D?.(roof.id);
+          onClose();
+        }}
+      >
+        <span>🦴</span>
+        <span>{roof.showTruss2D ? 'Hide 2D Trusses' : 'Show 2D Trusses'}</span>
+      </div>*/}
 
       {/* Debug raw roof input JSON export
       <div

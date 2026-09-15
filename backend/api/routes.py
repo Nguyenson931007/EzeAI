@@ -191,7 +191,7 @@ async def predict_seg_roi(
 @router.post("/predict_door_roi")
 async def predict_door_roi(
     file: UploadFile = File(...),
-    confidence: float = Form(0.3),
+    confidence: float = Form(0.20),
     real_scale: Optional[float] = Form(1.0),
     roi_x: Optional[float] = Form(None),
     roi_y: Optional[float] = Form(None),
@@ -202,36 +202,21 @@ async def predict_door_roi(
 ):
     """
     Suy luận Nhận diện Cửa cục bộ dựa trên vùng cắt ROI để tinh chỉnh vị trí các cánh cửa.
-    - Chạy thuật toán so khớp cạnh tường Peak Detection để tự động hít (snap) cửa chính xác vào khe tường.
-    - Fallback chạy nhận diện cửa toàn ảnh nếu thiếu thông số ROI.
+    Đồng bộ chuyển tiếp sang DoorSegmentService với kỹ thuật White-Canvas Masking.
     """
-    from services.floor_ai_detect import predict_doors_from_bytes_roi, predict_doors_from_bytes
-
-    content = await file.read()
-
-    # Fallback tự động về nhận diện cửa trên toàn ảnh
-    if roi_x is None or roi_y is None or roi_w is None or roi_h is None:
-        try:
-            result = await run_in_threadpool(
-                predict_doors_from_bytes,
-                image_bytes=content, filename=file.filename or "image.png",
-                confidence=confidence, real_scale=real_scale
-            )
-            return result
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    try:
-        result = await run_in_threadpool(
-            predict_doors_from_bytes_roi,
-            image_bytes=content, filename=file.filename or "image.png",
-            confidence=confidence, real_scale=real_scale,
-            roi_x=roi_x, roi_y=roi_y,
-            roi_w=roi_w, roi_h=roi_h,
-            roi_padding=roi_padding
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    return await door_segment(
+        file=file,
+        confidence=confidence,
+        real_scale=real_scale,
+        room_polygons=None,
+        debug=False,
+        roi_x=roi_x,
+        roi_y=roi_y,
+        roi_w=roi_w,
+        roi_h=roi_h,
+        roi_padding=roi_padding,
+        username=username
+    )
 
 
 
@@ -784,17 +769,51 @@ async def door_segment(
     real_scale: Optional[float] = Form(1.0),
     room_polygons: Optional[str] = Form(None),
     debug: bool = Form(False),
+    roi_x: Optional[float] = Form(None),
+    roi_y: Optional[float] = Form(None),
+    roi_w: Optional[float] = Form(None),
+    roi_h: Optional[float] = Form(None),
+    roi_padding: float = Form(48),
     username: str = Depends(validate_session)
 ):
     """
     Định tuyến nhận diện phân đoạn cửa (Door Segmentation).
     Trả về thông tin phân đoạn đa giác và phân tích hình học (BIM) cho từng cửa phát hiện được.
+    Hỗ trợ khoanh vùng ROI quét cục bộ với kỹ thuật White-Canvas Masking (tương tự predict_wall_stream).
     """
     from services.door_segment_service import DoorSegmentService
     service = DoorSegmentService(debug=debug)
     
     content = await file.read()
     filename = file.filename or "plan.png"
+
+    # ── ROI Masking (kỹ thuật White-Canvas Masking chuẩn như Wall AI) ──
+    is_roi = (roi_x is not None and roi_y is not None and roi_w is not None and roi_h is not None)
+    if is_roi:
+        try:
+            img = PILImage.open(io.BytesIO(content)).convert("RGB")
+            img_w, img_h = img.size
+
+            pad = int(roi_padding)
+            cx1 = max(0, int(roi_x) - pad)
+            cy1 = max(0, int(roi_y) - pad)
+            cx2 = min(img_w, int(roi_x + roi_w) + pad)
+            cy2 = min(img_h, int(roi_y + roi_h) + pad)
+
+            crop_pil = img.crop((cx1, cy1, cx2, cy2))
+            masked_img = PILImage.new("RGB", (img_w, img_h), (255, 255, 255))
+            masked_img.paste(crop_pil, (cx1, cy1))
+
+            buf = io.BytesIO()
+            masked_img.save(buf, format="PNG")
+            content_for_inference = buf.getvalue()
+            logger.info(f"[door_segment] Masked Door AI ROI: ({cx1},{cy1})-({cx2},{cy2}) on full-size canvas")
+        except Exception as crop_err:
+            logger.warning(f"[door_segment] Failed to mask ROI: {crop_err}, falling back to full image")
+            content_for_inference = content
+            is_roi = False
+    else:
+        content_for_inference = content
 
     # ── Parse room_polygons (only if explicitly provided) ──
     rooms_data = None
@@ -809,23 +828,58 @@ async def door_segment(
 
     try:
         if filename.lower().endswith(".pdf"):
-            return await run_in_threadpool(
+            res = await run_in_threadpool(
                 service.predict_from_pdf,
-                pdf_bytes=content,
+                pdf_bytes=content_for_inference,
                 filename=filename,
                 confidence=confidence,
                 real_scale=real_scale or 1.0,
                 room_polygons=rooms_data,
             )
         else:
-            return await run_in_threadpool(
+            res = await run_in_threadpool(
                 service.predict,
-                image_bytes=content,
+                image_bytes=content_for_inference,
                 filename=filename,
                 confidence=confidence,
                 real_scale=real_scale or 1.0,
                 room_polygons=rooms_data,
             )
+
+        # ── Lọc cửa và cửa sổ chỉ giữ lại các đối tượng trong vùng ROI ──
+        if is_roi:
+            def is_in_roi(item):
+                c = item.get("centroid")
+                if c and len(c) >= 2:
+                    if (cx1 <= c[0] <= cx2) and (cy1 <= c[1] <= cy2):
+                        return True
+                bbox = item.get("bbox")
+                if bbox and len(bbox) >= 4:
+                    if max(cx1, bbox[0]) < min(cx2, bbox[2]) and max(cy1, bbox[1]) < min(cy2, bbox[3]):
+                        return True
+                poly = item.get("polygon")
+                if poly and len(poly) >= 3:
+                    for pt in poly:
+                        px = pt[0] if isinstance(pt, (list, tuple)) else pt.get("x", 0)
+                        py = pt[1] if isinstance(pt, (list, tuple)) else pt.get("y", 0)
+                        if cx1 <= px <= cx2 and cy1 <= py <= cy2:
+                            return True
+                return False
+
+            if isinstance(res, dict):
+                if "doors" in res:
+                    res["doors"] = [d for d in res["doors"] if is_in_roi(d)]
+                if "windows" in res:
+                    res["windows"] = [w for w in res["windows"] if is_in_roi(w)]
+            elif isinstance(res, list):
+                for page in res:
+                    if isinstance(page, dict):
+                        if "doors" in page:
+                            page["doors"] = [d for d in page["doors"] if is_in_roi(d)]
+                        if "windows" in page:
+                            page["windows"] = [w for w in page["windows"] if is_in_roi(w)]
+
+        return res
     except FileNotFoundError as e:
         logger.error(f"Model not found for door segmentation: {e}")
         raise HTTPException(status_code=500, detail=f"Không tìm thấy mô hình YOLO Door Seg: {e}")

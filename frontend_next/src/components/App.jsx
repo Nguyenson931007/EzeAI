@@ -317,7 +317,7 @@ export default function App() {
     selectedRoofId, setSelectedRoofId,
     selectedRoofEdgeIndex, setSelectedRoofEdgeIndex,
     hoveredRoofTarget, setHoveredRoofTarget,
-    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
+    updateRoofPitch, applyDefaultPitchToAll, applyDefaultOverhangToAll, applyDefaultHeelHeightToAll, applyDefaultSettingsToAll, updateRoofType, updateRoofEdgeAngle, updateRoofEdgeOverhang, updateRoofEdgeHeelHeight, computeSelectedRoof, trimRoofEdge, isComputingRoof, setRoofEaveEdge, deleteRoof, deleteRoofVertex,
     setRoofEdgeMode,
     exportRoofIO,
     exportRoofInput,
@@ -1883,6 +1883,7 @@ export default function App() {
                     updateRoofType={updateRoofType}
                     updateRoofEdgeAngle={updateRoofEdgeAngle}
                     updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                    updateRoofEdgeHeelHeight={updateRoofEdgeHeelHeight}
                     setRoofEdgeMode={setRoofEdgeMode}
                     toggleDutchEdge={toggleDutchEdge}
                     updateDutchOverhang={updateDutchOverhang}
@@ -2165,6 +2166,7 @@ export default function App() {
                 updateRoofType={updateRoofType}
                 updateRoofEdgeAngle={updateRoofEdgeAngle}
                 updateRoofEdgeOverhang={updateRoofEdgeOverhang}
+                updateRoofEdgeHeelHeight={updateRoofEdgeHeelHeight}
                 setRoofEdgeMode={setRoofEdgeMode}
                 toggleDutchEdge={toggleDutchEdge}
                 setRoofInteractionState={setRoofInteractionState}
@@ -2179,6 +2181,7 @@ export default function App() {
                 setSelectedRoofEdgeIndex={setSelectedRoofEdgeIndex}
                 applyDefaultPitchToAll={applyDefaultPitchToAll}
                 applyDefaultOverhangToAll={applyDefaultOverhangToAll}
+                applyDefaultHeelHeightToAll={applyDefaultHeelHeightToAll}
                 applyDefaultSettingsToAll={applyDefaultSettingsToAll}
                 deleteRoof={deleteRoof}
                 deleteRoofVertex={deleteRoofVertex}

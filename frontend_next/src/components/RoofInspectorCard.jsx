@@ -66,14 +66,18 @@ const RoofInspectorCard = ({
   setDefaultPitchInput,
   defaultOverhangInput = 0,
   setDefaultOverhangInput,
+  defaultHeelHeightInput = 0,
+  setDefaultHeelHeightInput,
   selectedRoofEdgeIndex,
   setSelectedRoofEdgeIndex,
   updateRoofType,
   applyDefaultPitchToAll,
   applyDefaultOverhangToAll,
+  applyDefaultHeelHeightToAll,
   applyDefaultSettingsToAll,
   updateRoofEdgeAngle,
   updateRoofEdgeOverhang,
+  updateRoofEdgeHeelHeight,
   setRoofEdgeMode,
   toggleDutchEdge,
   setRoofInteractionState,
@@ -99,6 +103,14 @@ const RoofInspectorCard = ({
   const nEdges = (roof.polygon || []).length;
   const edgeAngles = Array.isArray(roof.angles) && roof.angles.length === nEdges ? roof.angles : Array(nEdges).fill(roof.pitchAngle || defaultPitchInput || DEFAULT_PITCH);
   const edgeOverhangs = Array.isArray(roof.overhangs) && roof.overhangs.length === nEdges ? roof.overhangs : Array(nEdges).fill(0.0);
+  const edgeHeelHeights = Array.isArray(roof.heelHeights) && roof.heelHeights.length === nEdges ? roof.heelHeights : Array(nEdges).fill(0.0);
+  const edgeWallHeights = Array.isArray(roof.wallHeights) && roof.wallHeights.length === nEdges
+    ? roof.wallHeights
+    : Array(nEdges).fill(roof.wallHeight || 2700);
+  const validEdgeHeights = edgeWallHeights.filter(h => typeof h === 'number' && h > 0);
+  const baseWallHeight = validEdgeHeights.length > 0
+    ? Math.min(...validEdgeHeights)
+    : (roof.wallHeight || 2700);
   const dutchEdgesList = Array.isArray(roof.dutchEdges) ? roof.dutchEdges : [];
   const dutchOverhangsList = Array.isArray(roof.dutchOverhangs) && roof.dutchOverhangs.length === nEdges ? roof.dutchOverhangs : Array(nEdges).fill(0.0);
   const dutchCutPointsList = Array.isArray(roof.dutchCutPoints) && roof.dutchCutPoints.length === nEdges ? roof.dutchCutPoints : Array(nEdges).fill(null);
@@ -148,6 +160,21 @@ const RoofInspectorCard = ({
             onFocus={(e) => { e.target.style.background = "#ffffff"; e.target.style.borderColor = "var(--border, #cbd5e1)"; e.target.style.color = "#1e293b"; }}
             onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; e.target.style.color = "var(--text, #f8fafc)"; }}
           />
+          <span
+            title="Base Wall Height (Min of connected walls)"
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "#38bdf8",
+              background: "rgba(56, 189, 248, 0.12)",
+              border: "1px solid rgba(56, 189, 248, 0.3)",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              whiteSpace: "nowrap"
+            }}
+          >
+            Base: {baseWallHeight} mm
+          </span>
           {/* {footprintM2 > 0 && (
             <span
               title="Roof footprint area (from wall polygon, using current scale)"
@@ -288,18 +315,18 @@ const RoofInspectorCard = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
             <span style={{ color: "var(--text-dim, #94a3b8)" }}>Pitch:</span>
             <PitchInput
               value={defaultPitchInput}
               onChange={(val) => setDefaultPitchInput && setDefaultPitchInput(val)}
-              style={{ width: "42px", padding: "2px" }}
+              style={{ width: "36px", padding: "2px 2px" }}
             />
             <span style={{ color: "#64748b" }}>°</span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
             <span style={{ color: "var(--text-dim, #94a3b8)" }}>OVH:</span>
             <input
               type="number"
@@ -307,8 +334,30 @@ const RoofInspectorCard = ({
               value={defaultOverhangInput}
               onChange={(e) => setDefaultOverhangInput && setDefaultOverhangInput(Math.max(0, parseFloat(e.target.value) || 0))}
               style={{
-                width: "48px",
-                padding: "2px 4px",
+                width: "40px",
+                padding: "2px 2px",
+                background: "#ffffff",
+                border: "1px solid var(--border, rgba(255,255,255,0.2))",
+                borderRadius: "4px",
+                color: "var(--text, #1e293b)",
+                textAlign: "center",
+                fontWeight: 700,
+                fontSize: "11px"
+              }}
+            />
+            <span style={{ color: "#64748b" }}>mm</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+            <span style={{ color: "var(--text-dim, #94a3b8)" }}>Heel:</span>
+            <input
+              type="number"
+              min="0"
+              value={defaultHeelHeightInput}
+              onChange={(e) => setDefaultHeelHeightInput && setDefaultHeelHeightInput(Math.max(0, parseFloat(e.target.value) || 0))}
+              style={{
+                width: "40px",
+                padding: "2px 2px",
                 background: "#ffffff",
                 border: "1px solid var(--border, rgba(255,255,255,0.2))",
                 borderRadius: "4px",
@@ -323,13 +372,14 @@ const RoofInspectorCard = ({
         </div>
 
         <button
-          title="Apply Pitch & OVH to all edges"
+          title="Apply Pitch, OVH & Heel Height to all edges"
           onClick={() => {
             if (applyDefaultSettingsToAll) {
-              applyDefaultSettingsToAll(roof.id, defaultPitchInput, defaultOverhangInput);
+              applyDefaultSettingsToAll(roof.id, defaultPitchInput, defaultOverhangInput, defaultHeelHeightInput);
             } else {
               if (applyDefaultPitchToAll) applyDefaultPitchToAll(roof.id, defaultPitchInput);
               if (applyDefaultOverhangToAll) applyDefaultOverhangToAll(roof.id, defaultOverhangInput);
+              if (applyDefaultHeelHeightToAll) applyDefaultHeelHeightToAll(roof.id, defaultHeelHeightInput);
             }
           }}
           style={{
@@ -367,10 +417,12 @@ const RoofInspectorCard = ({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
           <thead>
             <tr style={{ background: "var(--bg-panel, rgba(0,0,0,0.05))", borderBottom: "1px solid var(--border, rgba(255,255,255,0.08))", color: "var(--text-dim, #94a3b8)", textAlign: "left" }}>
-              <th style={{ padding: "5px 6px", width: "24px" }}>#</th>
-              <th style={{ padding: "5px 4px", width: "50px" }}>Pitch</th>
-              <th style={{ padding: "5px 4px", width: "55px" }}>OVH</th>
-              <th style={{ padding: "5px 6px", textAlign: "right" }}>Type</th>
+              <th style={{ padding: "5px 3px", width: "18px" }}>#</th>
+              <th style={{ padding: "5px 2px", width: "42px", textAlign: "center" }}>Wall H</th>
+              <th style={{ padding: "5px 2px", width: "38px" }}>Pitch</th>
+              <th style={{ padding: "5px 2px", width: "40px" }}>OVH</th>
+              <th style={{ padding: "5px 2px", width: "40px" }}>Heel</th>
+              <th style={{ padding: "5px 4px", textAlign: "right" }}>Type</th>
             </tr>
           </thead>
           <tbody>
@@ -378,6 +430,8 @@ const RoofInspectorCard = ({
               const isEdgeActive = selectedRoofEdgeIndex === edgeIndex;
               const angle = edgeAngles[edgeIndex] ?? 22.5;
               const ovh = edgeOverhangs[edgeIndex] ?? 0;
+              const heel = edgeHeelHeights[edgeIndex] ?? 0;
+              const wHeight = edgeWallHeights[edgeIndex] ?? (roof.wallHeight || 2700);
               const isDutch = dutchEdgesList.includes(edgeIndex);
               const isGable = Math.abs(angle - 90.0) < 1.0;
               const dutchOvh = dutchOverhangsList[edgeIndex] ?? 0;
@@ -407,19 +461,38 @@ const RoofInspectorCard = ({
                       transition: "background 0.12s ease"
                     }}
                   >
-                    <td style={{ padding: "5px 6px", color: isEdgeActive ? "#f59e0b" : "var(--text-dim, #64748b)", fontWeight: 700 }}>
+                    <td style={{ padding: "5px 3px", color: isEdgeActive ? "#f59e0b" : "var(--text-dim, #64748b)", fontWeight: 700 }}>
                       #{edgeIndex}
                     </td>
 
+                    {/* Wall Height Column (Read-only from 2D wall) */}
+                    <td style={{ padding: "5px 2px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <span
+                        title={`Wall Height: ${wHeight}mm`}
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: "var(--text-dim, #64748b)",
+                          background: "rgba(0,0,0,0.04)",
+                          padding: "1px 2px",
+                          borderRadius: "3px",
+                          display: "inline-block",
+                          minWidth: "32px"
+                        }}
+                      >
+                        {wHeight}
+                      </span>
+                    </td>
+
                     {/* Pitch Column */}
-                    <td style={{ padding: "5px 4px" }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ padding: "5px 2px" }} onClick={(e) => e.stopPropagation()}>
                       {!isShed ? (
                         <PitchInput
                           value={angle}
                           onChange={(val) => {
                             if (updateRoofEdgeAngle) updateRoofEdgeAngle(roof.id, edgeIndex, val);
                           }}
-                          style={{ width: "42px", padding: "1px 2px", fontSize: "11px" }}
+                          style={{ width: "38px", padding: "1px 2px", fontSize: "11px" }}
                         />
                       ) : isShedEave ? (
                         <PitchInput
@@ -427,7 +500,7 @@ const RoofInspectorCard = ({
                           onChange={(val) => {
                             if (updateRoofEdgeAngle) updateRoofEdgeAngle(roof.id, edgeIndex, val);
                           }}
-                          style={{ width: "42px", padding: "1px 2px", fontSize: "11px" }}
+                          style={{ width: "38px", padding: "1px 2px", fontSize: "11px" }}
                         />
                       ) : (
                         <span style={{ color: "#94a3b8", paddingLeft: "10px" }}>—</span>
@@ -435,17 +508,41 @@ const RoofInspectorCard = ({
                     </td>
 
                     {/* OVH Column */}
-                    <td style={{ padding: "5px 4px" }} onClick={(e) => e.stopPropagation()}>
+                    <td style={{ padding: "5px 2px" }} onClick={(e) => e.stopPropagation()}>
                       <input
                         type="number"
                         min="0"
                         value={ovh}
+                        title="Overhang (mm)"
                         onChange={(e) => {
                           if (updateRoofEdgeOverhang) updateRoofEdgeOverhang(roof.id, edgeIndex, Math.max(0, parseFloat(e.target.value) || 0));
                         }}
                         style={{
-                          width: "48px",
-                          padding: "1px 3px",
+                          width: "42px",
+                          padding: "1px 2px",
+                          background: "#ffffff",
+                          border: "1px solid var(--border, rgba(255,255,255,0.15))",
+                          borderRadius: "3px",
+                          color: "var(--text, #1e293b)",
+                          textAlign: "center",
+                          fontSize: "11px"
+                        }}
+                      />
+                    </td>
+
+                    {/* Heel Column */}
+                    <td style={{ padding: "5px 2px" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="number"
+                        min="0"
+                        value={heel}
+                        title="Heel Height (mm)"
+                        onChange={(e) => {
+                          if (updateRoofEdgeHeelHeight) updateRoofEdgeHeelHeight(roof.id, edgeIndex, Math.max(0, parseFloat(e.target.value) || 0));
+                        }}
+                        style={{
+                          width: "42px",
+                          padding: "1px 2px",
                           background: "#ffffff",
                           border: "1px solid var(--border, rgba(255,255,255,0.15))",
                           borderRadius: "3px",
@@ -572,7 +669,7 @@ const RoofInspectorCard = ({
                         borderBottom: "1px solid #fecdd3"
                       }}
                     >
-                      <td colSpan={4} style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+                      <td colSpan={6} style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <span style={{ fontSize: "10px", color: "#e11d48", fontWeight: 600 }}>Front OVH:</span>

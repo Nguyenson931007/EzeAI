@@ -1,4 +1,11 @@
-export { default as RoofEngine } from './RoofEngine';
+export {
+  default as RoofEngine,
+  getPolygonSignedArea,
+  ensurePolygonCCW,
+  ensureRoofCCW,
+  getMmPerPx,
+  getRealScaleMm
+} from './RoofEngine';
 export {
   ROOF_FACE_PALETTE,
   getVertexCoords,

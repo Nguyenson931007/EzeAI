@@ -23,8 +23,10 @@ from .shed_builder import ShedBuilder
 from .gable_builder import GableBuilder
 from .dutch_builder import DutchBuilder
 from .wall_builder import WallBuilder
+from .plane_trimmer import PlaneTrimmer
 from .clipper import RoofClipper
 from .solver import RoofConstraintSolver
+from .structure_classifier import StructureClassifier
 
 router = APIRouter(prefix="/api/v3", tags=["Roof V3 Engine"])
 
@@ -274,32 +276,54 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
     # 2. Multi-pitch / Hip & Gable Roof
     ovhs = req.overhangs.copy() if req.overhangs else [0.0] * len(req.points)
     angles_list = req.angles.copy() if req.angles else [22.5] * len(req.points)
+    points = req.points.copy() if req.points else []
+    if points and len(points) >= 3:
+        points, _, angles_list, ovhs, _ = ensure_ccw_all(points, None, angles_list, ovhs)
 
     all_angles = angles_list.copy() if angles_list else []
     if req.hole_angles:
         for ha in req.hole_angles:
             all_angles.extend(ha)
 
-    graph = RoofGraph.from_cgal_json(req.topology, all_angles if all_angles else None, default_eave_z=wall_h)
+    n_edges = len(points) if points else len(angles_list)
+    base_eave_heights = [wall_h] * n_edges
+    if req.wall_heights and len(req.wall_heights) == n_edges:
+        base_eave_heights = [float(h) for h in req.wall_heights]
+    if req.heel_heights and len(req.heel_heights) == n_edges:
+        base_eave_heights = [base_eave_heights[i] + float(req.heel_heights[i]) for i in range(n_edges)]
 
-    # 2a. Correct eave_height for hip faces with CGAL overhang offset
-    if ovhs and angles_list:
-        for face in graph.faces:
-            ci = face.contour_edge_index
-            if 0 <= ci < len(angles_list) and ci < len(ovhs):
-                angle_deg = angles_list[ci]
-                ovh_val = ovhs[ci]
-                if abs(angle_deg - 90.0) > 1.0 and ovh_val > 0:
-                    drop = ovh_val * math.tan(math.radians(angle_deg))
-                    face.eave_height = wall_h - drop
+    graph = RoofGraph.from_cgal_json(
+        req.topology,
+        all_angles if all_angles else None,
+        default_eave_z=wall_h,
+        eave_heights=base_eave_heights
+    )
 
-    # 2b. Compute exact plane equations
-    DeterministicPlaneBuilder.build_all_planes(graph, default_eave_z=wall_h, force_recompute=True)
+    # 2a. Set wall_z and correct eave_height for hip faces with CGAL overhang offset
+    for face in graph.faces:
+        ci = face.contour_edge_index
+        base_h = base_eave_heights[ci] if (0 <= ci < len(base_eave_heights)) else wall_h
+        face.wall_z = base_h
+        if ovhs and angles_list and 0 <= ci < len(angles_list) and ci < len(ovhs):
+            angle_deg = angles_list[ci]
+            ovh_val = ovhs[ci]
+            if abs(angle_deg - 90.0) > 1.0 and ovh_val > 0:
+                drop = ovh_val * math.tan(math.radians(angle_deg))
+                face.eave_height = base_h - drop
+            else:
+                face.eave_height = base_h
+        else:
+            face.eave_height = base_h
+
+    # 2b. Compute exact plane equations (anchored at wall polygon with height wall_z)
+    DeterministicPlaneBuilder.build_all_planes(graph, default_eave_z=wall_h, force_recompute=True, points=points)
 
     # 2c. Recalculate fixed_z for contour vertices of offset hip faces
     if ovhs:
         for face in graph.faces:
-            if abs(face.eave_height - wall_h) > 0.1:
+            ci = face.contour_edge_index
+            base_h = base_eave_heights[ci] if (0 <= ci < len(base_eave_heights)) else wall_h
+            if abs(face.eave_height - base_h) > 0.1 or base_h != wall_h:
                 for vid in face.vertices:
                     if vid < len(graph.vertices):
                         v = graph.vertices[vid]
@@ -308,17 +332,21 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
                             v.fixed_z = z_plane
                             v.z = z_plane
 
-    # 2d. Apply Gable Verge Extension & Gable Walls if gable edges exist
-    if req.points and angles_list:
-        gable_walls = GableBuilder.extend_gable_verge(graph, req.points, angles_list, ovhs, wall_z=wall_h)
-        graph.gable_walls = gable_walls
+    # 2d. Apply 3D Plane Extension, Junction Relocation & Valley Tie-in Trimming
+    flashing_walls = PlaneTrimmer.trim_and_relocate(graph, points, base_eave_heights)
+
+    # 2e. Apply Gable Verge Extension & Gable Walls if gable edges exist
+    gable_walls = []
+    if points and angles_list:
+        gable_walls = GableBuilder.extend_gable_verge(graph, points, angles_list, ovhs, wall_z=wall_h)
+    graph.gable_walls = gable_walls + flashing_walls
 
     # 2e. Apply Dutch Gable modifications if dutch edges specified
-    if req.points and req.dutch_edges:
-        angles_list = req.angles if req.angles else [30.0] * len(req.points)
+    if points and req.dutch_edges:
+        angles_list = req.angles if req.angles else [30.0] * len(points)
         dutch_walls = DutchBuilder.apply_dutch_gables(
             graph,
-            req.points,
+            points,
             angles_list,
             dutch_edges=req.dutch_edges,
             dutch_overhangs=req.dutch_overhangs,
@@ -333,11 +361,12 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
 
     # 2g. Generate separate 3D Wall Shell & Gable Walls & Dutch Walls
     wall_mesh_data = {"vertices": [], "faces": [], "gable_mesh": {"vertices": [], "faces": []}, "wall_height": wall_h, "base_z": req.base_z}
-    if req.points:
+    if points:
         wall_mesh_data = WallBuilder.generate_wall_mesh(
-            req.points,
+            points,
             angles_list,
             wall_height=wall_h,
+            wall_heights=req.wall_heights,
             base_z=req.base_z,
             gable_walls=getattr(graph, "gable_walls", []),
             dutch_walls=getattr(graph, "dutch_walls", []),
@@ -352,6 +381,17 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
         combined_verts.append(list(v))
     for f in wall_mesh_data["faces"]:
         combined_faces.append([f[0] + wall_v_offset, f[1] + wall_v_offset, f[2] + wall_v_offset])
+
+
+    structure_lines = StructureClassifier.classify_structure_lines(graph)
+
+    # Classify each contour edge as hip or gable for truss / edge end detection
+    edge_end_types = []
+    for ang in angles_list:
+        if abs(ang - 90.0) < 1.0:
+            edge_end_types.append("gable")
+        else:
+            edge_end_types.append("hip")
 
     return {
         "status": "success",
@@ -368,6 +408,8 @@ async def build_planes_v3(req: BuildPlanesRequestV3):
         "gable_mesh": wall_mesh_data.get("gable_mesh", {"vertices": [], "faces": []}),
         "wall_height": wall_h,
         "graph": graph.to_dict(),
+        "structure_lines": structure_lines,
+        "edge_end_types": edge_end_types,
         "max_planarity_error_mm": mesh_data["max_planarity_error"],
         "optimization_status": mesh_data["status"],
     }
@@ -422,6 +464,9 @@ async def trim_eave_v3(req: TrimEaveRequestV3):
             plane_c=plane_dict.get("c", f.get("plane_c", wall_h)),
             normal=plane_dict.get("normal", f.get("normal", [0.0, 0.0, 1.0])),
         ))
+
+    graph.gable_walls = g_data.get("gable_walls", [])
+    graph.dutch_walls = g_data.get("dutch_walls", [])
 
     # Apply trim
     p1 = (req.wall_p1[0], req.wall_p1[1])
@@ -482,6 +527,8 @@ async def trim_eave_v3(req: TrimEaveRequestV3):
     for f in wall_mesh_data["faces"]:
         combined_faces.append([f[0] + wall_v_offset, f[1] + wall_v_offset, f[2] + wall_v_offset])
 
+    structure_lines = StructureClassifier.classify_structure_lines(graph)
+
     return {
         "status": "success",
         "mesh": {
@@ -491,11 +538,13 @@ async def trim_eave_v3(req: TrimEaveRequestV3):
         "roof_mesh": {
             "vertices": mesh_data["vertices"],
             "faces": mesh_data["faces"],
+            "face_groups": mesh_data.get("face_groups", []),
         },
         "wall_mesh": wall_mesh_data,
         "gable_mesh": wall_mesh_data.get("gable_mesh", {"vertices": [], "faces": []}),
         "wall_height": wall_h,
         "graph": graph.to_dict(),
+        "structure_lines": structure_lines,
         "max_planarity_error_mm": mesh_data["max_planarity_error"],
         "optimization_status": mesh_data["status"],
     }

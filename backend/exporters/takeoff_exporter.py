@@ -924,7 +924,7 @@ class TakeoffExporter:
                 group_last_row = row - 1
 
                 # One copy-paste-ready breakdown per group, e.g. "0.90/1, 1.20/1, 3.00/1"
-                breakdown_text = ", ".join(f"{length:.1f}/{qty}" for length, qty in sorted_lengths)
+                breakdown_text = ", ".join(f"{qty}/{length:.1f}" for length, qty in sorted_lengths)
                 ws.merge_cells(f"H{group_first_row}:I{group_last_row}")
                 ws[f"H{group_first_row}"] = breakdown_text
                 ws[f"H{group_first_row}"].font = italic

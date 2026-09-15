@@ -317,12 +317,26 @@ const OCR_CONF = 0.20;        // OCR Text detection confidence threshold
 const SYMBOLS_CONF = 0.10;    // Symbol detection confidence threshold
 const DOORS_CONF = 0.20;      // Door detection confidence threshold
 
-function centroidInROI(obj, roiRect) {
-  const poly = obj.polygon || obj.points;
-  if (!poly || poly.length === 0) return false;
-  const c = centroid(poly);
-  return c.x >= roiRect.x && c.x <= roiRect.x + roiRect.w &&
-    c.y >= roiRect.y && c.y <= roiRect.y + roiRect.h;
+function centroidInROI(obj, roiRect, offset = { x: 0, y: 0 }) {
+  if (!obj || !roiRect) return false;
+  let cx, cy;
+  if (obj.centerPoint) {
+    cx = obj.centerPoint.x;
+    cy = obj.centerPoint.y;
+  } else if (obj.centroid) {
+    cx = Array.isArray(obj.centroid) ? obj.centroid[0] : obj.centroid.x;
+    cy = Array.isArray(obj.centroid) ? obj.centroid[1] : obj.centroid.y;
+  } else {
+    const poly = obj.polygon || obj.points;
+    if (!poly || poly.length === 0) return false;
+    const c = centroid(poly);
+    cx = c.x;
+    cy = c.y;
+  }
+  const rx = roiRect.x + (offset?.x || 0);
+  const ry = roiRect.y + (offset?.y || 0);
+  return cx >= rx && cx <= rx + roiRect.w &&
+    cy >= ry && cy <= ry + roiRect.h;
 }
 
 function applyROIResults(existing, detected, roiRect, mode) {
@@ -963,25 +977,23 @@ export const useAIController = (
 
   const detectDoorSeg = async (roiRect, roiMode) => {
     if (!realScale || realScale === 1.0) {
-      alert("Please calibrate scale before running AI detection!");
+      showAlertalert("Please calibrate scale before running AI detection!");
       return;
     }
-    if (!image) return alert("No image to detect");
+    if (!image) return showAlert("No image to detect");
 
     const job = startROIJob();
     try {
       const blob = await fetch(image).then(r => r.blob());
       const conf = String(useAIConfigStore.getState().config?.doors ?? DOORS_CONF);
 
-      let data;
-      if (roiRect) {
-        data = await ApiService.autoDetectDoorsROI(
-          blob, conf, roiRect, 48, realScale,
-          { signal: job.controller.signal }
-        );
-      } else {
-        data = await ApiService.detectDoorSeg(blob, conf);
-      }
+      const data = await ApiService.detectDoorSeg(
+        blob,
+        conf,
+        realScale,
+        roiRect || null,
+        { signal: job.controller.signal }
+      );
 
       if (job.token !== roiInferenceIdRef.current) return;
 
@@ -993,7 +1005,7 @@ export const useAIController = (
 
       if (doorsArray && doorsArray.length > 0) {
         const currentWalls = (wallsByPageRef.current && wallsByPageRef.current[currentPage]) || [];
-        const existingDoors = (doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [];
+        let existingDoors = (doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [];
 
         const runCount = (doorDetectRunCountRef.current[currentPage] || 0) + 1;
         doorDetectRunCountRef.current[currentPage] = runCount;
@@ -1059,7 +1071,12 @@ export const useAIController = (
           return true;
         });
 
-        const rawMergedDoors = _mergeOverlappingDoors((doorsByPageRef.current && doorsByPageRef.current[currentPage]) || [], validDoors);
+        // In replace mode with ROI, remove old doors within the ROI
+        if (roiRect && roiMode === "replace") {
+          existingDoors = existingDoors.filter(d => !centroidInROI(d, roiRect, pdfOffset));
+        }
+
+        const rawMergedDoors = _mergeOverlappingDoors(existingDoors, validDoors);
         const mergedDoors = _deduplicateDoorNames(rawMergedDoors);
 
         if (setDoorsByPage) {
@@ -1082,7 +1099,13 @@ export const useAIController = (
 
         finalizeROIJob(job.token, job.progressInterval, job.startTime, isCacheHit, true);
       } else {
-        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+        if (roiRect) {
+          console.log("[Door AI] No doors detected in ROI region.");
+          setCacheStatus("No doors in ROI");
+          finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);
+        } else {
+          finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
+        }
       }
     } catch (err) {
       if (err.name === "AbortError") {

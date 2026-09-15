@@ -477,16 +477,24 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async detectDoorSeg(imageBlob, confidence = "0.25", realScale = 1.0) {
+  async detectDoorSeg(imageBlob, confidence = "0.25", realScale = 1.0, roiRect = null, options = {}) {
     const fd = new FormData();
     fd.append("file", imageBlob);
     fd.append("confidence", confidence);
     if (realScale) fd.append("real_scale", realScale);
+    if (roiRect) {
+      fd.append("roi_x", roiRect.x);
+      fd.append("roi_y", roiRect.y);
+      fd.append("roi_w", roiRect.w);
+      fd.append("roi_h", roiRect.h);
+      fd.append("roi_padding", 48);
+    }
     const res = await fetch(`${BASE_URL}/api/door-segment`, {
       method: "POST",
       headers: getHeaders(null),
       body: fd,
-      credentials: "include"
+      credentials: "include",
+      signal: options.signal
     });
     return handleResponse(res);
   },
@@ -698,21 +706,7 @@ export const ApiService = {
 
 
   async autoDetectDoorsROI(imageBlob, confidence = "0.2", roi, padding = 48, realScale = 1.0, options = {}) {
-    const fd = new FormData();
-    fd.append("file", imageBlob);
-    fd.append("confidence", confidence);
-    if (roi) {
-      fd.append("roi_x", roi.x);
-      fd.append("roi_y", roi.y);
-      fd.append("roi_w", roi.w);
-      fd.append("roi_h", roi.h);
-    }
-    fd.append("roi_padding", padding);
-    fd.append("real_scale", realScale || 1.0);
-    const res = await fetch(`${BASE_URL}/predict_door_roi`, {
-      method: "POST", headers: getHeaders(null), body: fd, credentials: "include", signal: options.signal
-    });
-    return handleResponse(res);
+    return this.detectDoorSeg(imageBlob, confidence, realScale, roi, options);
   },
 
   async getROIHeatmap() {

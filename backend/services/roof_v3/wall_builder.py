@@ -22,6 +22,7 @@ class WallBuilder:
         points: List[List[float]],
         angles: Optional[List[float]] = None,
         wall_height: float = 2700.0,
+        wall_heights: Optional[List[float]] = None,
         base_z: float = 0.0,
         gable_walls: Optional[List[Dict[str, Any]]] = None,
         dutch_walls: Optional[List[Dict[str, Any]]] = None
@@ -42,10 +43,12 @@ class WallBuilder:
             p1 = points[i]
             p2 = points[(i + 1) % n_pts]
 
+            h_edge = wall_heights[i] if (wall_heights and i < len(wall_heights)) else wall_height
+
             v_b1 = [p1[0], p1[1], base_z]
             v_b2 = [p2[0], p2[1], base_z]
-            v_t1 = [p1[0], p1[1], base_z + wall_height]
-            v_t2 = [p2[0], p2[1], base_z + wall_height]
+            v_t1 = [p1[0], p1[1], base_z + h_edge]
+            v_t2 = [p2[0], p2[1], base_z + h_edge]
 
             idx = len(vertices_3d)
             vertices_3d.extend([v_b1, v_b2, v_t2, v_t1])
@@ -59,23 +62,36 @@ class WallBuilder:
 
         if gable_walls:
             for gw in gable_walls:
-                wall_p1 = gw.get("wall_p1", [0, 0, 0])
-                wall_p2 = gw.get("wall_p2", [0, 0, 0])
-                ridge_top = gw.get("ridge_top", [0, 0, 0])
+                wall_polygon = gw.get("wall_polygon")
+                if wall_polygon and len(wall_polygon) >= 3:
+                    start_idx = len(vertices_3d)
+                    g_start_idx = len(gable_vertices)
+                    for pt in wall_polygon:
+                        pt_3d = [float(pt[0]), float(pt[1]), float(pt[2])]
+                        vertices_3d.append(pt_3d)
+                        gable_vertices.append(pt_3d)
+                    n_v = len(wall_polygon)
+                    for k in range(1, n_v - 1):
+                        faces_3d.append([start_idx, start_idx + k, start_idx + k + 1])
+                        gable_faces.append([g_start_idx, g_start_idx + k, g_start_idx + k + 1])
+                else:
+                    wall_p1 = gw.get("wall_p1", [0, 0, 0])
+                    wall_p2 = gw.get("wall_p2", [0, 0, 0])
+                    ridge_top = gw.get("ridge_top", [0, 0, 0])
 
-                v1 = [wall_p1[0], wall_p1[1], wall_p1[2]]
-                v2 = [wall_p2[0], wall_p2[1], wall_p2[2]]
-                v_ridge = [ridge_top[0], ridge_top[1], ridge_top[2]]
+                    v1 = [wall_p1[0], wall_p1[1], wall_p1[2]]
+                    v2 = [wall_p2[0], wall_p2[1], wall_p2[2]]
+                    v_ridge = [ridge_top[0], ridge_top[1], ridge_top[2]]
 
-                # Add to full combined walls
-                idx = len(vertices_3d)
-                vertices_3d.extend([v1, v2, v_ridge])
-                faces_3d.append([idx, idx + 1, idx + 2])
+                    # Add to full combined walls
+                    idx = len(vertices_3d)
+                    vertices_3d.extend([v1, v2, v_ridge])
+                    faces_3d.append([idx, idx + 1, idx + 2])
 
-                # Also store separately in pure gable_mesh
-                g_idx = len(gable_vertices)
-                gable_vertices.extend([v1, v2, v_ridge])
-                gable_faces.append([g_idx, g_idx + 1, g_idx + 2])
+                    # Also store separately in pure gable_mesh
+                    g_idx = len(gable_vertices)
+                    gable_vertices.extend([v1, v2, v_ridge])
+                    gable_faces.append([g_idx, g_idx + 1, g_idx + 2])
 
         # 3. Add Dutch Gable Wall polygons (Tường thu hồi Dutch) from Z_cut up to ridge top
         if dutch_walls:

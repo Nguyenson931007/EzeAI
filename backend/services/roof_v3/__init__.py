@@ -25,6 +25,7 @@ from .dutch_builder import DutchBuilder
 from .wall_builder import WallBuilder
 from .clipper import RoofClipper
 from .solver import RoofConstraintSolver
+from .structure_classifier import StructureClassifier
 from .router import router
 
 __all__ = [
@@ -44,5 +45,6 @@ __all__ = [
     "WallBuilder",
     "RoofClipper",
     "RoofConstraintSolver",
+    "StructureClassifier",
     "router",
 ]

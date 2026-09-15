@@ -51,23 +51,24 @@ def _get_models() -> Tuple[YOLO, YOLO]:
     if _door_model is None or _window_model is None:
         with _model_lock:
             if _door_model is None:
-                p_door = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt"
-                if not p_door.exists():
-                    p_door = BASE_DIR / "backend" / "models" / "Doors" / "best_backup.pt"
-                if not p_door.exists():
-                    p_door = BASE_DIR / "models" / "Doors" / "final_one" / "best.pt"
-                if not p_door.exists():
-                    p_door = BASE_DIR / "models" / "Doors" / "best.pt"
+                candidates_door = [
+                    BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt",
+                    BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+                    BASE_DIR / "backend" / "models" / "Doors" / "best_backup.pt",
+                    BASE_DIR / "models" / "Doors" / "final_one" / "best.pt",
+                    BASE_DIR / "models" / "Doors" / "best.pt",
+                ]
+                p_door = next((p for p in candidates_door if p.exists()), candidates_door[1])
                 logger.info(f"[door_segment_service] Loading Door model: {p_door}")
                 _door_model = YOLO(str(p_door))
             if _window_model is None:
-                p_win = BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_1.pt"
-                if not p_win.exists():
-                    p_win = BASE_DIR / "backend" / "models" / "Doors" / "best.pt"
-                if not p_win.exists():
-                    p_win = BASE_DIR / "models" / "Doors" / "final_one" / "best_1.pt"
-                if not p_win.exists():
-                    p_win = BASE_DIR / "models" / "Doors" / "best.pt"
+                candidates_win = [
+                    BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_1.pt",
+                    BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
+                    BASE_DIR / "models" / "Doors" / "final_one" / "best_1.pt",
+                    BASE_DIR / "models" / "Doors" / "best.pt",
+                ]
+                p_win = next((p for p in candidates_win if p.exists()), candidates_win[1])
                 logger.info(f"[door_segment_service] Loading Window model: {p_win}")
                 _window_model = YOLO(str(p_win))
     return _door_model, _window_model

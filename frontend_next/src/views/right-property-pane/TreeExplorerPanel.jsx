@@ -91,6 +91,12 @@ export default function TreeExplorerPanel({
     return r.room_name || r.name || r.label || `Room #${idx + 1}`;
   };
 
+  const getRoofLabel = (rf, idx) => {
+    if (rf.name) return stripLeadingZero(rf.name);
+    if (rf.roof_name) return stripLeadingZero(rf.roof_name);
+    return `Roof #${idx + 1}`;
+  };
+
   const q = explorerSearch.trim().toLowerCase();
   const filterMatch = (item, type, label) => {
     if (!q) return true;
@@ -219,416 +225,556 @@ export default function TreeExplorerPanel({
           boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
         }}
       >
-        {/* Level 0: Root Project Node */}
-        <div
-          onClick={() => toggleNode && toggleNode("root")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            padding: "5px 6px",
-            borderRadius: "5px",
-            cursor: "pointer",
-            fontWeight: 700,
-            color: "#0f172a",
-            userSelect: "none"
-          }}
-        >
-          <span
-            style={{
-              fontSize: "10px",
-              color: "#64748b",
-              transition: "transform 0.15s ease",
-              transform: expandedNodes.has("root") ? "rotate(90deg)" : "rotate(0deg)"
-            }}
-          >
-            ▶
-          </span>
-          <span>🏠</span>
-          <span style={{ flex: 1 }}>{currentProjectName || "Modern House"}</span>
-        </div>
+        {/* Top-Level Floors Container */}
+        {(pages.length > 0 ? pages : [{ id: 0, name: "Ground Floor" }]).map((page, pageIdx) => {
+          const floorKey = `floor_${pageIdx}`;
+          const isFloorExpanded = expandedNodes.has(floorKey);
+          const isCurrentFloor = (currentPage || 0) === pageIdx;
 
-        {expandedNodes.has("root") && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "12px" }}>
-            {(pages.length > 0 ? pages : [{ id: 0, name: "Ground Floor" }]).map((page, pageIdx) => {
-              const floorKey = `floor_${pageIdx}`;
-              const isFloorExpanded = expandedNodes.has(floorKey);
-              const isCurrentFloor = (currentPage || 0) === pageIdx;
+          const pageWalls = wallsByPageProp[pageIdx] || (pageIdx === currentPage ? (walls || []) : []);
+          const pageRawDoors = doorsByPageProp[pageIdx] || (pageIdx === currentPage ? (doors || []) : []);
+          const pageDoors = pageRawDoors.filter(d => {
+            const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
+            if (!isWinClass) return true;
+            const pw = pageWalls.find(w => w.id === d.parentWallId);
+            const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
+            return pw && !isParentExt && pw.class_name !== "block_wall";
+          });
+          const pageWindows = pageRawDoors.filter(d => {
+            const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
+            if (!isWinClass) return false;
+            const pw = pageWalls.find(w => w.id === d.parentWallId);
+            const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
+            return !pw || isParentExt || pw.class_name === "block_wall";
+          });
+          const pageRooms = roomsByPageProp[pageIdx] || (pageIdx === currentPage ? (rooms || []) : []);
+          const pageLintels = lintelsByPageProp ? (lintelsByPageProp[pageIdx] || []) : (lintelsByPage ? (lintelsByPage[pageIdx] || []) : []);
+          const pageRoofs = roofsByPageProp ? (roofsByPageProp[pageIdx] || []) : (roofsByPage ? (roofsByPage[pageIdx] || []) : []);
 
-              const pageWalls = wallsByPageProp[pageIdx] || (pageIdx === currentPage ? (walls || []) : []);
-              const pageRawDoors = doorsByPageProp[pageIdx] || (pageIdx === currentPage ? (doors || []) : []);
-              const pageDoors = pageRawDoors.filter(d => {
-                const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
-                if (!isWinClass) return true;
-                const pw = pageWalls.find(w => w.id === d.parentWallId);
-                const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
-                return pw && !isParentExt && pw.class_name !== "block_wall";
-              });
-              const pageWindows = pageRawDoors.filter(d => {
-                const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
-                if (!isWinClass) return false;
-                const pw = pageWalls.find(w => w.id === d.parentWallId);
-                const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
-                return !pw || isParentExt || pw.class_name === "block_wall";
-              });
-              const pageRooms = roomsByPageProp[pageIdx] || (pageIdx === currentPage ? (rooms || []) : []);
-              const pageLintels = lintelsByPageProp ? (lintelsByPageProp[pageIdx] || []) : (lintelsByPage ? (lintelsByPage[pageIdx] || []) : []);
-              const pageRoofs = roofsByPageProp ? (roofsByPageProp[pageIdx] || []) : (roofsByPage ? (roofsByPage[pageIdx] || []) : []);
+          const filteredWalls = pageWalls.filter((w, idx) => filterMatch(w, "wall", getWallLabel(w, idx)));
+          const filteredDoors = pageDoors.filter((d, idx) => filterMatch(d, "door", getDoorLabel(d, idx)));
+          const filteredWindows = pageWindows.filter((win, idx) => filterMatch(win, "window", getWindowLabel(win, idx)));
+          const filteredRooms = pageRooms.filter((r, idx) => filterMatch(r, "room", getRoomLabel(r, idx)));
+          const filteredLintels = pageLintels.filter((l, idx) => filterMatch(l, "lintel", l.description || `Lintel #${idx + 1}`));
+          const filteredRoofs = pageRoofs.filter((rf, idx) => filterMatch(rf, "roof", getRoofLabel(rf, idx)));
 
-              const filteredWalls = pageWalls.filter((w, idx) => filterMatch(w, "wall", getWallLabel(w, idx)));
-              const filteredDoors = pageDoors.filter((d, idx) => filterMatch(d, "door", getDoorLabel(d, idx)));
-              const filteredWindows = pageWindows.filter((win, idx) => filterMatch(win, "window", getWindowLabel(win, idx)));
-              const filteredRooms = pageRooms.filter((r, idx) => filterMatch(r, "room", getRoomLabel(r, idx)));
-              const filteredLintels = pageLintels.filter((l, idx) => filterMatch(l, "lintel", l.description || `Lintel #${idx + 1}`));
-              const filteredRoofs = pageRoofs.filter((rf, idx) => filterMatch(rf, "roof", rf.name || `Roof #${idx + 1}`));
-
-              return (
-                <div key={floorKey} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  {/* Floor Header */}
-                  <div
-                    onClick={() => toggleNode && toggleNode(floorKey)}
+          return (
+            <div key={floorKey} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              {/* Floor Header (Top-Level) */}
+              <div
+                onClick={() => toggleNode && toggleNode(floorKey)}
+                onDoubleClick={(e) => handleRenameFloor && handleRenameFloor(e, pageIdx, page.name || page.floor_name)}
+                title="Click to expand/collapse, double-click to rename floor"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 8px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  background: isCurrentFloor ? "rgba(37, 99, 235, 0.08)" : "#f8fafc",
+                  border: isCurrentFloor ? "1px solid rgba(37, 99, 235, 0.25)" : "1px solid #e2e8f0",
+                  color: isCurrentFloor ? "var(--blue)" : "#1e293b",
+                  userSelect: "none",
+                  transition: "all 0.15s ease"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "4px 6px",
-                      borderRadius: "5px",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      background: isCurrentFloor ? "rgba(37, 99, 235, 0.08)" : "transparent",
-                      color: isCurrentFloor ? "var(--blue)" : "var(--text)"
+                      fontSize: "9px",
+                      color: "#94a3b8",
+                      transform: isFloorExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                      transition: "transform 0.15s ease"
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span
+                    ▶
+                  </span>
+                  <span style={{ fontSize: "14px" }}>🏢</span>
+                  <span>{page.name || page.floor_name || `Floor ${pageIdx + 1}`}</span>
+                </div>
+                {isCurrentFloor && (
+                  <span style={{ fontSize: "10px", color: "var(--blue)", background: "rgba(37, 99, 235, 0.12)", padding: "1px 6px", borderRadius: "3px", fontWeight: 700 }}>
+                    Active
+                  </span>
+                )}
+              </div>
+
+              {/* Floor Content */}
+              {isFloorExpanded && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "14px" }}>
+                  {/* ── WALLS GROUP ── */}
+                  {pageWalls.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                      <div
+                        onClick={() => toggleNode && toggleNode(`${floorKey}_walls`)}
                         style={{
-                          fontSize: "9px",
-                          color: "#94a3b8",
-                          transform: isFloorExpanded ? "rotate(90deg)" : "rotate(0deg)",
-                          transition: "transform 0.15s ease"
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "4px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#475569"
                         }}
                       >
-                        ▶
-                      </span>
-                      <span>🏢</span>
-                      <span>{page.name || page.floor_name || `Floor ${pageIdx + 1}`}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_walls`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                          <span>🧱</span>
+                          <span>Walls</span>
+                        </div>
+                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageWalls.length})</span>
+                      </div>
+
+                      {expandedNodes.has(`${floorKey}_walls`) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                          {filteredWalls.map((w, idx) => {
+                            const isSelected = (selectedId === w.id && selectedType === "wall") || (selectedWallIds && selectedWallIds.includes(w.id));
+                            const isHidden = hiddenItemIds?.has(w.id);
+                            const label = getWallLabel(w, idx);
+
+                            return (
+                              <div
+                                key={w.id || `wall_${idx}`}
+                                id={`explorer-item-${w.id}`}
+                                onClick={(e) => selectExclusiveWall && selectExclusiveWall(e, pageIdx, w)}
+                                onDoubleClick={(e) => {
+                                  selectExclusiveWall && selectExclusiveWall(e, pageIdx, w);
+                                  setExplorerViewMode && setExplorerViewMode("properties");
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 8px",
+                                  borderRadius: "5px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  background: isSelected ? "#eff6ff" : "transparent",
+                                  border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  fontWeight: isSelected ? 700 : 500
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>🧱</span>
+                                  <span>{label}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) toggleItemVisibility(w.id);
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
+                                  >
+                                    {isHidden ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
 
-                  {/* Floor Content */}
-                  {isFloorExpanded && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "14px" }}>
-                      {/* ── WALLS GROUP ── */}
-                      {pageWalls.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-                          <div
-                            onClick={() => toggleNode && toggleNode(`${floorKey}_walls`)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              padding: "4px 6px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              color: "#475569"
-                            }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                              <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_walls`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
-                              <span>🧱</span>
-                              <span>Walls</span>
-                            </div>
-                            <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageWalls.length})</span>
-                          </div>
+                  {/* ── ROOFS GROUP ── */}
+                  {pageRoofs.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                      <div
+                        onClick={() => toggleNode && toggleNode(`${floorKey}_roofs`)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "4px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#475569"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_roofs`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                          <span>🏠</span>
+                          <span>Roofs</span>
+                        </div>
+                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageRoofs.length})</span>
+                      </div>
 
-                          {expandedNodes.has(`${floorKey}_walls`) && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
-                              {filteredWalls.map((w, idx) => {
-                                const isSelected = (selectedId === w.id && selectedType === "wall") || (selectedWallIds && selectedWallIds.includes(w.id));
-                                const isHidden = hiddenItemIds?.has(w.id);
-                                const label = getWallLabel(w, idx);
+                      {expandedNodes.has(`${floorKey}_roofs`) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                          {filteredRoofs.map((rf, idx) => {
+                            const isSelected = (selectedId === rf.id && selectedType === "roof") || selectedRoofId === rf.id;
+                            const isHidden = hiddenItemIds?.has(rf.id);
+                            const label = getRoofLabel(rf, idx);
 
-                                return (
-                                  <div
-                                    key={w.id || `wall_${idx}`}
-                                    onClick={(e) => selectExclusiveWall && selectExclusiveWall(e, pageIdx, w)}
-                                    onDoubleClick={(e) => {
-                                      selectExclusiveWall && selectExclusiveWall(e, pageIdx, w);
-                                      setExplorerViewMode && setExplorerViewMode("properties");
+                            return (
+                              <div
+                                key={rf.id || `roof_${idx}`}
+                                id={`explorer-item-${rf.id}`}
+                                onClick={(e) => selectExclusiveRoof && selectExclusiveRoof(e, pageIdx, rf)}
+                                onDoubleClick={(e) => {
+                                  selectExclusiveRoof && selectExclusiveRoof(e, pageIdx, rf);
+                                  setExplorerViewMode && setExplorerViewMode("properties");
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 8px",
+                                  borderRadius: "5px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  background: isSelected ? "#eff6ff" : "transparent",
+                                  border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  fontWeight: isSelected ? 700 : 500
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>🏠</span>
+                                  <span>{label}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) toggleItemVisibility(rf.id);
                                     }}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      padding: "4px 8px",
-                                      borderRadius: "5px",
-                                      cursor: "pointer",
-                                      fontSize: "12px",
-                                      background: isSelected ? "#eff6ff" : "transparent",
-                                      border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
-                                      color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
-                                      fontWeight: isSelected ? 700 : 500
-                                    }}
+                                    title={isHidden ? "Show roof" : "Hide roof"}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
                                   >
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span>🧱</span>
-                                      <span>{label}</span>
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (toggleItemVisibility) toggleItemVisibility(w.id);
-                                        }}
-                                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
-                                      >
-                                        {isHidden ? "⊘" : "⊚"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                                    {isHidden ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      {/* ── DOORS GROUP ── */}
-                      {pageDoors.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-                          <div
-                            onClick={() => toggleNode && toggleNode(`${floorKey}_doors`)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              padding: "4px 6px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              color: "#475569"
-                            }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                              <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_doors`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
-                              <span>🚪</span>
-                              <span>Doors</span>
-                            </div>
-                            <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageDoors.length})</span>
-                          </div>
+                  {/* ── DOORS GROUP ── */}
+                  {pageDoors.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                      <div
+                        onClick={() => toggleNode && toggleNode(`${floorKey}_doors`)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "4px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#475569"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_doors`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                          <span>🚪</span>
+                          <span>Doors</span>
+                        </div>
+                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageDoors.length})</span>
+                      </div>
 
-                          {expandedNodes.has(`${floorKey}_doors`) && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
-                              {filteredDoors.map((d, idx) => {
-                                const isSelected = (selectedId === d.id && selectedType === "door") || (selectedDoorIds && selectedDoorIds.includes(d.id));
-                                const isHidden = hiddenItemIds?.has(d.id);
-                                const label = getDoorLabel(d, idx);
+                      {expandedNodes.has(`${floorKey}_doors`) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                          {filteredDoors.map((d, idx) => {
+                            const isSelected = (selectedId === d.id && selectedType === "door") || (selectedDoorIds && selectedDoorIds.includes(d.id));
+                            const isHidden = hiddenItemIds?.has(d.id);
+                            const label = getDoorLabel(d, idx);
 
-                                return (
-                                  <div
-                                    key={d.id || `door_${idx}`}
-                                    onClick={(e) => selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, d)}
-                                    onDoubleClick={(e) => {
-                                      selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, d);
-                                      setExplorerViewMode && setExplorerViewMode("properties");
+                            return (
+                              <div
+                                key={d.id || `door_${idx}`}
+                                id={`explorer-item-${d.id}`}
+                                onClick={(e) => selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, d)}
+                                onDoubleClick={(e) => {
+                                  selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, d);
+                                  setExplorerViewMode && setExplorerViewMode("properties");
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 8px",
+                                  borderRadius: "5px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  background: isSelected ? "#eff6ff" : "transparent",
+                                  border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  fontWeight: isSelected ? 700 : 500
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>🚪</span>
+                                  <span>{label}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) toggleItemVisibility(d.id);
                                     }}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      padding: "4px 8px",
-                                      borderRadius: "5px",
-                                      cursor: "pointer",
-                                      fontSize: "12px",
-                                      background: isSelected ? "#eff6ff" : "transparent",
-                                      border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
-                                      color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
-                                      fontWeight: isSelected ? 700 : 500
-                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
                                   >
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span>🚪</span>
-                                      <span>{label}</span>
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (toggleItemVisibility) toggleItemVisibility(d.id);
-                                        }}
-                                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
-                                      >
-                                        {isHidden ? "⊘" : "⊚"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                                    {isHidden ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      {/* ── WINDOWS GROUP ── */}
-                      {pageWindows.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-                          <div
-                            onClick={() => toggleNode && toggleNode(`${floorKey}_windows`)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              padding: "4px 6px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              color: "#475569"
-                            }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                              <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_windows`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
-                              <span>🪟</span>
-                              <span>Windows</span>
-                            </div>
-                            <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageWindows.length})</span>
-                          </div>
+                  {/* ── WINDOWS GROUP ── */}
+                  {pageWindows.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                      <div
+                        onClick={() => toggleNode && toggleNode(`${floorKey}_windows`)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "4px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#475569"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_windows`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                          <span>🪟</span>
+                          <span>Windows</span>
+                        </div>
+                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageWindows.length})</span>
+                      </div>
 
-                          {expandedNodes.has(`${floorKey}_windows`) && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
-                              {filteredWindows.map((win, idx) => {
-                                const isSelected = (selectedId === win.id && (selectedType === "window" || selectedType === "door")) || (selectedDoorIds && selectedDoorIds.includes(win.id));
-                                const isHidden = hiddenItemIds?.has(win.id);
-                                const label = getWindowLabel(win, idx);
+                      {expandedNodes.has(`${floorKey}_windows`) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                          {filteredWindows.map((win, idx) => {
+                            const isSelected = (selectedId === win.id && (selectedType === "window" || selectedType === "door")) || (selectedDoorIds && selectedDoorIds.includes(win.id));
+                            const isHidden = hiddenItemIds?.has(win.id);
+                            const label = getWindowLabel(win, idx);
 
-                                return (
-                                  <div
-                                    key={win.id || `window_${idx}`}
-                                    onClick={(e) => selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, win)}
-                                    onDoubleClick={(e) => {
-                                      selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, win);
-                                      setExplorerViewMode && setExplorerViewMode("properties");
+                            return (
+                              <div
+                                key={win.id || `window_${idx}`}
+                                id={`explorer-item-${win.id}`}
+                                onClick={(e) => selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, win)}
+                                onDoubleClick={(e) => {
+                                  selectExclusiveDoor && selectExclusiveDoor(e, pageIdx, win);
+                                  setExplorerViewMode && setExplorerViewMode("properties");
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 8px",
+                                  borderRadius: "5px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  background: isSelected ? "#eff6ff" : "transparent",
+                                  border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  fontWeight: isSelected ? 700 : 500
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>🪟</span>
+                                  <span>{label}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) toggleItemVisibility(win.id);
                                     }}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      padding: "4px 8px",
-                                      borderRadius: "5px",
-                                      cursor: "pointer",
-                                      fontSize: "12px",
-                                      background: isSelected ? "#eff6ff" : "transparent",
-                                      border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
-                                      color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
-                                      fontWeight: isSelected ? 700 : 500
-                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
                                   >
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span>🪟</span>
-                                      <span>{label}</span>
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (toggleItemVisibility) toggleItemVisibility(win.id);
-                                        }}
-                                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
-                                      >
-                                        {isHidden ? "⊘" : "⊚"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                                    {isHidden ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      {/* ── ROOMS GROUP ── */}
-                      {pageRooms.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-                          <div
-                            onClick={() => toggleNode && toggleNode(`${floorKey}_rooms`)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              padding: "4px 6px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              color: "#475569"
-                            }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                              <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_rooms`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
-                              <span>📐</span>
-                              <span>Rooms</span>
-                            </div>
-                            <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageRooms.length})</span>
-                          </div>
+                  {/* ── ROOMS GROUP ── */}
+                  {pageRooms.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                      <div
+                        onClick={() => toggleNode && toggleNode(`${floorKey}_rooms`)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "4px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#475569"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_rooms`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                          <span>📐</span>
+                          <span>Rooms</span>
+                        </div>
+                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageRooms.length})</span>
+                      </div>
 
-                          {expandedNodes.has(`${floorKey}_rooms`) && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
-                              {filteredRooms.map((r, idx) => {
-                                const isSelected = (selectedId === r.id && selectedType === "room") || (selectedRoomIds && selectedRoomIds.includes(r.id));
-                                const isHidden = hiddenItemIds?.has(r.id);
-                                const label = getRoomLabel(r, idx);
+                      {expandedNodes.has(`${floorKey}_rooms`) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                          {filteredRooms.map((r, idx) => {
+                            const isSelected = (selectedId === r.id && selectedType === "room") || (selectedRoomIds && selectedRoomIds.includes(r.id));
+                            const isHidden = hiddenItemIds?.has(r.id);
+                            const label = getRoomLabel(r, idx);
 
-                                return (
-                                  <div
-                                    key={r.id || `room_${idx}`}
-                                    onClick={(e) => selectExclusiveRoom && selectExclusiveRoom(e, pageIdx, r)}
-                                    onDoubleClick={(e) => handleRenameRoom && handleRenameRoom(e, pageIdx, r)}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      padding: "4px 8px",
-                                      borderRadius: "5px",
-                                      cursor: "pointer",
-                                      fontSize: "12px",
-                                      background: isSelected ? "#eff6ff" : "transparent",
-                                      border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
-                                      color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
-                                      fontWeight: isSelected ? 700 : 500
+                            return (
+                              <div
+                                key={r.id || `room_${idx}`}
+                                id={`explorer-item-${r.id}`}
+                                onClick={(e) => selectExclusiveRoom && selectExclusiveRoom(e, pageIdx, r)}
+                                onDoubleClick={(e) => handleRenameRoom && handleRenameRoom(e, pageIdx, r)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 8px",
+                                  borderRadius: "5px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  background: isSelected ? "#eff6ff" : "transparent",
+                                  border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  fontWeight: isSelected ? 700 : 500
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>📐</span>
+                                  <span>{label}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) toggleItemVisibility(r.id);
                                     }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
                                   >
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span>📐</span>
-                                      <span>{label}</span>
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (toggleItemVisibility) toggleItemVisibility(r.id);
-                                        }}
-                                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
-                                      >
-                                        {isHidden ? "⊘" : "⊚"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                                    {isHidden ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── LINTELS GROUP ── */}
+                  {pageLintels.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                      <div
+                        onClick={() => toggleNode && toggleNode(`${floorKey}_lintels`)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "4px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#475569"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                          <span style={{ fontSize: "8px", color: "#94a3b8", transform: expandedNodes.has(`${floorKey}_lintels`) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>▶</span>
+                          <span>🪵</span>
+                          <span>Lintels</span>
+                        </div>
+                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageLintels.length})</span>
+                      </div>
+
+                      {expandedNodes.has(`${floorKey}_lintels`) && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", paddingLeft: "16px" }}>
+                          {filteredLintels.map((l, idx) => {
+                            const isSelected = (selectedId === l.id && selectedType === "lintel") || (selectedLintelIds && selectedLintelIds.includes(l.id));
+                            const isHidden = hiddenItemIds?.has(l.id);
+                            const label = l.description || l.label || `Lintel #${idx + 1}`;
+
+                            return (
+                              <div
+                                key={l.id || `lintel_${idx}`}
+                                id={`explorer-item-${l.id}`}
+                                onClick={(e) => selectExclusiveLintel && selectExclusiveLintel(e, pageIdx, l)}
+                                onDoubleClick={(e) => {
+                                  selectExclusiveLintel && selectExclusiveLintel(e, pageIdx, l);
+                                  setExplorerViewMode && setExplorerViewMode("properties");
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "4px 8px",
+                                  borderRadius: "5px",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  background: isSelected ? "#eff6ff" : "transparent",
+                                  border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  fontWeight: isSelected ? 700 : 500
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>🪵</span>
+                                  <span>{label}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (toggleItemVisibility) toggleItemVisibility(l.id);
+                                    }}
+                                    title={isHidden ? "Show lintel" : "Hide lintel"}
+                                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: isHidden ? "#94a3b8" : "var(--blue)" }}
+                                  >
+                                    {isHidden ? "⊘" : "⊚"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
