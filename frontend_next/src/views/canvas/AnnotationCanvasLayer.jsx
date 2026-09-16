@@ -264,7 +264,14 @@ export default function AnnotationCanvasLayer({
   setInteractionMode,
   isSnapEnabled = true,
   walls = [],
-  rooms = []
+  rooms = [],
+  setSelectedId,
+  setSelectedType,
+  setSelectedDoorIds,
+  setSelectedWallIds,
+  setSelectedRoomIds,
+  setSelectedLintelIds,
+  setSelectedRoofId
 }) {
   const {
     annotationsByPage = {},
@@ -299,7 +306,9 @@ export default function AnnotationCanvasLayer({
     textUnderline = false,
     setTextUnderline,
     textStrikethrough = false,
-    setTextStrikethrough
+    setTextStrikethrough,
+    isCanvasMoving,
+    setIsCanvasMoving
   } = useAppModel();
 
   const pageAnnotations = annotationsByPage[currentPage] || [];
@@ -307,6 +316,21 @@ export default function AnnotationCanvasLayer({
   // Track physical Shift key state
   const [shiftKeyHeld, setShiftKeyHeld] = useState(false);
   const isShift = isShiftDown || shiftKeyHeld;
+
+  // Global Pointer / Mouse Up Handler to ensure isCanvasMoving is reset reliably
+  useEffect(() => {
+    const handleGlobalUp = () => {
+      if (setIsCanvasMoving) {
+        setIsCanvasMoving(false);
+      }
+    };
+    window.addEventListener("pointerup", handleGlobalUp);
+    window.addEventListener("mouseup", handleGlobalUp);
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalUp);
+      window.removeEventListener("mouseup", handleGlobalUp);
+    };
+  }, [setIsCanvasMoving]);
 
   useEffect(() => {
     const handleShiftDown = (e) => {
@@ -369,6 +393,7 @@ export default function AnnotationCanvasLayer({
     e.preventDefault();
     const pt = getPointFromEvent(e);
     if (!pt) return;
+    if (setIsCanvasMoving) setIsCanvasMoving(true);
     const pA = ann.startPt ? { ...ann.startPt } : { x: ann.x || 0, y: ann.y || 0 };
     const pB = ann.currentPt ? { ...ann.currentPt } : { x: (ann.x || 0) + (ann.width || 120), y: (ann.y || 0) + (ann.height || 0) };
 
@@ -876,6 +901,13 @@ export default function AnnotationCanvasLayer({
         activeIds = selectedAnnotationIds;
         setSelectedAnnotationId(ann.id);
       }
+      if (setSelectedId) setSelectedId(ann.id);
+      if (setSelectedType) setSelectedType("annotation");
+      if (setSelectedDoorIds) setSelectedDoorIds([]);
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedRoomIds) setSelectedRoomIds([]);
+      if (setSelectedLintelIds) setSelectedLintelIds([]);
+      if (setSelectedRoofId) setSelectedRoofId(null);
     }
 
     const pt = getPointFromEvent(e);
@@ -899,6 +931,7 @@ export default function AnnotationCanvasLayer({
       };
     }).filter(Boolean);
 
+    if (setIsCanvasMoving) setIsCanvasMoving(true);
     setMovingState({
       items,
       startMouse: pt,
@@ -912,6 +945,7 @@ export default function AnnotationCanvasLayer({
     e.preventDefault();
     const pt = getPointFromEvent(e);
     if (!pt) return;
+    if (setIsCanvasMoving) setIsCanvasMoving(true);
 
     const fSize = ann.fontSize || 50;
     let estW = ann.width;
@@ -1483,6 +1517,7 @@ export default function AnnotationCanvasLayer({
       }
 
       // 2. Finish Moving
+      if (setIsCanvasMoving) setIsCanvasMoving(false);
       if (movingStateRef.current) {
         if (movingStateRef.current.hasMoved && movingStateRef.current.initialSnapshot) {
           if (typeof pushAnnotationHistory === "function") {
@@ -1643,6 +1678,7 @@ export default function AnnotationCanvasLayer({
       ];
     }
     if (!pts) return;
+    if (setIsCanvasMoving) setIsCanvasMoving(true);
 
     setVertexDragState({
       annId: ann.id,
@@ -1969,7 +2005,6 @@ export default function AnnotationCanvasLayer({
 
       {/* ── BACKGROUND CLICK CATCHER (Deselect when clicking outside on empty canvas in Select Mode) ── */}
       {!isMarkupActive &&
-        !(selectedAnnotationId && String(selectedAnnotationId).startsWith("lintel_callout_") && (!selectedAnnotationIds || selectedAnnotationIds.every(id => String(id).startsWith("lintel_callout_")))) &&
         (selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0) || editingTextId || activeNotePopup) && (
         <rect
           x="-200000"
@@ -2025,6 +2060,13 @@ export default function AnnotationCanvasLayer({
               } else {
                 if (setSelectedAnnotationIds) setSelectedAnnotationIds([ann.id]);
                 setSelectedAnnotationId(ann.id);
+                if (setSelectedId) setSelectedId(ann.id);
+                if (setSelectedType) setSelectedType("annotation");
+                if (setSelectedDoorIds) setSelectedDoorIds([]);
+                if (setSelectedWallIds) setSelectedWallIds([]);
+                if (setSelectedRoomIds) setSelectedRoomIds([]);
+                if (setSelectedLintelIds) setSelectedLintelIds([]);
+                if (setSelectedRoofId) setSelectedRoofId(null);
               }
               if (ann.type === "sticky-note") {
                 setActiveNotePopup(ann);
@@ -2786,7 +2828,6 @@ export default function AnnotationCanvasLayer({
 
             {/* 16. CALLOUT (Multiline, unified object, nearest edge attachment, draggable anchor) */}
             {ann.type === "callout" && (() => {
-              if (ann.isLintelCallout) return null;
               const isBeingEdited = editingTextId === ann.id;
               const isBold = ann.isBold !== false;
               const isItalic = !!ann.isItalic;
@@ -2964,6 +3005,7 @@ export default function AnnotationCanvasLayer({
                       onMouseDown={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
+                        if (setIsCanvasMoving) setIsCanvasMoving(true);
                         setCalloutTipDrag({
                           annId: ann.id,
                           startMouse: getPointFromEvent(e),

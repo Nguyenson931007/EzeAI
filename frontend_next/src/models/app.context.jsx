@@ -94,6 +94,7 @@ export const AppProvider = ({ children }) => {
   }, []);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState(null);
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState([]);
+  const [isCanvasMoving, setIsCanvasMoving] = useState(false);
 
   // Text Formatting States (B, I, U, S)
   const [textBold, setTextBold] = useState(true);
@@ -201,6 +202,7 @@ export const AppProvider = ({ children }) => {
     activeCalloutStyle, setActiveCalloutStyle,
     selectedAnnotationId, setSelectedAnnotationId,
     selectedAnnotationIds, setSelectedAnnotationIds,
+    isCanvasMoving, setIsCanvasMoving,
 
     textBold, setTextBold,
     textItalic, setTextItalic,

@@ -29,7 +29,6 @@ import LeftRailView from "@/views/LeftRailView";
 import FloorTabBarView from "@/views/FloorTabBarView";
 import PdfModuleTabBarView from "@/views/PdfModuleTabBarView";
 import DoorTypePanel from "@/components/DoorTypePanel";
-import LintelCatalogPanel from "@/components/LintelCatalogPanel";
 import TrainButton from "@/components/TrainButton";
 import AIConfidenceBar from "@/features/ai/AIConfidenceBar";
 import { ApiService } from "@/models/api.service";
@@ -347,7 +346,7 @@ export default function App() {
     hoverId, setHoverId,
     selectedId, setSelectedId,
     selectedType, setSelectedType,
-    selectedPointIndex,
+    selectedPointIndex, setSelectedPointIndex,
     selectedWallIds, setSelectedWallIds,
     selectedDoorIds, setSelectedDoorIds,
     selectedRoomIds, setSelectedRoomIds,
@@ -390,7 +389,9 @@ export default function App() {
     separateJunction,
     selectedVertices,
     setSelectedVertices,
-    startVertexMove
+    startVertexMove,
+    snapAlignPoints,
+    setSnapAlignPoints
   } = useInteractionController(svgRef, layerVisibility);
 
   useEffect(() => {
@@ -1793,82 +1794,6 @@ export default function App() {
             </div>
           )}
 
-          {workspaceMode !== "3d" && lintelController?.showCatalogPanel && (
-            <div
-              style={{
-                zIndex: 10,
-                display: 'flex',
-                height: '100%'
-              }}
-            >
-              <LintelCatalogPanel
-                selectedLintel={(lintelsByPage[currentPage] || []).find(l => l.id === selectedId)}
-                activeLintelConfig={lintelController?.activeLintelConfig}
-                onSelectCatalogItem={(item) => {
-                  const pageLintels = lintelsByPage[currentPage] || [];
-                  const config = {
-                    catalogId: item.id,
-                    size: item.height,
-                    width: item.width,
-                    height: item.height,
-                    type: item.type,
-                    description: item.description || 'Lintel',
-                    ply: item.ply || 1
-                  };
-                  if (lintelController?.setActiveLintelConfig) {
-                    lintelController.setActiveLintelConfig(config);
-                  }
-                  if (selectedId && selectedType === 'lintel') {
-                    const selectedLintel = pageLintels.find(l => l.id === selectedId);
-                    if (selectedLintel) {
-                      const updated = {
-                        ...selectedLintel,
-                        ...config
-                      };
-                      lintelController.updateLintel(updated);
-                    }
-                  }
-                  if (isDrawingLintel || lintelController?.isDrawingLintel) {
-                    // IN DRAWING MODE: The catalog category won't turn off in phases drawing!
-                    // Catalog stays open, drawing mode stays active.
-                    if (lintelController?.setShowCatalogPanel) {
-                      lintelController.setShowCatalogPanel(true);
-                    }
-                  } else {
-                    // Just changing type on existing lintel: close catalog and do NOT activate drawing mode
-                    lintelController.setShowCatalogPanel(false);
-                  }
-                }}
-                onUpdatePly={(ply) => {
-                  if (lintelController?.setActiveLintelConfig) {
-                    lintelController.setActiveLintelConfig(prev => ({
-                      ...prev,
-                      ply
-                    }));
-                  }
-                  const pageLintels = lintelsByPage[currentPage] || [];
-                  if (selectedId && selectedType === 'lintel') {
-                    const selectedLintel = pageLintels.find(l => l.id === selectedId);
-                    if (selectedLintel) {
-                      lintelController.updateLintel({
-                        ...selectedLintel,
-                        ply
-                      });
-                    }
-                  }
-                }}
-                isDrawingLintel={isDrawingLintel || lintelController?.isDrawingLintel}
-                onClose={() => {
-                  if (isDrawingLintel || lintelController?.isDrawingLintel) {
-                    lintelController?.cancelLintelDraw();
-                  } else {
-                    lintelController?.setShowCatalogPanel(false);
-                  }
-                }}
-              />
-            </div>
-          )}
-
           {/* ── 2D / 3D DUAL WORKSPACE CONTAINER ── */}
           <div
             className="cad-workspace-split-container"
@@ -1975,6 +1900,8 @@ export default function App() {
                     rooms={rooms}
                     walls={wallsByPage[currentPage] || []}
                     underlayWalls={currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : []}
+                    snapAlignPoints={snapAlignPoints}
+                    setSnapAlignPoints={setSnapAlignPoints}
                     doors={processedDoorsByPage[currentPage] || []}
                     pdfOffset={pdfOffsetsByPage[currentPage] || { x: 0, y: 0 }}
                     setPdfOffsetsByPage={setPdfOffsetsByPage}
@@ -1986,6 +1913,7 @@ export default function App() {
                     selectedType={selectedType}
                     setSelectedType={setSelectedType}
                     selectedPointIndex={selectedPointIndex}
+                    setSelectedPointIndex={setSelectedPointIndex}
                     selectedWallIds={selectedWallIds}
                     setSelectedWallIds={setSelectedWallIds}
                     selectedDoorIds={selectedDoorIds}

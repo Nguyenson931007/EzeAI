@@ -200,7 +200,8 @@ export default function RightPropertyPaneView({
     setTextItalic,
     setTextUnderline,
     setTextStrikethrough,
-    setCalloutStrokeWidth
+    setCalloutStrokeWidth,
+    isCanvasMoving
   } = useAppModel();
 
   const selectedAnnotation = React.useMemo(() => {
@@ -235,29 +236,6 @@ export default function RightPropertyPaneView({
     // Determine whether this is a text annotation or a drawing shape
     const currentList = annotationsByPage[currentPage] || [];
     const target = currentList.find((a) => a.id === annId);
-
-    // Sync styles back to lintel if this is a lintel callout
-    if (target && target.isLintelCallout && target.lintelId && setLintelsByPageCtx) {
-      setLintelsByPageCtx((prev) => {
-        const pageLintels = prev[currentPage] || [];
-        const idx = pageLintels.findIndex((l) => l.id === target.lintelId);
-        if (idx >= 0) {
-          const updated = [...pageLintels];
-          const cur = updated[idx];
-          const lintelPatch = {};
-          if (patch.color) lintelPatch.calloutColor = patch.color;
-          if (patch.bgColor) lintelPatch.calloutBgColor = patch.bgColor;
-          if (patch.calloutStyle) lintelPatch.calloutStyle = patch.calloutStyle;
-          if (patch.fontSizePt !== undefined) lintelPatch.fontSizePt = patch.fontSizePt;
-          if (patch.dpi !== undefined) lintelPatch.dpi = patch.dpi;
-          if (Object.keys(lintelPatch).length > 0) {
-            updated[idx] = { ...cur, ...lintelPatch };
-            return { ...prev, [currentPage]: updated };
-          }
-        }
-        return prev;
-      });
-    }
 
     const isTextAnnotation = target && (target.type === "text" || target.type === "callout" || target.type === "sticky-note");
 
@@ -364,6 +342,8 @@ export default function RightPropertyPaneView({
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
   const [explorerViewMode, setExplorerViewMode] = React.useState("tree"); // "tree" | "properties"
+  const pendingOpenAfterMoveRef = React.useRef(false);
+  const prevCanvasMovingRef = React.useRef(false);
   const [explorerSearch, setExplorerSearch] = React.useState("");
   const [showCustomThickness, setShowCustomThickness] = React.useState(false);
   const [showCustomHeight, setShowCustomHeight] = React.useState(false);
@@ -1422,6 +1402,8 @@ export default function RightPropertyPaneView({
     if (setSelectedDoorIds) setSelectedDoorIds([]);
     if (setSelectedRoomIds) setSelectedRoomIds([]);
     if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     if (isMulti) {
       if (selectedWallIds.includes(w.id)) {
         if (setSelectedWallIds) setSelectedWallIds(selectedWallIds.filter(id => id !== w.id));
@@ -1434,7 +1416,7 @@ export default function RightPropertyPaneView({
       if (setSelectedWallIds) setSelectedWallIds([w.id]);
       if (selectWall) selectWall(w.id);
     }
-  }, [goPage, currentPage, setSelectedRoofId, setSelectedDoorIds, setSelectedRoomIds, setSelectedLintelIds, selectedWallIds, setSelectedWallIds, setSelectedId, setSelectedType, selectWall]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedDoorIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedAnnotationId, setSelectedAnnotationIds, selectedWallIds, setSelectedWallIds, setSelectedId, setSelectedType, selectWall]);
 
   const selectExclusiveDoor = React.useCallback((e, targetPageIdx, d) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -1443,6 +1425,8 @@ export default function RightPropertyPaneView({
     if (setSelectedWallIds) setSelectedWallIds([]);
     if (setSelectedRoomIds) setSelectedRoomIds([]);
     if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     const isMulti = e && (e.shiftKey || e.ctrlKey || e.metaKey);
     const isWin = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
     if (isMulti) {
@@ -1458,7 +1442,7 @@ export default function RightPropertyPaneView({
       if (setSelectedType) setSelectedType(isWin ? "window" : "door");
       if (setSelectedDoorIds) setSelectedDoorIds([d.id]);
     }
-  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedId, setSelectedType, setSelectedDoorIds, selectDoor]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedAnnotationId, setSelectedAnnotationIds, setSelectedId, setSelectedType, setSelectedDoorIds, selectDoor]);
 
   const selectExclusiveRoom = React.useCallback((e, targetPageIdx, r) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -1467,10 +1451,12 @@ export default function RightPropertyPaneView({
     if (setSelectedWallIds) setSelectedWallIds([]);
     if (setSelectedDoorIds) setSelectedDoorIds([]);
     if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     if (setSelectedId) setSelectedId(r.id);
     if (setSelectedType) setSelectedType("room");
     if (setSelectedRoomIds) setSelectedRoomIds([r.id]);
-  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedDoorIds, setSelectedLintelIds, setSelectedId, setSelectedType, setSelectedRoomIds]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedDoorIds, setSelectedLintelIds, setSelectedAnnotationId, setSelectedAnnotationIds, setSelectedId, setSelectedType, setSelectedRoomIds]);
 
   const selectExclusiveLintel = React.useCallback((e, targetPageIdx, l) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -1479,10 +1465,12 @@ export default function RightPropertyPaneView({
     if (setSelectedWallIds) setSelectedWallIds([]);
     if (setSelectedDoorIds) setSelectedDoorIds([]);
     if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     if (setSelectedId) setSelectedId(l.id);
     if (setSelectedType) setSelectedType("lintel");
     if (setSelectedLintelIds) setSelectedLintelIds([l.id]);
-  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedDoorIds, setSelectedRoomIds, setSelectedId, setSelectedType, setSelectedLintelIds]);
+  }, [goPage, currentPage, setSelectedRoofId, setSelectedWallIds, setSelectedDoorIds, setSelectedRoomIds, setSelectedAnnotationId, setSelectedAnnotationIds, setSelectedId, setSelectedType, setSelectedLintelIds]);
 
   const selectExclusiveRoof = React.useCallback((e, targetPageIdx, rf) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -1491,11 +1479,13 @@ export default function RightPropertyPaneView({
     if (setSelectedDoorIds) setSelectedDoorIds([]);
     if (setSelectedRoomIds) setSelectedRoomIds([]);
     if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     if (setSelectedRoofId) setSelectedRoofId(rf.id);
     if (setSelectedId) setSelectedId(rf.id);
     if (setSelectedType) setSelectedType("roof");
     setExplorerViewMode("properties");
-  }, [goPage, currentPage, setSelectedWallIds, setSelectedDoorIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedRoofId, setSelectedId, setSelectedType, setExplorerViewMode]);
+  }, [goPage, currentPage, setSelectedWallIds, setSelectedDoorIds, setSelectedRoomIds, setSelectedLintelIds, setSelectedAnnotationId, setSelectedAnnotationIds, setSelectedRoofId, setSelectedId, setSelectedType, setExplorerViewMode]);
 
   const [taskListJobs, setTaskListJobs] = React.useState([]);
   const [taskLoading, setTaskLoading] = React.useState(false);
@@ -1809,10 +1799,14 @@ export default function RightPropertyPaneView({
   // Auto-switch to properties mode when an annotation is selected
   React.useEffect(() => {
     if (selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) {
-      setExplorerViewMode("properties");
-      setActivePaneTab("explorer");
+      if (isCanvasMoving) {
+        pendingOpenAfterMoveRef.current = true;
+      } else {
+        setExplorerViewMode("properties");
+        setActivePaneTab("explorer");
+      }
     }
-  }, [selectedAnnotationId, selectedAnnotationIds]);
+  }, [selectedAnnotationId, selectedAnnotationIds, isCanvasMoving]);
 
   // Resolve savedDefault wall height using the specified precedence rules
   const savedDefault = React.useMemo(() => {
@@ -1925,8 +1919,12 @@ export default function RightPropertyPaneView({
         // If user was on a task, keep user on that task!
         // If user was on properties / explorer or collapsed, open Properties table
         if (!isTaskActive) {
-          setActivePaneTab("explorer");
-          setExplorerViewMode("properties");
+          if (isCanvasMoving) {
+            pendingOpenAfterMoveRef.current = true;
+          } else {
+            setActivePaneTab("explorer");
+            setExplorerViewMode("properties");
+          }
         }
       } else {
         // Deselected: auto hide right panel only if in properties/explorer
@@ -1949,7 +1947,49 @@ export default function RightPropertyPaneView({
     selectedRoofId,
     selectedAnnotationId,
     selectedAnnotationIds,
-    activePaneTab
+    activePaneTab,
+    isCanvasMoving
+  ]);
+
+  // Open property panel when user completes moving an element on canvas
+  React.useEffect(() => {
+    if (prevCanvasMovingRef.current && !isCanvasMoving) {
+      const isTaskActive = !!(activePaneTab && activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "collapsed");
+      const hasSelection = Boolean(
+        selectedId ||
+        (selectedWallIds && selectedWallIds.length > 0) ||
+        (selectedDoorIds && selectedDoorIds.length > 0) ||
+        (selectedRoomIds && selectedRoomIds.length > 0) ||
+        (selectedLintelIds && selectedLintelIds.length > 0) ||
+        selectedRoofId ||
+        selectedWall ||
+        selectedDoor ||
+        selectedRoom ||
+        selectedAnnotationId ||
+        (selectedAnnotationIds && selectedAnnotationIds.length > 0)
+      );
+
+      if (!isTaskActive && (hasSelection || pendingOpenAfterMoveRef.current)) {
+        pendingOpenAfterMoveRef.current = false;
+        setActivePaneTab("explorer");
+        setExplorerViewMode("properties");
+      }
+    }
+    prevCanvasMovingRef.current = isCanvasMoving;
+  }, [
+    isCanvasMoving,
+    activePaneTab,
+    selectedId,
+    selectedWallIds,
+    selectedDoorIds,
+    selectedRoomIds,
+    selectedLintelIds,
+    selectedRoofId,
+    selectedWall,
+    selectedDoor,
+    selectedRoom,
+    selectedAnnotationId,
+    selectedAnnotationIds
   ]);
 
   // 4. Frame Hardware State & Custom Wall Overrides
@@ -4066,207 +4106,179 @@ export default function RightPropertyPaneView({
               {/* ── PROPERTIES ── */}
               <div className="panel-section">
                 <div className="panel-title">Properties</div>
-                {selectedType === "room" && selectedRoom ? (
-                  <RoomPropertyPanel
-                    selectedRoom={selectedRoom}
-                    updateRoom={updateRoom}
-                    scaleValue={scaleValue}
-                    deleteRoom={deleteItem}
-                  />
-                ) : (selectedType === "wall" || selectedWallIds.length > 0) && (selectedWall || selectedWallIds.length > 0) ? (
-                  <WallPropertyPanel
-                    walls={walls}
-                    selectedWall={selectedWall}
-                    selectedWallIds={selectedWallIds}
-                    setSelectedWallIds={setSelectedWallIds}
-                    setSelectedId={setSelectedId}
-                    setSelectedType={setSelectedType}
-                    updateWallsProperty={updateWallsProperty}
-                    exportWallExcel={exportWallExcel}
-                    exportWallJson={exportWallJson}
-                    deleteWalls={deleteWalls}
-                    deleteItem={deleteItem}
-                    showConfirm={showConfirm}
-                    showPrompt={showPrompt}
-                    lastSingleWallIdRef={lastSingleWallIdRef}
-                    savedDefault={savedDefault}
-                    getBaseWallId={getBaseWallId}
-                    selectedWallMetrics={selectedWallMetrics}
-                    getFinishTypeOptions={getFinishTypeOptions}
-                  />
-                ) : ((selectedType === "door" || selectedType === "window") && (selectedDoor || (selectedDoorIds && selectedDoorIds.length > 0))) || (selectedDoorIds && selectedDoorIds.length > 0) ? (
-                  <DoorWindowPropertyPanel
-                    selectedDoor={selectedDoor || (doors || []).find((d) => (selectedDoorIds || []).includes(d.id))}
-                    selectedType={selectedType || "door"}
-                    walls={walls}
-                    doors={doors}
-                    updateDoor={updateDoor}
-                    deleteDoor={deleteDoor}
-                    deleteDoors={deleteDoors}
-                    selectedDoorIds={selectedDoorIds}
-                    setSelectedDoorIds={setSelectedDoorIds}
-                    setSelectedId={setSelectedId}
-                    setSelectedType={setSelectedType}
-                    updateDoorsProperty={updateDoorsProperty}
-                    selectDoor={selectDoor}
-                    realScale={realScale}
-                    scaleValue={scaleValue}
-                    showConfirm={showConfirm}
-                  />
-                ) : selectedType === "lintel" ? (
-                  <LintelPropertyPanel
-                    selectedLintel={(lintelsByPage[currentPage] || []).find((l) => l.id === selectedId)}
-                    selectedLintelIds={selectedLintelIds}
-                    lintelController={lintelController}
-                    deleteItem={deleteItem}
-                    showConfirm={showConfirm}
-                    onClose={() => {
-                      if (setSelectedId) setSelectedId(null);
-                      if (setSelectedType) setSelectedType(null);
-                      if (setSelectedLintelIds) setSelectedLintelIds([]);
-                      if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
-                    }}
-                    onOpenPdfCallout={(lintel) => {
-                      if (!lintel) return;
-                      const calloutAnnId = `lintel_callout_${lintel.id}`;
-                      const pageLintels = lintelsByPage[currentPage] || [];
-                      const curLintel = pageLintels.find((l) => l.id === lintel.id) || lintel;
-                      const calloutText = formatLintelCalloutText(curLintel, pageLintels);
+                {(() => {
+                  let effectiveType = selectedType;
+                  if (!effectiveType) {
+                    if (selectedLintelIds && selectedLintelIds.length > 0) {
+                      effectiveType = "lintel";
+                    } else if (lintelController?.isDrawingLintel || lintelController?.showCatalogPanel) {
+                      effectiveType = "lintel";
+                    } else if ((selectedDoorIds && selectedDoorIds.length > 0) || (selectedDoor && selectedId === selectedDoor.id)) {
+                      effectiveType = (selectedDoor?.class === "window" || selectedDoor?.type === "window") ? "window" : "door";
+                    } else if ((selectedWallIds && selectedWallIds.length > 0) || (selectedWall && selectedId === selectedWall.id)) {
+                      effectiveType = "wall";
+                    } else if ((selectedRoomIds && selectedRoomIds.length > 0) || (selectedRoom && selectedId === selectedRoom.id)) {
+                      effectiveType = "room";
+                    } else if (selectedRoofId || ((roofsByPage[currentPage] || []).some((r) => r.id === selectedId))) {
+                      effectiveType = "roof";
+                    } else if (selectedAnnotation || selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) {
+                      effectiveType = "annotation";
+                    }
+                  }
 
-                      const dpi = curLintel.dpi || (typeof window !== "undefined" && localStorage.getItem("ezefloor_dpi") ? parseFloat(localStorage.getItem("ezefloor_dpi")) : 250);
-                      const fontSizePt = curLintel.fontSizePt !== undefined ? curLintel.fontSizePt : 14;
-                      const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
+                  if (effectiveType === "lintel") {
+                    const pageLintels = lintelsByPage[currentPage] || [];
+                    const foundLintel = pageLintels.find((l) => l.id === selectedId) ||
+                      (selectedLintelIds && selectedLintelIds.length > 0 ? pageLintels.find((l) => selectedLintelIds.includes(l.id)) : null);
+                    return (
+                      <LintelPropertyPanel
+                        selectedLintel={foundLintel}
+                        selectedLintelIds={selectedLintelIds}
+                        lintelController={lintelController}
+                        doors={doors && doors.length > 0 ? doors : (doorsByPageCtx?.[currentPage] || [])}
+                        deleteItem={deleteItem}
+                        showConfirm={showConfirm}
+                        onClose={() => {
+                          if (setSelectedId) setSelectedId(null);
+                          if (setSelectedType) setSelectedType(null);
+                          if (setSelectedLintelIds) setSelectedLintelIds([]);
+                          if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
+                        }}
+                        catalogInitialOpen={lintelController?.showCatalogPanel}
+                        activeLintelConfig={lintelController?.activeLintelConfig}
+                      />
+                    );
+                  }
 
-                      if (setAnnotationsByPage && currentPage != null) {
-                        setAnnotationsByPage((prev) => {
-                          const list = prev[currentPage] || [];
-                          const existingIdx = list.findIndex((a) => a.id === calloutAnnId);
-                          if (existingIdx >= 0) {
-                            const updatedList = [...list];
-                            updatedList[existingIdx] = {
-                              ...updatedList[existingIdx],
-                              text: calloutText,
-                              html: calloutText.replace(/\n/g, "<br>"),
-                              fontSizePt,
-                              fontSize: fontSizePx,
-                              dpi
-                            };
-                            return { ...prev, [currentPage]: updatedList };
-                          } else {
-                            let tipX = 100, tipY = 100;
-                            if (curLintel.points && curLintel.points.length >= 2) {
-                              tipX = (curLintel.points[0][0] + curLintel.points[1][0]) / 2;
-                              tipY = (curLintel.points[0][1] + curLintel.points[1][1]) / 2;
+                  if (effectiveType === "door" || effectiveType === "window") {
+                    const activeDoor = selectedDoor || (doors || []).find((d) => (selectedDoorIds || []).includes(d.id));
+                    return (
+                      <DoorWindowPropertyPanel
+                        selectedDoor={activeDoor}
+                        selectedType={effectiveType || "door"}
+                        walls={walls}
+                        doors={doors}
+                        updateDoor={updateDoor}
+                        deleteDoor={deleteDoor}
+                        deleteDoors={deleteDoors}
+                        selectedDoorIds={selectedDoorIds}
+                        setSelectedDoorIds={setSelectedDoorIds}
+                        setSelectedId={setSelectedId}
+                        setSelectedType={setSelectedType}
+                        updateDoorsProperty={updateDoorsProperty}
+                        selectDoor={selectDoor}
+                        realScale={realScale}
+                        scaleValue={scaleValue}
+                        showConfirm={showConfirm}
+                      />
+                    );
+                  }
+
+                  if (effectiveType === "wall") {
+                    return (
+                      <WallPropertyPanel
+                        walls={walls}
+                        selectedWall={selectedWall}
+                        selectedWallIds={selectedWallIds}
+                        setSelectedWallIds={setSelectedWallIds}
+                        setSelectedId={setSelectedId}
+                        setSelectedType={setSelectedType}
+                        updateWallsProperty={updateWallsProperty}
+                        exportWallExcel={exportWallExcel}
+                        exportWallJson={exportWallJson}
+                        deleteWalls={deleteWalls}
+                        deleteItem={deleteItem}
+                        showConfirm={showConfirm}
+                        showPrompt={showPrompt}
+                        lastSingleWallIdRef={lastSingleWallIdRef}
+                        savedDefault={savedDefault}
+                        getBaseWallId={getBaseWallId}
+                        selectedWallMetrics={selectedWallMetrics}
+                        getFinishTypeOptions={getFinishTypeOptions}
+                      />
+                    );
+                  }
+
+                  if (effectiveType === "room") {
+                    return (
+                      <RoomPropertyPanel
+                        selectedRoom={selectedRoom}
+                        updateRoom={updateRoom}
+                        scaleValue={scaleValue}
+                        deleteRoom={deleteItem}
+                      />
+                    );
+                  }
+
+                  if (effectiveType === "roof") {
+                    const activeRoof = (roofsByPage[currentPage] || []).find((r) => r.id === (selectedRoofId || selectedId));
+                    if (activeRoof) {
+                      return (
+                        <RoofPropertyPanel
+                          selectedRoof={activeRoof}
+                          scaleValue={scaleValue}
+                          realScale={realScale}
+                          roofProps={{
+                            defaultPitchInput,
+                            setDefaultPitchInput,
+                            defaultOverhangInput,
+                            setDefaultOverhangInput,
+                            defaultHeelHeightInput,
+                            setDefaultHeelHeightInput,
+                            selectedRoofEdgeIndex,
+                            setSelectedRoofEdgeIndex,
+                            updateRoofType,
+                            applyDefaultPitchToAll,
+                            applyDefaultOverhangToAll,
+                            applyDefaultHeelHeightToAll,
+                            applyDefaultSettingsToAll,
+                            updateRoofEdgeAngle,
+                            updateRoofEdgeOverhang,
+                            updateRoofEdgeHeelHeight,
+                            setRoofEdgeMode,
+                            toggleDutchEdge,
+                            setRoofInteractionState,
+                            setInteractionMode,
+                            updateDutchOverhang,
+                            setRoofEaveEdge,
+                            trimRoofEdge,
+                            computeSelectedRoof,
+                            exportRoofInput,
+                            generateRoofFromWalls,
+                            isComputingRoof,
+                            onNameChange: (roofId, newName) => {
+                              const updated = (roofsByPage[currentPage] || []).map((r) => (r.id === roofId ? { ...r, name: newName } : r));
+                              if (setRoofsByPage) setRoofsByPage((prev) => ({ ...prev, [currentPage]: updated }));
                             }
-                            const offX = curLintel.calloutOffset?.x ?? 40;
-                            const offY = curLintel.calloutOffset?.y ?? 40;
-                            const boxX = tipX + offX;
-                            const boxY = tipY + offY;
+                          }}
+                          deleteRoof={deleteRoof}
+                          showConfirm={showConfirm}
+                        />
+                      );
+                    }
+                  }
 
-                            const newAnn = {
-                              id: calloutAnnId,
-                              type: "callout",
-                              isLintelCallout: true,
-                              lintelId: curLintel.id,
-                              text: calloutText,
-                              html: calloutText.replace(/\n/g, "<br>"),
-                              color: curLintel.calloutColor || "#DC2626",
-                              bgColor: curLintel.calloutBgColor || "#FFFF00",
-                              calloutStyle: curLintel.calloutStyle || "yellow",
-                              fontSize: fontSizePx,
-                              fontSizePt: fontSizePt,
-                              dpi: dpi,
-                              strokeWidth: 2,
-                              isBold: true,
-                              x: tipX,
-                              y: tipY,
-                              boxX: boxX,
-                              boxY: boxY,
-                              startPt: { x: tipX, y: tipY },
-                              currentPt: { x: boxX, y: boxY },
-                              customWidth: 160,
-                              customHeight: 60
-                            };
-                            return { ...prev, [currentPage]: [...list, newAnn] };
-                          }
-                        });
-                      }
+                  if (effectiveType === "annotation" || selectedAnnotation) {
+                    return (
+                      <AnnotationPropertyPanel
+                        annotation={selectedAnnotation}
+                        selectedAnnotationIds={selectedAnnotationIds}
+                        annotations={annotationsByPage[currentPage] || []}
+                        onUpdateAnnotation={handleUpdateAnnotation}
+                        onDeleteAnnotation={handleDeleteAnnotation}
+                        onDuplicateAnnotation={handleDuplicateAnnotation}
+                        realScale={realScale}
+                        scaleValue={scaleValue}
+                      />
+                    );
+                  }
 
-                      setSelectedId(null);
-                      setSelectedType(null);
-                      if (setSelectedLintelIds) setSelectedLintelIds([]);
-                      if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
-                      if (setSelectedAnnotationId) setSelectedAnnotationId(calloutAnnId);
-                      if (setSelectedAnnotationIds) setSelectedAnnotationIds([calloutAnnId]);
-                      setActivePaneTab("explorer");
-                      setExplorerViewMode("properties");
-                    }}
-                  />
-                ) : (selectedType === "roof" || selectedRoofId) && (roofsByPage[currentPage] || []).find((r) => r.id === (selectedRoofId || selectedId)) ? (
-                  <RoofPropertyPanel
-                    selectedRoof={(roofsByPage[currentPage] || []).find((r) => r.id === (selectedRoofId || selectedId))}
-                    scaleValue={scaleValue}
-                    realScale={realScale}
-                    roofProps={{
-                      defaultPitchInput,
-                      setDefaultPitchInput,
-                      defaultOverhangInput,
-                      setDefaultOverhangInput,
-                      defaultHeelHeightInput,
-                      setDefaultHeelHeightInput,
-                      selectedRoofEdgeIndex,
-                      setSelectedRoofEdgeIndex,
-                      updateRoofType,
-                      applyDefaultPitchToAll,
-                      applyDefaultOverhangToAll,
-                      applyDefaultHeelHeightToAll,
-                      applyDefaultSettingsToAll,
-                      updateRoofEdgeAngle,
-                      updateRoofEdgeOverhang,
-                      updateRoofEdgeHeelHeight,
-                      setRoofEdgeMode,
-                      toggleDutchEdge,
-                      setRoofInteractionState,
-                      setInteractionMode,
-                      updateDutchOverhang,
-                      setRoofEaveEdge,
-                      trimRoofEdge,
-                      computeSelectedRoof,
-                      exportRoofInput,
-                      generateRoofFromWalls,
-                      isComputingRoof,
-                      onNameChange: (roofId, newName) => {
-                        const updated = (roofsByPage[currentPage] || []).map((r) => (r.id === roofId ? { ...r, name: newName } : r));
-                        if (setRoofsByPage) setRoofsByPage((prev) => ({ ...prev, [currentPage]: updated }));
-                      }
-                    }}
-                    deleteRoof={deleteRoof}
-                    showConfirm={showConfirm}
-                    setExplorerViewMode={setExplorerViewMode}
-                  />
-                ) : selectedAnnotation ? (
-                  <AnnotationPropertyPanel
-                    annotation={selectedAnnotation}
-                    selectedAnnotationIds={selectedAnnotationIds}
-                    annotations={annotationsByPage[currentPage] || []}
-                    onUpdateAnnotation={handleUpdateAnnotation}
-                    onDeleteAnnotation={handleDeleteAnnotation}
-                    onDuplicateAnnotation={handleDuplicateAnnotation}
-                    realScale={realScale}
-                    scaleValue={scaleValue}
-                    onSelectLintel={(lintelId) => {
-                      if (setSelectedAnnotationId) setSelectedAnnotationId(null);
-                      if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
-                      setSelectedId(lintelId);
-                      setSelectedType("lintel");
-                      if (setSelectedLintelIds) setSelectedLintelIds([lintelId]);
-                      setActivePaneTab("explorer");
-                      setExplorerViewMode("properties");
-                    }}
-                  />
-                ) : (
-                  <div className="panel-hint" style={{ padding: "8px 0" }}>Select a wall, room, door, lintel, roof, or drawing to edit properties.</div>
-                )}
+                  return (
+                    <div className="panel-hint" style={{ padding: "8px 0" }}>
+                      Select a wall, room, door, lintel, roof, or drawing to edit properties.
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ) : activePaneTab === "summary" ? (

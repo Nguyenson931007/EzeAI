@@ -20,7 +20,7 @@ import { useDialog } from "@/components/DialogContext";
 import { useDoorController } from "./door.controller";
 import { findParentWall } from "@/models/DoorTypeRegistry";
 import { ApiService } from "@/models/api.service";
-import { useLintelController } from "./lintel.controller";
+import { useLintelController, syncLintelsWithDoors } from "./lintel.controller";
 import RoofEngine from "@/engines/Roof/RoofEngine";
 
 export const RoofInteractionState = {
@@ -76,6 +76,315 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
   }
 
   return bestP;
+}
+
+// Extracts all connection points where 2+ walls meet (corners, T-junctions, cross junctions) and single endpoints
+export function getWallConnectionPoints(wallList) {
+  if (!wallList || wallList.length === 0) return [];
+  const valid = wallList.filter(w => w.centerline && w.centerline.length === 2);
+  if (valid.length === 0) return [];
+
+  const endpoints = [];
+  valid.forEach(w => {
+    endpoints.push({ x: w.centerline[0][0], y: w.centerline[0][1], wallId: w.id });
+    endpoints.push({ x: w.centerline[1][0], y: w.centerline[1][1], wallId: w.id });
+  });
+
+  const junctions = [];
+  const visited = new Set();
+  for (let i = 0; i < endpoints.length; i++) {
+    if (visited.has(i)) continue;
+    visited.add(i);
+    const cluster = [endpoints[i]];
+    const connectedWalls = new Set([endpoints[i].wallId]);
+
+    for (let j = i + 1; j < endpoints.length; j++) {
+      if (visited.has(j)) continue;
+      if (Math.hypot(endpoints[i].x - endpoints[j].x, endpoints[i].y - endpoints[j].y) < 18) {
+        visited.add(j);
+        cluster.push(endpoints[j]);
+        connectedWalls.add(endpoints[j].wallId);
+      }
+    }
+
+    // Check T-junctions: does this endpoint touch any other wall's centerline?
+    for (const w of valid) {
+      if (!connectedWalls.has(w.id)) {
+        const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+        const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+        const proj = distancePointToSegment({ x: endpoints[i].x, y: endpoints[i].y }, a, b);
+        if (proj.dist < 12) {
+          connectedWalls.add(w.id);
+        }
+      }
+    }
+
+    const avgX = cluster.reduce((sum, pt) => sum + pt.x, 0) / cluster.length;
+    const avgY = cluster.reduce((sum, pt) => sum + pt.y, 0) / cluster.length;
+    const isConn = connectedWalls.size >= 2;
+
+    junctions.push({
+      x: avgX,
+      y: avgY,
+      isJunction: isConn,
+      wallCount: connectedWalls.size,
+      type: isConn ? 'junction' : 'corner',
+      label: isConn ? `Wall Connection (${connectedWalls.size} walls)` : 'Wall Corner'
+    });
+  }
+
+  return junctions;
+}
+
+// Finds the nearest junction (connection of 2+ walls) or wall endpoint / midpoint / centerline
+export function findNearestWallJunctionOrVertex(p, wallList, snapDistance = 35) {
+  if (!wallList || wallList.length === 0) return { ...p, snapped: false, isJunction: false, type: 'none', label: 'Free Point' };
+  const valid = wallList.filter(w => w.centerline && w.centerline.length === 2);
+  if (valid.length === 0) return { ...p, snapped: false, isJunction: false, type: 'none', label: 'Free Point' };
+
+  const junctions = getWallConnectionPoints(valid);
+
+  // Priority 1: Multi-wall connection points (junctions) within snapDistance
+  let bestJunc = null;
+  let bestJuncDist = snapDistance;
+  for (const junc of junctions) {
+    if (!junc.isJunction) continue;
+    const d = Math.hypot(p.x - junc.x, p.y - junc.y);
+    if (d < bestJuncDist) {
+      bestJuncDist = d;
+      bestJunc = junc;
+    }
+  }
+  if (bestJunc) {
+    return { ...bestJunc, snapped: true };
+  }
+
+  // Priority 2: Single wall corners/endpoints within snapDistance
+  let bestCorner = null;
+  let bestCornerDist = snapDistance;
+  for (const junc of junctions) {
+    if (junc.isJunction) continue;
+    const d = Math.hypot(p.x - junc.x, p.y - junc.y);
+    if (d < bestCornerDist) {
+      bestCornerDist = d;
+      bestCorner = junc;
+    }
+  }
+  if (bestCorner) {
+    return { ...bestCorner, snapped: true };
+  }
+
+  // Priority 3: Wall Midpoints within 24px
+  let bestMid = null;
+  let bestMidDist = 24;
+  for (const w of valid) {
+    const mx = (w.centerline[0][0] + w.centerline[1][0]) / 2;
+    const my = (w.centerline[0][1] + w.centerline[1][1]) / 2;
+    const d = Math.hypot(p.x - mx, p.y - my);
+    if (d < bestMidDist) {
+      bestMidDist = d;
+      bestMid = { x: mx, y: my, isJunction: false, wallCount: 1, type: 'midpoint', label: 'Wall Midpoint', snapped: true };
+    }
+  }
+  if (bestMid) {
+    return bestMid;
+  }
+
+  // Priority 4: Wall Centerline projections within 20px
+  let bestProj = null;
+  let bestProjDist = 20;
+  for (const w of valid) {
+    const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+    const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+    const proj = distancePointToSegment(p, a, b);
+    if (proj.dist < bestProjDist) {
+      bestProjDist = proj.dist;
+      bestProj = { x: proj.x, y: proj.y, isJunction: false, wallCount: 1, type: 'centerline', label: 'Wall Centerline', snapped: true };
+    }
+  }
+  if (bestProj) {
+    return bestProj;
+  }
+
+  return { ...p, snapped: false, isJunction: false, type: 'free', label: 'Free Point' };
+}
+
+// Snap to vertices or centerlines of underlay ghost walls (e.g. from currentPage - 1)
+function snapToUnderlayWalls(p, underlayWalls, snapDistance = 35) {
+  return findNearestWallJunctionOrVertex(p, underlayWalls, snapDistance);
+}
+
+// Central helper to shift ALL entities of currentPage by (dx, dy)
+function shiftAllPageEntities(dx, dy, currentPage, context) {
+  const {
+    setPdfOffsetsByPage,
+    setWallsByPage,
+    setDoorsByPage,
+    setRoomsByPage,
+    setLintelsByPage,
+    setRoofsByPage,
+    setTrussesByPage,
+    setAnnotationsByPage
+  } = context;
+
+  // 1. Shift PDF background offset
+  if (setPdfOffsetsByPage) {
+    setPdfOffsetsByPage(prev => {
+      const currentOffset = prev[currentPage] || { x: 0, y: 0 };
+      return {
+        ...prev,
+        [currentPage]: {
+          x: currentOffset.x + dx,
+          y: currentOffset.y + dy
+        }
+      };
+    });
+  }
+
+  // 2. Shift walls (centerline and polygon)
+  if (setWallsByPage) {
+    setWallsByPage(prev => {
+      const pageWalls = prev[currentPage] || [];
+      const shifted = pageWalls.map(w => {
+        if (!w.centerline) return w;
+        const shiftedCl = w.centerline.map(pt => [pt[0] + dx, pt[1] + dy]);
+        return {
+          ...w,
+          centerline: shiftedCl,
+          polygon: w.polygon ? w.polygon.map(pt => [pt[0] + dx, pt[1] + dy]) : null
+        };
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
+
+  // 3. Shift doors & windows (points and centerPoint)
+  if (setDoorsByPage) {
+    setDoorsByPage(prev => {
+      const pageDoors = prev[currentPage] || [];
+      const shifted = pageDoors.map(d => {
+        if (!d.points) return d;
+        const shiftedPts = d.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
+        const shiftedCenter = d.centerPoint ? { x: d.centerPoint.x + dx, y: d.centerPoint.y + dy } : null;
+        return {
+          ...d,
+          points: shiftedPts,
+          centerPoint: shiftedCenter
+        };
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
+
+  // 4. Shift rooms (polygon vertices)
+  if (setRoomsByPage) {
+    setRoomsByPage(prev => {
+      const pageRooms = prev[currentPage] || [];
+      const shifted = pageRooms.map(r => {
+        if (!r.polygon) return r;
+        const shiftedPoly = r.polygon.map(pt => ({
+          x: (pt.x !== undefined ? pt.x : pt[0]) + dx,
+          y: (pt.y !== undefined ? pt.y : pt[1]) + dy
+        }));
+        return {
+          ...r,
+          polygon: shiftedPoly
+        };
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
+
+  // 5. Shift lintels (points, start, end, polygon)
+  if (setLintelsByPage) {
+    setLintelsByPage(prev => {
+      const pageLintels = prev[currentPage] || [];
+      const shifted = pageLintels.map(l => {
+        const next = { ...l };
+        if (Array.isArray(next.points)) {
+          next.points = next.points.map(pt => [pt[0] + dx, pt[1] + dy]);
+        }
+        if (next.start) next.start = { x: next.start.x + dx, y: next.start.y + dy };
+        if (next.end) next.end = { x: next.end.x + dx, y: next.end.y + dy };
+        if (Array.isArray(next.polygon)) {
+          next.polygon = next.polygon.map(pt => ({
+            x: (pt.x !== undefined ? pt.x : pt[0]) + dx,
+            y: (pt.y !== undefined ? pt.y : pt[1]) + dy
+          }));
+        }
+        return next;
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
+
+  // 6. Shift roofs (polygon & topology2D vertices)
+  if (setRoofsByPage) {
+    setRoofsByPage(prev => {
+      const pageRoofs = prev[currentPage] || [];
+      const shifted = pageRoofs.map(r => {
+        const next = { ...r };
+        if (Array.isArray(next.polygon)) {
+          next.polygon = next.polygon.map(pt => ({
+            x: (pt.x !== undefined ? pt.x : pt[0]) + dx,
+            y: (pt.y !== undefined ? pt.y : pt[1]) + dy
+          }));
+        }
+        if (next.v3Data?.topology2D?.vertices) {
+          next.v3Data = {
+            ...next.v3Data,
+            topology2D: {
+              ...next.v3Data.topology2D,
+              vertices: next.v3Data.topology2D.vertices.map(v => [v[0] + dx, v[1] + dy])
+            }
+          };
+        }
+        return next;
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
+
+  // 7. Shift trusses (startPoint, endPoint, subTrusses)
+  if (setTrussesByPage) {
+    setTrussesByPage(prev => {
+      const pageTrusses = prev[currentPage] || [];
+      const shifted = pageTrusses.map(t => {
+        const next = { ...t };
+        if (next.startPoint) next.startPoint = { x: next.startPoint.x + dx, y: next.startPoint.y + dy };
+        if (next.endPoint) next.endPoint = { x: next.endPoint.x + dx, y: next.endPoint.y + dy };
+        if (Array.isArray(next.subTrusses)) {
+          next.subTrusses = next.subTrusses.map(st => ({
+            ...st,
+            p1: { x: st.p1.x + dx, y: st.p1.y + dy },
+            p2: { x: st.p2.x + dx, y: st.p2.y + dy }
+          }));
+        }
+        return next;
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
+
+  // 8. Shift annotations (x, y, points)
+  if (setAnnotationsByPage) {
+    setAnnotationsByPage(prev => {
+      const pageAnns = prev[currentPage] || [];
+      const shifted = pageAnns.map(ann => {
+        const next = { ...ann };
+        if (typeof next.x === 'number') next.x += dx;
+        if (typeof next.y === 'number') next.y += dy;
+        if (Array.isArray(next.points)) {
+          next.points = next.points.map(pt => ({
+            x: (pt.x !== undefined ? pt.x : pt[0]) + dx,
+            y: (pt.y !== undefined ? pt.y : pt[1]) + dy
+          }));
+        }
+        return next;
+      });
+      return { ...prev, [currentPage]: shifted };
+    });
+  }
 }
 
 /**
@@ -196,12 +505,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     pdfOffsetsByPage, setPdfOffsetsByPage,
     scalesByPage, setScalesByPage,
     lintelsByPage, setLintelsByPage,
+    trussesByPage, setTrussesByPage,
     activeAnnotationTool, setActiveAnnotationTool, setSelectedAnnotationId,
     selectedAnnotationIds, setSelectedAnnotationIds,
     annotationsByPage, setAnnotationsByPage,
     annotationsHistory = [], annotationsFuture = [],
-    undoAnnotation, redoAnnotation
+    undoAnnotation, redoAnnotation,
+    isCanvasMoving, setIsCanvasMoving
   } = useAppModel();
+
+  const [snapAlignPoints, setSnapAlignPoints] = useState([]);
 
   const rooms = Array.isArray(roomsByPage[currentPage]) ? roomsByPage[currentPage] : [];
 
@@ -264,8 +577,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     setWallsByPage,
     currentPage,
     realScale,
+    scaleValue: realScale ? realScale / 1000 : null,
     pushHistory,
     mergeCollinearWalls,
+    lintelsByPage,
+    setLintelsByPage,
   });
 
   const {
@@ -528,6 +844,10 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         setIsMeasuring(false);
         setMeasurePoints([]);
         setIsAddingPoint(false);
+        setSnapAlignPoints([]);
+        if (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") {
+          if (setInteractionMode) setInteractionMode("select");
+        }
         if (doorController) {
           doorController.cancelDoorDraw();
         } else {
@@ -726,6 +1046,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     };
   }, [drawing, currentPoly, history, future, scale, offset, distancePoints, measurePoints, roomsByPage, selectedId, isSnapMode, isAddingPoint, wallsByPage, doorsByPage, selectedWallVertex, drawingWall, currentPage, doorController, roiRect, interactionMode]);
 
+  // Global Mouse / Pointer Up Handler to ensure isCanvasMoving is reset reliably
+  useEffect(() => {
+    const handleGlobalUp = () => {
+      if (setIsCanvasMoving) {
+        setIsCanvasMoving(false);
+      }
+    };
+    window.addEventListener("mouseup", handleGlobalUp);
+    window.addEventListener("pointerup", handleGlobalUp);
+    return () => {
+      window.removeEventListener("mouseup", handleGlobalUp);
+      window.removeEventListener("pointerup", handleGlobalUp);
+    };
+  }, [setIsCanvasMoving]);
+
   // Zoom Handler
   useEffect(() => {
     const el = svgRef.current;
@@ -907,6 +1242,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function selectWall(wallId, isAppend = false) {
+    if (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
     if (lintelController?.setShowCatalogPanel && !lintelController?.isDrawingLintel) lintelController.setShowCatalogPanel(false);
     if (setSelectedLintelIds) setSelectedLintelIds([]);
     setSelectedType("wall");
@@ -932,12 +1268,18 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         return next;
       });
     } else {
+      setSelectedDoorIds([]);
+      setSelectedRoomIds([]);
+      setSelectedRoofId(null);
+      if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+      if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
       setSelectedWallIds([wallId]);
       setSelectedId(wallId);
     }
   }
 
   function selectDoor(doorId, isAppend = false, targetType = "door") {
+    if (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
     if (lintelController?.setShowCatalogPanel && !lintelController?.isDrawingLintel) lintelController.setShowCatalogPanel(false);
     setSelectedType(targetType);
     setSelectedPointIndex(null);
@@ -945,6 +1287,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     setSelectedRoomIds([]);
     setSelectedLintelIds([]);
     setSelectedRoofId(null);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     if (isAppend) {
       setSelectedDoorIds(prev => {
         const isAlreadySelected = prev.includes(doorId);
@@ -1002,7 +1346,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
     setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
     const pageWalls = wallsByPage[currentPage] || [];
-    pushHistory(null, pageWalls, updatedDoors);
+
+    let updatedLintels = null;
+    const pageLintels = lintelsByPage[currentPage] || [];
+    if (pageLintels.some(l => l.isAutoDoorLintel && doorIds.some(did => String(did) === String(l.doorId)))) {
+      const scaleValue = realScale ? realScale / 1000 : null;
+      updatedLintels = syncLintelsWithDoors(pageLintels, updatedDoors, pageWalls, realScale, scaleValue, lintelController?.globalLengthOffset);
+      setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+    }
+
+    pushHistory(null, pageWalls, updatedDoors, updatedLintels);
   }
 
   function deleteDoors(doorIds = []) {
@@ -1017,7 +1370,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       setSelectedType(null);
     }
     const pageWalls = wallsByPage[currentPage] || [];
-    pushHistory(null, pageWalls, remainingDoors);
+
+    // Cascaded delete: remove auto lintels for deleted doors
+    let updatedLintels = null;
+    const pageLintels = lintelsByPage[currentPage] || [];
+    if (pageLintels.some(l => l.isAutoDoorLintel && ids.some(did => String(did) === String(l.doorId)))) {
+      updatedLintels = pageLintels.filter(l => !(l.isAutoDoorLintel && ids.some(did => String(did) === String(l.doorId))));
+      setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+    }
+
+    pushHistory(null, pageWalls, remainingDoors, updatedLintels);
   }
 
   function deleteWalls(wallIds) {
@@ -1613,6 +1975,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (selectedType === 'lintel' && selectedId && !lintelIdsToDelete.includes(selectedId)) {
       lintelIdsToDelete.push(selectedId);
     }
+    if (doorIdsToDelete.length > 0) {
+      const pageLintels = lintelsByPage[currentPage] || [];
+      pageLintels.forEach(l => {
+        if (l.isAutoDoorLintel && doorIdsToDelete.some(did => String(did) === String(l.doorId))) {
+          if (!lintelIdsToDelete.includes(l.id)) {
+            lintelIdsToDelete.push(l.id);
+          }
+        }
+      });
+    }
     let currentLintels = lintelsByPage[currentPage] || [];
     if (lintelIdsToDelete.length > 0) {
       currentLintels = currentLintels.filter(l => !lintelIdsToDelete.includes(l.id));
@@ -1959,8 +2331,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       } else {
         setSelectedRoofEdgeIndex(null);
       }
-      setSelectedId(null);
-      setSelectedType(null);
+      setSelectedId(hoveredRoofTarget.roofId);
+      setSelectedType("roof");
+      setSelectedDoorIds([]);
+      setSelectedWallIds([]);
+      setSelectedRoomIds([]);
+      setSelectedLintelIds([]);
+      if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+      if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
       return;
     }
 
@@ -2221,6 +2599,91 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         }
       }
     }
+
+    // ===== POINT-TO-POINT SNAP ALIGN PDF =====
+    if (interactionMode === "snap-align-pdf") {
+      if (currentPage === 0) {
+        await showAlert("Level 1 (Ground Floor) is the base reference floor. Switch to Level 2+ to snap-align with the floor below!", { x: e.clientX, y: e.clientY });
+        setSnapAlignPoints([]);
+        if (setInteractionMode) setInteractionMode("select");
+        return;
+      }
+
+      const refPage = currentPage - 1;
+      const underlayWalls = wallsByPage[refPage] || [];
+
+      // Point 1: Reference corner on floor below (k - 1)
+      if (snapAlignPoints.length === 0) {
+        const snapped = findNearestWallJunctionOrVertex(p, underlayWalls, 35);
+        setSnapAlignPoints([snapped]);
+        return;
+      }
+
+      // Point 2: Target corner on current floor (k)
+      if (snapAlignPoints.length === 1) {
+        const curWalls = wallsByPage[currentPage] || [];
+        const targetSnapped = findNearestWallJunctionOrVertex(p, curWalls, 35);
+        const pRef = snapAlignPoints[0];
+        const pTarget = targetSnapped;
+
+        const deltaX = pRef.x - pTarget.x;
+        const deltaY = pRef.y - pTarget.y;
+
+        if (Math.hypot(deltaX, deltaY) < 0.5) {
+          await showAlert("Reference and target points are already identical!", { x: e.clientX, y: e.clientY });
+          setSnapAlignPoints([]);
+          if (setInteractionMode) setInteractionMode("select");
+          return;
+        }
+
+        // Compare and normalize scale between refPage (k - 1) and currentPage (k)
+        const refScale = (scalesByPage && scalesByPage[refPage] !== undefined) ? scalesByPage[refPage] : (defaultScale || scaleValue);
+        const curScale = (scalesByPage && scalesByPage[currentPage] !== undefined) ? scalesByPage[currentPage] : (defaultScale || scaleValue);
+
+        if (refScale) {
+          if (!curScale || (scalesByPage && scalesByPage[currentPage] === undefined)) {
+            if (setScalesByPage) {
+              setScalesByPage(prev => ({ ...prev, [currentPage]: refScale }));
+            }
+          } else if (Math.abs(curScale - refScale) / refScale > 0.01) {
+            const confirmScale = await showConfirm(
+              `Scale discrepancy detected between floors:\n• Level ${refPage + 1}: ${(refScale / 1000).toFixed(5)} m/px\n• Level ${currentPage + 1}: ${(curScale / 1000).toFixed(5)} m/px\n\nDo you want to apply Level ${refPage + 1}'s scale to Level ${currentPage + 1}?`
+            );
+            if (confirmScale && setScalesByPage) {
+              setScalesByPage(prev => ({ ...prev, [currentPage]: refScale }));
+            }
+          }
+        }
+
+        // Save undo snapshot before shifting all entities
+        if (pushHistory) {
+          pushHistory(
+            roomsByPage[currentPage] || [],
+            wallsByPage[currentPage] || [],
+            doorsByPage[currentPage] || [],
+            lintelsByPage[currentPage] || []
+          );
+        }
+
+        // Shift ALL properties of current floor together
+        shiftAllPageEntities(deltaX, deltaY, currentPage, {
+          setPdfOffsetsByPage,
+          setWallsByPage,
+          setDoorsByPage,
+          setRoomsByPage,
+          setLintelsByPage,
+          setRoofsByPage,
+          setTrussesByPage,
+          setAnnotationsByPage
+        });
+
+        setSnapAlignPoints([]);
+        if (setInteractionMode) setInteractionMode("select");
+        await showAlert(`Level ${currentPage + 1} snapped successfully to Level ${refPage + 1}!`, { x: e.clientX, y: e.clientY });
+        return;
+      }
+    }
+
     if (isMeasuring) {
       const point = ((isShiftDown || isSnapMode) && measurePoints.length === 1) ? snap(measurePoints[0], p) : p;
       setMeasurePoints(prev => [...prev, point]);
@@ -3298,6 +3761,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
     }
 
+    if (setIsCanvasMoving) setIsCanvasMoving(true);
 
     let connections = [];
     if (type === 'wall-move') {
@@ -4002,60 +4466,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       if (interactionMode === "align-pdf") {
         const svgDx = dx / scale;
         const svgDy = dy / scale;
-        setPdfOffsetsByPage(prev => {
-          const currentOffset = prev[currentPage] || { x: 0, y: 0 };
-          return {
-            ...prev,
-            [currentPage]: {
-              x: currentOffset.x + svgDx,
-              y: currentOffset.y + svgDy
-            }
-          };
-        });
-
-        // Shift walls
-        setWallsByPage(prev => {
-          const pageWalls = prev[currentPage] || [];
-          const shifted = pageWalls.map(w => {
-            if (!w.centerline) return w;
-            const shiftedCl = w.centerline.map(pt => [pt[0] + svgDx, pt[1] + svgDy]);
-            return {
-              ...w,
-              centerline: shiftedCl,
-              polygon: w.polygon ? w.polygon.map(pt => [pt[0] + svgDx, pt[1] + svgDy]) : null
-            };
-          });
-          return { ...prev, [currentPage]: shifted };
-        });
-
-        // Shift doors
-        setDoorsByPage(prev => {
-          const pageDoors = doorsByPage[currentPage] || [];
-          const shifted = pageDoors.map(d => {
-            if (!d.points) return d;
-            const shiftedPts = d.points.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
-            const shiftedCenter = d.centerPoint ? { x: d.centerPoint.x + svgDx, y: d.centerPoint.y + svgDy } : null;
-            return {
-              ...d,
-              points: shiftedPts,
-              centerPoint: shiftedCenter
-            };
-          });
-          return { ...prev, [currentPage]: shifted };
-        });
-
-        // Shift rooms
-        setRoomsByPage(prev => {
-          const pageRooms = roomsByPage[currentPage] || [];
-          const shifted = pageRooms.map(r => {
-            if (!r.polygon) return r;
-            const shiftedPoly = r.polygon.map(pt => ({ x: pt.x + svgDx, y: pt.y + svgDy }));
-            return {
-              ...r,
-              polygon: shiftedPoly
-            };
-          });
-          return { ...prev, [currentPage]: shifted };
+        shiftAllPageEntities(svgDx, svgDy, currentPage, {
+          setPdfOffsetsByPage,
+          setWallsByPage,
+          setDoorsByPage,
+          setRoomsByPage,
+          setLintelsByPage,
+          setRoofsByPage,
+          setTrussesByPage,
+          setAnnotationsByPage
         });
       } else {
         setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
@@ -4072,7 +4491,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     let snappedP = p;
 
     const hasShift = isShiftDown || !!e.shiftKey;
-    if (hasShift || isSnapMode) {
+    if (interactionMode === "snap-align-pdf") {
+      const targetWalls = snapAlignPoints.length === 0
+        ? (currentPage > 0 ? (wallsByPage[currentPage - 1] || []) : [])
+        : (wallsByPage[currentPage] || []);
+      const snapRes = findNearestWallJunctionOrVertex(p, targetWalls, 35);
+      if (snapRes.snapped) {
+        snappedP = { x: snapRes.x, y: snapRes.y };
+      }
+    } else if (hasShift || isSnapMode) {
       if (isDrawingRoof && currentPoly.length > 0) {
         const orthoRes = computeRoofOrthoAndAlignment(p, currentPoly, true, 20 / scale);
         snappedP = orthoRes.pos;
@@ -4301,6 +4728,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function onMouseDown(e) {
+    if (interactionMode === "snap-align-pdf") return;
     if (doorController.showTypeSelector) return;
     if (isDrawingLintel) {
       if (e.button === 0) {
@@ -4498,6 +4926,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function onMouseUp(e) {
+    if (setIsCanvasMoving) setIsCanvasMoving(false);
     if (isDrawingLintel) {
       ignoreClickRef.current = true;
       const p = getMouse(e);
@@ -4618,7 +5047,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             const updatedDoors = pageDoors.map(d => d.id === dragging.id ? finalDoor : d);
             // Commit transaction: update state and history
             setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
-            pushHistory(null, pageWalls, updatedDoors);
+
+            let updatedLintels = null;
+            const pageLintels = lintelsByPage[currentPage] || [];
+            if (pageLintels.some(l => l.isAutoDoorLintel && String(l.doorId) === String(dragging.id))) {
+              const scaleValue = realScale ? realScale / 1000 : null;
+              updatedLintels = syncLintelsWithDoors(pageLintels, updatedDoors, pageWalls, realScale, scaleValue, lintelController?.globalLengthOffset);
+              setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+            }
+
+            pushHistory(null, pageWalls, updatedDoors, updatedLintels);
           }
         }
       } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
@@ -4679,8 +5117,17 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             ...prev,
             [currentPage]: junctionCleanedWalls
           }));
+
+          let updatedLintels = null;
+          const pageLintels = lintelsByPage[currentPage] || [];
+          if (pageLintels.some(l => l.isAutoDoorLintel)) {
+            const scaleValue = realScale ? realScale / 1000 : null;
+            updatedLintels = syncLintelsWithDoors(pageLintels, updatedDoors, junctionCleanedWalls, realScale, scaleValue, lintelController?.globalLengthOffset);
+            setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+          }
+
           // Update history with the merged and cut walls
-          pushHistory(null, junctionCleanedWalls, updatedDoors);
+          pushHistory(null, junctionCleanedWalls, updatedDoors, updatedLintels);
         }
       } else if ((dragging.type === 'room' || (!dragging.type && selectedType === 'room')) && dragging.currentPos) {
         // Commit room vertex drag on mouse up (once per drag) and record history
@@ -5142,6 +5589,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     scaleValue,
     roiRect, setRoiRect, roiMode, setRoiMode, roiUpscale, setRoiUpscale,
     interactionMode, setInteractionMode, clearROI,
+    snapAlignPoints, setSnapAlignPoints,
     handleClick, handleRoomDoubleClick, checkAndResetIgnoreClick, finishPolygon, finishRoof, finishDoor, updateDoor, makeCurve,
     deleteDoor: typeof doorController !== 'undefined' ? doorController.deleteDoor : deleteDoor,
     doorController: typeof doorController !== 'undefined' ? doorController : null,

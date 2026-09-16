@@ -25,8 +25,7 @@ export default function AnnotationPropertyPanel({
   onUpdateAnnotation,
   onDeleteAnnotation,
   onDuplicateAnnotation,
-  realScale,
-  onSelectLintel
+  realScale
 }) {
   if (!annotation) return null;
 
@@ -266,68 +265,6 @@ export default function AnnotationPropertyPanel({
           </div>
         </div>
       )}
-
-      {/* Linked Lintel Callout Notification Banner & Bidirectional Switch Button */}
-      {(() => {
-        const isLinkedLintel = Boolean(
-          annotation.isLintelCallout ||
-          annotation.lintelId ||
-          (annotation.id && String(annotation.id).startsWith("lintel_callout_"))
-        );
-        const linkedLintelId = annotation.lintelId || (annotation.id && String(annotation.id).startsWith("lintel_callout_") ? String(annotation.id).replace("lintel_callout_", "") : null);
-
-        if (!isLinkedLintel) return null;
-
-        return (
-          <div style={{
-            background: "linear-gradient(135deg, #fffbeb, #fef3c7)",
-            border: "1.5px solid #f59e0b",
-            borderRadius: "8px",
-            padding: "12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-            boxShadow: "0 2px 6px rgba(245, 158, 11, 0.15)"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 800, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  🏷️ LINKED LINTEL CALLOUT
-                </div>
-                <div style={{ fontSize: "13px", color: "#78350f", fontWeight: 700, marginTop: "2px" }}>
-                  {annotation.text || "Architectural Tag"}
-                </div>
-              </div>
-            </div>
-            {onSelectLintel && linkedLintelId && (
-              <button
-                type="button"
-                className="rp-action-btn"
-                onClick={() => onSelectLintel(linkedLintelId)}
-                style={{
-                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                  color: "#ffffff",
-                  fontWeight: "bold",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: "none",
-                  cursor: "pointer",
-                  width: "100%",
-                  boxShadow: "0 1px 4px rgba(217, 119, 6, 0.3)",
-                  transition: "all 0.15s ease"
-                }}
-                title="Switch back to Lintel Property Panel"
-              >
-                <span>🧱 Open in Lintel Property Panel</span>
-              </button>
-            )}
-          </div>
-        );
-      })()}
 
       {/* Callout Style Preset Gallery (14 Thumbnails) */}
       {isCallout && (

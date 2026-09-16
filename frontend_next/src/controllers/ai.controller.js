@@ -12,6 +12,7 @@ import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
+import { roundLintelLength, getSavedGlobalLintelOffset } from "./lintel.controller";
 
 /**
  * Compute bounding-box IoU (Intersection over Union) between two polygons.
@@ -558,6 +559,11 @@ export function generateLintelsForOpenings(
 
     const wallThicknessPx = parentWall?.thickness_px || (realScale && realScale > 0 ? wallThicknessMm / realScale : 20);
 
+    const offset = getSavedGlobalLintelOffset();
+    const newMeasured = Math.round((measuredLengthM + offset) * 1000) / 1000;
+    const roundedBase = roundLintelLength(measuredLengthM);
+    const finalLen = Math.round((roundedBase + offset) * 1000) / 1000;
+
     newAutoLintels.push({
       id: `lintel_auto_${now}_${idx}`,
       wallId: parentWall ? parentWall.id : null,
@@ -566,11 +572,11 @@ export function generateLintelsForOpenings(
       points: lintelPoints,
       wallThickness_px: wallThicknessPx,
       baseLength: measuredLengthM,
-      lengthOffset: 0,
+      lengthOffset: offset,
       category: 'lintel',
-      isRounded: false,
-      measuredLength: measuredLengthM,
-      finalLength: measuredLengthM,
+      isRounded: true,
+      measuredLength: newMeasured,
+      finalLength: finalLen,
       catalogId,
       type: 'LVL',
       size: 90,

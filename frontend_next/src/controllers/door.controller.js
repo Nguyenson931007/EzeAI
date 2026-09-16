@@ -40,6 +40,7 @@ import {
   computeSwingArc,
 } from '@/engines/DoorGeometryEngine';
 import { snapDoorToWalls, cutWallsByDoors, distancePointToSegment, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular } from '@/utils/geometry';
+import { syncLintelsWithDoors, createLintelForDoor } from './lintel.controller';
 
 /**
  * useDoorController — React hook providing door state and operations.
@@ -61,8 +62,12 @@ export function useDoorController({
   setWallsByPage,
   currentPage,
   realScale,
+  scaleValue,
   pushHistory,
   mergeCollinearWalls,
+  lintelsByPage,
+  setLintelsByPage,
+  globalLengthOffset,
 }) {
   // ── Drawing State ──
   const [isDrawingDoor, setIsDrawingDoor] = useState(false);
@@ -94,6 +99,10 @@ export function useDoorController({
   const getCurrentWalls = useCallback(() => {
     return wallsByPage[currentPage] || [];
   }, [wallsByPage, currentPage]);
+
+  const getCurrentLintels = useCallback(() => {
+    return lintelsByPage ? (lintelsByPage[currentPage] || []) : [];
+  }, [lintelsByPage, currentPage]);
 
   // Initialize door sequence counter from existing doors
   const initDoorSequence = useCallback(() => {
@@ -225,8 +234,30 @@ export function useDoorController({
 
     // Heal and cut walls
     const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
+
+    let newLintels = null;
+    if (setLintelsByPage) {
+      const currentLintels = getCurrentLintels();
+      const newLintel = createLintelForDoor(
+        snappedDoor,
+        healedWalls,
+        realScale,
+        scaleValue,
+        globalLengthOffset
+      );
+      if (newLintel) {
+        const filteredLintels = currentLintels.filter(l => !(l.isAutoDoorLintel && String(l.doorId) === String(snappedDoor.id)));
+        newLintels = [...filteredLintels, newLintel];
+        setLintelsByPage(prev => ({ ...prev, [currentPage]: newLintels }));
+      }
+    }
+
+    if (setDoorsByPage) {
+      setDoorsByPage(prev => ({ ...prev, [currentPage]: newDoors }));
+    }
+
     // Save uncut base walls in state store
-    pushHistory(null, healedWalls, newDoors);
+    pushHistory(null, healedWalls, newDoors, newLintels);
 
     // Reset drawing state (end door drawing mode, but keep showPenetrations panel active)
     setCurrentDoorPoints([]);
@@ -235,7 +266,7 @@ export function useDoorController({
     setShowTypeSelector(false);
     setIsDrawingDoor(false);
     setDoorPreset(null);
-  }, [getCurrentWalls, getCurrentDoors, currentPage, realScale, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setIsDrawingDoor, setDoorPreset, doorPreset]);
+  }, [getCurrentWalls, getCurrentDoors, getCurrentLintels, currentPage, realScale, scaleValue, globalLengthOffset, pushHistory, mergeCollinearWalls, previewHingeSide, previewSwing, setIsDrawingDoor, setDoorPreset, doorPreset, setDoorsByPage, setLintelsByPage]);
 
   /**
    * Step 2: Records the first click point (mousedown).
@@ -522,10 +553,23 @@ export function useDoorController({
     const walls = getCurrentWalls();
     const newDoors = doors.filter(d => d.id !== doorId);
 
+    if (setDoorsByPage) {
+      setDoorsByPage(prev => ({ ...prev, [currentPage]: newDoors }));
+    }
+
+    let updatedLintels = null;
+    if (setLintelsByPage) {
+      const currentLintels = getCurrentLintels();
+      if (currentLintels.some(l => l.isAutoDoorLintel && String(l.doorId) === String(doorId))) {
+        updatedLintels = currentLintels.filter(l => !(l.isAutoDoorLintel && String(l.doorId) === String(doorId)));
+        setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+      }
+    }
+
     // Heal walls (re-merge segments that were cut for this door)
     const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
-    pushHistory(null, healedWalls, newDoors);
-  }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls]);
+    pushHistory(null, healedWalls, newDoors, updatedLintels);
+  }, [getCurrentDoors, getCurrentWalls, getCurrentLintels, realScale, pushHistory, mergeCollinearWalls, setDoorsByPage, setLintelsByPage, currentPage]);
 
   /**
    * Update a door with new properties.
@@ -583,10 +627,20 @@ export function useDoorController({
     if (setDoorsByPage) {
       setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
     }
-    if (pushHistory) {
-      pushHistory(null, healedWalls, updatedDoors);
+
+    let updatedLintels = null;
+    if (setLintelsByPage) {
+      const currentLintels = getCurrentLintels();
+      if (currentLintels.some(l => l.isAutoDoorLintel && String(l.doorId) === String(newDoorData.id))) {
+        updatedLintels = syncLintelsWithDoors(currentLintels, updatedDoors, healedWalls, realScale, scaleValue, globalLengthOffset);
+        setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+      }
     }
-  }, [getCurrentDoors, getCurrentWalls, realScale, pushHistory, mergeCollinearWalls, setDoorsByPage, currentPage]);
+
+    if (pushHistory) {
+      pushHistory(null, healedWalls, updatedDoors, updatedLintels);
+    }
+  }, [getCurrentDoors, getCurrentWalls, getCurrentLintels, realScale, scaleValue, globalLengthOffset, pushHistory, mergeCollinearWalls, setDoorsByPage, setLintelsByPage, currentPage]);
 
   /**
    * Moves a door along its parent wall to match a specified distance.

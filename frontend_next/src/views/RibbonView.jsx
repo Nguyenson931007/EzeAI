@@ -1710,7 +1710,7 @@ export default function RibbonView({
                   title="Toggle Floor / Rooms Layer"
                 >
                   <span className="icon"><CAD_ICONS.Floor /></span>
-                  <span className="label">Rooms ({rooms.length})</span>
+                  <span className="label">Rooms</span>
                 </button>
                 <button
                   className={`ribbon-btn ${layerVisibility?.wall ? "active" : ""}`}

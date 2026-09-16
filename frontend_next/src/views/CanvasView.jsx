@@ -22,7 +22,8 @@ import { TrussEngine, TRUSS_COLORS } from "@/engines/Truss/TrussEngine";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
-import { formatLintelCalloutText } from "../controllers/lintel.controller";
+import { formatLintelCalloutText, syncLintelWithDoor } from "../controllers/lintel.controller";
+import { getWallConnectionPoints, findNearestWallJunctionOrVertex } from "../controllers/interaction.controller";
 import { getBrushCursor } from "@/utils/cursorUtils";
 import {
   distancePointToSegment,
@@ -141,7 +142,10 @@ const LintelsLayer = React.memo(({
   lintels = [],
   allLintels = [],
   walls = [],
+  doors = [],
   rooms = [],
+  realScale = 1.0,
+  scaleValue = null,
   layerVisibility,
   selectedId,
   selectedType,
@@ -163,7 +167,13 @@ const LintelsLayer = React.memo(({
   setSelectedAnnotationIds,
   isDrawingLintel = false,
   lintelController,
-  setInteractionMode
+  setInteractionMode,
+  setSelectedDoorIds,
+  setSelectedWallIds,
+  setSelectedRoomIds,
+  setSelectedRoofId,
+  setSelectedWallVertex,
+  setSelectedPointIndex
 }) => {
   const lastCalloutClickRef = React.useRef({ id: null, time: 0 });
   if (layerVisibility?.lintel === false) return null;
@@ -174,32 +184,36 @@ const LintelsLayer = React.memo(({
         const isSelected = (selectedId === l.id && selectedType === "lintel") || (selectedLintelIds && selectedLintelIds.includes(l.id));
         const isHovered = l.id === hoverId;
 
+        // Check if this lintel is linked to an active door from Door AI
+        const associatedDoor = (l.isAutoDoorLintel && l.doorId && doors && doors.length > 0)
+          ? doors.find(d => String(d.id) === String(l.doorId))
+          : null;
+
+        const effectiveL = associatedDoor
+          ? syncLintelWithDoor(l, associatedDoor, walls, realScale, scaleValue, (lintelController?.globalLengthOffset ?? l.lengthOffset))
+          : l;
+
         // Resolve lintel start/end coordinates
         let startPt, endPt, wallThickness;
 
         const getBaseWallId = (id) => id ? String(id).split('-A-')[0].split('-B-')[0] : '';
-        const wall = l.wallId ? walls.find(w => w.id === l.wallId || getBaseWallId(w.id) === getBaseWallId(l.wallId)) : null;
+        const wall = effectiveL.wallId ? walls.find(w => w.id === effectiveL.wallId || getBaseWallId(w.id) === getBaseWallId(effectiveL.wallId)) : null;
 
-        if (l.isAutoDoorLintel && l.points && l.points.length === 2) {
-          // Auto door lintels store exact opening coordinates along wall centerline
-          startPt = { x: l.points[0][0], y: l.points[0][1] };
-          endPt = { x: l.points[1][0], y: l.points[1][1] };
-          wallThickness = wall?.thickness_px || l.wallThickness_px || 20;
-        } else if (wall && wall.centerline && wall.centerline.length === 2 && l.startOffset !== null && l.startOffset !== undefined && l.endOffset !== null && l.endOffset !== undefined) {
+        if (effectiveL.points && effectiveL.points.length === 2) {
+          // Points are available (live door endpoints or standalone points)
+          startPt = { x: effectiveL.points[0][0], y: effectiveL.points[0][1] };
+          endPt = { x: effectiveL.points[1][0], y: effectiveL.points[1][1] };
+          wallThickness = wall?.thickness_px || effectiveL.wallThickness_px || 20;
+        } else if (wall && wall.centerline && wall.centerline.length === 2 && effectiveL.startOffset !== null && effectiveL.startOffset !== undefined && effectiveL.endOffset !== null && effectiveL.endOffset !== undefined) {
           // Wall-attached lintel — resolve from wall centerline + parametric offsets
           const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
           const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
           const dx = p2.x - p1.x;
           const dy = p2.y - p1.y;
 
-          startPt = { x: p1.x + l.startOffset * dx, y: p1.y + l.startOffset * dy };
-          endPt = { x: p1.x + l.endOffset * dx, y: p1.y + l.endOffset * dy };
+          startPt = { x: p1.x + effectiveL.startOffset * dx, y: p1.y + effectiveL.startOffset * dy };
+          endPt = { x: p1.x + effectiveL.endOffset * dx, y: p1.y + effectiveL.endOffset * dy };
           wallThickness = wall.thickness_px || 20;
-        } else if (l.points && l.points.length === 2) {
-          // Standalone, cross-wall, or door opening points
-          startPt = { x: l.points[0][0], y: l.points[0][1] };
-          endPt = { x: l.points[1][0], y: l.points[1][1] };
-          wallThickness = wall?.thickness_px || l.wallThickness_px || 20;
         } else {
           return null;
         }
@@ -227,20 +241,16 @@ const LintelsLayer = React.memo(({
           : 14);
 
         // Calculate font size in px: px = Math.round(pt * (dpi / 72))
-        const calculatedPx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
+        const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
 
-        // Linked PDF Annotation ID
-        const calloutAnnId = `lintel_callout_${l.id}`;
-        const pageAnnotations = (annotationsByPage && annotationsByPage[currentPage]) || [];
-        const linkedAnn = pageAnnotations.find(a => a.id === calloutAnnId);
-        const isCalloutSelected = selectedAnnotationId === calloutAnnId || (selectedAnnotationIds && selectedAnnotationIds.includes(calloutAnnId));
-        const fontSizePx = (linkedAnn && typeof linkedAnn.fontSize === "number") ? linkedAnn.fontSize : calculatedPx;
-
-        // 2. Format lintel callout text: e.g. "L1: 140x45 LVL 14 1/1.2"
+        // 2. Format lintel callout text: e.g. "L1: 90x35 LVL 14 1/0.82"
         const fullList = allLintels && allLintels.length > 0 ? allLintels : lintels;
-        const catList = fullList.filter(item => (item.category || 'lintel') === (l.category || 'lintel'));
-        const catIdx = catList.findIndex(item => item.id === l.id) + 1;
-        const calloutText = formatLintelCalloutText(l, fullList);
+        const catList = fullList.filter(item => (item.category || 'lintel') === (effectiveL.category || 'lintel'));
+        const catIdx = catList.findIndex(item => item.id === effectiveL.id) + 1;
+        const autoCalloutText = formatLintelCalloutText(effectiveL, fullList);
+        const calloutText = (effectiveL.calloutNote && effectiveL.calloutNote.trim() !== "")
+          ? effectiveL.calloutNote
+          : autoCalloutText;
 
         // 3. Callout Box Sizing & Spacing:
         // boxH is 17pt (converted via DPI). If fontSizePt > 14, scale as Math.max(17, fontSizePt + 3)
@@ -262,8 +272,8 @@ const LintelsLayer = React.memo(({
         let defDx = isVertical ? -Math.round(boxW / 2 + 40) : 0;
         let defDy = isVertical ? (catIdx % 2 === 1 ? -1 : 1) * 12 : -Math.round(boxH / 2 + 35);
 
-        const offsetX = l.calloutOffset ? l.calloutOffset.x : defDx;
-        const offsetY = l.calloutOffset ? l.calloutOffset.y : defDy;
+        const offsetX = effectiveL.calloutOffset ? effectiveL.calloutOffset.x : defDx;
+        const offsetY = effectiveL.calloutOffset ? effectiveL.calloutOffset.y : defDy;
 
         const boxCenterX = cx + offsetX;
         const boxCenterY = cy + offsetY;
@@ -317,78 +327,31 @@ const LintelsLayer = React.memo(({
         const barb2X = tipX + barbLen * Math.cos(a2);
         const barb2Y = tipY + barbLen * Math.sin(a2);
 
-        // Styling (allows customization from PDF tool annotation)
-        const boxBg = (linkedAnn && linkedAnn.bgColor) || "#FFFF00";
-        const calloutBorderColor = isCalloutSelected ? "#2563eb" : ((linkedAnn && linkedAnn.color) || (isHovered ? "#EF4444" : "#DC2626"));
-        const textColor = (linkedAnn && linkedAnn.textColor) || "#000000";
+        // Native lintel styling (customizable from right property pane Callout Settings)
+        const boxBg = effectiveL.calloutBgColor || "#FFFF00";
+        const calloutBorderColor = isSelected ? "#2563eb" : (effectiveL.calloutBorderColor || effectiveL.calloutColor || (isHovered ? "#EF4444" : "#DC2626"));
+        const textColor = effectiveL.calloutTextColor || "#000000";
 
-        // Helper to sync lintel callout data to annotationsByPage without changing selection
-        const syncCalloutAnnotationData = (customLeft, customCenterY) => {
-          if (setAnnotationsByPage && currentPage != null) {
-            setAnnotationsByPage((prev) => {
-              const list = prev[currentPage] || [];
-              const existingIdx = list.findIndex((a) => a.id === calloutAnnId);
-              const bLeft = customLeft !== undefined ? customLeft : boxLeft;
-              const bCenterY = customCenterY !== undefined ? customCenterY : boxCenterY;
-
-              const calloutData = {
-                id: calloutAnnId,
-                type: "callout",
-                isLintelCallout: true,
-                lintelId: l.id,
-                text: calloutText,
-                html: calloutText.replace(/\n/g, "<br>"),
-                color: (linkedAnn && linkedAnn.color) || l.calloutColor || "#DC2626",
-                bgColor: (linkedAnn && linkedAnn.bgColor) || l.calloutBgColor || "#FFFF00",
-                calloutStyle: (linkedAnn && linkedAnn.calloutStyle) || l.calloutStyle || "yellow",
-                fontSize: fontSizePx,
-                fontSizePt: fontSizePt,
-                dpi: dpi,
-                strokeWidth: 2,
-                isBold: true,
-                x: tipX,
-                y: tipY,
-                boxX: bLeft,
-                boxY: bCenterY,
-                startPt: { x: tipX, y: tipY },
-                currentPt: { x: bLeft, y: bCenterY },
-                customWidth: boxW,
-                customHeight: boxH
-              };
-
-              if (existingIdx >= 0) {
-                const updated = [...list];
-                updated[existingIdx] = {
-                  ...updated[existingIdx],
-                  ...calloutData,
-                  text: calloutText,
-                  html: calloutText.replace(/\n/g, "<br>"),
-                  color: updated[existingIdx].color || calloutData.color,
-                  bgColor: updated[existingIdx].bgColor || calloutData.bgColor
-                };
-                return { ...prev, [currentPage]: updated };
-              } else {
-                return { ...prev, [currentPage]: [...list, calloutData] };
-              }
-            });
-          }
-        };
-
-        // Double-click or click handler to open both lintel panels (catalog on left + property panel on right)
-        const openBothLintelPanels = () => {
+        // Selection / opening handler to open right property panel
+        const openBothLintelPanels = (focusCallout = false) => {
           if (lintelController?.clearCurrentLintel) lintelController.clearCurrentLintel();
           if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
           if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
           if (setInteractionMode) setInteractionMode("select");
           if (setSelectedAnnotationId) setSelectedAnnotationId(null);
           if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+          if (setSelectedDoorIds) setSelectedDoorIds([]);
+          if (setSelectedWallIds) setSelectedWallIds([]);
+          if (setSelectedRoomIds) setSelectedRoomIds([]);
+          if (setSelectedRoofId) setSelectedRoofId(null);
+          if (setSelectedWallVertex) setSelectedWallVertex(null);
+          if (setSelectedPointIndex) setSelectedPointIndex(null);
           setSelectedId(l.id);
           setSelectedType("lintel");
           if (setSelectedLintelIds) setSelectedLintelIds([l.id]);
-          if (lintelController?.setShowCatalogPanel) {
-            lintelController.setShowCatalogPanel(true);
+          if (focusCallout && lintelController?.setOpenCalloutSection) {
+            lintelController.setOpenCalloutSection(true);
           }
-          syncCalloutAnnotationData(boxLeft, boxCenterY);
         };
 
         // Pointer drag handler for moving callout box
@@ -443,7 +406,6 @@ const LintelsLayer = React.memo(({
             window.removeEventListener("pointermove", onPointerMove);
             window.removeEventListener("pointerup", onPointerUp);
             if (hasMoved) {
-              syncCalloutAnnotationData();
               if (pushHistory) {
                 // Record history state if needed
               }
@@ -477,11 +439,11 @@ const LintelsLayer = React.memo(({
               onClick={(e) => {
                 e.stopPropagation();
                 if (isDrawingLintel) return;
-                openBothLintelPanels();
+                openBothLintelPanels(false);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                openBothLintelPanels();
+                openBothLintelPanels(false);
               }}
             />
 
@@ -502,7 +464,7 @@ const LintelsLayer = React.memo(({
             <path
               d={`M ${attachX} ${attachY} L ${shoulderX} ${shoulderY} L ${tipX} ${tipY}`}
               stroke={calloutBorderColor}
-              strokeWidth={isCalloutSelected ? leaderStrokeW + 0.5 : leaderStrokeW}
+              strokeWidth={isSelected ? leaderStrokeW + 0.5 : leaderStrokeW}
               fill="none"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -514,14 +476,14 @@ const LintelsLayer = React.memo(({
             <path
               d={`M ${barb1X} ${barb1Y} L ${tipX} ${tipY} L ${barb2X} ${barb2Y}`}
               stroke={calloutBorderColor}
-              strokeWidth={isCalloutSelected ? leaderStrokeW + 0.6 : leaderStrokeW + 0.2}
+              strokeWidth={isSelected ? leaderStrokeW + 0.6 : leaderStrokeW + 0.2}
               fill="none"
               strokeLinecap="round"
               strokeLinejoin="round"
               style={{ pointerEvents: 'none' }}
             />
 
-            {/* 5. Callout Box (Architectural yellow fill, red border, black bold text, draggable) */}
+            {/* 5. Callout Box (Draggable, customizable note, colors and font size) */}
             <g
               transform={`translate(${boxLeft}, ${boxTop})`}
               style={{ cursor: isDrawingLintel ? "move" : "grab" }}
@@ -541,18 +503,18 @@ const LintelsLayer = React.memo(({
                 if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
                 if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
                 if (setInteractionMode) setInteractionMode("select");
-                openBothLintelPanels();
+                openBothLintelPanels(true);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
                 if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
                 if (setInteractionMode) setInteractionMode("select");
-                openBothLintelPanels();
+                openBothLintelPanels(true);
               }}
             >
               {/* Outer Selection Ring / Halo */}
-              {(isSelected || isCalloutSelected) && !isDrawingLintel && (
+              {isSelected && !isDrawingLintel && (
                 <rect
                   x={-3}
                   y={-3}
@@ -575,8 +537,8 @@ const LintelsLayer = React.memo(({
                 height={boxH}
                 fill={boxBg}
                 stroke={calloutBorderColor}
-                strokeWidth={isCalloutSelected && !isDrawingLintel ? 2.2 : 1.75}
-                filter={isHovered || isSelected || isCalloutSelected ? "drop-shadow(0 2px 6px rgba(0,0,0,0.25))" : "drop-shadow(0 1px 3px rgba(0,0,0,0.15))"}
+                strokeWidth={isSelected && !isDrawingLintel ? 2.2 : 1.75}
+                filter={isHovered || isSelected ? "drop-shadow(0 2px 6px rgba(0,0,0,0.25))" : "drop-shadow(0 1px 3px rgba(0,0,0,0.15))"}
               />
 
               {/* Callout Text */}
@@ -603,6 +565,9 @@ const LintelsLayer = React.memo(({
   prev.lintels === next.lintels &&
   prev.allLintels === next.allLintels &&
   prev.walls === next.walls &&
+  prev.doors === next.doors &&
+  prev.realScale === next.realScale &&
+  prev.scaleValue === next.scaleValue &&
   prev.layerVisibility?.lintel === next.layerVisibility?.lintel &&
   prev.selectedId === next.selectedId &&
   prev.selectedType === next.selectedType &&
@@ -610,9 +575,6 @@ const LintelsLayer = React.memo(({
   prev.hoverId === next.hoverId &&
   prev.scale === next.scale &&
   prev.currentPage === next.currentPage &&
-  prev.annotationsByPage === next.annotationsByPage &&
-  prev.selectedAnnotationId === next.selectedAnnotationId &&
-  prev.selectedAnnotationIds === next.selectedAnnotationIds &&
   prev.isDrawingLintel === next.isDrawingLintel &&
   prev.lintelController === next.lintelController &&
   prev.setInteractionMode === next.setInteractionMode
@@ -628,6 +590,14 @@ const RoomPolygonLayer = React.memo(({
   highlightType,
   selectedId,
   selectedRoomIds = [],
+  setSelectedRoomIds,
+  setSelectedDoorIds,
+  setSelectedLintelIds,
+  setSelectedRoofId,
+  setSelectedWallVertex,
+  setSelectedPointIndex,
+  setSelectedAnnotationId,
+  setSelectedAnnotationIds,
   hoverId,
   setHoverId,
   setSelectedId,
@@ -697,18 +667,26 @@ const RoomPolygonLayer = React.memo(({
               strokeDasharray={isText ? "4,3" : undefined}
               opacity={opacity}
               style={{
-                pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel) ? "none" : "auto"
+                pointerEvents: (drawing || isDrawingDoor || isMeasuring || isDistancing || isDrawingLintel || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? "none" : "auto"
               }}
               onMouseEnter={() => setHoverId(r.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={(e) => {
-                if (interactionMode === "draw-wall") return;
+                if (interactionMode === "draw-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                 if (drawing || isMeasuring || isDistancing || isDrawingDoor || isDrawingLintel) return;
                 if (e.shiftKey || isAddingPoint) return;
                 e.stopPropagation();
                 setSelectedId(r.id);
                 setSelectedType("room");
+                if (setSelectedRoomIds) setSelectedRoomIds([r.id]);
                 if (setSelectedWallIds) setSelectedWallIds([]);
+                if (setSelectedDoorIds) setSelectedDoorIds([]);
+                if (setSelectedLintelIds) setSelectedLintelIds([]);
+                if (setSelectedRoofId) setSelectedRoofId(null);
+                if (setSelectedWallVertex) setSelectedWallVertex(null);
+                if (setSelectedPointIndex) setSelectedPointIndex(null);
+                if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+                if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
               }}
               onDoubleClick={(e) => {
                 e.preventDefault();
@@ -1393,8 +1371,8 @@ const WallLayer = React.memo(({
                 strokeWidth={Math.max((w.thickness_px || 20) + 24, 36)}
                 strokeLinecap="round"
                 style={{
-                  cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
-                  pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto"
+                  cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? "crosshair" : "pointer",
+                  pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? "none" : "auto"
                 }}
                 onMouseEnter={() => setHoverId(w.id)}
                 onMouseLeave={() => setHoverId(null)}
@@ -1404,16 +1382,16 @@ const WallLayer = React.memo(({
                   if (onWallContextMenu) onWallContextMenu(e, w);
                 }}
                 onClick={(e) => {
-                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                   e.stopPropagation();
                 }}
                 onDoubleClick={(e) => {
-                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                   e.stopPropagation();
                   if (handleWallDoubleClick) handleWallDoubleClick(w.id);
                 }}
                 onMouseDown={(e) => {
-                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                  if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                   e.stopPropagation();
                   if (e.button === 0 && startDrag) {
                     if (selectWall) selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -1437,8 +1415,8 @@ const WallLayer = React.memo(({
               strokeLinejoin="round"
               strokeLinecap="round"
               style={{
-                cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "crosshair" : "pointer",
-                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing) ? "none" : "auto",
+                cursor: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? "crosshair" : "pointer",
+                pointerEvents: (drawing || isDrawingDoor || isDrawingLintel || isMeasuring || isDistancing || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? "none" : "auto",
                 filter: isSelected ? "drop-shadow(0 0 6px rgba(2, 132, 199, 0.85))" : undefined
               }}
               onMouseEnter={() => setHoverId(w.id)}
@@ -1449,20 +1427,18 @@ const WallLayer = React.memo(({
                 if (onWallContextMenu) onWallContextMenu(e, w);
               }}
               onClick={(e) => {
-                if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                 e.stopPropagation();
               }}
               onDoubleClick={(e) => {
-                if (interactionMode === "draw-wall") return;
-                if (interactionMode === "cut-wall") return;
+                if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                 e.stopPropagation();
                 if (handleWallDoubleClick) {
                   handleWallDoubleClick(w.id);
                 }
               }}
               onMouseDown={(e) => {
-                if (interactionMode === "draw-wall") return;
-                if (interactionMode === "cut-wall") return;
+                if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                 e.stopPropagation();
                 if (e.button === 0 && startDrag) {
                   if (selectWall) {
@@ -1642,9 +1618,12 @@ const WallHandlesLayer = React.memo(({
             {/* 2D Wall Name Badge */}
             <g
               transform={`translate(${mx}, ${my}) rotate(${angle}) translate(0, ${offsetY})`}
-              style={{ cursor: isDrawingLintel ? 'crosshair' : 'pointer', pointerEvents: isDrawingLintel ? 'none' : 'auto' }}
+              style={{
+                cursor: (isDrawingLintel || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? 'crosshair' : 'pointer',
+                pointerEvents: (isDrawingLintel || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? 'none' : 'auto'
+              }}
               onClick={(e) => {
-                if (isDrawingLintel) return;
+                if (isDrawingLintel || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
                 e.stopPropagation();
                 handleSelectWall(w.id, e.shiftKey || e.ctrlKey || e.metaKey);
               }}
@@ -1714,10 +1693,13 @@ const WallHandlesLayer = React.memo(({
                   fill={isSelectedVertex ? "#f59e0b" : "white"}
                   stroke={isSelectedVertex ? "#d97706" : "#0284c7"}
                   strokeWidth={isDraggingThisVertex ? 2 : 2.5}
-                  style={{ cursor: 'move', pointerEvents: 'auto' }}
+                  style={{
+                    cursor: (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? 'crosshair' : 'move',
+                    pointerEvents: (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? 'none' : 'auto'
+                  }}
                   className={`vertex-handle ${isDraggingThisVertex ? 'dragging' : ''} ${isSelectedVertex ? 'selected-vertex' : ''}`}
                   onMouseDown={(e) => {
-                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall") return;
+                    if (interactionMode === "draw-wall" || interactionMode === "cut-wall" || interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") return;
 
                     if (e.button === 2 && e.detail === 2) {
                       e.stopPropagation();
@@ -1801,7 +1783,7 @@ const DoorLayer = React.memo(({
   const lastMouseDownSelectedId = React.useRef(null);
 
   return (
-    <g id="DoorLayer">
+    <g id="DoorLayer" style={{ pointerEvents: (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") ? "none" : undefined }}>
       {(doors || []).map((d, idx) => {
         try {
           const isSelected = (selectedId === d.id && (selectedType === "door" || selectedType === "window")) || (selectedDoorIds && selectedDoorIds.includes(d.id));
@@ -3154,6 +3136,8 @@ export default function CanvasView({
   rooms,
   walls,
   underlayWalls = [],
+  snapAlignPoints = [],
+  setSnapAlignPoints,
   pdfOffset = { x: 0, y: 0 },
   setPdfOffsetsByPage,
   doors,
@@ -3165,6 +3149,7 @@ export default function CanvasView({
   selectedType,
   setSelectedType,
   selectedPointIndex,
+  setSelectedPointIndex,
   hoverId,
   setHoverId,
   isPanning,
@@ -3286,6 +3271,27 @@ export default function CanvasView({
     setDoorsByPage
   } = useAppModel();
 
+  // Snap Align target walls: underlay walls (floor k-1) for Step 1, current walls (floor k) for Step 2
+  const snapTargetWalls = useMemo(() => {
+    if (interactionMode !== "snap-align-pdf") return [];
+    if (snapAlignPoints.length === 0) {
+      return underlayWalls || [];
+    }
+    return walls || [];
+  }, [interactionMode, snapAlignPoints.length, underlayWalls, walls]);
+
+  // Precomputed wall junctions and connection points for the active target floor
+  const snapTargetJunctions = useMemo(() => {
+    if (interactionMode !== "snap-align-pdf" || !snapTargetWalls.length) return [];
+    return getWallConnectionPoints(snapTargetWalls);
+  }, [interactionMode, snapTargetWalls]);
+
+  // Active snap point based on mouse hover position
+  const activeSnapPoint = useMemo(() => {
+    if (interactionMode !== "snap-align-pdf" || !currentMouse) return null;
+    return findNearestWallJunctionOrVertex(currentMouse, snapTargetWalls, 35);
+  }, [interactionMode, currentMouse, snapTargetWalls]);
+
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
     if (layerVisibility?.wall === false) return [];
@@ -3388,6 +3394,12 @@ export default function CanvasView({
     if (setSelectedRoofId) setSelectedRoofId(roof.id);
     if (setSelectedId) setSelectedId(roof.id);
     if (setSelectedType) setSelectedType('roof');
+    if (setSelectedDoorIds) setSelectedDoorIds([]);
+    if (setSelectedWallIds) setSelectedWallIds([]);
+    if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedLintelIds) setSelectedLintelIds([]);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
     if (setSelectedRoofEdgeIndex) setSelectedRoofEdgeIndex(edgeIndex);
     if (roof.roofType === 'shed' && setRoofEaveEdge && edgeIndex !== undefined && edgeIndex !== null) {
       setRoofEaveEdge(roof.id, edgeIndex);
@@ -4286,7 +4298,7 @@ export default function CanvasView({
             >
               {showPDF ? "ON" : "OFF"}
             </button>
-            <button
+            {/* <button
               onClick={(e) => {
                 e.stopPropagation();
                 if (setInteractionMode) {
@@ -4305,8 +4317,81 @@ export default function CanvasView({
                 transition: "all 0.15s ease-in-out",
                 boxShadow: interactionMode === "align-pdf" ? "0 1px 4px rgba(234, 179, 8, 0.3)" : "none"
               }}
+              title="Freehand drag to align PDF background with walls"
             >
               {interactionMode === "align-pdf" ? "ALIGNING" : "ALIGN"}
+            </button> */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (setSnapAlignPoints) setSnapAlignPoints([]);
+                if (setInteractionMode) {
+                  setInteractionMode(prev => prev === "snap-align-pdf" ? "select" : "snap-align-pdf");
+                }
+              }}
+              style={{
+                background: interactionMode === "snap-align-pdf" ? "#10b981" : "#f8fafc",
+                border: interactionMode === "snap-align-pdf" ? "1px solid #059669" : "1px solid var(--border)",
+                color: interactionMode === "snap-align-pdf" ? "#ffffff" : "var(--text)",
+                padding: "3px 8px",
+                borderRadius: "5px",
+                fontSize: "11px",
+                fontWeight: "700",
+                cursor: "pointer",
+                transition: "all 0.15s ease-in-out",
+                boxShadow: interactionMode === "snap-align-pdf" ? "0 1px 4px rgba(16, 185, 129, 0.3)" : "none"
+              }}
+              title="Snap align: Pick 1 point on lower floor (ghost) and 1 point on current floor to snap together"
+            >
+              {interactionMode === "snap-align-pdf" ? "ALIGNING" : "ALIGN"}
+            </button>
+          </div>
+        )}
+
+        {interactionMode === "snap-align-pdf" && (
+          <div
+            style={{
+              position: "absolute",
+              top: "20px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 100,
+              padding: "8px 18px",
+              borderRadius: "8px",
+              border: "1px solid #a7f3d0",
+              background: "rgba(236, 253, 245, 0.96)",
+              color: "#065f46",
+              fontWeight: "600",
+              fontSize: "12px",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}
+          >
+            <span>🎯</span>
+            <span>
+              {snapAlignPoints.length === 0
+                ? "Step 1: Click reference point on lower floor ghost wall"
+                : "Step 2: Click matching point on current floor to snap together"}
+            </span>
+            <button
+              onClick={() => {
+                if (setSnapAlignPoints) setSnapAlignPoints([]);
+                if (setInteractionMode) setInteractionMode("select");
+              }}
+              style={{
+                marginLeft: "8px",
+                background: "transparent",
+                border: "none",
+                color: "#059669",
+                cursor: "pointer",
+                fontWeight: "700",
+                fontSize: "11px"
+              }}
+            >
+              ✕ Cancel
             </button>
           </div>
         )}
@@ -4458,7 +4543,7 @@ export default function CanvasView({
             width: "100%",
             height: "100%",
             cursor: (isPanning || interactionMode === "pan") ? "grab"
-              : (drawing || isDrawingRoof || isDistancing || isMeasuring || isAddingPoint || interactionMode === "draw-ext-rect" || interactionMode === "draw-wall" || interactionMode === "fill-room") ? "crosshair"
+              : (drawing || isDrawingRoof || isDistancing || isMeasuring || isAddingPoint || interactionMode === "draw-ext-rect" || interactionMode === "draw-wall" || interactionMode === "fill-room" || interactionMode === "snap-align-pdf") ? "crosshair"
                 : interactionMode === "align-pdf" ? "move"
                   : activeAnnotationTool === "highlight" ? getBrushCursor(annotationColor)
                     : activeAnnotationTool ? "crosshair"
@@ -5295,6 +5380,14 @@ export default function CanvasView({
                 highlightType={highlightType}
                 selectedId={selectedId}
                 selectedRoomIds={selectedRoomIds}
+                setSelectedRoomIds={setSelectedRoomIds}
+                setSelectedDoorIds={setSelectedDoorIds}
+                setSelectedLintelIds={setSelectedLintelIds}
+                setSelectedRoofId={setSelectedRoofId}
+                setSelectedWallVertex={setSelectedWallVertex}
+                setSelectedPointIndex={setSelectedPointIndex}
+                setSelectedAnnotationId={setSelectedAnnotationId}
+                setSelectedAnnotationIds={setSelectedAnnotationIds}
                 hoverId={hoverId}
                 setHoverId={setHoverId}
                 setSelectedId={setSelectedId}
@@ -5386,7 +5479,10 @@ export default function CanvasView({
               lintels={displayLintels}
               allLintels={lintelsByPage[currentPage] || []}
               walls={walls}
+              doors={displayDoors || doors || []}
               rooms={displayRooms}
+              realScale={realScale}
+              scaleValue={scaleValue}
               layerVisibility={layerVisibility}
               selectedId={selectedId}
               selectedType={selectedType}
@@ -5406,6 +5502,12 @@ export default function CanvasView({
               setSelectedAnnotationId={setSelectedAnnotationId}
               selectedAnnotationIds={selectedAnnotationIds}
               setSelectedAnnotationIds={setSelectedAnnotationIds}
+              setSelectedDoorIds={setSelectedDoorIds}
+              setSelectedWallIds={setSelectedWallIds}
+              setSelectedRoomIds={setSelectedRoomIds}
+              setSelectedRoofId={setSelectedRoofId}
+              setSelectedWallVertex={setSelectedWallVertex}
+              setSelectedPointIndex={setSelectedPointIndex}
               isDrawingLintel={isDrawingLintel}
               lintelController={lintelController}
               setInteractionMode={setInteractionMode}
@@ -5512,6 +5614,216 @@ export default function CanvasView({
                   stroke="#ffffff"
                   strokeWidth={1.5}
                 />
+              </g>
+            )}
+
+            {/* Snap Align Preview Layer with Big Round Point & Visual Affordances */}
+            {interactionMode === "snap-align-pdf" && (
+              <g id="SnapAlignOverlay" style={{ pointerEvents: 'none' }}>
+                {/* 1. Subtle markers at all available wall connection points on the active target floor */}
+                {snapTargetJunctions.map((junc, idx) => {
+                  if (!junc.isJunction) return null;
+                  return (
+                    <circle
+                      key={`target-junc-${idx}`}
+                      cx={junc.x}
+                      cy={junc.y}
+                      r={5}
+                      fill="#10b981"
+                      fillOpacity={0.35}
+                      stroke="#ffffff"
+                      strokeWidth={1.5}
+                    />
+                  );
+                })}
+
+                {/* 2. Step 2 rubber-band line from Point 1 to current snapped point */}
+                {snapAlignPoints.length === 1 && currentMouse && (() => {
+                  const p1 = snapAlignPoints[0];
+                  const p2 = (activeSnapPoint && activeSnapPoint.snapped) ? activeSnapPoint : currentMouse;
+                  const dx = p1.x - p2.x;
+                  const dy = p1.y - p2.y;
+                  const dist = Math.hypot(dx, dy);
+                  const scaleMm = realScale ? realScale / 1000 : 0.05;
+                  const distMm = (dist * scaleMm * 1000).toFixed(0);
+                  const midX = (p1.x + p2.x) / 2;
+                  const midY = (p1.y + p2.y) / 2;
+
+                  return (
+                    <g>
+                      {/* Connection dashed line */}
+                      <line
+                        x1={p1.x}
+                        y1={p1.y}
+                        x2={p2.x}
+                        y2={p2.y}
+                        stroke="#10b981"
+                        strokeWidth={2.5}
+                        strokeDasharray="6,4"
+                      />
+
+                      {/* Distance pill on line */}
+                      {dist > 40 && (
+                        <g transform={`translate(${midX}, ${midY})`}>
+                          <rect
+                            x={-65}
+                            y={-12}
+                            width={130}
+                            height={24}
+                            rx={5}
+                            fill="rgba(15, 23, 42, 0.94)"
+                            stroke="#10b981"
+                            strokeWidth={1.2}
+                            style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.4))" }}
+                          />
+                          <text
+                            x={0}
+                            y={4}
+                            fill="#34d399"
+                            fontSize={10.5}
+                            fontWeight="700"
+                            textAnchor="middle"
+                            fontFamily="Inter, sans-serif"
+                          >
+                            Δ: {distMm} mm ({dist.toFixed(1)} px)
+                          </text>
+                        </g>
+                      )}
+
+                      {/* Point 1 Anchored Pin */}
+                      <circle
+                        cx={p1.x}
+                        cy={p1.y}
+                        r={16}
+                        fill="rgba(16, 185, 129, 0.25)"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                      />
+                      <circle
+                        cx={p1.x}
+                        cy={p1.y}
+                        r={6.5}
+                        fill="#10b981"
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                      />
+                      <g transform={`translate(${p1.x + 12}, ${p1.y - 14})`}>
+                        <rect
+                          x={0}
+                          y={-10}
+                          width={124}
+                          height={20}
+                          rx={4}
+                          fill="rgba(16, 185, 129, 0.95)"
+                          stroke="#ffffff"
+                          strokeWidth={1}
+                        />
+                        <text
+                          x={8}
+                          y={4}
+                          fill="#ffffff"
+                          fontSize={10}
+                          fontWeight="700"
+                          fontFamily="Inter, sans-serif"
+                        >
+                          Point 1: Reference (L{currentPage})
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })()}
+
+                {/* 3. The "BIG ROUND POINT" shown when hovering over/near a wall or connection point */}
+                {activeSnapPoint && activeSnapPoint.snapped && (() => {
+                  const sp = activeSnapPoint;
+                  const isConn = sp.isJunction;
+                  const primaryColor = isConn ? "#10b981" : (sp.type === 'midpoint' ? "#f59e0b" : "#06b6d4");
+                  const haloFill = isConn ? "rgba(16, 185, 129, 0.28)" : (sp.type === 'midpoint' ? "rgba(245, 158, 11, 0.24)" : "rgba(6, 182, 212, 0.24)");
+                  const outerR = isConn ? 22 : 16;
+                  const innerR = isConn ? 7.5 : 5.5;
+
+                  const badgeText = sp.label || (isConn ? "Wall Connection" : "Wall Point");
+                  const subText = snapAlignPoints.length === 0 ? "Click to set Reference Point 1" : "Click to Snap & Align Level!";
+                  const badgeW = Math.max(160, badgeText.length * 8 + 44);
+
+                  return (
+                    <g id="BigRoundSnapPoint">
+                      {/* Glowing Outer Halo */}
+                      <circle
+                        cx={sp.x}
+                        cy={sp.y}
+                        r={outerR}
+                        fill={haloFill}
+                        stroke={primaryColor}
+                        strokeWidth={2.5}
+                        strokeDasharray={isConn ? undefined : "4,2"}
+                        style={{
+                          filter: `drop-shadow(0 0 10px ${primaryColor})`
+                        }}
+                      />
+
+                      {/* Crosshair Tick Reticle */}
+                      <line x1={sp.x - outerR - 4} y1={sp.y} x2={sp.x - innerR - 2} y2={sp.y} stroke="#ffffff" strokeWidth={1.5} />
+                      <line x1={sp.x + innerR + 2} y1={sp.y} x2={sp.x + outerR + 4} y2={sp.y} stroke="#ffffff" strokeWidth={1.5} />
+                      <line x1={sp.x} y1={sp.y - outerR - 4} x2={sp.x} y2={sp.y - innerR - 2} stroke="#ffffff" strokeWidth={1.5} />
+                      <line x1={sp.x} y1={sp.y + innerR + 2} x2={sp.x} y2={sp.y + outerR + 4} stroke="#ffffff" strokeWidth={1.5} />
+
+                      {/* Solid Inner Target Core */}
+                      <circle
+                        cx={sp.x}
+                        cy={sp.y}
+                        r={innerR}
+                        fill={primaryColor}
+                        stroke="#ffffff"
+                        strokeWidth={2.5}
+                      />
+
+                      {/* Floating Information Pill Badge */}
+                      <g transform={`translate(${sp.x}, ${sp.y - outerR - 24})`}>
+                        <rect
+                          x={-badgeW / 2}
+                          y={-14}
+                          width={badgeW}
+                          height={30}
+                          rx={6}
+                          fill="rgba(15, 23, 42, 0.95)"
+                          stroke={primaryColor}
+                          strokeWidth={1.5}
+                          style={{ filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.5))" }}
+                        />
+                        {/* Status dot in badge */}
+                        <circle
+                          cx={-badgeW / 2 + 14}
+                          cy={-3}
+                          r={4}
+                          fill={primaryColor}
+                        />
+                        {/* Title */}
+                        <text
+                          x={-badgeW / 2 + 24}
+                          y={0}
+                          fill="#ffffff"
+                          fontSize={11}
+                          fontWeight="700"
+                          fontFamily="Inter, sans-serif"
+                        >
+                          {badgeText}
+                        </text>
+                        {/* Subtitle action guide */}
+                        <text
+                          x={-badgeW / 2 + 24}
+                          y={11}
+                          fill="#94a3b8"
+                          fontSize={9}
+                          fontWeight="500"
+                          fontFamily="Inter, sans-serif"
+                        >
+                          {subText}
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })()}
               </g>
             )}
 
@@ -6525,6 +6837,13 @@ export default function CanvasView({
               isSnapEnabled={isWallSnapEnabled}
               walls={walls}
               rooms={rooms}
+              setSelectedId={setSelectedId}
+              setSelectedType={setSelectedType}
+              setSelectedDoorIds={setSelectedDoorIds}
+              setSelectedWallIds={setSelectedWallIds}
+              setSelectedRoomIds={setSelectedRoomIds}
+              setSelectedLintelIds={setSelectedLintelIds}
+              setSelectedRoofId={setSelectedRoofId}
             />
 
           </g>

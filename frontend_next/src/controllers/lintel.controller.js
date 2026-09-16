@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDialog } from '@/components/DialogContext';
+import { getDoorPoints } from '@/engines/DoorGeometryEngine';
+import { getBaseWallId } from '@/utils/geometry';
 
 // Epsilon for rounding formula to guard against floating-point errors
 const EPS = 1e-9;
@@ -10,6 +12,22 @@ const EPS = 1e-9;
 export function roundLintelLength(measuredLength) {
   let finalLength = Math.ceil(measuredLength / 0.3 - EPS) * 0.3;
   return Math.round(finalLength * 1000) / 1000;
+}
+
+/**
+ * Reads the saved global lintel length offset (meters) from localStorage.
+ */
+export function getSavedGlobalLintelOffset() {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('ezefloor_global_lintel_offset');
+      if (saved !== null && saved !== undefined && saved !== '') {
+        const val = parseFloat(saved);
+        return isNaN(val) ? 0 : val;
+      }
+    } catch (e) { }
+  }
+  return 0;
 }
 
 /**
@@ -131,6 +149,262 @@ export function formatLintelCalloutText(l, allLintels = []) {
   return `${lintelCode}: ${sizeStr} ${typeStr} ${plyLenStr}`;
 }
 
+/**
+ * Synchronizes a single auto door lintel with its corresponding door object.
+ * Moves the lintel along with the door, updates its span/points, updates its length
+ * when door width changes, and updates its sizing (90x35 vs 90x45) based on parent wall thickness.
+ */
+export function syncLintelWithDoor(
+  lintel,
+  door,
+  walls = [],
+  realScale = 1.0,
+  scaleValue = null,
+  globalLengthOffset = 0
+) {
+  if (!lintel || !door) return lintel;
+
+  // Extract endpoints from door
+  let p1 = null, p2 = null;
+  const pts = getDoorPoints(door);
+  if (pts && pts.p1 && pts.p2) {
+    p1 = { x: Number(pts.p1.x), y: Number(pts.p1.y) };
+    p2 = { x: Number(pts.p2.x), y: Number(pts.p2.y) };
+  } else if (door.points && door.points.length >= 2) {
+    const pt0 = door.points[0];
+    const pt1 = door.points[1];
+    p1 = Array.isArray(pt0) ? { x: Number(pt0[0]), y: Number(pt0[1]) } : { x: Number(pt0.x), y: Number(pt0.y) };
+    p2 = Array.isArray(pt1) ? { x: Number(pt1[0]), y: Number(pt1[1]) } : { x: Number(pt1.x), y: Number(pt1.y) };
+  }
+
+  if (!p1 || !p2) return lintel;
+
+  const targetWallId = door.parentWallId || lintel.wallId;
+  let parentWall = null;
+  if (targetWallId && walls && walls.length > 0) {
+    const baseId = getBaseWallId ? getBaseWallId(targetWallId) : String(targetWallId).split('-A-')[0].split('-B-')[0];
+    parentWall = walls.find(w => w.id === targetWallId || (getBaseWallId ? getBaseWallId(w.id) : w.id) === baseId);
+  }
+
+  if (!parentWall && walls && walls.length > 0) {
+    const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    let bestDist = 80;
+    for (const w of walls) {
+      if (!w.centerline || w.centerline.length !== 2) continue;
+      const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+      const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+      const wdx = wp2.x - wp1.x;
+      const wdy = wp2.y - wp1.y;
+      const wLen = Math.hypot(wdx, wdy);
+      if (wLen < 1) continue;
+      const dist = Math.abs(wdx * (mid.y - wp1.y) - wdy * (mid.x - wp1.x)) / wLen;
+      if (dist < bestDist) {
+        bestDist = dist;
+        parentWall = w;
+      }
+    }
+  }
+
+  // Wall thickness (mm) & Sizing:
+  // <= 75mm -> 90x35 LVL ('800053733')
+  // > 75mm  -> 90x45 LVL ('800053734')
+  let wallThicknessMm = 70;
+  if (parentWall) {
+    if (typeof parentWall.thickness === 'number' && parentWall.thickness > 0) {
+      wallThicknessMm = parentWall.thickness;
+    } else if (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior) {
+      wallThicknessMm = 90;
+    } else if (parentWall.thickness_px && realScale && realScale > 0 && realScale !== 1.0) {
+      wallThicknessMm = Math.round(parentWall.thickness_px * realScale);
+    } else {
+      const isInt = parentWall.class_name === 'interior_wall' || parentWall.class_name === 'partition_wall' || parentWall.type === 'int';
+      wallThicknessMm = isInt ? 70 : 90;
+    }
+  } else if (door.is_ext || door.is_exterior || door.location === 'external' || door.scope === 'external') {
+    wallThicknessMm = 90;
+  }
+
+  const is90x45 = wallThicknessMm > 75;
+  const catalogId = is90x45 ? '800053734' : '800053733';
+  const lintelWidth = is90x45 ? 45 : 35;
+  const lintelHeight = 90;
+
+  // Project endpoints onto parent wall centerline if available
+  let startOffset = null;
+  let endOffset = null;
+  let lintelPoints = [[p1.x, p1.y], [p2.x, p2.y]];
+
+  if (parentWall && parentWall.centerline && parentWall.centerline.length === 2) {
+    const wp1 = { x: parentWall.centerline[0][0], y: parentWall.centerline[0][1] };
+    const wp2 = { x: parentWall.centerline[1][0], y: parentWall.centerline[1][1] };
+    const wdx = wp2.x - wp1.x;
+    const wdy = wp2.y - wp1.y;
+    const wLen2 = wdx * wdx + wdy * wdy;
+    if (wLen2 > 1e-6) {
+      const t1 = Math.max(0, Math.min(1, ((p1.x - wp1.x) * wdx + (p1.y - wp1.y) * wdy) / wLen2));
+      const t2 = Math.max(0, Math.min(1, ((p2.x - wp1.x) * wdx + (p2.y - wp1.y) * wdy) / wLen2));
+      startOffset = Math.min(t1, t2);
+      endOffset = Math.max(t1, t2);
+
+      const projP1 = { x: wp1.x + startOffset * wdx, y: wp1.y + startOffset * wdy };
+      const projP2 = { x: wp1.x + endOffset * wdx, y: wp1.y + endOffset * wdy };
+      lintelPoints = [[projP1.x, projP1.y], [projP2.x, projP2.y]];
+    }
+  }
+
+  // Length calculation (meters)
+  const openingLenPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  let measuredLengthM = 0;
+  if (door.width_mm && door.width_mm > 0) {
+    measuredLengthM = Math.round((Number(door.width_mm) / 1000) * 1000) / 1000;
+  } else if (realScale && realScale > 0 && realScale !== 1.0) {
+    measuredLengthM = Math.round(((openingLenPx * realScale) / 1000) * 1000) / 1000;
+  } else if (scaleValue && scaleValue > 0) {
+    measuredLengthM = Math.round((openingLenPx * scaleValue) * 1000) / 1000;
+  } else {
+    measuredLengthM = Math.round(openingLenPx * 0.02 * 1000) / 1000;
+  }
+
+  const effGlobalOffset = (globalLengthOffset !== null && globalLengthOffset !== undefined && globalLengthOffset !== 0)
+    ? globalLengthOffset
+    : getSavedGlobalLintelOffset();
+
+  const offset = (lintel.lengthOffset !== undefined && lintel.lengthOffset !== null && lintel.lengthOffset !== 0)
+    ? lintel.lengthOffset
+    : effGlobalOffset;
+
+  const finalMeasured = Math.round((measuredLengthM + offset) * 1000) / 1000;
+  const isRounded = lintel.isRounded !== undefined ? lintel.isRounded : true;
+  const roundedBase = roundLintelLength(measuredLengthM);
+  const finalLength = isRounded
+    ? Math.round((roundedBase + offset) * 1000) / 1000
+    : finalMeasured;
+  const wallThicknessPx = parentWall?.thickness_px || (realScale && realScale > 0 ? wallThicknessMm / realScale : (lintel.wallThickness_px || 20));
+
+  return {
+    ...lintel,
+    wallId: parentWall ? parentWall.id : (door.parentWallId || lintel.wallId),
+    startOffset,
+    endOffset,
+    points: lintelPoints,
+    baseLength: measuredLengthM,
+    lengthOffset: offset,
+    isRounded,
+    measuredLength: finalMeasured,
+    finalLength,
+    catalogId,
+    width: lintelWidth,
+    height: lintelHeight,
+    wallThickness_px: wallThicknessPx,
+    openingName: door.doorName || door.door_name || door.label || lintel.openingName
+  };
+}
+
+/**
+ * Creates a BIM-compliant lintel object for a newly drawn door, window, or garage.
+ * Automatically computes correct sizing (90x35 vs 90x45), offsets, and length.
+ */
+export function createLintelForDoor(
+  door,
+  walls = [],
+  realScale = 1.0,
+  scaleValue = null,
+  globalLengthOffset = null
+) {
+  if (!door) return null;
+
+  // Extract endpoints from door
+  let p1 = null, p2 = null;
+  const pts = getDoorPoints(door);
+  if (pts && pts.p1 && pts.p2) {
+    p1 = { x: Number(pts.p1.x), y: Number(pts.p1.y) };
+    p2 = { x: Number(pts.p2.x), y: Number(pts.p2.y) };
+  } else if (door.points && door.points.length >= 2) {
+    const pt0 = door.points[0];
+    const pt1 = door.points[1];
+    p1 = Array.isArray(pt0) ? { x: Number(pt0[0]), y: Number(pt0[1]) } : { x: Number(pt0.x), y: Number(pt0.y) };
+    p2 = Array.isArray(pt1) ? { x: Number(pt1[0]), y: Number(pt1[1]) } : { x: Number(pt1.x), y: Number(pt1.y) };
+  }
+
+  if (!p1 || !p2) return null;
+
+  const now = Date.now();
+  const rand = Math.random().toString(36).substr(2, 5);
+
+  const baseTemplate = {
+    id: `lintel_auto_${now}_${rand}`,
+    wallId: door.parentWallId || null,
+    startOffset: null,
+    endOffset: null,
+    points: [[p1.x, p1.y], [p2.x, p2.y]],
+    category: 'lintel',
+    isRounded: true,
+    type: 'LVL',
+    size: 90,
+    width: 35,
+    height: 90,
+    description: 'Lintels',
+    ply: 1,
+    isAutoDoorLintel: true,
+    doorId: door.id,
+    openingName: door.doorName || door.door_name || door.label || door.id
+  };
+
+  return syncLintelWithDoor(
+    baseTemplate,
+    door,
+    walls,
+    realScale,
+    scaleValue,
+    globalLengthOffset
+  );
+}
+
+/**
+ * Synchronizes a list of lintels against updated doors.
+ * Any auto door lintels whose doors were deleted are cleaned up,
+ * and surviving auto door lintels are repositioned and resized to match their doors.
+ */
+export function syncLintelsWithDoors(
+  lintels = [],
+  doors = [],
+  walls = [],
+  realScale = 1.0,
+  scaleValue = null,
+  globalLengthOffset = null
+) {
+  if (!lintels || lintels.length === 0) return [];
+  if (!doors || doors.length === 0) {
+    return lintels.filter(l => !l.isAutoDoorLintel);
+  }
+
+  const effGlobalOffset = (globalLengthOffset !== null && globalLengthOffset !== undefined && globalLengthOffset !== 0)
+    ? globalLengthOffset
+    : getSavedGlobalLintelOffset();
+
+  const doorMap = new Map();
+  doors.forEach(d => {
+    if (d && d.id !== undefined && d.id !== null) {
+      doorMap.set(String(d.id), d);
+    }
+  });
+
+  return lintels
+    .filter(l => {
+      // If it's an auto door lintel whose door was deleted, remove it
+      if (l.isAutoDoorLintel && l.doorId && !doorMap.has(String(l.doorId))) {
+        return false;
+      }
+      return true;
+    })
+    .map(l => {
+      if (!l.isAutoDoorLintel || !l.doorId) return l;
+      const associatedDoor = doorMap.get(String(l.doorId));
+      if (!associatedDoor) return l;
+      return syncLintelWithDoor(l, associatedDoor, walls, realScale, scaleValue, effGlobalOffset);
+    });
+}
+
 export function useLintelController({
   lintelsByPage,
   setLintelsByPage,
@@ -162,6 +436,7 @@ export function useLintelController({
   const [currentLintel, setCurrentLintel] = useState(null);
   const [lintelPreview, setLintelPreview] = useState(null); // Preview data for CanvasView
   const [showCatalogPanel, _setShowCatalogPanel] = useState(false);
+  const [openCalloutSection, setOpenCalloutSection] = useState(false);
   const isDrawingLintelRef = useRef(false);
 
   useEffect(() => {
@@ -179,13 +454,7 @@ export function useLintelController({
 
   const { showAlert } = useDialog();
 
-  const [globalLengthOffset, setGlobalLengthOffset] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('ezefloor_global_lintel_offset');
-      return saved ? parseFloat(saved) : 0;
-    }
-    return 0;
-  });
+  const [globalLengthOffset, setGlobalLengthOffset] = useState(() => getSavedGlobalLintelOffset());
 
   const deselectLintel = useCallback(() => {
     if (!isDrawingLintelRef.current) {
@@ -211,42 +480,9 @@ export function useLintelController({
 
   /**
    * Synchronizes callout annotations in annotationsByPage whenever lintel properties change
+   * Decoupled: lintels now store native callout properties directly on the lintel model.
    */
-  const syncLintelAnnotations = useCallback((updatedLintelsList) => {
-    if (!setAnnotationsByPage || currentPage == null) return;
-
-    setAnnotationsByPage(prev => {
-      const pageAnns = prev[currentPage] || [];
-      if (!pageAnns || pageAnns.length === 0) return prev;
-
-      let hasChanges = false;
-      const updatedAnns = pageAnns.map(ann => {
-        if (!ann.isLintelCallout || !ann.lintelId) return ann;
-        const matchedLintel = updatedLintelsList.find(l => l.id === ann.lintelId);
-        if (!matchedLintel) return ann;
-
-        const newText = formatLintelCalloutText(matchedLintel, updatedLintelsList);
-        const dpi = matchedLintel.dpi || ann.dpi || 250;
-        const fontSizePt = matchedLintel.fontSizePt !== undefined ? matchedLintel.fontSizePt : (ann.fontSizePt || 14);
-        const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
-
-        if (ann.text !== newText || ann.fontSizePt !== fontSizePt || ann.dpi !== dpi || ann.fontSize !== fontSizePx) {
-          hasChanges = true;
-          return {
-            ...ann,
-            text: newText,
-            html: newText.replace(/\n/g, "<br>"),
-            fontSizePt,
-            fontSize: fontSizePx,
-            dpi
-          };
-        }
-        return ann;
-      });
-
-      return hasChanges ? { ...prev, [currentPage]: updatedAnns } : prev;
-    });
-  }, [setAnnotationsByPage, currentPage]);
+  const syncLintelAnnotations = useCallback(() => {}, []);
 
   const updateGlobalLengthOffset = useCallback((newOffset) => {
     localStorage.setItem('ezefloor_global_lintel_offset', String(newOffset));
@@ -255,12 +491,13 @@ export function useLintelController({
     const lintels = getCurrentLintels();
     const updated = lintels.map(l => {
       const base = l.baseLength !== undefined ? l.baseLength : (l.measuredLength - (l.lengthOffset || 0));
-      const newMeasured = base + newOffset;
+      const newMeasured = Math.round((base + newOffset) * 1000) / 1000;
+      const roundedBase = roundLintelLength(base);
       return {
         ...l,
         lengthOffset: newOffset,
         measuredLength: newMeasured,
-        finalLength: l.isRounded ? roundLintelLength(newMeasured) : newMeasured
+        finalLength: l.isRounded ? Math.round((roundedBase + newOffset) * 1000) / 1000 : newMeasured
       };
     });
 
@@ -639,10 +876,16 @@ export function useLintelController({
     const updated = lintels.map(l => {
       if (l.id === lintelId) {
         const nextRounded = !l.isRounded;
+        const effGlobal = globalLengthOffset || getSavedGlobalLintelOffset();
+        const offset = l.lengthOffset !== undefined ? l.lengthOffset : effGlobal;
+        const base = l.baseLength !== undefined ? l.baseLength : (l.measuredLength - offset);
+        const roundedBase = roundLintelLength(base);
         return {
           ...l,
           isRounded: nextRounded,
-          finalLength: nextRounded ? roundLintelLength(l.measuredLength) : l.measuredLength
+          finalLength: nextRounded
+            ? Math.round((roundedBase + offset) * 1000) / 1000
+            : Math.round((base + offset) * 1000) / 1000
         };
       }
       return l;
@@ -654,7 +897,7 @@ export function useLintelController({
     }));
     syncLintelAnnotations(updated);
     pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations, globalLengthOffset]);
 
   /**
    * Rounds all unrounded lintels on the current page (preserves already rounded ones)
@@ -662,16 +905,19 @@ export function useLintelController({
   const roundAllLintels = useCallback(() => {
     const lintels = getCurrentLintels();
     let hasChanges = false;
+    const effGlobal = globalLengthOffset || getSavedGlobalLintelOffset();
     const updated = lintels.map(l => {
       if (l.isRounded) {
         return l; // Already rounded, preserve as is
       }
       hasChanges = true;
-      const numMeasured = typeof l.measuredLength === 'number' ? l.measuredLength : (l.baseLength || 0);
+      const offset = l.lengthOffset !== undefined ? l.lengthOffset : effGlobal;
+      const base = l.baseLength !== undefined ? l.baseLength : (l.measuredLength - offset);
+      const roundedBase = roundLintelLength(base);
       return {
         ...l,
         isRounded: true,
-        finalLength: roundLintelLength(numMeasured)
+        finalLength: Math.round((roundedBase + offset) * 1000) / 1000
       };
     });
 
@@ -684,7 +930,7 @@ export function useLintelController({
       pushHistory(null, getCurrentWalls(), getCurrentDoors(), updated);
     }
     return updated;
-  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations]);
+  }, [getCurrentLintels, getCurrentWalls, getCurrentDoors, currentPage, setLintelsByPage, pushHistory, syncLintelAnnotations, globalLengthOffset]);
 
   const updateLintel = useCallback((updatedLintel) => {
     const currentScale = scaleValue || (realScale ? realScale / 1000 : 0.02);
@@ -697,7 +943,8 @@ export function useLintelController({
         const cat = updatedLintel.category || 'lintel';
         const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
 
-        const offset = updatedLintel.lengthOffset !== undefined ? updatedLintel.lengthOffset : (globalLengthOffset || 0);
+        const effGlobal = globalLengthOffset || getSavedGlobalLintelOffset();
+        const offset = updatedLintel.lengthOffset !== undefined ? updatedLintel.lengthOffset : effGlobal;
 
         // Check if user is mid-typing (empty input)
         const isEditingEmpty = updatedLintel.baseLength === "" || updatedLintel.baseLength === null || updatedLintel.measuredLength === "" || updatedLintel.measuredLength === null;
@@ -716,9 +963,10 @@ export function useLintelController({
           ? Math.max(0.01, (typeof updatedLintel.baseLength === 'number' ? updatedLintel.baseLength : parseFloat(updatedLintel.baseLength) || 0.01))
           : (typeof updatedLintel.measuredLength === 'number' ? Math.max(0.01, updatedLintel.measuredLength - offset) : (l.baseLength || 0.01));
 
-        const newMeasured = baseLen + offset;
+        const newMeasured = Math.round((baseLen + offset) * 1000) / 1000;
+        const roundedBase = roundLintelLength(baseLen);
         const newFinal = updatedLintel.isRounded
-          ? roundLintelLength(newMeasured)
+          ? Math.round((roundedBase + offset) * 1000) / 1000
           : newMeasured;
 
         // Recalculate 2D geometry (startOffset/endOffset or points) based on new base length
@@ -817,6 +1065,19 @@ export function useLintelController({
     deleteLintels([lintelId]);
   }, [deleteLintels]);
 
+  const syncAutoDoorLintels = useCallback((doorsList = null, wallsList = null) => {
+    const doors = doorsList || getCurrentDoors();
+    const walls = wallsList || getCurrentWalls();
+    const lintels = getCurrentLintels();
+    const updated = syncLintelsWithDoors(lintels, doors, walls, realScale, scaleValue, globalLengthOffset);
+    setLintelsByPage(prev => ({
+      ...prev,
+      [currentPage]: updated
+    }));
+    syncLintelAnnotations(updated);
+    return updated;
+  }, [getCurrentDoors, getCurrentWalls, getCurrentLintels, realScale, scaleValue, globalLengthOffset, setLintelsByPage, currentPage, syncLintelAnnotations]);
+
   return {
     isDrawingLintel,
     isPostDrawCatalog,
@@ -831,6 +1092,8 @@ export function useLintelController({
     lintelPreview,
     showCatalogPanel,
     setShowCatalogPanel,
+    openCalloutSection,
+    setOpenCalloutSection,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
@@ -840,6 +1103,7 @@ export function useLintelController({
     deleteLintel,
     deleteLintels,
     globalLengthOffset,
-    updateGlobalLengthOffset
+    updateGlobalLengthOffset,
+    syncAutoDoorLintels
   };
 }
