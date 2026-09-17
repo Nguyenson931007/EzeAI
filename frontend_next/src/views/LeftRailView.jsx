@@ -41,14 +41,14 @@ export default function LeftRailView({
   const activeCurrentPage = currentPage !== undefined ? currentPage : (appModel.currentPage || 0);
   const activeRoomsByPage = roomsByPage || appModel.roomsByPage || {};
 
-  // Lấy danh sách các tầng kiến trúc (Architectural floor levels - tách biệt hoàn toàn với PDF Tools)
+  // Lấy danh sách các tầng kiến trúc (Architectural floor levels - tách biệt hoàn toàn với PDF Tools / Add Pages)
   const architecturalPages = currentPages
     .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => p?.category !== "cladding" && p?.category !== "eaves" && p?.source !== "pdf_tools");
+    .filter((p) => !p?.category && p?.source !== "pdf_tools");
 
   const displayLevels = architecturalPages.length > 0
     ? architecturalPages
-    : (currentPages.length > 0 && !currentPages.some(p => p?.category === 'cladding' || p?.category === 'eaves')
+    : (currentPages.length > 0 && !currentPages.some(p => p?.category || p?.source === "pdf_tools")
         ? currentPages.map((p, originalIndex) => ({ ...p, originalIndex }))
         : (propLevels || appModel.levels || [{ originalIndex: 0, name: "Level 1", code: "GF" }]));
 

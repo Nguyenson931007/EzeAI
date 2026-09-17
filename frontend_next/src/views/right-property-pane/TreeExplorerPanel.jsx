@@ -226,80 +226,97 @@ export default function TreeExplorerPanel({
         }}
       >
         {/* Top-Level Floors Container */}
-        {(pages.length > 0 ? pages : [{ id: 0, name: "Ground Floor" }]).map((page, pageIdx) => {
-          const floorKey = `floor_${pageIdx}`;
-          const isFloorExpanded = expandedNodes.has(floorKey);
-          const isCurrentFloor = (currentPage || 0) === pageIdx;
+        {(() => {
+          const architecturalPages = (pages || [])
+            .map((page, originalIndex) => ({ ...page, originalIndex }))
+            .filter(p => !p?.category && p?.source !== "pdf_tools");
 
-          const pageWalls = wallsByPageProp[pageIdx] || (pageIdx === currentPage ? (walls || []) : []);
-          const pageRawDoors = doorsByPageProp[pageIdx] || (pageIdx === currentPage ? (doors || []) : []);
-          const pageDoors = pageRawDoors.filter(d => {
-            const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
-            if (!isWinClass) return true;
-            const pw = pageWalls.find(w => w.id === d.parentWallId);
-            const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
-            return pw && !isParentExt && pw.class_name !== "block_wall";
-          });
-          const pageWindows = pageRawDoors.filter(d => {
-            const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
-            if (!isWinClass) return false;
-            const pw = pageWalls.find(w => w.id === d.parentWallId);
-            const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
-            return !pw || isParentExt || pw.class_name === "block_wall";
-          });
-          const pageRooms = roomsByPageProp[pageIdx] || (pageIdx === currentPage ? (rooms || []) : []);
-          const pageLintels = lintelsByPageProp ? (lintelsByPageProp[pageIdx] || []) : (lintelsByPage ? (lintelsByPage[pageIdx] || []) : []);
-          const pageRoofs = roofsByPageProp ? (roofsByPageProp[pageIdx] || []) : (roofsByPage ? (roofsByPage[pageIdx] || []) : []);
+          const displayPages = architecturalPages.length > 0
+            ? architecturalPages
+            : (pages.length > 0 && !pages.some(p => p?.category || p?.source === "pdf_tools")
+                ? pages.map((p, originalIndex) => ({ ...p, originalIndex }))
+                : [{ id: 0, originalIndex: 0, name: "Floor 1" }]);
 
-          const filteredWalls = pageWalls.filter((w, idx) => filterMatch(w, "wall", getWallLabel(w, idx)));
-          const filteredDoors = pageDoors.filter((d, idx) => filterMatch(d, "door", getDoorLabel(d, idx)));
-          const filteredWindows = pageWindows.filter((win, idx) => filterMatch(win, "window", getWindowLabel(win, idx)));
-          const filteredRooms = pageRooms.filter((r, idx) => filterMatch(r, "room", getRoomLabel(r, idx)));
-          const filteredLintels = pageLintels.filter((l, idx) => filterMatch(l, "lintel", l.description || `Lintel #${idx + 1}`));
-          const filteredRoofs = pageRoofs.filter((rf, idx) => filterMatch(rf, "roof", getRoofLabel(rf, idx)));
+          return displayPages.map((page, archIdx) => {
+            const pageIdx = page.originalIndex !== undefined ? page.originalIndex : archIdx;
+            const floorKey = `floor_${pageIdx}`;
+            const isFloorExpanded = expandedNodes.has(floorKey);
+            const isCurrentFloor = (currentPage || 0) === pageIdx;
 
-          return (
-            <div key={floorKey} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              {/* Floor Header (Top-Level) */}
-              <div
-                onClick={() => toggleNode && toggleNode(floorKey)}
-                onDoubleClick={(e) => handleRenameFloor && handleRenameFloor(e, pageIdx, page.name || page.floor_name)}
-                title="Click to expand/collapse, double-click to rename floor"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "6px 8px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  background: isCurrentFloor ? "rgba(37, 99, 235, 0.08)" : "#f8fafc",
-                  border: isCurrentFloor ? "1px solid rgba(37, 99, 235, 0.25)" : "1px solid #e2e8f0",
-                  color: isCurrentFloor ? "var(--blue)" : "#1e293b",
-                  userSelect: "none",
-                  transition: "all 0.15s ease"
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      color: "#94a3b8",
-                      transform: isFloorExpanded ? "rotate(90deg)" : "rotate(0deg)",
-                      transition: "transform 0.15s ease"
-                    }}
-                  >
-                    ▶
-                  </span>
-                  <span style={{ fontSize: "14px" }}>🏢</span>
-                  <span>{page.name || page.floor_name || `Floor ${pageIdx + 1}`}</span>
+            const pageWalls = wallsByPageProp[pageIdx] || (pageIdx === currentPage ? (walls || []) : []);
+            const pageRawDoors = doorsByPageProp[pageIdx] || (pageIdx === currentPage ? (doors || []) : []);
+            const pageDoors = pageRawDoors.filter(d => {
+              const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
+              if (!isWinClass) return true;
+              const pw = pageWalls.find(w => w.id === d.parentWallId);
+              const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
+              return pw && !isParentExt && pw.class_name !== "block_wall";
+            });
+            const pageWindows = pageRawDoors.filter(d => {
+              const isWinClass = d.is_window || d.type === "window" || d.id?.startsWith("win_");
+              if (!isWinClass) return false;
+              const pw = pageWalls.find(w => w.id === d.parentWallId);
+              const isParentExt = pw && (pw.class_name === "exterior_wall" || pw.type === "ext" || pw.is_ext || pw.is_exterior);
+              return !pw || isParentExt || pw.class_name === "block_wall";
+            });
+            const pageRooms = roomsByPageProp[pageIdx] || (pageIdx === currentPage ? (rooms || []) : []);
+            const pageLintels = lintelsByPageProp ? (lintelsByPageProp[pageIdx] || []) : (lintelsByPage ? (lintelsByPage[pageIdx] || []) : []);
+            const pageRoofs = roofsByPageProp ? (roofsByPageProp[pageIdx] || []) : (roofsByPage ? (roofsByPage[pageIdx] || []) : []);
+
+            const filteredWalls = pageWalls.filter((w, idx) => filterMatch(w, "wall", getWallLabel(w, idx)));
+            const filteredDoors = pageDoors.filter((d, idx) => filterMatch(d, "door", getDoorLabel(d, idx)));
+            const filteredWindows = pageWindows.filter((win, idx) => filterMatch(win, "window", getWindowLabel(win, idx)));
+            const filteredRooms = pageRooms.filter((r, idx) => filterMatch(r, "room", getRoomLabel(r, idx)));
+            const filteredLintels = pageLintels.filter((l, idx) => filterMatch(l, "lintel", l.description || `Lintel #${idx + 1}`));
+            const filteredRoofs = pageRoofs.filter((rf, idx) => filterMatch(rf, "roof", getRoofLabel(rf, idx)));
+
+            const rawFloorName = (page.floor_name || page.name || "").trim();
+            const floorDisplayName = (rawFloorName && !rawFloorName.toLowerCase().startsWith("page ") && !rawFloorName.toLowerCase().startsWith("cladding") && !rawFloorName.toLowerCase().startsWith("image"))
+              ? rawFloorName
+              : `Floor ${archIdx + 1}`;
+
+            return (
+              <div key={floorKey} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                {/* Floor Header (Top-Level) */}
+                <div
+                  onClick={() => toggleNode && toggleNode(floorKey)}
+                  onDoubleClick={(e) => handleRenameFloor && handleRenameFloor(e, pageIdx, floorDisplayName)}
+                  title="Click to expand/collapse, double-click to rename floor"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "6px 8px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    background: isCurrentFloor ? "rgba(37, 99, 235, 0.08)" : "#f8fafc",
+                    border: isCurrentFloor ? "1px solid rgba(37, 99, 235, 0.25)" : "1px solid #e2e8f0",
+                    color: isCurrentFloor ? "var(--blue)" : "#1e293b",
+                    userSelect: "none",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        color: "#94a3b8",
+                        transform: isFloorExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                        transition: "transform 0.15s ease"
+                      }}
+                    >
+                      ▶
+                    </span>
+                    <span style={{ fontSize: "14px" }}>🏢</span>
+                    <span>{floorDisplayName}</span>
+                  </div>
+                  {isCurrentFloor && (
+                    <span style={{ fontSize: "10px", color: "var(--blue)", background: "rgba(37, 99, 235, 0.12)", padding: "1px 6px", borderRadius: "3px", fontWeight: 700 }}>
+                      Active
+                    </span>
+                  )}
                 </div>
-                {isCurrentFloor && (
-                  <span style={{ fontSize: "10px", color: "var(--blue)", background: "rgba(37, 99, 235, 0.12)", padding: "1px 6px", borderRadius: "3px", fontWeight: 700 }}>
-                    Active
-                  </span>
-                )}
-              </div>
 
               {/* Floor Content */}
               {isFloorExpanded && (
@@ -774,7 +791,8 @@ export default function TreeExplorerPanel({
               )}
             </div>
           );
-        })}
+        });
+      })()}
       </div>
     </div>
   );

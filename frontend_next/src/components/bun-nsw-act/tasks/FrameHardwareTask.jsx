@@ -129,18 +129,31 @@ export default function FrameHardwareTask({
 
   // Tính toán tất cả các tường từ AI Canvas của tất cả các trang
   const aiCanvasWallsGrouped = useMemo(() => {
+    // ONLY take architectural floor pages (exclude pdf_tools / task category pages)
+    const architecturalPages = (pages || [])
+      .map((p, originalIndex) => ({ ...p, originalIndex }))
+      .filter((p) => !p?.category && p?.source !== "pdf_tools");
+
+    const architecturalIndices = architecturalPages.map(p => p.originalIndex);
+    const validArchitecturalIndices = architecturalIndices.length > 0
+      ? architecturalIndices
+      : ((pages || []).length > 0 && !pages[0]?.category && pages[0]?.source !== "pdf_tools" ? [0] : []);
+
     const pageIndices = new Set([
-      ...pages.map((_, i) => i),
-      ...Object.keys(wallsByPage || {}).map(Number)
+      ...validArchitecturalIndices,
+      ...Object.keys(wallsByPage || {}).map(Number).filter(idx => validArchitecturalIndices.includes(idx))
     ]);
-    if (pageIndices.size === 0) pageIndices.add(0);
+    if (pageIndices.size === 0 && validArchitecturalIndices.length > 0) pageIndices.add(validArchitecturalIndices[0]);
 
     // Helper: determine FloorLevel label from page index
     const _getFloorLevelByPage = (idx) => {
+      const archOrderIdx = architecturalIndices.indexOf(idx);
+      const effectiveOrderIdx = archOrderIdx >= 0 ? archOrderIdx : idx;
+
       if (pages && pages[idx]) {
         const page = pages[idx];
         const name = (page.floor_name || page.name || "").trim();
-        if (name) {
+        if (name && !name.toLowerCase().startsWith("page ") && !name.toLowerCase().startsWith("cladding") && !name.toLowerCase().startsWith("image")) {
           const upper = name.toUpperCase();
           if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
           if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
@@ -158,7 +171,7 @@ export default function FrameHardwareTask({
         }
       }
       const labels = ["GF", "FF", "SF", "TF"];
-      return idx < labels.length ? labels[idx] : `${idx}F`;
+      return effectiveOrderIdx < labels.length ? labels[effectiveOrderIdx] : `${effectiveOrderIdx}F`;
     };
 
     const groupsMap = {};

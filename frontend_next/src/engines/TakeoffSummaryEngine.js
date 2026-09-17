@@ -209,6 +209,11 @@ export function calculateEnteredWallsByLevel({
   scalesByPage = {},
   realScale = 1.0
 } = {}) {
+  const architecturalPages = (pages || [])
+    .map((p, originalIndex) => ({ ...p, originalIndex }))
+    .filter((p) => !p?.category && p?.source !== "pdf_tools");
+  const architecturalIndices = architecturalPages.map(p => p.originalIndex);
+
   // Helper: determine FloorLevel label from page index
   const getFloorLevelByIndex = (idx) => {
     const labels = ["GF", "FF", "SF", "TF"];
@@ -217,10 +222,13 @@ export function calculateEnteredWallsByLevel({
   };
 
   const getFloorLevelByPage = (idx) => {
+    const archOrderIdx = architecturalIndices.indexOf(idx);
+    const effectiveOrderIdx = archOrderIdx >= 0 ? archOrderIdx : idx;
+
     if (pages && pages[idx]) {
       const page = pages[idx];
       const name = (page.floor_name || page.name || "").trim();
-      if (name) {
+      if (name && !name.toLowerCase().startsWith("page ") && !name.toLowerCase().startsWith("cladding") && !name.toLowerCase().startsWith("image")) {
         const upper = name.toUpperCase();
         if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
         if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
@@ -237,7 +245,7 @@ export function calculateEnteredWallsByLevel({
         return name;
       }
     }
-    return getFloorLevelByIndex(idx);
+    return getFloorLevelByIndex(effectiveOrderIdx);
   };
 
   // Helper: check if a FloorLevel string is "lower floor" (GF)

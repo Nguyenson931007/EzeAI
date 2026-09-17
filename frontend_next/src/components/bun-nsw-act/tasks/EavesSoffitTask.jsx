@@ -35,23 +35,30 @@ export default function EavesSoffitTask({
 
   // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
   const getLevelCode = (idx) => {
+    const archPages = (pages || []).map((p, originalIndex) => ({ ...p, originalIndex })).filter(p => !p?.category && p?.source !== "pdf_tools");
+    const archIndices = archPages.map(p => p.originalIndex);
+    const archIdx = archIndices.indexOf(idx);
+    const effectiveIdx = archIdx >= 0 ? archIdx : idx;
+
     if (pages && pages[idx]) {
       const name = (pages[idx].floor_name || pages[idx].name || "").trim().toUpperCase();
-      if (name === "LEVEL 1" || name === "GROUND FLOOR" || name === "GROUND" || name === "GF" || name === "TRỆT" || name === "TẦNG TRỆT") return "GF";
-      if (name === "LEVEL 2" || name === "FIRST FLOOR" || name === "FIRST" || name === "FF" || name === "TẦNG 1" || name === "1F") return "FF";
-      if (name === "LEVEL 3" || name === "SECOND FLOOR" || name === "SECOND" || name === "SF" || name === "TẦNG 2" || name === "2F") return "SF";
-      if (name === "LEVEL 4" || name === "THIRD FLOOR" || name === "THIRD" || name === "TF" || name === "TẦNG 3" || name === "3F") return "TF";
-      if (name.startsWith("LEVEL ")) {
-        const num = parseInt(name.replace("LEVEL ", "").trim(), 10);
-        if (num === 1) return "GF";
-        if (num === 2) return "FF";
-        if (num === 3) return "SF";
-        if (num === 4) return "TF";
-        return `${num - 1}F`;
+      if (name && !name.startsWith("PAGE ") && !name.startsWith("CLADDING") && !name.startsWith("IMAGE")) {
+        if (name === "LEVEL 1" || name === "GROUND FLOOR" || name === "GROUND" || name === "GF" || name === "TRỆT" || name === "TẦNG TRỆT") return "GF";
+        if (name === "LEVEL 2" || name === "FIRST FLOOR" || name === "FIRST" || name === "FF" || name === "TẦNG 1" || name === "1F") return "FF";
+        if (name === "LEVEL 3" || name === "SECOND FLOOR" || name === "SECOND" || name === "SF" || name === "TẦNG 2" || name === "2F") return "SF";
+        if (name === "LEVEL 4" || name === "THIRD FLOOR" || name === "THIRD" || name === "TF" || name === "TẦNG 3" || name === "3F") return "TF";
+        if (name.startsWith("LEVEL ")) {
+          const num = parseInt(name.replace("LEVEL ", "").trim(), 10);
+          if (num === 1) return "GF";
+          if (num === 2) return "FF";
+          if (num === 3) return "SF";
+          if (num === 4) return "TF";
+          return `${num - 1}F`;
+        }
       }
     }
     const labels = ["GF", "FF", "SF", "TF"];
-    return idx < labels.length ? labels[idx] : `${idx}F`;
+    return effectiveIdx < labels.length ? labels[effectiveIdx] : `${effectiveIdx}F`;
   };
 
   const LEVEL_SORT_ORDER = {

@@ -611,6 +611,24 @@ export async function renderPageToCanvas(page, annotations = [], realScale = 20)
   return canvas;
 }
 
+export const isCategoryMatch = (pageCat, stepId) => {
+  if (!pageCat || !stepId) return false;
+  const p = String(pageCat).toLowerCase().trim();
+  const s = String(stepId).toLowerCase().trim();
+  if (p === s) return true;
+  if ((p === "eaves" || p === "eaves_soffit") && (s === "eaves" || s === "eaves_soffit")) return true;
+  if ((p === "lockup" || p === "lock_up") && (s === "lockup" || s === "lock_up")) return true;
+  if ((p === "frame" || p === "frame_hardware") && (s === "frame" || s === "frame_hardware")) return true;
+  if ((p === "floor" || p === "flooring_decking") && (s === "floor" || s === "flooring_decking")) return true;
+  if ((p === "insu" || p === "insulation") && (s === "insu" || s === "insulation")) return true;
+  if ((p === "truss" || p === "power_truss_braces") && (s === "truss" || s === "power_truss_braces")) return true;
+  if ((p === "plumbing" || p === "fow_plumbing") && (s === "plumbing" || s === "fow_plumbing")) return true;
+  if ((p === "firewall" || p === "hardies_fire_walls") && (s === "firewall" || s === "hardies_fire_walls")) return true;
+  if ((p === "beams" || p === "timber_posts") && (s === "beams" || s === "timber_posts")) return true;
+  if ((p === "shelving" || p === "shelv") && (s === "shelving" || s === "shelv")) return true;
+  return false;
+};
+
 /**
  * Export specific pages and their markups to PDF
  */
@@ -639,16 +657,17 @@ export async function exportPdfToolsDocument({
       .map((p, idx) => ({ page: p, originalIndex: idx }))
       .filter(({ page }) => {
         if (!activeCategory) return true;
-        const cat = page.category || "";
-        return cat.toLowerCase() === activeCategory.toLowerCase() ||
-               (activeCategory.includes("eaves") && cat.includes("eaves"));
+        return isCategoryMatch(page.category, activeCategory);
       });
     if (targetPagesWithIndex.length === 0) {
       targetPagesWithIndex = pages.map((p, idx) => ({ page: p, originalIndex: idx }));
     }
   } else {
-    // "all" mode
-    targetPagesWithIndex = pages.map((p, idx) => ({ page: p, originalIndex: idx }));
+    // "all" mode: only export task/pdf_tools pages or all if none
+    const taskPages = pages
+      .map((p, idx) => ({ page: p, originalIndex: idx }))
+      .filter(({ page }) => page.category || page.source === "pdf_tools");
+    targetPagesWithIndex = taskPages.length > 0 ? taskPages : pages.map((p, idx) => ({ page: p, originalIndex: idx }));
   }
 
   const totalPages = targetPagesWithIndex.length;

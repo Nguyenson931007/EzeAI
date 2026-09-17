@@ -24,12 +24,16 @@ export default function FloorTabBarView({
     return `Level ${idx + 1}`;
   };
 
-  // Only display architectural Level pages (exclude PDF Tools / Cladding & Eaves pages)
+  // Only display architectural Level pages (exclude PDF Tools / any task category pages)
   const architecturalPages = pages
     .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => p?.source !== "pdf_tools" && p?.category !== "cladding" && p?.category !== "eaves");
+    .filter((p) => !p?.category && p?.source !== "pdf_tools");
 
-  const displayPages = architecturalPages.length > 0 ? architecturalPages : pages.map((p, originalIndex) => ({ ...p, originalIndex }));
+  const displayPages = architecturalPages.length > 0
+    ? architecturalPages
+    : (pages.length > 0 && !pages.some(p => p?.category || p?.source === "pdf_tools")
+        ? pages.map((p, originalIndex) => ({ ...p, originalIndex }))
+        : [{ originalIndex: 0, name: "Level 1" }]);
 
   return (
     <div className="cad-floor-tabs">

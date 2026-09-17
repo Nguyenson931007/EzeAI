@@ -2487,7 +2487,7 @@ export default function RibbonView({
                       borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
                     }}>Cancel</button>
                     <button
-                      onClick={() => confirmImport && confirmImport({})}
+                      onClick={() => confirmImport && confirmImport({}, "level")}
                       disabled={importSelectedPages.length === 0}
                       style={{
                         padding: '9px 24px',
@@ -2744,7 +2744,7 @@ export default function RibbonView({
                               <img src={pg.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                             </div>
 
-                            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center' }}>
                               <span style={{
                                 fontSize: 11,
                                 color: isChecked ? (assignedStep.color || (isCladding ? '#2563eb' : '#d97706')) : '#94a3b8',
@@ -2755,31 +2755,6 @@ export default function RibbonView({
                               }}>
                                 {isChecked ? `✓ Import as ${assignedStep.label || (isCladding ? "Cladding" : "Eaves")}` : "Click to select"}
                               </span>
-                              {isChecked && (
-                                <select
-                                  value={assignedCat}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    setImportPageCategories(prev => ({ ...prev, [i]: e.target.value }));
-                                  }}
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    padding: '2px 4px',
-                                    borderRadius: 4,
-                                    border: '1px solid #cbd5e1',
-                                    background: '#ffffff',
-                                    color: '#1e293b',
-                                    cursor: 'pointer',
-                                    maxWidth: '120px'
-                                  }}
-                                >
-                                  {taskSteps.map(st => (
-                                    <option key={st.id} value={st.id}>{st.label || st.name}</option>
-                                  ))}
-                                </select>
-                              )}
                             </div>
                           </div>
                         );
@@ -2797,7 +2772,7 @@ export default function RibbonView({
                           borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600
                         }}>Cancel</button>
                         <button
-                          onClick={() => confirmImport && confirmImport(importPageCategories)}
+                          onClick={() => confirmImport && confirmImport(importPageCategories, "pdf_tools")}
                           disabled={importSelectedPages.length === 0}
                           style={{
                             padding: '9px 24px',

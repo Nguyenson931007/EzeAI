@@ -370,6 +370,8 @@ const LintelsLayer = React.memo(({
           const startClientY = e.clientY;
           const initialOffset = l.calloutOffset ? { ...l.calloutOffset } : { x: defDx, y: defDy };
           let hasMoved = false;
+          let rafId = null;
+          let lastOffset = { x: initialOffset.x, y: initialOffset.y };
 
           const onPointerMove = (ev) => {
             ev.stopPropagation();
@@ -388,21 +390,32 @@ const LintelsLayer = React.memo(({
               y: Math.round(initialOffset.y + moveDy)
             };
 
-            if (setLintelsByPage && currentPage != null) {
-              setLintelsByPage(prev => {
-                const curList = prev[currentPage] || [];
-                return {
-                  ...prev,
-                  [currentPage]: curList.map(item =>
-                    item.id === l.id ? { ...item, calloutOffset: newOffset } : item
-                  )
-                };
-              });
-            }
+            if (newOffset.x === lastOffset.x && newOffset.y === lastOffset.y) return;
+            lastOffset = newOffset;
+
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+              if (setLintelsByPage && currentPage != null) {
+                setLintelsByPage(prev => {
+                  const curList = prev[currentPage] || [];
+                  const targetItem = curList.find(item => item.id === l.id);
+                  if (targetItem && targetItem.calloutOffset?.x === newOffset.x && targetItem.calloutOffset?.y === newOffset.y) {
+                    return prev;
+                  }
+                  return {
+                    ...prev,
+                    [currentPage]: curList.map(item =>
+                      item.id === l.id ? { ...item, calloutOffset: newOffset } : item
+                    )
+                  };
+                });
+              }
+            });
           };
 
           const onPointerUp = (ev) => {
             if (ev) ev.stopPropagation();
+            if (rafId) cancelAnimationFrame(rafId);
             window.removeEventListener("pointermove", onPointerMove);
             window.removeEventListener("pointerup", onPointerUp);
             if (hasMoved) {

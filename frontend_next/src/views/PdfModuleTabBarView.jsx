@@ -2,7 +2,6 @@
 import React from "react";
 import { useDialog } from "@/components/DialogContext";
 import { useAppModel } from "@/models/app.context";
-import { exportPdfToolsDocument } from "@/utils/pdfExportUtils";
 
 export const DEFAULT_TASK_STEPS = [
   { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "", color: "#2563eb" },
@@ -48,6 +47,14 @@ export default function PdfModuleTabBarView({
   onDeletePage,
 }) {
   const { showConfirm } = useDialog();
+  const { setAnnotationsByPage } = useAppModel() || {};
+  const [contextMenu, setContextMenu] = React.useState(null);
+
+  React.useEffect(() => {
+    const handleCloseMenu = () => setContextMenu(null);
+    window.addEventListener("click", handleCloseMenu);
+    return () => window.removeEventListener("click", handleCloseMenu);
+  }, []);
 
   // Đọc danh sách module/step được cấu hình từ TaskList API (nguồn chân lý của Job)
   const activeTaskListStepIds = React.useMemo(() => {
@@ -113,105 +120,67 @@ export default function PdfModuleTabBarView({
     );
   };
 
-  const {
-    annotationsByPage = {},
-    currentProjectName = "Project",
-    realScale = 20
-  } = useAppModel();
+  // Duplicate page on right-click
+  const handleDuplicatePage = (originalIndex) => {
+    if (!setPages || !pages || originalIndex < 0 || originalIndex >= pages.length) return;
+    const pageToDup = pages[originalIndex];
+    const newId = `pdf_pg_${Date.now()}_dup_${Math.random().toString(36).substring(2, 7)}`;
+    const baseTitle = pageToDup.customName || (pageToDup.name && !pageToDup.name.startsWith("architectural-drawing") ? pageToDup.name : `Page ${pageToDup.pageNumber || (originalIndex + 1)}`);
+    const newTitle = `${baseTitle} (Copy)`;
 
-  const [isExporting, setIsExporting] = React.useState(false);
-  const [showExportMenu, setShowExportMenu] = React.useState(false);
+    const newPage = {
+      ...pageToDup,
+      id: newId,
+      name: newTitle,
+      customName: newTitle,
+      pageNumber: pageToDup.pageNumber || (originalIndex + 1)
+    };
 
-  const handleExport = async (mode = "step") => {
-    try {
-      setIsExporting(true);
-      setShowExportMenu(false);
-      await exportPdfToolsDocument({
-        pages,
-        currentPage,
-        annotationsByPage,
-        activeCategory,
-        projectName: currentProjectName || "EzeFloor_Project",
-        realScale: (typeof realScale === "number" && realScale > 0) ? realScale : 20,
-        mode
+    const newPages = [...pages];
+    newPages.splice(originalIndex + 1, 0, newPage);
+    setPages(newPages);
+
+    if (setAnnotationsByPage) {
+      setAnnotationsByPage((prev = {}) => {
+        const updated = {};
+        Object.keys(prev).forEach((k) => {
+          const numK = Number(k);
+          if (numK <= originalIndex) {
+            updated[numK] = prev[numK];
+          } else {
+            updated[numK + 1] = prev[numK];
+          }
+        });
+        if (prev[originalIndex]) {
+          updated[originalIndex + 1] = JSON.parse(JSON.stringify(prev[originalIndex]));
+        }
+        return updated;
       });
-    } catch (err) {
-      console.error("[TabBar Export PDF Error]", err);
-      alert("Failed to export PDF: " + (err?.message || "Unknown error"));
-    } finally {
-      setIsExporting(false);
+    }
+
+    if (onPageClick) {
+      onPageClick(originalIndex + 1);
     }
   };
 
+  // Rename page on right-click
+  const handleRenamePage = (originalIndex) => {
+    if (!setPages || !pages || originalIndex < 0 || originalIndex >= pages.length) return;
+    const pageObj = pages[originalIndex];
+    const currentTitle = pageObj.customName || (pageObj.name && !pageObj.name.startsWith("architectural-drawing") ? pageObj.name : `Page ${pageObj.pageNumber || (originalIndex + 1)}`);
+    const newName = window.prompt("Rename Page:", currentTitle);
+    if (newName && newName.trim()) {
+      const cleanName = newName.trim();
+      setPages((prev) =>
+        prev.map((p, idx) => (idx === originalIndex ? { ...p, name: cleanName, customName: cleanName } : p))
+      );
+    }
+  };
+
+
+
   return (
     <div className="pdf-module-tab-bar">
-      {/* Left: Step Group Switcher with dynamic badges */}
-      <div className="pdf-module-group-switcher" style={{ maxWidth: '65vw', overflowX: 'auto', scrollbarWidth: 'none' }}>
-        {visibleSteps.map((step) => {
-          const isActive = isCategoryMatch(activeCategory, step.id);
-          const stepPages = getPagesForStep(step.id);
-          const activeColor = step.id === "cladding" ? "#2563eb" : ((step.id === "eaves" || step.id === "eaves_soffit") ? "#d97706" : (step.color || "#4f46e5"));
-
-          return (
-            <button
-              key={step.id}
-              type="button"
-              className={`pdf-module-switch-btn ${step.id} ${isActive ? "active" : ""}`}
-              style={isActive ? {
-                background: activeColor,
-                color: "#ffffff",
-                boxShadow: `0 2px 6px ${activeColor}55`
-              } : {}}
-              onClick={() => {
-                if (setActiveCategory) setActiveCategory(step.id);
-                const firstMatching = pages.findIndex(p => isCategoryMatch(p?.category, step.id));
-                if (firstMatching >= 0 && firstMatching !== currentPage) {
-                  onPageClick && onPageClick(firstMatching);
-                }
-              }}
-              title={`${step.name || step.label} Pages (${stepPages.length})`}
-            >
-              <span>{step.label}</span>
-              <span className="badge" style={isActive ? { background: "rgba(255,255,255,0.3)", color: "#fff" } : {}}>
-                {stepPages.length}
-              </span>
-
-              {/* Quick delete / close step button */}
-              <span
-                className="step-close-x"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (await showConfirm(`Delete all pages in ${step.name || step.label}?`)) {
-                    if (setPages) {
-                      setPages((prev) => prev.filter((p) => !isCategoryMatch(p?.category, step.id)));
-                    }
-                  }
-                }}
-                title={`Delete ${step.label} step`}
-                style={{
-                  marginLeft: "4px",
-                  fontSize: "11px",
-                  lineHeight: 1,
-                  padding: "2px 4px",
-                  borderRadius: "4px",
-                  opacity: 0.7,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(0,0,0,0.2)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.7"; e.currentTarget.style.background = "transparent"; }}
-              >
-                ✕
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ width: "1px", height: "20px", background: "#e2e8f0", margin: "0 2px" }} />
-
       {/* Middle: PDF Pages belonging to active module */}
       <div className="pdf-pages-scroll-row">
         {currentModulePages.length === 0 ? (
@@ -229,7 +198,17 @@ export default function PdfModuleTabBarView({
                 key={p.originalIndex}
                 className={`pdf-page-tab ${isActive ? "active" : ""}`}
                 onClick={() => onPageClick && onPageClick(p.originalIndex)}
-                title={`${p.fileName ? `${p.fileName} - ` : ""}${pageTitle} (${p.w || 0} × ${p.h || 0} px)`}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    pageIndex: p.originalIndex,
+                    pageTitle
+                  });
+                }}
+                title={`${p.fileName ? `${p.fileName} - ` : ""}${pageTitle} (${p.w || 0} × ${p.h || 0} px) • Right-click to duplicate/rename`}
               >
                 <span style={{ fontSize: "12px", opacity: 0.85 }}>📄</span>
                 <span>{pageTitle}</span>
@@ -291,6 +270,125 @@ export default function PdfModuleTabBarView({
           })
         )}
 
+        {/* Custom Context Menu on Right-Click */}
+        {contextMenu && (
+          <div
+            style={{
+              position: "fixed",
+              top: contextMenu.y,
+              left: contextMenu.x,
+              zIndex: 99999,
+              background: "#ffffff",
+              borderRadius: "8px",
+              boxShadow: "0 10px 25px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid #cbd5e1",
+              padding: "4px",
+              minWidth: "165px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: "4px 8px", fontSize: "10.5px", color: "#64748b", fontWeight: 700, borderBottom: "1px solid #f1f5f9" }}>
+              {contextMenu.pageTitle}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                handleDuplicatePage(contextMenu.pageIndex);
+                setContextMenu(null);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "6px 10px",
+                borderRadius: "5px",
+                border: "none",
+                background: "transparent",
+                color: "#1e293b",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                textAlign: "left",
+                width: "100%",
+                transition: "background 0.15s"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#eff6ff"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              <span>📋</span>
+              <span>Duplicate Page</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                handleRenamePage(contextMenu.pageIndex);
+                setContextMenu(null);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "6px 10px",
+                borderRadius: "5px",
+                border: "none",
+                background: "transparent",
+                color: "#1e293b",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                textAlign: "left",
+                width: "100%",
+                transition: "background 0.15s"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#eff6ff"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              <span>✏️</span>
+              <span>Rename Page</span>
+            </button>
+            {pages.length > 1 && (
+              <>
+                <div style={{ height: "1px", background: "#f1f5f9", margin: "2px 0" }} />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const idx = contextMenu.pageIndex;
+                    const title = contextMenu.pageTitle;
+                    setContextMenu(null);
+                    if (await showConfirm(`Delete ${title}?`)) {
+                      if (onDeletePage) onDeletePage(idx);
+                    }
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "6px 10px",
+                    borderRadius: "5px",
+                    border: "none",
+                    background: "transparent",
+                    color: "#dc2626",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    width: "100%",
+                    transition: "background 0.15s"
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#fee2e2"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <span>🗑️</span>
+                  <span>Delete Page</span>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Add single file directly into active module */}
         <label
           title={`Add PDF / Image to ${activeCategory === "cladding" ? "Cladding" : "Eaves"}`}
@@ -329,115 +427,6 @@ export default function PdfModuleTabBarView({
         </label>
       </div>
 
-      {/* Right: Actions (Export PDF & Assign PDF Pages) */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, position: "relative" }}>
-        {/* Export PDF Menu Trigger */}
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={() => setShowExportMenu(prev => !prev)}
-            disabled={isExporting}
-            title="Export markups & drawings to PDF"
-            style={{
-              height: "26px",
-              padding: "0 10px",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              fontSize: "11px",
-              fontWeight: 700,
-              color: "#059669",
-              background: "#ecfdf5",
-              border: "1px solid #a7f3d0",
-              borderRadius: "6px",
-              cursor: "pointer",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
-            }}
-          >
-            <span>📥</span>
-            <span>{isExporting ? "Exporting..." : "Export PDF ▾"}</span>
-          </button>
-
-          {showExportMenu && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                right: 0,
-                zIndex: 3000,
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                borderRadius: "8px",
-                boxShadow: "0 10px 25px rgba(0,0,0,0.18)",
-                padding: "6px",
-                minWidth: "200px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "3px"
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => handleExport("current")}
-                style={{
-                  width: "100%", textAlign: "left", padding: "6px 10px", border: "none",
-                  background: "#f8fafc", borderRadius: "5px", cursor: "pointer", fontSize: "11px",
-                  fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "6px"
-                }}
-              >
-                <span>📄</span> Export Current Page
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExport("step")}
-                style={{
-                  width: "100%", textAlign: "left", padding: "6px 10px", border: "none",
-                  background: "#f8fafc", borderRadius: "5px", cursor: "pointer", fontSize: "11px",
-                  fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "6px"
-                }}
-              >
-                <span>📑</span> Export All {activeCategory ? (activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)) : "Task"} Pages
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExport("all")}
-                style={{
-                  width: "100%", textAlign: "left", padding: "6px 10px", border: "none",
-                  background: "#f8fafc", borderRadius: "5px", cursor: "pointer", fontSize: "11px",
-                  fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "6px"
-                }}
-              >
-                <span>📚</span> Export All Project Pages
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Import / Assign PDF Pages Modal Trigger */}
-        <button
-          type="button"
-          onClick={() => onOpenImportSelector && onOpenImportSelector()}
-          title="Import PDF & Assign Pages to Cladding / Eaves"
-          style={{
-            height: "26px",
-            padding: "0 10px",
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            fontSize: "11px",
-            fontWeight: 700,
-            color: "#1d4ed8",
-            background: "#eff6ff",
-            border: "1px solid #bfdbfe",
-            borderRadius: "6px",
-            cursor: "pointer",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
-          }}
-        >
-          <span>📑</span>
-          <span>Assign PDF Pages</span>
-        </button>
-      </div>
     </div>
   );
 }

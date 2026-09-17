@@ -29,6 +29,16 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
     }
   };
 
+  const architecturalPages = (pages || [])
+    .map((p, originalIndex) => ({ ...p, originalIndex }))
+    .filter((p) => !p?.category && p?.source !== "pdf_tools");
+
+  const displayPages = architecturalPages.length > 0
+    ? architecturalPages
+    : (pages.length > 0 && !pages.some(p => p?.category || p?.source === "pdf_tools")
+        ? pages.map((p, originalIndex) => ({ ...p, originalIndex }))
+        : []);
+
   return (
     <div className="cad-page-sidebar">
       <style>{`
@@ -49,9 +59,10 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
         Pages
       </div>
 
-      {pages.map((p, i) => {
+      {displayPages.map((p, archIdx) => {
+        const i = p.originalIndex !== undefined ? p.originalIndex : archIdx;
         const roomCount = (roomsByPage && roomsByPage[i]) ? roomsByPage[i].length : 0;
-        const floorDisplayName = mapFloorName(p.floor_name, i);
+        const floorDisplayName = mapFloorName(p.floor_name, archIdx);
 
         return (
           <div

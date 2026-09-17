@@ -1362,14 +1362,17 @@ export default function App() {
     }
   };
 
-  function confirmImport(categoryAssignments = {}) {
+  function confirmImport(categoryAssignments = {}, forcedTarget = null) {
     if (importSelectedPages.length === 0) {
       setShowImportPageSelector(false);
       setIsAddingPagesMode(false);
       return;
     }
 
-    const isLevel = importTarget === "level";
+    const effectiveTarget = forcedTarget || importTarget;
+    const hasCategoryAssignments = categoryAssignments && Object.keys(categoryAssignments).length > 0;
+    // An import is ONLY for architectural levels if explicitly target is "level" AND no category assignments/active task category were provided
+    const isLevel = effectiveTarget === "level" && !hasCategoryAssignments && !activePdfCategory;
     const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => {
       const p = pendingPages[idx];
       if (isLevel) {
