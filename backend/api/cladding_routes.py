@@ -45,6 +45,7 @@ class CladdingItemSchema(BaseModel):
     wall_height: Optional[Union[float, int, str]] = Field(2.44, description="Chiều cao tường Cladding (m hoặc mm)")
     wall_length: Optional[Union[float, int, str]] = Field(0.0, description="Chiều dài tường Cladding (m hoặc mm)")
     short_name: Optional[str] = Field("BUN-NSW-ACT", description="Mã viết tắt client (VD: BUN-NSW-ACT, CAIRNS)")
+    floor_level: Optional[str] = Field("GF", description="Tầng: GF, FF, SF, TF...")
 
 
 class JobSaveSchema(BaseModel):
@@ -72,6 +73,7 @@ async def get_cladding_jobs(office: Optional[str] = Query(None, description="Fil
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
+        normalized_office = (office or "").strip().upper() or None
         sql = """
             SELECT
                 c.ID AS cladding_id,
@@ -83,6 +85,7 @@ async def get_cladding_jobs(office: Optional[str] = Query(None, description="Fil
                 c.WallHeight AS wall_height,
                 c.WallLength AS wall_length,
                 c.short_name AS short_name,
+                c.FloorLevel AS floor_level,
                 c.UserUpdate AS user_update,
                 c.DatetimeUpdate AS datetime_update,
                 c.IsOldData AS is_old_data,
@@ -105,12 +108,12 @@ async def get_cladding_jobs(office: Optional[str] = Query(None, description="Fil
 
             WHERE
                 ISNULL(tghw.is_delete, 0) = 0
-                AND aj.MaNV = 'EZE0098'
+                AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s)
 
             ORDER BY tghw.id DESC;
         """
 
-        cursor.execute(sql)
+        cursor.execute(sql, (normalized_office, normalized_office))
         rows = cursor.fetchall()
 
         result = []
@@ -123,6 +126,7 @@ async def get_cladding_jobs(office: Optional[str] = Query(None, description="Fil
                     item[key] = val
                 else:
                     item[key] = str(val)
+            item["floor_level"] = row.get("floor_level") or "GF"
             result.append(item)
 
         return {
@@ -269,7 +273,8 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
                     IdJob_HW,
                     UserUpdate,
                     DatetimeUpdate,
-                    IsOldData
+                    IsOldData,
+                    FloorLevel
                 )
                 VALUES
                 (
@@ -280,7 +285,8 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
                     %s,
                     %s,
                     GETDATE(),
-                    0
+                    0,
+                    %s
                 );
             """
 
@@ -291,6 +297,7 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
                 h_val = _parse_decimal(item.wall_height, default=2.44)
                 l_val = _parse_decimal(item.wall_length, default=0.0)
                 short_name_val = item.short_name or "BUN-NSW-ACT"
+                flr_lvl = (item.floor_level or "GF").strip()
 
                 cursor.execute(
                     sql_insert_new,
@@ -299,7 +306,8 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
                         l_val,
                         short_name_val,
                         job_hw_id,
-                        user_update
+                        user_update,
+                        flr_lvl
                     )
                 )
                 inserted_walls_count += 1
@@ -354,6 +362,7 @@ async def save_cladding_single(payload: dict, request: Request = None):
     wall_height = payload.get("wall_height") or payload.get("WallHeight") or payload.get("height") or 2.44
     wall_length = payload.get("wall_length") or payload.get("WallLength") or payload.get("length") or 0.0
     short_name = payload.get("short_name") or "BUN-NSW-ACT"
+    floor_level = payload.get("floor_level") or payload.get("FloorLevel") or "GF"
     user_update = payload.get("user_update") or (request.headers.get("x-username") if request else None) or "admin"
 
     formatted_payload = SaveJobsPayloadSchema(
@@ -365,7 +374,8 @@ async def save_cladding_single(payload: dict, request: Request = None):
                     CladdingItemSchema(
                         wall_height=wall_height,
                         wall_length=wall_length,
-                        short_name=short_name
+                        short_name=short_name,
+                        floor_level=floor_level
                     )
                 ]
             )

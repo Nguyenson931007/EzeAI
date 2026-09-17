@@ -656,6 +656,106 @@ export default function FlooringDeckingTask({
     ];
   };
 
+  const LEVEL_SORT_ORDER = {
+    GF: 1,
+    "G/F": 1,
+    "GROUND FLOOR": 1,
+    GROUND: 1,
+    "LEVEL 1": 1,
+    "0F": 1,
+    FF: 2,
+    "1/F": 2,
+    "1F": 2,
+    "FIRST FLOOR": 2,
+    FIRST: 2,
+    "LEVEL 2": 2,
+    SF: 3,
+    "2/F": 3,
+    "2F": 3,
+    "SECOND FLOOR": 3,
+    SECOND: 3,
+    "LEVEL 3": 3,
+    TF: 4,
+    "3/F": 4,
+    "3F": 4,
+    "THIRD FLOOR": 4,
+    THIRD: 4,
+    "LEVEL 4": 4,
+    "4F": 5,
+    "4/F": 5,
+    "FOURTH FLOOR": 5,
+    FOURTH: 5,
+    "LEVEL 5": 5,
+    "5F": 6,
+    "5/F": 6,
+    "FIFTH FLOOR": 6,
+    FIFTH: 6,
+    "LEVEL 6": 6,
+    "6F": 7,
+    "6/F": 7,
+    "SIXTH FLOOR": 7,
+    SIXTH: 7,
+    "LEVEL 7": 7,
+    "7F": 8,
+    "7/F": 8,
+    "SEVENTH FLOOR": 8,
+    SEVENTH: 8,
+    "LEVEL 8": 8,
+    "8F": 9,
+    "8/F": 9,
+    "EIGHTH FLOOR": 9,
+    EIGHTH: 9,
+    "LEVEL 9": 9,
+    "9F": 10,
+    "9/F": 10,
+    "NINTH FLOOR": 10,
+    NINTH: 10,
+    "LEVEL 10": 10,
+    "10F": 11,
+    "10/F": 11,
+    "TENTH FLOOR": 11,
+    TENTH: 11,
+    "LEVEL 11": 11
+  };
+
+  const getFloorLevelDisplayName = (lvl) => {
+    const raw = String(lvl || "").trim().toUpperCase();
+    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
+      return "Ground Floor";
+    }
+    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
+      return "First Floor";
+    }
+    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
+      return "Second Floor";
+    }
+    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
+      return "Third Floor";
+    }
+    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
+      return "Fourth Floor";
+    }
+    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
+      return "Fifth Floor";
+    }
+    if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
+      return "Sixth Floor";
+    }
+    if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
+      return "Seventh Floor";
+    }
+    if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
+      return "Eighth Floor";
+    }
+    if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
+      return "Ninth Floor";
+    }
+    if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
+      return "Tenth Floor";
+    }
+    return `${lvl} Floor`;
+  };
+
   // Entered rows based on entries prop (only populated when Auto Fill or added)
   const enteredRows = React.useMemo(() => {
     if (entries && entries.length > 0) {
@@ -670,6 +770,28 @@ export default function FlooringDeckingTask({
     }
     return [];
   }, [entries]);
+
+  const groupedFlooringByLevel = React.useMemo(() => {
+    const groups = {};
+    (enteredRows || []).forEach(item => {
+      const lvl = String(item.floorLevel || "GF").toUpperCase().trim() || "GF";
+      if (!groups[lvl]) {
+        groups[lvl] = [];
+      }
+      groups[lvl].push(item);
+    });
+
+    const sortedLevels = Object.keys(groups).sort((a, b) => {
+      const orderA = LEVEL_SORT_ORDER[a] || 99;
+      const orderB = LEVEL_SORT_ORDER[b] || 99;
+      return orderA - orderB;
+    });
+
+    return sortedLevels.map(lvl => ({
+      level: lvl,
+      items: groups[lvl]
+    }));
+  }, [enteredRows]);
 
   const handleProductChange = (item, newProduct) => {
     if (onSetEntries && entries) {
@@ -1255,8 +1377,7 @@ export default function FlooringDeckingTask({
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                 <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
-                <th style={{ padding: "6px 8px", width: "65px" }}>Floor Level</th>
-                <th style={{ padding: "6px 8px", minWidth: "85px" }}>Type Area</th>
+                <th style={{ padding: "6px 8px", minWidth: "90px" }}>Type Area</th>
                 <th style={{ padding: "6px 8px", minWidth: "290px" }}>Product</th>
                 <th style={{ padding: "6px 8px", textAlign: "right", minWidth: "90px" }}>Total m²</th>
                 <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
@@ -1265,272 +1386,274 @@ export default function FlooringDeckingTask({
             <tbody>
               {enteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan="6" style={{ padding: "20px 12px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "11px" }}>
+                  <td colSpan="5" style={{ padding: "20px 12px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "11px" }}>
                     No flooring areas entered yet. Click <strong>⚡ Auto Fill (AI)</strong> above to calculate from drawings.
                   </td>
                 </tr>
               ) : (
-                enteredRows.map((item, idx) => {
-                const isSelected = selectedEntryId === (item.id || item.typeArea) ||
-                  (selectedRoom && (item.roomId === selectedRoom.id || (item.roomIds && item.roomIds.includes(selectedRoom.id)))) ||
-                  (selectedRoomIds && selectedRoomIds.some(rId => item.roomId === rId || (item.roomIds && item.roomIds.includes(rId)))) ||
-                  (selectedType === "room" && (item.roomId === selectedId || (item.roomIds && item.roomIds.includes(selectedId))));
-                const isRowEditing = editingRowId === item.id;
-                const lvl = item.floorLevel || "GF";
+                groupedFlooringByLevel.map(({ level, items }) => {
+                  const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
+                  return (
+                    <React.Fragment key={level}>
+                      <tr style={{
+                        background: isLower ? "#f0fdf4" : "#fefce8",
+                        borderTop: "2px solid #cbd5e1",
+                        borderBottom: "1px solid #e2e8f0"
+                      }}>
+                        <td colSpan={5} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{
+                                background: isLower ? "#dcfce7" : "#fef08a",
+                                color: isLower ? "#15803d" : "#854d0e",
+                                border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontWeight: 800,
+                                fontSize: "10.5px",
+                                letterSpacing: "0.5px"
+                              }}>
+                                {level}
+                              </span>
+                              <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
+                                {getFloorLevelDisplayName(level)}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
+                              {items.length} {items.length === 1 ? "area" : "areas"}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {items.map((item) => {
+                        const globalIdx = enteredRows.findIndex(r => r.id === item.id);
+                        const idx = globalIdx >= 0 ? globalIdx : 0;
+                        const isSelected = selectedEntryId === (item.id || item.typeArea) ||
+                          (selectedRoom && (item.roomId === selectedRoom.id || (item.roomIds && item.roomIds.includes(selectedRoom.id)))) ||
+                          (selectedRoomIds && selectedRoomIds.some(rId => item.roomId === rId || (item.roomIds && item.roomIds.includes(rId)))) ||
+                          (selectedType === "room" && (item.roomId === selectedId || (item.roomIds && item.roomIds.includes(selectedId))));
+                        const isRowEditing = editingRowId === item.id;
+                        const lvl = item.floorLevel || "GF";
 
-                return (
-                  <tr
-                    key={item.id || idx}
-                    data-entry-id={item.id || item.typeArea}
-                    data-editing-row-id={isRowEditing ? item.id : undefined}
-                    onDoubleClick={(e) => {
-                      if (isRowEditing) return;
-                      if (e.target.closest && e.target.closest("button")) return;
-                      if (editingRowId && editingRowId !== item.id) {
-                        handleSaveInlineEdit(editingRowId);
-                      }
-                      setSelectedEntryId(item.id || item.typeArea);
-                      handleStartEdit(item);
-                    }}
-                    onClick={() => {
-                      if (!isRowEditing) {
-                        if (editingRowId && editingRowId !== item.id) {
-                          handleSaveInlineEdit(editingRowId);
-                        }
-                        setSelectedEntryId(item.id || item.typeArea);
-
-                        // Auto switch canvas page if item belongs to Level 2 (FF), Level 3 (SF), etc.
-                        if (item.floorLevel) {
-                          const lvlCode = String(item.floorLevel).toUpperCase().trim();
-                          let targetIdx = -1;
-                          (pages || []).forEach((p, pIdx) => {
-                            const pName = (p.floor_name || p.name || "").toUpperCase().trim();
-                            if (lvlCode === "GF" && (pIdx === 0 || pName.includes("GROUND") || pName.includes("GF") || pName === "LEVEL 1")) {
-                              if (targetIdx === -1) targetIdx = pIdx;
-                            } else if (lvlCode === "FF" && (pIdx === 1 || pName.includes("FIRST") || pName.includes("FF") || pName === "LEVEL 2")) {
-                              targetIdx = pIdx;
-                            } else if (lvlCode === "SF" && (pIdx === 2 || pName.includes("SECOND") || pName.includes("SF") || pName === "LEVEL 3")) {
-                              targetIdx = pIdx;
-                            } else if (lvlCode === "TF" && (pIdx === 3 || pName.includes("THIRD") || pName.includes("TF") || pName === "LEVEL 4")) {
-                              targetIdx = pIdx;
-                            }
-                          });
-                          if (targetIdx === -1) {
-                            if (lvlCode === "GF") targetIdx = 0;
-                            else if (lvlCode === "FF") targetIdx = 1;
-                            else if (lvlCode === "SF") targetIdx = 2;
-                            else if (lvlCode === "TF") targetIdx = 3;
-                          }
-                          // Only switch page if targetIdx is different from current page.
-                          // When user is viewing items on Page 2, STAY on Page 2!
-                          if (targetIdx >= 0 && targetIdx < (pages || []).length && targetIdx !== currentPage) {
-                            if (goPage) {
-                              goPage(targetIdx);
-                            } else if (setCurrentPage) {
-                              setCurrentPage(targetIdx);
-                            }
-                          }
-                        }
-                        if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
-                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
-                          setDryArea(val);
-                          if (item.product) setDryProduct(item.product);
-                          setIsDryOpen(true);
-                        } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
-                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
-                          setWetArea(val);
-                          if (item.product) setWetProduct(item.product);
-                          setIsWetOpen(true);
-                        } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
-                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
-                          setBalconyArea(val);
-                          if (item.product) setBalconyProduct(item.product);
-                          setIsBalconyOpen(true);
-                        } else {
-                          const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
-                          setOtherArea(val);
-                          setOtherTypeArea(item.typeArea || "Decking Input");
-                          if (item.product) setOtherProduct(item.product);
-                          setIsOtherOpen(true);
-                        }
-
-                        if (onSelectEntry) onSelectEntry(item);
-                      }
-                    }}
-                    style={{
-                      borderBottom: "1px solid #e2e8f0",
-                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
-                      cursor: isRowEditing ? "default" : "pointer",
-                      outline: isSelected ? "2px solid #3b82f6" : "none",
-                      outlineOffset: "-1px",
-                      transition: "background 0.15s ease"
-                    }}
-                  >
-                    <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
-
-                    {/* Floor Level Column */}
-                    <td style={{ padding: "4px 8px" }}>
-                      {isRowEditing ? (
-                        <select
-                          value={editRowData.floorLevel || lvl}
-                          onChange={(e) => setEditRowData({ ...editRowData, floorLevel: e.target.value })}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            padding: "2px 4px",
-                            fontSize: "10px",
-                            fontWeight: 700,
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff",
-                            color: "#0f172a"
-                          }}
-                        >
-                          <option value="GF">GF</option>
-                          <option value="FF">FF</option>
-                          <option value="SF">SF</option>
-                          <option value="TF">TF</option>
-                        </select>
-                      ) : (
-                        <span style={{
-                          padding: "2px 6px",
-                          borderRadius: "4px",
-                          fontSize: "10px",
-                          fontWeight: 800,
-                          background: lvl === "FF" ? "rgba(245, 158, 11, 0.12)" : (lvl === "SF" ? "rgba(139, 92, 246, 0.12)" : "rgba(37, 99, 235, 0.1)"),
-                          color: lvl === "FF" ? "#d97706" : (lvl === "SF" ? "#7c3aed" : "#2563eb")
-                        }}>
-                          {lvl}
-                        </span>
-                      )}
-                    </td>
-
-                    <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.roomName ? `${item.typeArea} (${item.roomName})` : item.typeArea}</td>
-
-                    {/* Product */}
-                    <td style={{ padding: "4px 8px", minWidth: "290px" }}>
-                      <select
-                        value={isRowEditing ? (editRowData.product || item.product || "") : (item.product || "")}
-                        onChange={(e) => {
-                          const newProd = e.target.value;
-                          if (isRowEditing) {
-                            setEditRowData({ ...editRowData, product: newProd });
-                          } else {
-                            handleProductChange(item, newProd);
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          width: "100%",
-                          minWidth: "280px",
-                          padding: "4px 8px",
-                          fontSize: "10.5px",
-                          fontWeight: 600,
-                          borderRadius: "4px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff",
-                          color: "#0f172a",
-                          cursor: "pointer"
-                        }}
-                      >
-                        {getProductOptionsForType(item.typeArea).map((opt, oIdx) => (
-                          <option key={oIdx} value={opt}>{opt}</option>
-                        ))}
-                        {item.product && !getProductOptionsForType(item.typeArea).includes(item.product) && (
-                          <option value={item.product}>{item.product}</option>
-                        )}
-                      </select>
-                    </td>
-
-                    {/* Total m² */}
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "var(--blue)" }}>
-                      {isRowEditing ? (
-                        <input
-                          type="text"
-                          value={editRowData.totalM2 || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, totalM2: e.target.value })}
-                          style={{ width: "75px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px", textAlign: "right" }}
-                        />
-                      ) : (
-                        formatM2_4Digits(item.totalM2)
-                      )}
-                    </td>
-
-                    {/* Actions: Edit on left of X */}
-                    <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                      {isRowEditing ? (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSaveInlineEdit(item.id);
+                        return (
+                          <tr
+                            key={item.id || idx}
+                            data-entry-id={item.id || item.typeArea}
+                            data-editing-row-id={isRowEditing ? item.id : undefined}
+                            onDoubleClick={(e) => {
+                              if (isRowEditing) return;
+                              if (e.target.closest && e.target.closest("button")) return;
+                              if (editingRowId && editingRowId !== item.id) {
+                                handleSaveInlineEdit(editingRowId);
+                              }
+                              setSelectedEntryId(item.id || item.typeArea);
+                              handleStartEdit(item);
                             }}
-                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
-                            title="Save"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
-                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                            title="Cancel"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rawNum = parseFloat(String(item.totalM2).replace(/m²/gi, "").trim());
-                              setEditingRowId(item.id);
-                              setEditRowData({
-                                floorLevel: lvl,
-                                product: item.product,
-                                totalM2: isNaN(rawNum) ? "" : rawNum.toFixed(4)
-                              });
-                            }}
-                            style={{ background: "none", border: "none", color: "#f97316", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                            title="Edit"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (onSetEntries && entries && entries.length > 0) {
-                                onSetEntries(entries.filter(r => r.id !== item.id));
-                              } else {
-                                if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
-                                  setDryArea("");
-                                  if (onChange) onChange("flooring_decking", "dryArea", "");
-                                } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
-                                  setWetArea("");
-                                  if (onChange) onChange("flooring_decking", "wetArea", "");
-                                } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
-                                  setBalconyArea("");
-                                  if (onChange) onChange("flooring_decking", "balconyArea", "");
-                                } else {
-                                  setOtherArea("");
-                                  if (onChange) onChange("flooring_decking", "otherArea", "");
+                            onClick={() => {
+                              if (!isRowEditing) {
+                                if (editingRowId && editingRowId !== item.id) {
+                                  handleSaveInlineEdit(editingRowId);
                                 }
+                                setSelectedEntryId(item.id || item.typeArea);
+
+                                // Auto switch canvas page if item belongs to Level 2 (FF), Level 3 (SF), etc.
+                                if (item.floorLevel) {
+                                  const lvlCode = String(item.floorLevel).toUpperCase().trim();
+                                  let targetIdx = -1;
+                                  (pages || []).forEach((p, pIdx) => {
+                                    const pName = (p.floor_name || p.name || "").toUpperCase().trim();
+                                    if (lvlCode === "GF" && (pIdx === 0 || pName.includes("GROUND") || pName.includes("GF") || pName === "LEVEL 1")) {
+                                      if (targetIdx === -1) targetIdx = pIdx;
+                                    } else if (lvlCode === "FF" && (pIdx === 1 || pName.includes("FIRST") || pName.includes("FF") || pName === "LEVEL 2")) {
+                                      targetIdx = pIdx;
+                                    } else if (lvlCode === "SF" && (pIdx === 2 || pName.includes("SECOND") || pName.includes("SF") || pName === "LEVEL 3")) {
+                                      targetIdx = pIdx;
+                                    } else if (lvlCode === "TF" && (pIdx === 3 || pName.includes("THIRD") || pName.includes("TF") || pName === "LEVEL 4")) {
+                                      targetIdx = pIdx;
+                                    }
+                                  });
+                                  if (targetIdx === -1) {
+                                    if (lvlCode === "GF") targetIdx = 0;
+                                    else if (lvlCode === "FF") targetIdx = 1;
+                                    else if (lvlCode === "SF") targetIdx = 2;
+                                    else if (lvlCode === "TF") targetIdx = 3;
+                                  }
+                                  if (targetIdx >= 0 && targetIdx < (pages || []).length && targetIdx !== currentPage) {
+                                    if (goPage) {
+                                      goPage(targetIdx);
+                                    } else if (setCurrentPage) {
+                                      setCurrentPage(targetIdx);
+                                    }
+                                  }
+                                }
+                                if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
+                                  const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                                  setDryArea(val);
+                                  if (item.product) setDryProduct(item.product);
+                                  setIsDryOpen(true);
+                                } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
+                                  const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                                  setWetArea(val);
+                                  if (item.product) setWetProduct(item.product);
+                                  setIsWetOpen(true);
+                                } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
+                                  const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                                  setBalconyArea(val);
+                                  if (item.product) setBalconyProduct(item.product);
+                                  setIsBalconyOpen(true);
+                                } else {
+                                  const val = String(item.areaM2 || parseFloat(item.totalM2) || "");
+                                  setOtherArea(val);
+                                  setOtherTypeArea(item.typeArea || "Decking Input");
+                                  if (item.product) setOtherProduct(item.product);
+                                  setIsOtherOpen(true);
+                                }
+
+                                if (onSelectEntry) onSelectEntry(item);
                               }
                             }}
-                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                            title="Clear"
+                            style={{
+                              borderBottom: "1px solid #e2e8f0",
+                              background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
+                              cursor: isRowEditing ? "default" : "pointer",
+                              outline: isSelected ? "2px solid #3b82f6" : "none",
+                              outlineOffset: "-1px",
+                              transition: "background 0.15s ease"
+                            }}
                           >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              }))}
+                            <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+
+                            <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.roomName ? `${item.typeArea} (${item.roomName})` : item.typeArea}</td>
+
+                            {/* Product */}
+                            <td style={{ padding: "4px 8px", minWidth: "290px" }}>
+                              <select
+                                value={isRowEditing ? (editRowData.product || item.product || "") : (item.product || "")}
+                                onChange={(e) => {
+                                  const newProd = e.target.value;
+                                  if (isRowEditing) {
+                                    setEditRowData({ ...editRowData, product: newProd });
+                                  } else {
+                                    handleProductChange(item, newProd);
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  width: "100%",
+                                  minWidth: "280px",
+                                  padding: "4px 8px",
+                                  fontSize: "10.5px",
+                                  fontWeight: 600,
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: "#0f172a",
+                                  cursor: "pointer"
+                                }}
+                              >
+                                {getProductOptionsForType(item.typeArea).map((opt, oIdx) => (
+                                  <option key={oIdx} value={opt}>{opt}</option>
+                                ))}
+                                {item.product && !getProductOptionsForType(item.typeArea).includes(item.product) && (
+                                  <option value={item.product}>{item.product}</option>
+                                )}
+                              </select>
+                            </td>
+
+                            {/* Total m² */}
+                            <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "var(--blue)" }}>
+                              {isRowEditing ? (
+                                <input
+                                  type="text"
+                                  value={editRowData.totalM2 || ""}
+                                  onChange={(e) => setEditRowData({ ...editRowData, totalM2: e.target.value })}
+                                  style={{ width: "75px", padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px", textAlign: "right" }}
+                                />
+                              ) : (
+                                formatM2_4Digits(item.totalM2)
+                              )}
+                            </td>
+
+                            {/* Actions: Edit on left of X */}
+                            <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                              {isRowEditing ? (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSaveInlineEdit(item.id);
+                                    }}
+                                    style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                                    title="Save"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                                    style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                                    title="Cancel"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const rawNum = parseFloat(String(item.totalM2).replace(/m²/gi, "").trim());
+                                      setEditingRowId(item.id);
+                                      setEditRowData({
+                                        floorLevel: lvl,
+                                        product: item.product,
+                                        totalM2: isNaN(rawNum) ? "" : rawNum.toFixed(4)
+                                      });
+                                    }}
+                                    style={{ background: "none", border: "none", color: "#f97316", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                                    title="Edit"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (onSetEntries && entries && entries.length > 0) {
+                                        onSetEntries(entries.filter(r => r.id !== item.id));
+                                      } else {
+                                        if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
+                                          setDryArea("");
+                                          if (onChange) onChange("flooring_decking", "dryArea", "");
+                                        } else if (item.typeArea === "Wet" || item.typeArea === "Wet Area") {
+                                          setWetArea("");
+                                          if (onChange) onChange("flooring_decking", "wetArea", "");
+                                        } else if (item.typeArea === "Balcony Tiles" || item.typeArea === "Tile Deck") {
+                                          setBalconyArea("");
+                                          if (onChange) onChange("flooring_decking", "balconyArea", "");
+                                        } else {
+                                          setOtherArea("");
+                                          if (onChange) onChange("flooring_decking", "otherArea", "");
+                                        }
+                                      }
+                                    }}
+                                    style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                                    title="Clear"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

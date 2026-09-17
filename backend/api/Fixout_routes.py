@@ -53,6 +53,8 @@ class FixoutItemSchema(BaseModel):
     door_furniture: Optional[str] = Field(None, description="Phụ kiện cửa")
     door_stop: Optional[str] = Field(None, description="Chặn cửa")
     qty: Optional[Union[float, int, str]] = Field(None, description="Số lượng")
+    floor_level: Optional[str] = Field("GF", description="Tầng / Floor level (GF, FF, SF...)")
+    floorLevel: Optional[str] = Field(None, description="Alias Floor level")
 
 
 class FixoutJobSaveSchema(BaseModel):
@@ -151,6 +153,7 @@ async def get_fixout_jobs(
                 f.door_furniture,
                 f.door_stop,
                 f.qty,
+                f.FloorLevel AS floor_level,
                 f.UserUpdate AS user_update,
                 f.DatetimeUpdate AS datetime_update,
                 f.IsOldData AS is_old_data,
@@ -198,6 +201,8 @@ async def get_fixout_jobs(
                     item[key] = val
                 else:
                     item[key] = str(val)
+            item["floor_level"] = str(row.get("floor_level") or "GF").strip()
+            item["floorLevel"] = item["floor_level"]
             result.append(item)
 
         return {
@@ -299,7 +304,8 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
                     qty,
                     UserUpdate,
                     DatetimeUpdate,
-                    IsOldData
+                    IsOldData,
+                    FloorLevel
                 )
                 VALUES
                 (
@@ -322,7 +328,8 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
                     %s,
                     %s,
                     GETDATE(),
-                    0
+                    0,
+                    %s
                 );
             """
 
@@ -333,6 +340,7 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
                 thicks_val = _parse_decimal(item.thicks)
                 wall_width_val = _parse_decimal(item.wall_width)
                 qty_val = _parse_decimal(item.qty)
+                fl_val = str(item.floor_level or item.floorLevel or "GF").strip() or "GF"
 
                 cursor.execute(
                     sql_insert,
@@ -354,6 +362,7 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
                         (item.door_stop or "").strip() or None,
                         qty_val,
                         user_update,
+                        fl_val,
                     ),
                 )
                 inserted_count += 1
@@ -436,6 +445,7 @@ async def save_fixout_single(payload: dict, request: Request):
                 door_furniture=it.get("door_furniture"),
                 door_stop=it.get("door_stop"),
                 qty=it.get("qty"),
+                floor_level=it.get("floor_level") or it.get("floorLevel") or it.get("FloorLevel") or "GF",
             )
             for it in raw_items
         ]
@@ -457,6 +467,7 @@ async def save_fixout_single(payload: dict, request: Request):
                 door_furniture=payload.get("door_furniture"),
                 door_stop=payload.get("door_stop"),
                 qty=payload.get("qty"),
+                floor_level=payload.get("floor_level") or payload.get("floorLevel") or payload.get("FloorLevel") or "GF",
             )
         ]
 

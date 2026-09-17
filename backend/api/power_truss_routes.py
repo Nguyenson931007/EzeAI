@@ -41,6 +41,8 @@ class PowerTrussItemSchema(BaseModel):
     length: Optional[str] = Field(None, description="Chiều dài (VD: 3000, 6000)")
     type: Optional[str] = Field(None, description="Loại: 'Column' hoặc 'Brace'")
     qty: Optional[Union[float, int, str]] = Field(None, description="Số lượng")
+    floor_level: Optional[str] = Field("GF", description="Floor level (GF, FF, SF...)")
+    floorLevel: Optional[str] = Field(None, description="Alias Floor level")
 
 
 class PowerTrussJobSaveSchema(BaseModel):
@@ -131,6 +133,7 @@ async def get_power_truss_jobs(
                 ptb.Length AS length,
                 ptb.Type AS type,
                 ptb.Qty AS qty,
+                ptb.FloorLevel AS floor_level,
                 ptb.UserUpdate AS user_update,
                 ptb.DatetimeUpdate AS datetime_update,
                 ptb.IsOldData AS is_old_data,
@@ -172,6 +175,8 @@ async def get_power_truss_jobs(
             result.append({
                 "id": r.get("id"),
                 "id_job_hw": r.get("id_job_hw"),
+                "floor_level": str(r.get("floor_level") or "GF").strip(),
+                "floorLevel": str(r.get("floor_level") or "GF").strip(),
                 "wall_height": str(r.get("wall_height") or ""),
                 "wallHeight": str(r.get("wall_height") or ""),
                 "length": str(r.get("length") or ""),
@@ -237,9 +242,10 @@ async def save_power_truss_jobs(payload: SavePowerTrussPayloadSchema):
                 Qty,
                 UserUpdate,
                 DatetimeUpdate,
-                IsOldData
+                IsOldData,
+                FloorLevel
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, GETDATE(), 0
+                %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
             );
         """
 
@@ -259,6 +265,7 @@ async def save_power_truss_jobs(payload: SavePowerTrussPayloadSchema):
                     len_val = str(item.length or "").strip() or None
                     type_val = str(item.type or "Column").strip()
                     qty_val = _parse_decimal(item.qty, default=1.0)
+                    fl_val = str(item.floor_level or item.floorLevel or "GF").strip() or "GF"
 
                     # Bỏ qua dòng trống hoàn toàn
                     if not wh_val and not len_val:
@@ -271,6 +278,7 @@ async def save_power_truss_jobs(payload: SavePowerTrussPayloadSchema):
                         type_val,
                         qty_val,
                         user_update,
+                        fl_val,
                     ))
                     inserted_count += 1
 

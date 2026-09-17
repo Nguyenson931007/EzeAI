@@ -42,6 +42,8 @@ class FowPlumbingItemSchema(BaseModel):
     description: Optional[str] = Field(None, description="Mô tả chi tiết")
     qty: Optional[Union[float, int, str]] = Field(None, description="Số lượng")
     note: Optional[str] = Field(None, description="Ghi chú")
+    floor_level: Optional[str] = Field("GF", description="Tầng / Floor Level (GF, FF, SF...)")
+    floorLevel: Optional[str] = Field(None, description="Alias floor level")
 
 
 class FowPlumbingJobSaveSchema(BaseModel):
@@ -133,6 +135,7 @@ async def get_fow_plumbing_jobs(
                 fp.description AS description,
                 fp.qty AS qty,
                 fp.note AS note,
+                fp.FloorLevel AS floor_level,
                 fp.UserUpdate AS user_update,
                 fp.DatetimeUpdate AS datetime_update,
                 fp.IsOldData AS is_old_data,
@@ -171,6 +174,7 @@ async def get_fow_plumbing_jobs(
 
         result = []
         for r in rows:
+            floor_lvl = str(r.get("floor_level") or "GF").strip()
             result.append({
                 "id": r.get("id"),
                 "id_job_hw": r.get("id_job_hw"),
@@ -179,6 +183,8 @@ async def get_fow_plumbing_jobs(
                 "description": r.get("description") or "",
                 "qty": float(r.get("qty")) if r.get("qty") is not None else 1.0,
                 "note": r.get("note") or "",
+                "floor_level": floor_lvl,
+                "floorLevel": floor_lvl,
                 "user_update": r.get("user_update"),
                 "datetime_update": r.get("datetime_update").isoformat() if r.get("datetime_update") else None,
                 "is_old_data": r.get("is_old_data"),
@@ -240,9 +246,10 @@ async def save_fow_plumbing_jobs(payload: SaveFowPlumbingPayloadSchema):
                 note,
                 UserUpdate,
                 DatetimeUpdate,
-                IsOldData
+                IsOldData,
+                FloorLevel
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0
+                %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
             );
         """
 
@@ -263,6 +270,7 @@ async def save_fow_plumbing_jobs(payload: SaveFowPlumbingPayloadSchema):
                     desc_val = str(item.description or "").strip() or None
                     note_val = str(item.note or "").strip() or None
                     qty_val = _parse_decimal(item.qty, default=1.0)
+                    floor_lvl_val = str(item.floor_level or item.floorLevel or "GF").strip()
 
                     # Bỏ qua dòng trống hoàn toàn
                     if not name_val and not code_val and not desc_val:
@@ -276,6 +284,7 @@ async def save_fow_plumbing_jobs(payload: SaveFowPlumbingPayloadSchema):
                         qty_val,
                         note_val,
                         user_update,
+                        floor_lvl_val
                     ))
                     inserted_count += 1
 

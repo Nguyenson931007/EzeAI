@@ -2140,6 +2140,7 @@ export default function App() {
                 deleteDoors={deleteDoors}
                 scaleValue={scaleValue}
                 realScale={realScale}
+                scalesByPage={scalesByPage}
                 rooms={rooms}
                 highlightType={highlightType}
                 setHighlightType={setHighlightType}

@@ -2,8 +2,17 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useAppModel } from "@/models/app.context";
 import CalloutStylePicker, { CALLOUT_STYLES } from "@/components/CalloutStylePicker";
+import { exportPdfToolsDocument } from "@/utils/pdfExportUtils";
 
 const PDF_ICONS = {
+  ExportPdf: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="12" y1="18" x2="12" y2="12" />
+      <polyline points="9 15 12 18 15 15" />
+    </svg>
+  ),
   Highlight: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m9 11-6 6v3h3l6-6" />
@@ -204,7 +213,11 @@ export default function PdfToolsRibbon({
     annotationsByPage = {},
     setAnnotationsByPage,
     pushAnnotationHistory,
-    currentPage,
+    pages = [],
+    currentPage = 0,
+    activePdfCategory = "cladding",
+    currentProjectName = "Project",
+    realScale = 20,
     setCurrentProjectName,
     textBold = true,
     setTextBold,
@@ -218,6 +231,36 @@ export default function PdfToolsRibbon({
     setActiveCalloutStyle,
     setImportTarget
   } = useAppModel();
+
+  // PDF Export State & Handlers
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportProgressText, setExportProgressText] = useState("");
+
+  const handleExportPdf = async (mode = "current") => {
+    try {
+      setIsExportingPdf(true);
+      setExportProgressText("Preparing export...");
+      const savedFileName = await exportPdfToolsDocument({
+        pages,
+        currentPage,
+        annotationsByPage,
+        activeCategory: activePdfCategory,
+        projectName: currentProjectName || "EzeFloor_Project",
+        realScale: (typeof realScale === "number" && realScale > 0) ? realScale : 20,
+        mode,
+        onProgress: (pct, text) => {
+          setExportProgressText(`${text} (${pct}%)`);
+        }
+      });
+      console.log("[PDF Exported]", savedFileName);
+    } catch (err) {
+      console.error("[Export PDF Error]", err);
+      alert("Failed to export PDF: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsExportingPdf(false);
+      setExportProgressText("");
+    }
+  };
 
   // Selected annotation helper for dynamic formatting
   const selectedAnn = (annotationsByPage[currentPage] || []).find(a => a.id === selectedAnnotationId);
@@ -472,6 +515,77 @@ export default function PdfToolsRibbon({
             <span className="label">Save</span>
           </button>
 
+          {/* Export PDF Split Dropdown Button */}
+          <div style={{ position: "relative", zIndex: openDropdown === "export_pdf" ? 1500 : 1 }}>
+            <button
+              className={`ribbon-btn ${openDropdown === "export_pdf" ? "active" : ""}`}
+              onClick={() => setOpenDropdown(prev => prev === "export_pdf" ? null : "export_pdf")}
+              disabled={isExportingPdf}
+              title="Export PDF drawings & annotations"
+              style={{ minWidth: "75px" }}
+            >
+              <span className="icon"><PDF_ICONS.ExportPdf /></span>
+              <span className="label" style={{ fontWeight: 700, color: "#1d4ed8" }}>
+                {isExportingPdf ? "Exporting..." : "Export PDF ▾"}
+              </span>
+            </button>
+            {openDropdown === "export_pdf" && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  zIndex: 3000,
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  boxShadow: "0 10px 25px rgba(0,0,0,0.18)",
+                  padding: "6px",
+                  minWidth: "225px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "3px"
+                }}
+              >
+                <button
+                  className="ribbon-btn"
+                  onClick={() => { handleExportPdf("current"); setOpenDropdown(null); }}
+                  style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "7px 10px", minWidth: "auto", textAlign: "left" }}
+                >
+                  <span style={{ fontSize: "15px" }}>📄</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "12px", color: "#1e293b" }}>Export Current Page</div>
+                    <div style={{ fontSize: "10px", color: "#64748b" }}>Active page with all markups</div>
+                  </div>
+                </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => { handleExportPdf("step"); setOpenDropdown(null); }}
+                  style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "7px 10px", minWidth: "auto", textAlign: "left" }}
+                >
+                  <span style={{ fontSize: "15px" }}>📑</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "12px", color: "#1e293b" }}>
+                      Export {activePdfCategory ? (activePdfCategory.charAt(0).toUpperCase() + activePdfCategory.slice(1)) : "Task"} Pages
+                    </div>
+                    <div style={{ fontSize: "10px", color: "#64748b" }}>Multi-page PDF of current step</div>
+                  </div>
+                </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => { handleExportPdf("all"); setOpenDropdown(null); }}
+                  style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "7px 10px", minWidth: "auto", textAlign: "left" }}
+                >
+                  <span style={{ fontSize: "15px" }}>📚</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "12px", color: "#1e293b" }}>Export All Project Pages</div>
+                    <div style={{ fontSize: "10px", color: "#64748b" }}>Complete multi-page PDF</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* More file options dropdown */}
           <div style={{ position: "relative", zIndex: openDropdown === "file" ? 1500 : 1 }}>
             <button
@@ -494,12 +608,19 @@ export default function PdfToolsRibbon({
                   borderRadius: "8px",
                   boxShadow: "0 10px 25px rgba(0,0,0,0.18)",
                   padding: "6px",
-                  minWidth: "150px",
+                  minWidth: "160px",
                   display: "flex",
                   flexDirection: "column",
                   gap: "3px"
                 }}
               >
+                <button
+                  className="ribbon-btn"
+                  onClick={() => { handleExportPdf("current"); setOpenDropdown(null); }}
+                  style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "6px 10px", minWidth: "auto" }}
+                >
+                  <span className="icon">📥</span><span className="label">Export to PDF...</span>
+                </button>
                 <button
                   className="ribbon-btn"
                   onClick={() => {
@@ -906,7 +1027,21 @@ export default function PdfToolsRibbon({
                   {PRESET_COLORS.map((c) => (
                     <button
                       key={c.value}
-                      onClick={() => { setAnnotationColor(c.value); setOpenDropdown(null); }}
+                      onClick={() => {
+                        setAnnotationColor(c.value);
+                        if ((selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) && setAnnotationsByPage) {
+                          const ids = selectedAnnotationIds && selectedAnnotationIds.length > 0 ? selectedAnnotationIds : [selectedAnnotationId];
+                          if (pushAnnotationHistory) pushAnnotationHistory(annotationsByPage);
+                          setAnnotationsByPage((prev) => {
+                            const list = prev[currentPage] || [];
+                            return {
+                              ...prev,
+                              [currentPage]: list.map((a) => ids.includes(a.id) ? { ...a, color: c.value, borderColor: c.value } : a)
+                            };
+                          });
+                        }
+                        setOpenDropdown(null);
+                      }}
                       title={c.label}
                       style={{
                         width: "26px",
@@ -926,20 +1061,47 @@ export default function PdfToolsRibbon({
                   <input
                     type="color"
                     value={annotationColor}
-                    onChange={(e) => setAnnotationColor(e.target.value)}
+                    onChange={(e) => {
+                      const newCol = e.target.value;
+                      setAnnotationColor(newCol);
+                      if ((selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) && setAnnotationsByPage) {
+                        const ids = selectedAnnotationIds && selectedAnnotationIds.length > 0 ? selectedAnnotationIds : [selectedAnnotationId];
+                        setAnnotationsByPage((prev) => {
+                          const list = prev[currentPage] || [];
+                          return {
+                            ...prev,
+                            [currentPage]: list.map((a) => ids.includes(a.id) ? { ...a, color: newCol, borderColor: newCol } : a)
+                          };
+                        });
+                      }
+                    }}
                     style={{ width: "28px", height: "24px", padding: 0, border: "none", cursor: "pointer", background: "none" }}
                   />
                 </div>
 
                 <div style={{ fontSize: "11px", fontWeight: 700, marginBottom: "4px", color: "#64748b" }}>STROKE WIDTH</div>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  {[2, 4, 6, 8, 12].map((w) => (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {[0, 1, 2, 4, 6, 8, 12].map((w) => (
                     <button
                       key={w}
-                      onClick={() => { setAnnotationStrokeWidth(w); setOpenDropdown(null); }}
+                      onClick={() => {
+                        setAnnotationStrokeWidth(w);
+                        if ((selectedAnnotationId || (selectedAnnotationIds && selectedAnnotationIds.length > 0)) && setAnnotationsByPage) {
+                          const ids = selectedAnnotationIds && selectedAnnotationIds.length > 0 ? selectedAnnotationIds : [selectedAnnotationId];
+                          if (pushAnnotationHistory) pushAnnotationHistory(annotationsByPage);
+                          setAnnotationsByPage((prev) => {
+                            const list = prev[currentPage] || [];
+                            return {
+                              ...prev,
+                              [currentPage]: list.map((a) => ids.includes(a.id) ? { ...a, strokeWidth: w } : a)
+                            };
+                          });
+                        }
+                        setOpenDropdown(null);
+                      }}
                       style={{
-                        flex: 1,
-                        padding: "3px 0",
+                        flex: "1 0 24px",
+                        padding: "4px 2px",
                         fontSize: "11px",
                         fontWeight: annotationStrokeWidth === w ? 700 : 400,
                         background: annotationStrokeWidth === w ? "var(--blue-50, #f1f4f9)" : "#ffffff",
@@ -949,7 +1111,7 @@ export default function PdfToolsRibbon({
                         cursor: "pointer"
                       }}
                     >
-                      {w}px
+                      {w === 0 ? "None" : `${w}px`}
                     </button>
                   ))}
                 </div>
@@ -1049,6 +1211,41 @@ export default function PdfToolsRibbon({
           <button className="ribbon-btn" onClick={rotatePlan90} title="Rotate 90°"><span className="icon"><PDF_ICONS.RotateCW /></span><span className="label">Rotate</span></button>
         </div>
       </div>
+
+      {/* PDF Export Progress Toast */}
+      {isExportingPdf && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            right: "24px",
+            zIndex: 99999,
+            background: "rgba(15, 23, 42, 0.94)",
+            color: "#ffffff",
+            padding: "12px 20px",
+            borderRadius: "10px",
+            boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
+            backdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            fontSize: "13px",
+            fontWeight: 600
+          }}
+        >
+          <div
+            style={{
+              width: "16px",
+              height: "16px",
+              border: "2px solid rgba(255,255,255,0.3)",
+              borderTopColor: "#38bdf8",
+              borderRadius: "50%",
+              animation: "spin 0.8s linear infinite"
+            }}
+          />
+          <span>{exportProgressText || "Exporting PDF..."}</span>
+        </div>
+      )}
     </div>
   );
 }

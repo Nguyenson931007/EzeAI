@@ -36,6 +36,8 @@ class TimberPostItemSchema(BaseModel):
     post: str = Field(..., min_length=1, description="Exact Post / Product selection from the form")
     qty: Union[int, str] = Field(1, description="Quantity")
     gal_post_supports: Union[str, int] = Field("0", description="Gal Post Supports")
+    floor_level: Optional[str] = Field("GF", description="Floor level (GF, FF, SF...)")
+    floorLevel: Optional[str] = Field(None, description="Alias floor level")
 
 
 class TimberPostJobSaveSchema(BaseModel):
@@ -77,6 +79,7 @@ async def get_timber_posts_jobs(office: Optional[str] = Query(None, description=
                 tp.Post AS post,
                 tp.Qty AS qty,
                 tp.GalPostSupports AS gal_post_supports,
+                tp.FloorLevel AS floor_level,
                 tp.UserUpdate AS user_update,
                 tp.DatetimeUpdate AS datetime_update,
                 tp.IsOldData AS is_old_data,
@@ -121,6 +124,8 @@ async def get_timber_posts_jobs(office: Optional[str] = Query(None, description=
             if r.get("post_id"):
                 j["posts"].append({
                     "id": str(r.get("post_id")),
+                    "floor_level": str(r.get("floor_level") or "GF").strip(),
+                    "floorLevel": str(r.get("floor_level") or "GF").strip(),
                     "post_type": r.get("post_type"),
                     "post_height": r.get("post_height"),
                     "post_size": r.get("post_size"),
@@ -212,7 +217,8 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
                 IdJob_HW,
                 UserUpdate,
                 DatetimeUpdate,
-                IsOldData
+                IsOldData,
+                FloorLevel
             )
             VALUES
             (
@@ -226,7 +232,8 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
                 %s,
                 %s,
                 GETDATE(),
-                0
+                0,
+                %s
             );
         """
 
@@ -291,6 +298,7 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
                     p_height = _normalize_height(p.post_height)
                     p_size = _clean_text(p.post_size).replace(" ", "")
                     p_post = _clean_text(p.post)
+                    p_floor_level = _clean_text(getattr(p, 'floor_level', None) or getattr(p, 'floorLevel', None) or 'GF') or 'GF'
 
                     if not p_type or not p_size or not p_post:
                         raise ValueError("Post Type, Post Size and Post are required")
@@ -312,7 +320,8 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
                         qty_val,
                         p_gal,
                         job_hw_id,
-                        user_update
+                        user_update,
+                        p_floor_level,
                     )
                 )
                 total_saved_posts += 1

@@ -871,7 +871,7 @@ export const ApiService = {
   },
 
   // ── Cladding Jobs (MSSQL ProcurementApp.dbo.Cladding) ──
-  async fetchCladdingJobs(office = "EZE0098") {
+  async fetchCladdingJobs(office = null) {
     const url = office ? `${BASE_URL}/api/cladding/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/cladding/jobs`;
     const res = await fetch(url, {
       headers: getHeaders(),

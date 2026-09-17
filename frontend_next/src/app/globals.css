@@ -900,6 +900,30 @@ html, body {
   color: #fff;
 }
 
+.step-close-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 2px;
+  border-radius: 50%;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: all 0.15s ease;
+}
+
+.step-close-x:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.pdf-module-switch-btn.active .step-close-x:hover {
+  background: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
 .pdf-pages-scroll-row {
   display: flex;
   align-items: center;

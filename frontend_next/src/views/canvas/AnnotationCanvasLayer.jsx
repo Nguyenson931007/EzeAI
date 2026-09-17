@@ -788,6 +788,7 @@ export default function AnnotationCanvasLayer({
 
     if (activeAnnotationTool === "text") {
       const initialSize = textFontSize || annotationFontSize || 50;
+      const initialStrokeW = typeof annotationStrokeWidth === "number" ? annotationStrokeWidth : 1.5;
       const newText = {
         id: genId("text"),
         type: "text",
@@ -798,6 +799,8 @@ export default function AnnotationCanvasLayer({
         text: "",
         html: "",
         color: textColor || "#0f172a",
+        strokeWidth: initialStrokeW,
+        borderColor: annotationColor || "#cbd5e1",
         fontSize: initialSize,
         opacity: textOpacity != null ? textOpacity : 1.0,
         isBold: textBold,
@@ -2741,8 +2744,15 @@ export default function AnnotationCanvasLayer({
                         minWidth: `${boxW}px`,
                         pointerEvents: "all",
                         cursor: isSelected ? "move" : "pointer",
-                        background: isSelected ? "rgba(255,255,255,0.92)" : "#ffffff",
-                        border: isSelected ? "2px dashed #2563eb" : "1.5px solid #cbd5e1",
+                        background: isSelected ? "rgba(255,255,255,0.95)" : "#ffffff",
+                        border: (() => {
+                          const strokeW = typeof ann.strokeWidth === "number" ? ann.strokeWidth : (ann.borderWidth !== undefined ? ann.borderWidth : 1.5);
+                          const borderCol = ann.borderColor || ann.strokeColor || (ann.strokeWidth ? ann.color : "#cbd5e1");
+                          if (strokeW === 0) return isSelected ? "1.5px dashed rgba(37,99,235,0.5)" : "none";
+                          return `${strokeW}px solid ${borderCol}`;
+                        })(),
+                        outline: isSelected ? "2px dashed #2563eb" : "none",
+                        outlineOffset: "2px",
                         borderRadius: "6px",
                         padding: "8px 16px",
                         fontSize: `${fSize}px`,
@@ -2752,7 +2762,7 @@ export default function AnnotationCanvasLayer({
                         lineHeight: 1.35,
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
-                        boxShadow: isSelected ? "0 6px 20px rgba(37,99,235,0.25)" : "0 3px 8px rgba(0,0,0,0.12)",
+                        boxShadow: isSelected ? "0 6px 20px rgba(37,99,235,0.25)" : ((typeof ann.strokeWidth === "number" ? ann.strokeWidth : 1.5) > 0 ? "0 3px 8px rgba(0,0,0,0.12)" : "none"),
                         userSelect: "none"
                       }}
                     >

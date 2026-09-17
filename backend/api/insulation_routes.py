@@ -39,6 +39,7 @@ class InsulationItemSchema(BaseModel):
     total_area_door: Optional[Union[float, int]] = Field(0.0, description="Tổng diện tích cửa (m²)")
     r_value: Optional[Union[float, int, str]] = Field("R2.0", description="Chỉ số R-Value (vd: R2.5, 2.5)")
     short_name: Optional[str] = Field("BUN-NSW-ACT", description="Tên viết tắt khách hàng / module")
+    floor_level: Optional[str] = Field("GF", description="Tầng (GF, FF, SF...)")
 
 
 class InsulationJobSaveSchema(BaseModel):
@@ -83,6 +84,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
                 ins.TotalAreaRaked AS total_area_raked,
                 ins.TotalAreaDoor AS total_area_door,
                 ins.RValue AS r_value,
+                ins.FloorLevel AS floor_level,
                 ins.short_name AS short_name,
                 ins.UserUpdate AS user_update,
                 ins.DatetimeUpdate AS datetime_update,
@@ -127,6 +129,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
                 "IdJob_HW": r.get("IdJob_HW"),
                 "hw_id": r.get("hw_id"),
                 "job_number": r.get("job_number"),
+                "floor_level": r.get("floor_level") or "GF",
                 "insulation_type": r.get("insulation_type"),
                 "wall_type": r.get("wall_type") or r.get("insulation_type"),
                 "product": r.get("product"),
@@ -201,7 +204,8 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 IsOldData,
                 short_name,
                 TotalAreaRaked,
-                TotalAreaDoor
+                TotalAreaDoor,
+                FloorLevel
             )
             VALUES
             (
@@ -215,6 +219,7 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 %s,
                 GETDATE(),
                 0,
+                %s,
                 %s,
                 %s,
                 %s
@@ -279,8 +284,7 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 l = float(item.wall_length or 0.0)
                 raked = float(item.total_area_raked or 0.0)
                 door = float(item.total_area_door or 0.0)
-
-
+                flr_lvl = (item.floor_level or "GF").strip()
 
                 # Parse RValue sang số thập phân (e.g. "R2.5" -> 2.5)
                 r_val_raw = str(item.r_value if item.r_value is not None else "2.0").upper().replace("R", "").strip()
@@ -304,7 +308,8 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                         user_update,
                         short_nm,
                         round(raked, 2),
-                        round(door, 2)
+                        round(door, 2),
+                        flr_lvl
                     )
                 )
                 inserted_count += 1
@@ -352,6 +357,7 @@ class DoorOnWallSchema(BaseModel):
 class WallForCalcSchema(BaseModel):
     id: Optional[str] = Field(None, description="Wall ID (tùy chọn)")
     class_name: Optional[str] = Field("exterior_wall", description="Loại tường: exterior_wall, interior_wall, partition_wall")
+    floor_level: Optional[str] = Field("GF", description="Tầng: GF, FF, SF...")
     length_m: Optional[float] = Field(0.0, description="Chiều dài tường (m)")
     length_mm: Optional[float] = Field(None, description="Chiều dài tường (mm)")
     height_mm: float = Field(2400.0, description="Chiều cao tường (mm)")
@@ -377,7 +383,7 @@ def _map_class_to_wall_type(class_name: str) -> str:
 @router.post("/calculate")
 async def calculate_insulation(payload: CalculateInsulationPayload):
     """
-    Tính toán diện tích Insulation cho từng tường, sau đó gộp theo (WallType, WallHeight).
+    Tính toán diện tích Insulation cho từng tường, sau đó gộp theo (FloorLevel, WallType, WallHeight).
     WallLength được trả về dưới dạng mm.
 
     Công thức (tính 1 MẶT duy nhất):
@@ -386,11 +392,11 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
       - total_area_raked = 0.0 (mặc định)
       - total_area_door  = S_door                            [m²]
 
-    Kết quả được gộp theo cặp (wall_type, wall_height) → cộng dồn wall_length (mm), total_area_raked, total_area_door.
+    Kết quả được gộp theo nhóm (floor_level, wall_type, wall_height) → cộng dồn wall_length (mm), total_area_raked, total_area_door.
     Mỗi hàng bao gồm danh sách chi tiết chi tiết chia theo từng tầng (page_breakdown).
     """
     try:
-        # Dict key = (wall_type, wall_height_mm) → aggregated values & page breakdowns
+        # Dict key = (floor_level, wall_type, wall_height_mm) → aggregated values & page breakdowns
         groups = defaultdict(lambda: {
             "wall_length": 0.0,
             "total_area_raked": 0.0,
@@ -415,6 +421,20 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
 
             page_name = w.page_name or "Tầng 1"
 
+            flr_lvl = (w.floor_level or "").strip().upper()
+            if not flr_lvl:
+                pn = page_name.upper()
+                if "LEVEL 1" in pn or "GROUND" in pn or "GF" in pn or "TRỆT" in pn:
+                    flr_lvl = "GF"
+                elif "LEVEL 2" in pn or "FIRST" in pn or "FF" in pn or "TẦNG 1" in pn or "1F" in pn:
+                    flr_lvl = "FF"
+                elif "LEVEL 3" in pn or "SECOND" in pn or "SF" in pn or "TẦNG 2" in pn or "2F" in pn:
+                    flr_lvl = "SF"
+                elif "LEVEL 4" in pn or "THIRD" in pn or "TF" in pn or "TẦNG 3" in pn or "3F" in pn:
+                    flr_lvl = "TF"
+                else:
+                    flr_lvl = "GF"
+
             # S_wall = 1 mặt: (height mm → m) × length m
             s_wall = (height_mm / 1000.0) * length_m
 
@@ -428,7 +448,7 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
             # Total area raked default to 0.0 (không tự động tính công thức)
             total_area_raked = 0.0
 
-            key = (wall_type, height_mm)
+            key = (flr_lvl, wall_type, height_mm)
             groups[key]["wall_length"] += length_mm
             groups[key]["total_area_raked"] += total_area_raked
             groups[key]["total_area_door"] += s_door
@@ -439,9 +459,10 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
             pg["total_area_raked"] += total_area_raked
             pg["total_area_door"] += s_door
 
-        # Build result rows, sorted by wall_type then height
+        # Build result rows, sorted by floor_level then wall_type then height
+        level_order = {"GF": 1, "FF": 2, "SF": 3, "TF": 4, "4F": 5, "5F": 6, "6F": 7, "7F": 8, "8F": 9, "9F": 10, "10F": 11}
         rows = []
-        for (wt, hm), vals in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1])):
+        for (fl, wt, hm), vals in sorted(groups.items(), key=lambda x: (level_order.get(x[0][0], 99), x[0][1], x[0][2])):
             page_breakdown = []
             for p_name, p_vals in vals["page_groups"].items():
                 page_breakdown.append({
@@ -452,6 +473,7 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
                 })
 
             rows.append({
+                "floor_level": fl,
                 "wall_type": wt,
                 "wall_height": round(hm, 1),
                 "wall_length": round(vals["wall_length"], 4),

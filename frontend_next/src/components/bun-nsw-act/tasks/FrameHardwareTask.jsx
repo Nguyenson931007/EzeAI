@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
+import { getWallClass } from "@/utils/geometry";
+import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 
 export default function FrameHardwareTask({
   formData = {},
@@ -15,15 +17,25 @@ export default function FrameHardwareTask({
   selectedWall: selectedWallProp,
   selectedWallIds: selectedWallIdsProp,
   selectedId: selectedIdProp,
-  selectedType: selectedTypeProp
+  selectedType: selectedTypeProp,
+  wallsByPage: wallsByPageProp,
+  pages: pagesProp,
+  scalesByPage: scalesByPageProp,
+  realScale: realScaleProp,
+  scaleValue: scaleValueProp,
+  walls: wallsProp,
+  updateWallsProperty,
+  goPage
 }) {
   const tableRef = useRef(null);
   const {
     user,
-    pages = [],
-    wallsByPage = {},
-    scalesByPage = {},
-    realScale,
+    pages: pagesCtx = [],
+    wallsByPage: wallsByPageCtx = {},
+    scalesByPage: scalesByPageCtx = {},
+    realScale: realScaleCtx,
+    currentPage,
+    setCurrentPage,
     currentJobId,
     currentProjectName,
     selectedWall,
@@ -32,6 +44,11 @@ export default function FrameHardwareTask({
     selectedType,
     hoveredWallId
   } = useAppModel();
+
+  const pages = (pagesProp && pagesProp.length > 0) ? pagesProp : pagesCtx;
+  const wallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : wallsByPageCtx;
+  const scalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : scalesByPageCtx;
+  const realScale = realScaleProp || realScaleCtx;
 
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
 
@@ -48,12 +65,28 @@ export default function FrameHardwareTask({
   const [slabWallLength, setSlabWallLength] = useState("");
   const [slabSpacing, setSlabSpacing] = useState("900");
   const [slabRodSize, setSlabRodSize] = useState("M12");
+  const [slabFloorLevel, setSlabFloorLevel] = useState("GF");
+  const [slabWallClass, setSlabWallClass] = useState("exterior_wall");
 
   // Timber Floor State
   const [timberWallHeight, setTimberWallHeight] = useState("Select...");
   const [timberWallLength, setTimberWallLength] = useState("");
   const [timberSpacing, setTimberSpacing] = useState("900");
   const [timberRodSize, setTimberRodSize] = useState("M12");
+  const [timberFloorLevel, setTimberFloorLevel] = useState("GF");
+  const [timberWallClass, setTimberWallClass] = useState("exterior_wall");
+
+  const LEVEL_OPTIONS = [
+    { value: "GF", label: "GF (Ground Floor)" },
+    { value: "FF", label: "FF (First Floor)" },
+    { value: "SF", label: "SF (Second Floor)" },
+    { value: "TF", label: "TF (Third Floor)" }
+  ];
+
+  const WALL_CLASS_OPTIONS = [
+    { value: "exterior_wall", label: "External Wall" },
+    { value: "interior_wall", label: "Internal Load Bearing" }
+  ];
 
   // Helper tính mm từ px và scale (chuẩn hóa giống FrameworkJobsModal)
   const computeMmLength = (lenPx, pScale, pRealScale) => {
@@ -71,6 +104,29 @@ export default function FrameHardwareTask({
     }
   };
 
+  // Helper: Xác định tường có đủ điều kiện tính vào bảng Frame Hardware:
+  // CHỈ TÍNH:
+  // 1. External Wall (exterior_wall / ext / is_ext / is_exterior)
+  // 2. Internal Load Bearing Wall (interior_wall / int VÀ is_lbw == true / is_load_bearing == true)
+  // Tường non-load bearing (is_lbw == false) hoặc partition_wall không chọn Load Bearing -> LOẠI TRỪ
+  const getQualifiedWallInfo = (w) => {
+    const rawClass = String(w.class_name || w.wall_type || "").toLowerCase().trim();
+    const isExt = rawClass === "exterior_wall" || rawClass === "ext" || Boolean(w.is_ext || w.is_exterior);
+    const isLbw = Boolean(w.is_lbw === true || w.is_load_bearing === true || w.lbw === true);
+    const isInt = rawClass === "interior_wall" || rawClass === "int";
+
+    if (isExt) {
+      return { qualified: true, wallClass: "exterior_wall", isExternal: true };
+    }
+    if ((isInt || !rawClass || rawClass === "wall") && isLbw) {
+      return { qualified: true, wallClass: "interior_wall", isExternal: false };
+    }
+    if (isLbw && !isExt) {
+      return { qualified: true, wallClass: "interior_wall", isExternal: false };
+    }
+    return { qualified: false };
+  };
+
   // Tính toán tất cả các tường từ AI Canvas của tất cả các trang
   const aiCanvasWallsGrouped = useMemo(() => {
     const pageIndices = new Set([
@@ -79,37 +135,288 @@ export default function FrameHardwareTask({
     ]);
     if (pageIndices.size === 0) pageIndices.add(0);
 
-    const groupsMap = {}; // key: `${floorType}_${height}` -> { floorType, heightMm, totalMm }
+    // Helper: determine FloorLevel label from page index
+    const _getFloorLevelByPage = (idx) => {
+      if (pages && pages[idx]) {
+        const page = pages[idx];
+        const name = (page.floor_name || page.name || "").trim();
+        if (name) {
+          const upper = name.toUpperCase();
+          if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
+          if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
+          if (upper === "LEVEL 3" || upper === "SECOND FLOOR" || upper === "SECOND" || upper === "SF" || upper === "TẦNG 2" || upper === "2F") return "SF";
+          if (upper === "LEVEL 4" || upper === "THIRD FLOOR" || upper === "THIRD" || upper === "TF" || upper === "TẦNG 3" || upper === "3F") return "TF";
+          if (upper.startsWith("LEVEL ")) {
+            const num = parseInt(upper.replace("LEVEL ", "").trim(), 10);
+            if (num === 1) return "GF";
+            if (num === 2) return "FF";
+            if (num === 3) return "SF";
+            if (num === 4) return "TF";
+            return `${num - 1}F`;
+          }
+          return name;
+        }
+      }
+      const labels = ["GF", "FF", "SF", "TF"];
+      return idx < labels.length ? labels[idx] : `${idx}F`;
+    };
+
+    const groupsMap = {};
 
     Array.from(pageIndices).forEach(pIdx => {
       const pageWalls = (wallsByPage && wallsByPage[pIdx]) ? wallsByPage[pIdx] : [];
       const pageScale = (scalesByPage && scalesByPage[pIdx] !== undefined) ? scalesByPage[pIdx] : null;
+      const floorLevel = _getFloorLevelByPage(pIdx);
 
       pageWalls.forEach(w => {
-        const c = w.centerline;
-        if (!c || !Array.isArray(c) || c.length !== 2) return;
-        const dx = c[1][0] - c[0][0];
-        const dy = c[1][1] - c[0][1];
-        const lenPx = Math.hypot(dx, dy);
-        const lenMm = computeMmLength(lenPx, pageScale, realScale);
+        const qInfo = getQualifiedWallInfo(w);
+        if (!qInfo.qualified) return;
+
+        let lenMm = 0;
+        if (w.length_m) {
+          lenMm = Math.round(w.length_m * 1000);
+        } else if (w.centerline && Array.isArray(w.centerline) && w.centerline.length === 2) {
+          const dx = w.centerline[1][0] - w.centerline[0][0];
+          const dy = w.centerline[1][1] - w.centerline[0][1];
+          const lenPx = Math.hypot(dx, dy);
+          lenMm = computeMmLength(lenPx, pageScale, realScale);
+        }
         if (lenMm <= 0) return;
 
-        const rawType = (w.floor_type || "").toLowerCase();
-        const rawClass = (w.class_name || "").toLowerCase();
-        const isSlab = rawType.includes("slab") || rawClass.includes("slab");
+        const rawFloor = String(w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
+        const isSlab = rawFloor.includes("slab") || rawFloor.includes("concrete");
         const floorType = isSlab ? "Slab" : "Timber";
-        const hMm = Number(w.height_mm || w.height || 2700);
+        const hMm = Number(w.height_mm || w.height || 2400);
+        const wallClass = qInfo.wallClass;
 
-        const key = `${floorType}_${hMm}`;
+        const key = `${floorLevel}_${floorType}_${wallClass}_${hMm}`;
         if (!groupsMap[key]) {
-          groupsMap[key] = { floorType, heightMm: hMm, totalMm: 0 };
+          groupsMap[key] = {
+            floorLevel,
+            floorType,
+            baseType: isSlab ? "Concrete Slab" : "Timber Floor",
+            theWallAbove: isSlab ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
+            wallClass,
+            heightMm: hMm,
+            totalMm: 0,
+            wallIds: []
+          };
         }
         groupsMap[key].totalMm += lenMm;
+        groupsMap[key].wallIds.push(w.id);
       });
     });
 
-    return Object.values(groupsMap);
+    return Object.values(groupsMap).sort((a, b) => {
+      if (a.floorLevel !== b.floorLevel) {
+        if (a.floorLevel === "GF") return -1;
+        if (b.floorLevel === "GF") return 1;
+        return a.floorLevel.localeCompare(b.floorLevel);
+      }
+      if (a.floorType !== b.floorType) {
+        return a.floorType === "Slab" ? -1 : 1;
+      }
+      if (a.wallClass !== b.wallClass) {
+        return a.wallClass === "exterior_wall" ? -1 : 1;
+      }
+      return a.heightMm - b.heightMm;
+    });
   }, [pages, wallsByPage, scalesByPage, realScale]);
+
+  // ── Tự động đồng bộ các thay đổi từ properties / AI Canvas vào bảng Entered walls ──
+  useEffect(() => {
+    if (!aiCanvasWallsGrouped || aiCanvasWallsGrouped.length === 0) return;
+
+    const newCanvasEntries = aiCanvasWallsGrouped.map((g) => {
+      const isSlab = g.floorType === "Slab";
+      const spacingMm = 900;
+      const stableId = `canvas-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`;
+
+      const existing = (entries || []).find(e =>
+        e.id === stableId ||
+        (e.floorLevel === g.floorLevel &&
+          (e.baseType === g.baseType || (isSlab ? e.baseType === "Concrete Slab" : e.baseType === "Timber Floor")) &&
+          e.wallClass === g.wallClass &&
+          parseInt(String(e.height).replace(/mm/g, "").trim(), 10) === g.heightMm)
+      );
+
+      const curRodSize = existing?.rodSize || "M12";
+      const curSpacing = existing?.spacing ? parseInt(String(existing.spacing).replace(/mm/g, "").trim(), 10) : spacingMm;
+      const curDemand = (g.totalMm / curSpacing).toFixed(2);
+      const curRodCount = Math.ceil(g.totalMm / curSpacing) || 1;
+      const rodLen = g.heightMm <= 2440 ? 2700 : (g.heightMm <= 2740 ? 3000 : 3600);
+
+      return {
+        id: stableId,
+        baseType: g.baseType,
+        theWallAbove: g.theWallAbove,
+        height: `${g.heightMm} mm`,
+        length: `${Math.round(g.totalMm)} mm`,
+        spacing: `${curSpacing} mm`,
+        rodSize: curRodSize,
+        rodDemand: curDemand,
+        rodMapping: `${curRodCount} x ${curRodSize} Rod ${rodLen}`,
+        rodsQty: `${curRodCount} pcs`,
+        floorLevel: g.floorLevel || "GF",
+        wallClass: g.wallClass,
+        isCanvasWall: true,
+        wallIds: g.wallIds
+      };
+    });
+
+    const manualEntries = (entries || []).filter(e => e.isManual || (e.id && String(e.id).startsWith("manual-")));
+    const merged = [...newCanvasEntries, ...manualEntries];
+
+    const serializeKey = (list) => (list || []).map(e => `${e.id}_${e.length}_${e.height}_${e.baseType}_${e.wallClass}_${e.floorLevel}_${e.rodSize}_${e.spacing}`).join("|");
+    if (serializeKey(merged) !== serializeKey(entries)) {
+      if (onSetEntries) {
+        onSetEntries(merged);
+      }
+    }
+  }, [aiCanvasWallsGrouped]);
+
+  // ── Phân nhóm Level và chỉ tính External + Internal Load Bearing Wall ──
+  const levelGrouped = useMemo(() => {
+    return calculateEnteredWallsByLevel({
+      entries: entries || [],
+      wallsByPage,
+      pages,
+      scalesByPage,
+      realScale
+    });
+  }, [entries, wallsByPage, pages, scalesByPage, realScale]);
+
+  // ── Danh sách tường chỉ gồm External Wall & Internal Load Bearing Wall (chuẩn phẳng như Hình 3) ──
+  const qualifiedWalls = useMemo(() => {
+    return (entries || []).filter(w => {
+      const cls = w.wallClass || w.wall_class || w.class_name;
+      if (!cls) return true;
+      const c = String(cls).toLowerCase().trim();
+      return c === "exterior_wall" || c === "interior_wall";
+    });
+  }, [entries]);
+
+  const LEVEL_SORT_ORDER = {
+    GF: 1,
+    "G/F": 1,
+    "GROUND FLOOR": 1,
+    GROUND: 1,
+    "LEVEL 1": 1,
+    "0F": 1,
+    FF: 2,
+    "1/F": 2,
+    "1F": 2,
+    "FIRST FLOOR": 2,
+    FIRST: 2,
+    "LEVEL 2": 2,
+    SF: 3,
+    "2/F": 3,
+    "2F": 3,
+    "SECOND FLOOR": 3,
+    SECOND: 3,
+    "LEVEL 3": 3,
+    TF: 4,
+    "3/F": 4,
+    "3F": 4,
+    "THIRD FLOOR": 4,
+    THIRD: 4,
+    "LEVEL 4": 4,
+    "4F": 5,
+    "4/F": 5,
+    "FOURTH FLOOR": 5,
+    FOURTH: 5,
+    "LEVEL 5": 5,
+    "5F": 6,
+    "5/F": 6,
+    "FIFTH FLOOR": 6,
+    FIFTH: 6,
+    "LEVEL 6": 6,
+    "6F": 7,
+    "6/F": 7,
+    "SIXTH FLOOR": 7,
+    SIXTH: 7,
+    "LEVEL 7": 7,
+    "7F": 8,
+    "7/F": 8,
+    "SEVENTH FLOOR": 8,
+    SEVENTH: 8,
+    "LEVEL 8": 8,
+    "8F": 9,
+    "8/F": 9,
+    "EIGHTH FLOOR": 9,
+    EIGHTH: 9,
+    "LEVEL 9": 9,
+    "9F": 10,
+    "9/F": 10,
+    "NINTH FLOOR": 10,
+    NINTH: 10,
+    "LEVEL 10": 10,
+    "10F": 11,
+    "10/F": 11,
+    "TENTH FLOOR": 11,
+    TENTH: 11,
+    "LEVEL 11": 11
+  };
+
+  const getFloorLevelDisplayName = (lvl) => {
+    const raw = String(lvl || "").trim().toUpperCase();
+    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
+      return "Ground Floor";
+    }
+    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
+      return "First Floor";
+    }
+    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
+      return "Second Floor";
+    }
+    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
+      return "Third Floor";
+    }
+    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
+      return "Fourth Floor";
+    }
+    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
+      return "Fifth Floor";
+    }
+    if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
+      return "Sixth Floor";
+    }
+    if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
+      return "Seventh Floor";
+    }
+    if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
+      return "Eighth Floor";
+    }
+    if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
+      return "Ninth Floor";
+    }
+    if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
+      return "Tenth Floor";
+    }
+    return `${lvl} Floor`;
+  };
+
+  const groupedWallsByLevel = useMemo(() => {
+    const groups = {};
+    (qualifiedWalls || []).forEach(w => {
+      const lvl = (w.floorLevel || w.floor_level || "GF").toUpperCase().trim() || "GF";
+      if (!groups[lvl]) {
+        groups[lvl] = [];
+      }
+      groups[lvl].push(w);
+    });
+
+    const sortedLevels = Object.keys(groups).sort((a, b) => {
+      const orderA = LEVEL_SORT_ORDER[a] || 99;
+      const orderB = LEVEL_SORT_ORDER[b] || 99;
+      return orderA - orderB;
+    });
+
+    return sortedLevels.map(lvl => ({
+      level: lvl,
+      walls: groups[lvl]
+    }));
+  }, [qualifiedWalls]);
 
   // ── Listen for Auto-Calculate & Fill event from FrameworkJobsModal ──
   useEffect(() => {
@@ -160,7 +467,9 @@ export default function FrameHardwareTask({
                 rodSize: rodSize,
                 rodDemand: demand,
                 rodMapping: `${rodCount} x ${rodSize} Rod ${rodLength}`,
-                rodsQty: `${rodCount} pcs`
+                rodsQty: `${rodCount} pcs`,
+                floorLevel: r.floor_level || "GF",
+                wallClass: "interior_wall"
               };
             });
 
@@ -189,7 +498,9 @@ export default function FrameHardwareTask({
       height: w.height ? String(w.height).replace("mm", "").trim() : "2700",
       length: w.length ? String(w.length).replace("mm", "").trim() : "",
       spacing: w.spacing ? String(w.spacing).replace("mm", "").trim() : "900",
-      rodSize: w.rodSize || "M12"
+      rodSize: w.rodSize || "M12",
+      floorLevel: w.floorLevel || w.floor_level || "GF",
+      wallClass: w.wallClass || w.wall_class || "exterior_wall"
     });
   };
 
@@ -210,6 +521,8 @@ export default function FrameHardwareTask({
       height: currentData.height ? (String(currentData.height).includes("mm") ? currentData.height : `${currentData.height} mm`) : item.height,
       length: currentData.length ? (String(currentData.length).includes("mm") ? currentData.length : `${currentData.length} mm`) : item.length,
       spacing: currentData.spacing ? (String(currentData.spacing).includes("mm") ? currentData.spacing : `${currentData.spacing} mm`) : item.spacing,
+      floorLevel: currentData.floorLevel || item.floorLevel || "GF",
+      wallClass: currentData.wallClass || item.wallClass || "exterior_wall",
       rodDemand: demand,
       rodsQty: `${rodCount} pcs`,
       rodMapping: `${rodCount} x ${currentData.rodSize || item.rodSize || "M12"} Rod ${rodLen}`
@@ -227,8 +540,8 @@ export default function FrameHardwareTask({
       if (!editingTr) return;
 
       const path = e.composedPath ? e.composedPath() : [];
-      const isInsideEditingTr = path.some(el => 
-        el === editingTr || 
+      const isInsideEditingTr = path.some(el =>
+        el === editingTr ||
         (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current))
       );
 
@@ -290,7 +603,8 @@ export default function FrameHardwareTask({
     const rodLength = hMm <= 2440 ? 2700 : (hMm <= 2740 ? 3000 : 3600);
 
     const newEntry = {
-      id: "slab-" + Date.now(),
+      id: "manual-slab-" + Date.now(),
+      isManual: true,
       baseType: "Concrete Slab",
       theWallAbove: "ON CONCRETE SLAB FLOOR",
       height: `${hMm} mm`,
@@ -299,7 +613,9 @@ export default function FrameHardwareTask({
       rodSize: slabRodSize,
       rodDemand: demand,
       rodMapping: `${rodCount} x ${slabRodSize} Rod ${rodLength}`,
-      rodsQty: `${rodCount} pcs`
+      rodsQty: `${rodCount} pcs`,
+      floorLevel: slabFloorLevel || "GF",
+      wallClass: slabWallClass || "exterior_wall"
     };
 
     if (onSetEntries) {
@@ -320,7 +636,8 @@ export default function FrameHardwareTask({
     const rodLength = hMm <= 2440 ? 2700 : (hMm <= 2740 ? 3000 : 3600);
 
     const newEntry = {
-      id: "tmb-" + Date.now(),
+      id: "manual-tmb-" + Date.now(),
+      isManual: true,
       baseType: "Timber Floor",
       theWallAbove: "ON TIMBER FLOOR",
       height: `${hMm} mm`,
@@ -329,7 +646,9 @@ export default function FrameHardwareTask({
       rodSize: timberRodSize,
       rodDemand: demand,
       rodMapping: `${rodCount} x ${timberRodSize} Rod ${rodLength}`,
-      rodsQty: `${rodCount} pcs`
+      rodsQty: `${rodCount} pcs`,
+      floorLevel: timberFloorLevel || "GF",
+      wallClass: timberWallClass || "exterior_wall"
     };
 
     if (onSetEntries) {
@@ -352,23 +671,27 @@ export default function FrameHardwareTask({
     let generatedEntries = [];
 
     if (aiCanvasWallsGrouped.length > 0) {
-      generatedEntries = aiCanvasWallsGrouped.map((g, idx) => {
+      generatedEntries = aiCanvasWallsGrouped.map((g) => {
         const isSlab = g.floorType === "Slab";
         const spacingMm = 900;
         const demand = (g.totalMm / spacingMm).toFixed(2);
         const rodCount = Math.ceil(g.totalMm / spacingMm) || 1;
         const rodLength = g.heightMm <= 2440 ? 2700 : (g.heightMm <= 2740 ? 3000 : 3600);
         return {
-          id: (isSlab ? "slab-" : "tmb-") + Date.now() + "-" + idx,
-          baseType: isSlab ? "Concrete Slab" : "Timber Floor",
-          theWallAbove: isSlab ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
+          id: `canvas-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`,
+          baseType: g.baseType,
+          theWallAbove: g.theWallAbove,
           height: `${g.heightMm} mm`,
           length: `${Math.round(g.totalMm)} mm`,
           spacing: `${spacingMm} mm`,
           rodSize: "M12",
           rodDemand: demand,
           rodMapping: `${rodCount} x M12 Rod ${rodLength}`,
-          rodsQty: `${rodCount} pcs`
+          rodsQty: `${rodCount} pcs`,
+          floorLevel: g.floorLevel || "GF",
+          wallClass: g.wallClass,
+          isCanvasWall: true,
+          wallIds: g.wallIds
         };
       });
     } else {
@@ -390,7 +713,9 @@ export default function FrameHardwareTask({
           rodSize: "M12",
           rodDemand: (timberMm / 900).toFixed(2),
           rodMapping: `${Math.ceil(timberMm / 900)} x M12 Rod 3000`,
-          rodsQty: `${Math.ceil(timberMm / 900)} pcs`
+          rodsQty: `${Math.ceil(timberMm / 900)} pcs`,
+          floorLevel: "GF",
+          wallClass: "exterior_wall"
         },
         {
           id: "slab-" + Date.now() + "-2",
@@ -402,7 +727,9 @@ export default function FrameHardwareTask({
           rodSize: "M12",
           rodDemand: (slabMm / 900).toFixed(2),
           rodMapping: `${Math.ceil(slabMm / 900)} x M12 Rod 3600`,
-          rodsQty: `${Math.ceil(slabMm / 900)} pcs`
+          rodsQty: `${Math.ceil(slabMm / 900)} pcs`,
+          floorLevel: "GF",
+          wallClass: "exterior_wall"
         }
       ];
     }
@@ -434,10 +761,7 @@ export default function FrameHardwareTask({
     setSaveSuccess(false);
 
     try {
-      const seenHeights = {};
-      const wallsList = [];
-
-      entries.forEach(w => {
+      const wallsList = (qualifiedWalls || []).map(w => {
         const rawAbove = w.theWallAbove || "";
         const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
         const floorType = isTimber ? "Timber" : "Slab";
@@ -445,23 +769,18 @@ export default function FrameHardwareTask({
         const lengthMm = parseInt(String(w.length || "0").replace(/mm/gi, "").trim(), 10) || 0;
         const spacingMm = parseInt(String(w.spacing || "900").replace(/mm/gi, "").trim(), 10) || 900;
         const rodSize = w.rodSize || "M12";
-        const heightKey = `${floorType}_${heightMm}`;
+        const floorLevel = (w.floorLevel || w.floor_level || "GF").trim().toUpperCase();
 
-        if (!seenHeights[heightKey]) {
-          seenHeights[heightKey] = {
-            floor_type: floorType,
-            wall_height: heightMm,
-            wall_length: lengthMm,
-            spacing: spacingMm,
-            rod_size: rodSize,
-            short_name: getActiveClientShortName()
-          };
-        } else {
-          seenHeights[heightKey].wall_length += lengthMm;
-        }
+        return {
+          floor_type: floorType,
+          wall_height: heightMm,
+          wall_length: lengthMm,
+          spacing: spacingMm,
+          rod_size: rodSize,
+          short_name: getActiveClientShortName(),
+          floor_level: floorLevel
+        };
       });
-
-      wallsList.push(...Object.values(seenHeights));
 
       const jobId = currentProjectName || activeJobNumber || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
       if (!jobId) {
@@ -493,22 +812,313 @@ export default function FrameHardwareTask({
   const timberAiMm = aiCanvasWallsGrouped.length > 0
     ? aiCanvasWallsGrouped.filter(g => g.floorType === "Timber").reduce((sum, g) => sum + g.totalMm, 0)
     : (entries || [])
-        .filter(w => {
-          const rawAbove = w.theWallAbove || "";
-          return rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
-        })
-        .reduce((sum, w) => sum + (parseInt(String(w.length || "0").replace(/mm/gi, "").trim(), 10) || 0), 0);
+      .filter(w => {
+        const rawAbove = w.theWallAbove || "";
+        return rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
+      })
+      .reduce((sum, w) => sum + (parseInt(String(w.length || "0").replace(/mm/gi, "").trim(), 10) || 0), 0);
 
   const slabAiMm = aiCanvasWallsGrouped.length > 0
     ? aiCanvasWallsGrouped.filter(g => g.floorType === "Slab").reduce((sum, g) => sum + g.totalMm, 0)
     : (entries || [])
-        .filter(w => {
-          const rawAbove = w.theWallAbove || "";
-          return rawAbove.toUpperCase().includes("SLAB") || rawAbove.toUpperCase().includes("CONCRETE") || w.baseType === "Concrete Slab" || w.baseType === "Slab";
-        })
-        .reduce((sum, w) => sum + (parseInt(String(w.length || "0").replace(/mm/gi, "").trim(), 10) || 0), 0);
+      .filter(w => {
+        const rawAbove = w.theWallAbove || "";
+        return rawAbove.toUpperCase().includes("SLAB") || rawAbove.toUpperCase().includes("CONCRETE") || w.baseType === "Concrete Slab" || w.baseType === "Slab";
+      })
+      .reduce((sum, w) => sum + (parseInt(String(w.length || "0").replace(/mm/gi, "").trim(), 10) || 0), 0);
 
   const hasAIData = timberAiMm > 0 || slabAiMm > 0;
+
+  const renderWallRow = (w, rowIdx) => {
+    const effWall = selectedWallProp || selectedWall;
+    const effWallIds = selectedWallIdsProp || selectedWallIds || [];
+    const effId = selectedIdProp || selectedId;
+    const effType = selectedTypeProp || selectedType;
+    const effHovered = hoveredWallId;
+
+    const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+    const hasMatch = (targetId) => {
+      if (!targetId) return false;
+      if (matchId(w.wallId, targetId) || matchId(w.id, targetId)) return true;
+      if (Array.isArray(w.wallIds) && w.wallIds.some(id => matchId(id, targetId))) return true;
+      return false;
+    };
+
+    const isSelected = selectedEntryId === w.id ||
+      (effWall && hasMatch(effWall.id)) ||
+      (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
+      (effType === "wall" && hasMatch(effId));
+    const isHovered = effHovered && hasMatch(effHovered);
+    const isRowEditing = editingRowId === w.id;
+    const rawAbove = w.theWallAbove || "";
+    const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
+    const wallAboveLabel = isTimber ? "Timber" : "Slab";
+    const rodSizeVal = w.rodSize || (isTimber ? (formData.timber_rod_size || "M12") : (formData.slab_rod_size || "M12"));
+    const flVal = (w.floorLevel || w.floor_level || "GF").toUpperCase();
+    const isLower = flVal === "GF" || flVal === "LEVEL 1" || flVal === "GROUND FLOOR" || flVal === "GROUND";
+    const wallCls = w.wallClass || w.wall_class || "exterior_wall";
+    const isExternal = wallCls === "exterior_wall";
+
+    const handleSelectWallRow = (targetWall) => {
+      const isCurrentlySelected = selectedEntryId === targetWall.id;
+      const nextSelected = isCurrentlySelected ? null : targetWall;
+      setSelectedEntryId(nextSelected ? targetWall.id : null);
+
+      if (nextSelected) {
+        let targetPageIndex = -1;
+        if (Array.isArray(targetWall.wallIds) && targetWall.wallIds.length > 0) {
+          for (const [pIdxStr, pWalls] of Object.entries(wallsByPage || {})) {
+            if (Array.isArray(pWalls) && pWalls.some(pw => targetWall.wallIds.includes(pw.id))) {
+              targetPageIndex = Number(pIdxStr);
+              break;
+            }
+          }
+        }
+
+        if (targetPageIndex < 0 && pages && pages.length > 0) {
+          const fl = (targetWall.floorLevel || targetWall.floor_level || "GF").toUpperCase().trim();
+          targetPageIndex = pages.findIndex((p, idx) => {
+            const pName = (p.floor_name || p.name || "").toUpperCase().trim();
+            if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRỆT") || idx === 0)) return true;
+            if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("TẦNG 1") || pName.includes("1F") || idx === 1)) return true;
+            if (fl === "SF" && (pName === "SF" || pName.includes("SECOND") || pName === "LEVEL 3" || pName.includes("TẦNG 2") || pName.includes("2F") || idx === 2)) return true;
+            if (fl === "TF" && (pName === "TF" || pName.includes("THIRD") || pName === "LEVEL 4" || pName.includes("TẦNG 3") || pName.includes("3F") || idx === 3)) return true;
+            if (pName.includes(fl)) return true;
+            return false;
+          });
+          if (targetPageIndex < 0) {
+            if (fl === "GF") targetPageIndex = 0;
+            else if (fl === "FF" && pages.length > 1) targetPageIndex = 1;
+            else if (fl === "SF" && pages.length > 2) targetPageIndex = 2;
+            else if (fl === "TF" && pages.length > 3) targetPageIndex = 3;
+          }
+        }
+
+        if (targetPageIndex >= 0) {
+          if (typeof goPage === "function") goPage(targetPageIndex);
+          else if (typeof setCurrentPage === "function") setCurrentPage(targetPageIndex);
+        }
+      }
+
+      if (onSelectEntry) {
+        onSelectEntry(nextSelected);
+      }
+    };
+
+    return (
+      <tr
+        key={w.id || rowIdx}
+        data-editing-row-id={isRowEditing ? w.id : undefined}
+        onDoubleClick={(e) => {
+          if (isRowEditing) return;
+          if (e.target.closest && e.target.closest("button")) return;
+          if (editingRowId && editingRowId !== w.id) {
+            handleSaveInlineEdit(editingRowId);
+          }
+          handleSelectWallRow(w);
+          handleStartEdit(w);
+        }}
+        onClick={() => {
+          if (!isRowEditing) {
+            if (editingRowId && editingRowId !== w.id) {
+              handleSaveInlineEdit(editingRowId);
+            }
+            handleSelectWallRow(w);
+          }
+        }}
+        style={{
+          borderBottom: "1px solid #e2e8f0",
+          background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
+          cursor: isRowEditing ? "default" : "pointer",
+          outline: isSelected ? "2px solid #3b82f6" : "none",
+          outlineOffset: "-1px",
+          transition: "background 0.15s ease"
+        }}
+      >
+        <td style={{ padding: "6px 8px", fontWeight: 700, width: "24px" }}>{rowIdx + 1}</td>
+
+        {/* The Wall Above */}
+        <td style={{ padding: "6px 8px" }}>
+          <span style={{
+            background: isTimber ? "#fef3c7" : "#fee2e2",
+            color: isTimber ? "#92400e" : "#991b1b",
+            padding: "2px 8px",
+            borderRadius: "10px",
+            fontWeight: 800,
+            fontSize: "9.5px",
+            letterSpacing: "0.3px",
+            display: "inline-block",
+            textTransform: "uppercase"
+          }}>
+            {wallAboveLabel}
+          </span>
+        </td>
+
+        {/* Wall Type */}
+        <td style={{ padding: "6px 8px" }}>
+          {isRowEditing ? (
+            <select
+              value={editRowData.wallClass || "exterior_wall"}
+              onChange={(e) => setEditRowData({ ...editRowData, wallClass: e.target.value })}
+              style={{ padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+            >
+              {WALL_CLASS_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          ) : (
+            <span style={{
+              background: isExternal ? "#ecfdf5" : "#f5f3ff",
+              color: isExternal ? "#047857" : "#6d28d9",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              fontWeight: 700,
+              fontSize: "9.5px",
+              whiteSpace: "nowrap"
+            }}>
+              {isExternal ? "External" : "Load Bearing Wall"}
+            </span>
+          )}
+        </td>
+
+        {/* Wall Height */}
+        <td style={{ padding: "6px 8px" }}>
+          {isRowEditing ? (
+            <select
+              value={editRowData.height ? String(editRowData.height).replace("mm", "").trim() : "2700"}
+              onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
+              style={{ padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+            >
+              {WALL_HEIGHT_OPTIONS.filter(opt => opt !== "Select...").map(opt => (
+                <option key={opt} value={opt}>{opt} mm</option>
+              ))}
+            </select>
+          ) : (
+            w.height
+          )}
+        </td>
+
+        {/* Wall Length */}
+        <td style={{ padding: "6px 8px" }}>
+          {isRowEditing ? (
+            <input
+              type="text"
+              value={editRowData.length || ""}
+              onChange={(e) => setEditRowData({ ...editRowData, length: e.target.value })}
+              style={{ width: "75px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+            />
+          ) : (
+            w.length
+          )}
+        </td>
+
+        {/* Tiedown Spacing */}
+        <td style={{ padding: "6px 8px" }}>
+          {isRowEditing ? (
+            <input
+              type="text"
+              value={editRowData.spacing || ""}
+              onChange={(e) => setEditRowData({ ...editRowData, spacing: e.target.value })}
+              style={{ width: "60px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
+            />
+          ) : (
+            w.spacing
+          )}
+        </td>
+
+        {/* Rod Size */}
+        <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
+          {isRowEditing ? (
+            <select
+              value={editRowData.rodSize !== undefined ? editRowData.rodSize : (rodSizeVal || "M12")}
+              onChange={(e) => setEditRowData({ ...editRowData, rodSize: e.target.value })}
+              style={{
+                padding: "3px 6px",
+                fontSize: "11px",
+                fontWeight: 700,
+                border: "1.5px solid #3b82f6",
+                borderRadius: "4px",
+                background: "#eff6ff",
+                color: "#1e3a5f",
+                cursor: "pointer",
+                outline: "none"
+              }}
+            >
+              {ROD_SIZE_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={rodSizeVal || "M12"}
+              onChange={(e) => handleUpdateEntryRodSize(w.id, e.target.value)}
+              style={{
+                padding: "3px 6px",
+                fontSize: "11px",
+                fontWeight: 700,
+                color: "#1e3a5f",
+                background: "#f8fafc",
+                border: "1px solid #cbd5e1",
+                borderRadius: "4px",
+                cursor: "pointer",
+                outline: "none"
+              }}
+            >
+              {ROD_SIZE_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          )}
+        </td>
+
+        {/* Actions */}
+        <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+          {isRowEditing ? (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
+                style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                title="Save"
+              >
+                ✓
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                title="Cancel"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartEdit(w);
+                }}
+                style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                title="Edit wall"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
+                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                title="Remove wall"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -542,254 +1152,314 @@ export default function FrameHardwareTask({
 
         {isSection1Open && (
           <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
-          
-          {/* SECTION: ON CONCRETE SLAB FLOOR */}
-          <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div
-              onClick={() => setIsSlabOpen(!isSlabOpen)}
-              style={{
-                padding: "7px 10px",
-                background: "#f1f5f9",
-                borderBottom: isSlabOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#334155",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>{isSlabOpen ? "▼" : "▶"} ON CONCRETE SLAB FLOOR</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isSlabOpen ? "▲" : "▼"}
-              </span>
-            </div>
-            {isSlabOpen && (
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-              {/* Wall Height */}
-              <div style={{ flex: "1 1 120px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
-                <select
-                  value={slabWallHeight}
-                  onChange={(e) => setSlabWallHeight(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {WALL_HEIGHT_OPTIONS.map(opt => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              </div>
 
-              {/* Wall Length */}
-              <div style={{ flex: "1.4 1 150px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
-                  value={slabWallLength}
-                  onChange={(e) => setSlabWallLength(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-
-              {/* Tiedown Spacing */}
-              <div style={{ flex: "1 1 100px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Tiedown Spacing</span>
-                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  value={slabSpacing}
-                  onChange={(e) => setSlabSpacing(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-
-              {/* Rod Size */}
-              <div style={{ flex: "1 1 110px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Rod Size</span>
-                <select
-                  value={slabRodSize}
-                  onChange={(e) => setSlabRodSize(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  <option value="M12">M12</option>
-                  <option value="M16">M16</option>
-                </select>
-              </div>
-
-              {/* Add Button */}
-              <button
-                type="button"
-                onClick={handleAddSlabWall}
+            {/* SECTION: ON CONCRETE SLAB FLOOR */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div
+                onClick={() => setIsSlabOpen(!isSlabOpen)}
                 style={{
-                  padding: "7px 14px",
-                  background: "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "12px",
-                  fontWeight: "700",
+                  padding: "7px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isSlabOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#334155",
                   cursor: "pointer",
-                  whiteSpace: "nowrap"
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
                 }}
               >
-                + Add wall
-              </button>
-            </div>
-            )}
-          </div>
-
-          {/* SECTION: ON TIMBER FLOOR */}
-          <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div
-              onClick={() => setIsTimberOpen(!isTimberOpen)}
-              style={{
-                padding: "7px 10px",
-                background: "#f1f5f9",
-                borderBottom: isTimberOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#334155",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>{isTimberOpen ? "▼" : "▶"} ON TIMBER FLOOR</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isTimberOpen ? "▲" : "▼"}
-              </span>
-            </div>
-            {isTimberOpen && (
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-              {/* Wall Height */}
-              <div style={{ flex: "1 1 120px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
-                <select
-                  value={timberWallHeight}
-                  onChange={(e) => setTimberWallHeight(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  {WALL_HEIGHT_OPTIONS.map(opt => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
+                <span>{isSlabOpen ? "▼" : "▶"} ON CONCRETE SLAB FLOOR</span>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isSlabOpen ? "▲" : "▼"}
+                </span>
               </div>
+              {isSlabOpen && (
+                <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+                  {/* Wall Height */}
+                  <div style={{ flex: "1 1 120px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
+                    <select
+                      value={slabWallHeight}
+                      onChange={(e) => setSlabWallHeight(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {WALL_HEIGHT_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Wall Length */}
-              <div style={{ flex: "1.4 1 150px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                  {/* Wall Length */}
+                  <div style={{ flex: "1.4 1 150px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
+                      value={slabWallLength}
+                      onChange={(e) => setSlabWallLength(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  {/* Tiedown Spacing */}
+                  <div style={{ flex: "1 1 100px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Tiedown Spacing</span>
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={slabSpacing}
+                      onChange={(e) => setSlabSpacing(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  {/* Rod Size */}
+                  <div style={{ flex: "1 1 90px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Rod Size</span>
+                    <select
+                      value={slabRodSize}
+                      onChange={(e) => setSlabRodSize(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      <option value="M12">M12</option>
+                      <option value="M16">M16</option>
+                    </select>
+                  </div>
+
+                  {/* Floor Level */}
+                  <div style={{ flex: "1 1 110px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor Level</span>
+                    <select
+                      value={slabFloorLevel}
+                      onChange={(e) => setSlabFloorLevel(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {LEVEL_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Wall Type */}
+                  <div style={{ flex: "1.2 1 130px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Type</span>
+                    <select
+                      value={slabWallClass}
+                      onChange={(e) => setSlabWallClass(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {WALL_CLASS_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Add Button */}
+                  <button
+                    type="button"
+                    onClick={handleAddSlabWall}
+                    style={{
+                      padding: "7px 14px",
+                      background: "#1e293b",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "5px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    + Add wall
+                  </button>
                 </div>
-                <input
-                  type="number"
-                  placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
-                  value={timberWallLength}
-                  onChange={(e) => setTimberWallLength(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
+              )}
+            </div>
 
-              {/* Tiedown Spacing */}
-              <div style={{ flex: "1 1 100px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Tiedown Spacing</span>
-                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  value={timberSpacing}
-                  onChange={(e) => setTimberSpacing(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-
-              {/* Rod Size */}
-              <div style={{ flex: "1 1 110px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Rod Size</span>
-                <select
-                  value={timberRodSize}
-                  onChange={(e) => setTimberRodSize(e.target.value)}
-                  className="task-field-select"
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                >
-                  <option value="M12">M12</option>
-                  <option value="M16">M16</option>
-                </select>
-              </div>
-
-              {/* Add Button */}
-              <button
-                type="button"
-                onClick={handleAddTimberWall}
+            {/* SECTION: ON TIMBER FLOOR */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div
+                onClick={() => setIsTimberOpen(!isTimberOpen)}
                 style={{
-                  padding: "7px 14px",
-                  background: "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "12px",
-                  fontWeight: "700",
+                  padding: "7px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isTimberOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#334155",
                   cursor: "pointer",
-                  whiteSpace: "nowrap"
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
                 }}
               >
-                + Add wall
-              </button>
-            </div>
-            )}
-          </div>
+                <span>{isTimberOpen ? "▼" : "▶"} ON TIMBER FLOOR</span>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isTimberOpen ? "▲" : "▼"}
+                </span>
+              </div>
+              {isTimberOpen && (
+                <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+                  {/* Wall Height */}
+                  <div style={{ flex: "1 1 120px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
+                    <select
+                      value={timberWallHeight}
+                      onChange={(e) => setTimberWallHeight(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {WALL_HEIGHT_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
 
-        </div>
+                  {/* Wall Length */}
+                  <div style={{ flex: "1.4 1 150px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
+                      value={timberWallLength}
+                      onChange={(e) => setTimberWallLength(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  {/* Tiedown Spacing */}
+                  <div style={{ flex: "1 1 100px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Tiedown Spacing</span>
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={timberSpacing}
+                      onChange={(e) => setTimberSpacing(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  {/* Rod Size */}
+                  <div style={{ flex: "1 1 90px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Rod Size</span>
+                    <select
+                      value={timberRodSize}
+                      onChange={(e) => setTimberRodSize(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      <option value="M12">M12</option>
+                      <option value="M16">M16</option>
+                    </select>
+                  </div>
+
+                  {/* Floor Level */}
+                  <div style={{ flex: "1 1 110px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor Level</span>
+                    <select
+                      value={timberFloorLevel}
+                      onChange={(e) => setTimberFloorLevel(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {LEVEL_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Wall Type */}
+                  <div style={{ flex: "1.2 1 130px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Type</span>
+                    <select
+                      value={timberWallClass}
+                      onChange={(e) => setTimberWallClass(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {WALL_CLASS_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Add Button */}
+                  <button
+                    type="button"
+                    onClick={handleAddTimberWall}
+                    style={{
+                      padding: "7px 14px",
+                      background: "#1e293b",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "5px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    + Add wall
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
         )}
       </div>
 
-      {/* ── CARD 2: ENTERED WALLS ── */}
+      {/* ── CARD 2: ENTERED WALLS (GROUPED BY LEVEL: GF vs FF+) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div
           style={{
@@ -805,7 +1475,7 @@ export default function FrameHardwareTask({
             gap: "6px"
           }}
         >
-          <span>2. Entered walls ({(entries || []).length})</span>
+          <span>2. Entered walls ({qualifiedWalls.length})</span>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {onAddDataAI && (
               <button
@@ -838,291 +1508,114 @@ export default function FrameHardwareTask({
         {isSection2Open && (
           <>
             <div style={{ padding: "8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
-            <thead>
-              <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
-                <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
-                <th style={{ padding: "6px 8px" }}>The Wall Above</th>
-                <th style={{ padding: "6px 8px" }}>Wall Height</th>
-                <th style={{ padding: "6px 8px" }}>Wall Length</th>
-                <th style={{ padding: "6px 8px" }}>Tiedown Spacing</th>
-                <th style={{ padding: "6px 8px" }}>Rod size</th>
-                <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(entries || []).map((w, idx) => {
-                const effWall = selectedWallProp || selectedWall;
-                const effWallIds = selectedWallIdsProp || selectedWallIds || [];
-                const effId = selectedIdProp || selectedId;
-                const effType = selectedTypeProp || selectedType;
-                const effHovered = hoveredWallId;
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
+                <thead>
+                  <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
+                    <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
+                    <th style={{ padding: "6px 8px" }}>The Wall Above</th>
+                    <th style={{ padding: "6px 8px" }}>Wall Type</th>
+                    <th style={{ padding: "6px 8px" }}>Wall Height</th>
+                    <th style={{ padding: "6px 8px" }}>Wall Length</th>
+                    <th style={{ padding: "6px 8px" }}>Tiedown Spacing</th>
+                    <th style={{ padding: "6px 8px" }}>Rod size</th>
+                    <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedWallsByLevel.map(({ level, walls }) => {
+                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
+                    return (
+                      <React.Fragment key={level}>
+                        <tr style={{
+                          background: isLower ? "#f0fdf4" : "#fefce8",
+                          borderTop: "2px solid #cbd5e1",
+                          borderBottom: "1px solid #e2e8f0"
+                        }}>
+                          <td colSpan={8} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                                <span style={{
+                                  background: isLower ? "#dcfce7" : "#fef08a",
+                                  color: isLower ? "#15803d" : "#854d0e",
+                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
+                                  padding: "2px 8px",
+                                  borderRadius: "4px",
+                                  fontWeight: 800,
+                                  fontSize: "10.5px",
+                                  letterSpacing: "0.5px"
+                                }}>
+                                  {level}
+                                </span>
+                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
+                                  {getFloorLevelDisplayName(level)}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
+                                {walls.length} {walls.length === 1 ? "wall" : "walls"}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        {walls.map((w) => {
+                          const globalIdx = qualifiedWalls.findIndex(qw => qw.id === w.id);
+                          return renderWallRow(w, globalIdx >= 0 ? globalIdx : 0);
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
+                  {qualifiedWalls.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                        No walls entered. Enter wall specifications above or click Auto Fill (AI).
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-                const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
-                const hasMatch = (targetId) => {
-                  if (!targetId) return false;
-                  if (matchId(w.wallId, targetId) || matchId(w.id, targetId)) return true;
-                  if (Array.isArray(w.wallIds) && w.wallIds.some(id => matchId(id, targetId))) return true;
-                  return false;
-                };
-
-                const isSelected = selectedEntryId === w.id ||
-                  (effWall && hasMatch(effWall.id)) ||
-                  (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
-                  (effType === "wall" && hasMatch(effId));
-                const isHovered = effHovered && hasMatch(effHovered);
-                const isRowEditing = editingRowId === w.id;
-                const rawAbove = w.theWallAbove || "";
-                const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
-                const wallAboveLabel = isTimber ? "Timber" : "Slab";
-                const rodSizeVal = w.rodSize || (isTimber ? (formData.timber_rod_size || "M12") : (formData.slab_rod_size || "M12"));
-
-                return (
-                  <tr
-                    key={w.id || idx}
-                    data-editing-row-id={isRowEditing ? w.id : undefined}
-                    onDoubleClick={(e) => {
-                      if (isRowEditing) return;
-                      if (e.target.closest && e.target.closest("button")) return;
-                      if (editingRowId && editingRowId !== w.id) {
-                        handleSaveInlineEdit(editingRowId);
-                      }
-                      setSelectedEntryId(w.id);
-                      if (onSelectEntry) onSelectEntry(w);
-                      handleStartEdit(w);
-                    }}
-                    onClick={() => {
-                      if (!isRowEditing) {
-                        if (editingRowId && editingRowId !== w.id) {
-                          handleSaveInlineEdit(editingRowId);
-                        }
-                        setSelectedEntryId(isSelected ? null : w.id);
-                        if (onSelectEntry) onSelectEntry(isSelected ? null : w);
-                      }
-                    }}
+            {/* ── ACTION BUTTONS: SAVE & COUNT (MATCHING IMAGE 3) ── */}
+            {qualifiedWalls.length > 0 && (
+              <div style={{
+                padding: "8px 12px",
+                background: "#f8fafc",
+                borderTop: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px"
+              }}>
+                <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
+                  {qualifiedWalls.length} {qualifiedWalls.length === 1 ? "wall" : "walls"} calculated
+                </span>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={handleSaveToDatabase}
+                    disabled={isSaving}
                     style={{
-                      borderBottom: "1px solid #e2e8f0",
-                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
-                      cursor: isRowEditing ? "default" : "pointer",
-                      outline: isSelected ? "2px solid #3b82f6" : "none",
-                      outlineOffset: "-1px",
-                      transition: "background 0.15s ease"
+                      padding: "4px 12px",
+                      background: saveSuccess ? "#16a34a" : "#1e293b",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "5px",
+                      fontSize: "10.5px",
+                      fontWeight: "700",
+                      cursor: isSaving ? "wait" : "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
+                      opacity: isSaving ? 0.7 : 1,
+                      transition: "background 0.2s ease"
                     }}
                   >
-                    <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
-                    <td style={{ padding: "6px 8px" }}>
-                      <span style={{
-                        background: isTimber ? "#fef3c7" : "#fee2e2",
-                        color: isTimber ? "#92400e" : "#991b1b",
-                        padding: "2px 8px",
-                        borderRadius: "10px",
-                        fontWeight: 800,
-                        fontSize: "9.5px",
-                        letterSpacing: "0.3px",
-                        display: "inline-block",
-                        textTransform: "uppercase"
-                      }}>
-                        {wallAboveLabel}
-                      </span>
-                    </td>
-
-                    {/* Wall Height */}
-                    <td style={{ padding: "6px 8px" }}>
-                      {isRowEditing ? (
-                        <select
-                          value={editRowData.height ? String(editRowData.height).replace("mm", "").trim() : "2700"}
-                          onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
-                          style={{ padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-                        >
-                          {WALL_HEIGHT_OPTIONS.filter(opt => opt !== "Select...").map(opt => (
-                            <option key={opt} value={opt}>{opt} mm</option>
-                          ))}
-                        </select>
-                      ) : (
-                        w.height
-                      )}
-                    </td>
-
-                    {/* Wall Length */}
-                    <td style={{ padding: "6px 8px" }}>
-                      {isRowEditing ? (
-                        <input
-                          type="text"
-                          value={editRowData.length || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, length: e.target.value })}
-                          style={{ width: "75px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-                        />
-                      ) : (
-                        w.length
-                      )}
-                    </td>
-
-                    {/* Spacing */}
-                    <td style={{ padding: "6px 8px" }}>
-                      {isRowEditing ? (
-                        <input
-                          type="text"
-                          value={editRowData.spacing || ""}
-                          onChange={(e) => setEditRowData({ ...editRowData, spacing: e.target.value })}
-                          style={{ width: "60px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-                        />
-                      ) : (
-                        w.spacing
-                      )}
-                    </td>
-
-                    {/* Rod Size */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-                      {isRowEditing ? (
-                        <select
-                          value={editRowData.rodSize !== undefined ? editRowData.rodSize : (rodSizeVal || "M12")}
-                          onChange={(e) => setEditRowData({ ...editRowData, rodSize: e.target.value })}
-                          style={{
-                            padding: "3px 6px",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            border: "1.5px solid #3b82f6",
-                            borderRadius: "4px",
-                            background: "#eff6ff",
-                            color: "#1e3a5f",
-                            cursor: "pointer",
-                            outline: "none"
-                          }}
-                        >
-                          {ROD_SIZE_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={rodSizeVal || "M12"}
-                          onChange={(e) => handleUpdateEntryRodSize(w.id, e.target.value)}
-                          style={{
-                            padding: "3px 6px",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            color: "#1e3a5f",
-                            background: "#f8fafc",
-                            border: "1px solid #cbd5e1",
-                            borderRadius: "4px",
-                            cursor: "pointer",
-                            outline: "none"
-                          }}
-                        >
-                          {ROD_SIZE_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-
-                    {/* Actions: Edit on left of X */}
-                    <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                      {isRowEditing ? (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
-                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
-                            title="Save"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
-                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                            title="Cancel"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingRowId(w.id);
-                              setEditRowData({
-                                ...w,
-                                height: String(w.height || "2700").replace("mm", "").trim(),
-                                length: String(w.length || "0").replace("mm", "").replace("m", "").trim(),
-                                spacing: String(w.spacing || "900").replace("mm", "").trim()
-                              });
-                            }}
-                            style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                            title="Edit wall"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
-                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                            title="Remove wall"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {(!entries || entries.length === 0) && (
-                <tr>
-                  <td colSpan={7} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>
-                    No walls entered. Enter wall specifications above or click Auto-Calculate & Fill.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── ACTION BUTTONS: SAVE & PROCUREMENT (ONLY WHEN RESULTS EXIST) ── */}
-        {entries && entries.length > 0 && (
-          <div style={{
-            padding: "8px 12px",
-            background: "#f8fafc",
-            borderTop: "1px solid #e2e8f0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "8px"
-          }}>
-            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {entries.length} {entries.length === 1 ? "wall" : "walls"} calculated
-            </span>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="button"
-                onClick={handleSaveToDatabase}
-                disabled={isSaving}
-                style={{
-                  padding: "4px 8px",
-                  background: saveSuccess ? "#16a34a" : "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: isSaving ? "wait" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-                  opacity: isSaving ? 0.7 : 1,
-                  transition: "background 0.2s ease"
-                }}
-              >
-                {isSaving ? "⏳ Saving..." : saveSuccess ? "✅ Saved!" : "💾 Save"}
-              </button>
-            </div>
-          </div>
-        )}
-        </>
+                    {isSaving ? "⏳ Saving..." : saveSuccess ? "✅ Saved!" : "💾 Save"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

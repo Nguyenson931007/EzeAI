@@ -181,69 +181,17 @@ export default function WallPropertyPanel({
                     </button>
                   ))}
                 </div>
-
-                {currentType === "partition_wall" && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "6px 8px",
-                      marginTop: "6px",
-                      background: isLbwSelected ? "rgba(234, 88, 12, 0.08)" : "transparent",
-                      border: isLbwSelected ? "1px solid #fdba74" : "1px dashed var(--border)",
-                      borderRadius: "6px"
-                    }}
-                  >
-                    <span style={{ fontSize: "11px", fontWeight: 700, color: isLbwSelected ? "#c2410c" : "var(--text-main)" }}>
-                      ⚡ Load-Bearing (LBW)
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={isLbwSelected}
-                      onChange={(e) => handleToggleLbw(e.target.checked)}
-                      style={{ width: "15px", height: "15px", cursor: "pointer", accentColor: "#ea580c" }}
-                    />
-                  </div>
-                )}
               </>
             );
           }
 
           return (
-            <>
-              <select className="panel-select" value={currentType} onChange={(e) => handleTypeChange(e.target.value)}>
-                <option value="exterior_wall">Exterior Wall (ext)</option>
-                <option value="interior_wall">Interior Wall (int)</option>
-                <option value="partition_wall">Partition Wall (part)</option>
-                <option value="block_wall">Block Wall (block)</option>
-              </select>
-
-              {currentType === "partition_wall" && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "6px 8px",
-                    marginTop: "6px",
-                    background: isLbwSelected ? "rgba(234, 88, 12, 0.08)" : "transparent",
-                    border: isLbwSelected ? "1px solid #fdba74" : "1px dashed var(--border)",
-                    borderRadius: "6px"
-                  }}
-                >
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: isLbwSelected ? "#c2410c" : "var(--text-main)" }}>
-                    ⚡ Load-Bearing Wall (LBW)
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={isLbwSelected}
-                    onChange={(e) => handleToggleLbw(e.target.checked)}
-                    style={{ width: "15px", height: "15px", cursor: "pointer", accentColor: "#ea580c" }}
-                  />
-                </div>
-              )}
-            </>
+            <select className="panel-select" value={currentType} onChange={(e) => handleTypeChange(e.target.value)}>
+              <option value="exterior_wall">Exterior Wall (ext)</option>
+              <option value="interior_wall">Interior Wall (int)</option>
+              <option value="partition_wall">Partition Wall (part)</option>
+              <option value="block_wall">Block Wall (block)</option>
+            </select>
           );
         })()}
       </div>
@@ -408,6 +356,123 @@ export default function WallPropertyPanel({
                     }}
                   >
                     {isActive ? `✓ ${opt.label}` : opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* WALL BEARING TYPE (LOAD BEARING VS NON-LOAD BEARING) */}
+      <div style={{ marginTop: 12, marginBottom: 8 }}>
+        <span className="panel-label" style={{ fontWeight: 700, color: "var(--blue-700)", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>⚡ WALL BEARING TYPE</span>
+          <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-dim)" }}></span>
+        </span>
+        {(() => {
+          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
+          const targetWalls = (walls || []).filter((w) => targetIds.includes(w.id));
+          const isAllLbw = targetWalls.length > 0 && targetWalls.every((w) => Boolean(w.is_lbw || w.is_load_bearing || w.lbw));
+          const isAllNonLbw = targetWalls.length > 0 && targetWalls.every((w) => !Boolean(w.is_lbw || w.is_load_bearing || w.lbw));
+          const currentBearing = isAllLbw ? "lbw" : (isAllNonLbw ? "non_lbw" : "multiple");
+
+          const bearingOptions = [
+            { value: "lbw", label: "Load Bearing Wall", short: "Load Bearing", isLbw: true },
+            { value: "non_lbw", label: "Non-Load Bearing Wall", short: "Non-Load Bearing", isLbw: false }
+          ];
+
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, background: "var(--bg-panel)", padding: 3, borderRadius: 6, border: "1px solid var(--border)" }}>
+              {bearingOptions.map((opt) => {
+                const isActive = currentBearing === opt.value;
+                const activeBg = opt.isLbw ? "#ea580c" : "var(--blue)";
+                const activeShadow = opt.isLbw ? "0 1px 4px rgba(234, 88, 12, 0.35)" : "0 1px 4px rgba(37,99,235,0.25)";
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    style={{
+                      padding: "7px 6px",
+                      fontSize: 12,
+                      fontWeight: isActive ? 700 : 500,
+                      background: isActive ? activeBg : "transparent",
+                      color: isActive ? "#ffffff" : "var(--text-dim)",
+                      border: isActive ? `1px solid ${activeBg}` : "1px solid transparent",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      boxShadow: isActive ? activeShadow : "none",
+                      transition: "all 0.15s ease",
+                      textAlign: "center",
+                      whiteSpace: "nowrap"
+                    }}
+                    title={opt.label}
+                    onClick={() => {
+                      if (targetIds.length > 0 && updateWallsProperty) {
+                        updateWallsProperty(targetIds, "is_lbw", opt.isLbw);
+                      }
+                    }}
+                  >
+                    {isActive ? `✓ ${opt.short}` : opt.short}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* INSULATION (INCLUDE VS EXCLUDE INSULATION) */}
+      <div style={{ marginTop: 12, marginBottom: 8 }}>
+        <span className="panel-label" style={{ fontWeight: 700, color: "var(--blue-700)", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>🧥 INSULATION</span>
+          <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-dim)" }}></span>
+        </span>
+        {(() => {
+          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
+          const targetWalls = (walls || []).filter((w) => targetIds.includes(w.id));
+          const isAllInclude = targetWalls.length > 0 && targetWalls.every((w) => w.include_insulation !== false && !w.exclude_insulation);
+          const isAllExclude = targetWalls.length > 0 && targetWalls.every((w) => w.include_insulation === false || w.exclude_insulation === true);
+          const currentInsulation = isAllInclude ? "include" : (isAllExclude ? "exclude" : "multiple");
+
+          const insulationOptions = [
+            { value: "include", label: "Include Insulation", short: "Include Insulation", isInclude: true },
+            { value: "exclude", label: "Exclude Insulation", short: "Exclude Insulation", isInclude: false }
+          ];
+
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, background: "var(--bg-panel)", padding: 3, borderRadius: 6, border: "1px solid var(--border)" }}>
+              {insulationOptions.map((opt) => {
+                const isActive = currentInsulation === opt.value;
+                const activeBg = opt.isInclude ? "#16a34a" : "#64748b";
+                const activeShadow = opt.isInclude ? "0 1px 4px rgba(22, 163, 74, 0.35)" : "0 1px 4px rgba(100, 116, 139, 0.35)";
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    style={{
+                      padding: "7px 4px",
+                      fontSize: 11.5,
+                      fontWeight: isActive ? 700 : 500,
+                      background: isActive ? activeBg : "transparent",
+                      color: isActive ? "#ffffff" : "var(--text-dim)",
+                      border: isActive ? `1px solid ${activeBg}` : "1px solid transparent",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      boxShadow: isActive ? activeShadow : "none",
+                      transition: "all 0.15s ease",
+                      textAlign: "center",
+                      whiteSpace: "nowrap"
+                    }}
+                    title={opt.label}
+                    onClick={() => {
+                      if (targetIds.length > 0 && updateWallsProperty) {
+                        updateWallsProperty(targetIds, "include_insulation", opt.isInclude);
+                        updateWallsProperty(targetIds, "exclude_insulation", !opt.isInclude);
+                      }
+                    }}
+                  >
+                    {isActive ? `✓ ${opt.short}` : opt.short}
                   </button>
                 );
               })}

@@ -39,6 +39,8 @@ class ShelvingItemSchema(BaseModel):
     type: Optional[str] = Field(None, description="Loại Shelving (VD: Robe, Linen)")
     size: Optional[str] = Field(None, description="Kích thước (VD: 1500×450, 1800×450)")
     qty: Optional[Union[float, int, str]] = Field(None, description="Số lượng")
+    floor_level: Optional[str] = Field("GF", description="Tầng / Floor level (GF, FF, SF...)")
+    floorLevel: Optional[str] = Field(None, description="Alias Floor level")
 
 
 class ShelvingJobSaveSchema(BaseModel):
@@ -128,6 +130,7 @@ async def get_shelving_jobs(
                 s.Type AS type,
                 s.Size AS size,
                 s.Qty AS qty,
+                s.FloorLevel AS floor_level,
                 s.UserUpdate AS user_update,
                 s.DatetimeUpdate AS datetime_update,
                 s.IsOldData AS is_old_data,
@@ -175,6 +178,8 @@ async def get_shelving_jobs(
                     item[key] = val
                 else:
                     item[key] = str(val)
+            item["floor_level"] = str(row.get("floor_level") or "GF").strip()
+            item["floorLevel"] = item["floor_level"]
             result.append(item)
 
         return {
@@ -254,7 +259,8 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
                     [Qty],
                     UserUpdate,
                     DatetimeUpdate,
-                    IsOldData
+                    IsOldData,
+                    [FloorLevel]
                 )
                 VALUES
                 (
@@ -265,7 +271,8 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
                     %s,
                     %s,
                     GETDATE(),
-                    0
+                    0,
+                    %s
                 );
             """
 
@@ -275,6 +282,7 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
                 qty_val = _parse_decimal(item.qty, default=1.0)
                 type_val = (item.type or "").strip() or None
                 size_val = (item.size or "").strip() or None
+                fl_val = str(item.floor_level or item.floorLevel or "GF").strip() or "GF"
 
                 cursor.execute(
                     sql_insert,
@@ -284,6 +292,7 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
                         size_val,
                         qty_val,
                         user_update,
+                        fl_val,
                     ),
                 )
                 inserted_count += 1
@@ -349,6 +358,7 @@ async def save_shelving_single(payload: dict, request: Request):
                 type=it.get("type") or it.get("Type"),
                 size=it.get("size") or it.get("Size"),
                 qty=it.get("qty") or it.get("Qty"),
+                floor_level=it.get("floor_level") or it.get("floorLevel") or it.get("FloorLevel") or "GF",
             )
             for it in raw_items
         ]
@@ -358,6 +368,7 @@ async def save_shelving_single(payload: dict, request: Request):
                 type=payload.get("type") or payload.get("Type"),
                 size=payload.get("size") or payload.get("Size"),
                 qty=payload.get("qty") or payload.get("Qty"),
+                floor_level=payload.get("floor_level") or payload.get("floorLevel") or payload.get("FloorLevel") or "GF",
             )
         ]
 

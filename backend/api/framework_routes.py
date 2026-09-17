@@ -65,6 +65,7 @@ class WallItemSchema(BaseModel):
     spacing: Optional[Union[float, int]] = Field(None, description="Khoảng cách bulong mm (VD: 900)")
     rod_size: Optional[str] = Field(None, description="Kích cỡ bulong (VD: M12, M16)")
     short_name: Optional[str] = Field(None, description="Mã viết tắt client (VD: BNSW-ACT)")
+    floor_level: Optional[str] = Field(None, description="Mã tầng (VD: GF, FF, SF, TF)")
 
 
 class JobSaveSchema(BaseModel):
@@ -106,6 +107,7 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
                 fw.Spacing AS spacing,
                 fw.RodSize AS rod_size,
                 fw.short_name AS short_name,
+                fw.FloorLevel AS floor_level,
                 fw.UserUpdate AS user_update,
                 fw.DatetimeUpdate AS datetime_update,
                 fw.IsOldData AS is_old_data,
@@ -190,7 +192,6 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
         if not job.id_job_hw:
             raise HTTPException(status_code=400, detail="id_job_hw là bắt buộc cho tất cả các Job trong danh sách")
 
-        seen_height_keys = set()
         for wall in job.walls:
             ft = (wall.floor_type or "").strip()
             if ft not in ["Timber", "Slab"]:
@@ -198,16 +199,6 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                     status_code=400,
                     detail=f"floor_type '{wall.floor_type}' không hợp lệ cho Job {job.id_job_hw}. Chỉ chấp nhận 'Timber' hoặc 'Slab'."
                 )
-            
-            # Kiểm tra trùng lặp theo cặp (Loại sàn + Chiều cao tường) trong cùng 1 Job
-            h_val = wall.wall_height if wall.wall_height is not None else "default"
-            height_key = f"{ft}_{h_val}"
-            if height_key in seen_height_keys:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Job {job.id_job_hw} chứa trùng lặp mốc tường '{ft}' chiều cao {h_val}mm trong cùng 1 lượt lưu."
-                )
-            seen_height_keys.add(height_key)
 
     conn = None
     try:
@@ -292,6 +283,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                     Spacing,
                     RodSize,
                     short_name,
+                    FloorLevel,
                     UserUpdate,
                     DatetimeUpdate,
                     IsOldData
@@ -299,6 +291,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                 VALUES
                 (
                     NEWID(),
+                    %s,
                     %s,
                     %s,
                     %s,
@@ -319,6 +312,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                 spacing_val = _parse_decimal(wall.spacing, default=900)
                 rod_size_val = _parse_rod_size(wall.rod_size, default="M12")
                 short_name_val = wall.short_name if wall.short_name else "BUN-NSW-ACT"
+                floor_level_val = (wall.floor_level or "").strip() if wall.floor_level else None
                 cursor.execute(
                     sql_insert_new,
                     (
@@ -329,6 +323,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                         spacing_val,
                         rod_size_val,
                         short_name_val,
+                        floor_level_val,
                         user_update
                     )
                 )
@@ -386,6 +381,7 @@ async def save_framework_wall_single(payload: dict, request: Request = None):
     spacing = payload.get("spacing", 900)
     rod_size = payload.get("rod_size", "M12")
     short_name = payload.get("short_name", "BUN-NSW-ACT")
+    floor_level = payload.get("floor_level", None)
     user_update = payload.get("user_update") or (request.headers.get("x-username") if request else None) or "admin"
 
     formatted_payload = SaveJobsPayloadSchema(
@@ -400,7 +396,8 @@ async def save_framework_wall_single(payload: dict, request: Request = None):
                         wall_length=wall_length,
                         spacing=spacing,
                         rod_size=rod_size,
-                        short_name=short_name
+                        short_name=short_name,
+                        floor_level=floor_level
                     )
                 ]
             )

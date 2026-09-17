@@ -179,3 +179,129 @@ export function calculateTakeoffSummary({
     wastePercentage
   };
 }
+
+/**
+ * Phân nhóm entries theo FloorLevel (Tầng trên / Tầng dưới)
+ * và chỉ tính External Wall + Internal Load Bearing Wall.
+ *
+ * Logic phân loại:
+ *   - exterior_wall  → External Wall ✅
+ *   - interior_wall  → Internal Load Bearing Wall ✅
+ *   - partition_wall  → Non-Load Bearing → LOẠI TRỪ
+ *   - block_wall      → Block Wall → LOẠI TRỪ
+ *
+ * Logic phân tầng:
+ *   - GF (Ground Floor)       → Tầng dưới
+ *   - FF, SF, TF, ... (≥ 1F)  → Tầng trên
+ *
+ * @param {Object} params
+ * @param {Array} params.entries - Danh sách wall entries (đã có floorLevel, wallClass)
+ * @param {Array} params.wallsByPage - Map of page index → wall array (AI Canvas)
+ * @param {Array} params.pages - Page definitions (for level inference)
+ * @param {Object} params.scalesByPage - Scale per page
+ * @param {number} params.realScale - Fallback scale
+ * @returns {{ lowerFloor: Object, upperFloor: Object, grandTotal: Object }}
+ */
+export function calculateEnteredWallsByLevel({
+  entries = [],
+  wallsByPage = {},
+  pages = [],
+  scalesByPage = {},
+  realScale = 1.0
+} = {}) {
+  // Helper: determine FloorLevel label from page index
+  const getFloorLevelByIndex = (idx) => {
+    const labels = ["GF", "FF", "SF", "TF"];
+    if (idx < labels.length) return labels[idx];
+    return `${idx}F`;
+  };
+
+  const getFloorLevelByPage = (idx) => {
+    if (pages && pages[idx]) {
+      const page = pages[idx];
+      const name = (page.floor_name || page.name || "").trim();
+      if (name) {
+        const upper = name.toUpperCase();
+        if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
+        if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
+        if (upper === "LEVEL 3" || upper === "SECOND FLOOR" || upper === "SECOND" || upper === "SF" || upper === "TẦNG 2" || upper === "2F") return "SF";
+        if (upper === "LEVEL 4" || upper === "THIRD FLOOR" || upper === "THIRD" || upper === "TF" || upper === "TẦNG 3" || upper === "3F") return "TF";
+        if (upper.startsWith("LEVEL ")) {
+          const num = parseInt(upper.replace("LEVEL ", "").trim(), 10);
+          if (num === 1) return "GF";
+          if (num === 2) return "FF";
+          if (num === 3) return "SF";
+          if (num === 4) return "TF";
+          return `${num - 1}F`;
+        }
+        return name;
+      }
+    }
+    return getFloorLevelByIndex(idx);
+  };
+
+  // Helper: check if a FloorLevel string is "lower floor" (GF)
+  const isLowerFloor = (fl) => {
+    if (!fl) return true; // default to GF if unknown
+    const u = String(fl).trim().toUpperCase();
+    return u === "GF" || u === "GROUND" || u === "GROUND FLOOR" || u === "LEVEL 1" || u === "TRỆT" || u === "TẦNG TRỆT";
+  };
+
+  // Helper: check if wall class qualifies (exterior_wall or interior_wall with load bearing)
+  const isQualifiedWallClass = (cls, entry = {}) => {
+    if (!cls) return true;
+    const c = String(cls).toLowerCase().trim();
+    if (c === "exterior_wall") return true;
+    if (c === "interior_wall") {
+      if (entry.is_lbw === false || entry.is_load_bearing === false || entry.lbw === false) return false;
+      return true;
+    }
+    return false;
+  };
+
+  // Initialize result accumulators
+  const result = {
+    lowerFloor: { label: "Ground Floor (GF)", walls: [], totalLengthMm: 0, totalAreaM2: 0, count: 0 },
+    upperFloor: { label: "First Floor & Above (FF+)", walls: [], totalLengthMm: 0, totalAreaM2: 0, count: 0 },
+    grandTotal: { totalLengthMm: 0, totalAreaM2: 0, count: 0 }
+  };
+
+  // Process entries
+  entries.forEach(entry => {
+    const fl = entry.floorLevel || entry.floor_level || "GF";
+    const wallCls = entry.wallClass || entry.wall_class || entry.class_name || null;
+
+    // Filter: only qualified wall classes (External Wall & Internal Load Bearing Wall)
+    if (!isQualifiedWallClass(wallCls, entry)) return;
+
+    const lengthMm = parseInt(String(entry.length || "0").replace(/mm/gi, "").trim(), 10) || 0;
+    const heightMm = parseInt(String(entry.height || "2400").replace(/mm/gi, "").trim(), 10) || 2400;
+    const areaMm2 = lengthMm * heightMm;
+    const areaM2 = areaMm2 / 1000000;
+
+    const enrichedEntry = { ...entry, _lengthMm: lengthMm, _heightMm: heightMm, _areaM2: Number(areaM2.toFixed(2)) };
+
+    if (isLowerFloor(fl)) {
+      result.lowerFloor.walls.push(enrichedEntry);
+      result.lowerFloor.totalLengthMm += lengthMm;
+      result.lowerFloor.totalAreaM2 += areaM2;
+      result.lowerFloor.count += 1;
+    } else {
+      result.upperFloor.walls.push(enrichedEntry);
+      result.upperFloor.totalLengthMm += lengthMm;
+      result.upperFloor.totalAreaM2 += areaM2;
+      result.upperFloor.count += 1;
+    }
+
+    result.grandTotal.totalLengthMm += lengthMm;
+    result.grandTotal.totalAreaM2 += areaM2;
+    result.grandTotal.count += 1;
+  });
+
+  // Round totals
+  result.lowerFloor.totalAreaM2 = Number(result.lowerFloor.totalAreaM2.toFixed(2));
+  result.upperFloor.totalAreaM2 = Number(result.upperFloor.totalAreaM2.toFixed(2));
+  result.grandTotal.totalAreaM2 = Number(result.grandTotal.totalAreaM2.toFixed(2));
+
+  return result;
+}

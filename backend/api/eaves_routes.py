@@ -39,6 +39,7 @@ class EavesItemSchema(BaseModel):
     sofit_batten: str = Field(..., min_length=1, description="Quy cách Sofit Batten từ DB")
     sofit_bead: str = Field(..., min_length=1, description="Quy cách Sofit Bead từ DB")
     short_name: str = Field(..., min_length=1, description="Mã viết tắt client từ DB")
+    floor_level: Optional[str] = Field("GF", description="Tầng: GF, FF, SF, TF...")
     input_data: dict[str, Any] = Field(default_factory=dict, description="Raw Eaves/Soffit manual inputs used by Procurement")
 
 
@@ -162,6 +163,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
                 es.SofitBatten AS sofit_batten,
                 es.SofitBead AS sofit_bead,
                 es.short_name AS short_name,
+                es.FloorLevel AS floor_level,
                 es.UserUpdate AS user_update,
                 es.DatetimeUpdate AS datetime_update,
                 es.IsOldData AS is_old_data,
@@ -205,6 +207,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
                     item[key] = val
                 else:
                     item[key] = str(val)
+            item["floor_level"] = row.get("floor_level") or "GF"
             raw_input_data = row.get("input_data_json")
             try:
                 item["input_data"] = json.loads(raw_input_data) if raw_input_data else {}
@@ -308,7 +311,8 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                     UserUpdate,
                     DatetimeUpdate,
                     IsOldData,
-                    InputDataJson
+                    InputDataJson,
+                    FloorLevel
                 )
                 VALUES
                 (
@@ -322,6 +326,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                     %s,
                     GETDATE(),
                     0,
+                    %s,
                     %s
                 );
             """
@@ -341,6 +346,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                 sheet_thickness_val = _parse_decimal(item.sheet_thickness)
                 sofit_batten_val = item.sofit_batten.strip()
                 sofit_bead_val = item.sofit_bead.strip()
+                flr_lvl = (item.floor_level or "GF").strip()
                 input_data_val = _normalize_input_data(item.input_data)
                 if not all((sheet_brand_val, sofit_batten_val, sofit_bead_val)) or not sheet_thickness_val or sheet_thickness_val <= 0:
                     raise HTTPException(status_code=422, detail=f"Eaves setup for job '{input_job_id}' is incomplete or invalid.")
@@ -356,6 +362,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                         job_hw_id,
                         user_update,
                         json.dumps(input_data_val, separators=(",", ":")),
+                        flr_lvl,
                     ),
                 )
 
@@ -376,7 +383,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
 
             saved_summary.append({
                 "id_job_hw": job_hw_id,
-                "eaves_inserted": 1
+                "eaves_inserted": len(job.eaves)
             })
 
         # Commit Transaction khi tất cả các bước thành công!
@@ -433,6 +440,7 @@ async def save_eaves_single(payload: dict, request: Request):
     sofit_batten = payload.get("sofit_batten") or payload.get("SofitBatten") or payload.get("batten")
     sofit_bead = payload.get("sofit_bead") or payload.get("SofitBead") or payload.get("bead")
     short_name = payload.get("short_name")
+    floor_level = payload.get("floor_level") or payload.get("FloorLevel") or "GF"
     input_data = payload.get("input_data") or payload.get("InputData") or payload.get("inputs") or {}
     user_update = payload.get("user_update") or request.headers.get("x-username")
 
@@ -463,6 +471,7 @@ async def save_eaves_single(payload: dict, request: Request):
                         sofit_batten=sofit_batten,
                         sofit_bead=sofit_bead,
                         short_name=short_name,
+                        floor_level=floor_level,
                         input_data=input_data
                     )
                 ]

@@ -37,7 +37,8 @@ export default function InsulationTask({
     selectedWallIds,
     selectedId,
     selectedType,
-    hoveredWallId
+    hoveredWallId,
+    goPage
   } = useAppModel();
 
   const activeCustomerShortName = getActiveClientShortName();
@@ -50,6 +51,8 @@ export default function InsulationTask({
   editRowDataRef.current = editRowData;
   const editingRowIdRef = useRef(editingRowId);
   editingRowIdRef.current = editingRowId;
+  const wallEntriesRef = useRef(wallEntries);
+  wallEntriesRef.current = wallEntries;
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -57,6 +60,149 @@ export default function InsulationTask({
   const [isExtOpen, setIsExtOpen] = useState(true);
   const [isIntOpen, setIsIntOpen] = useState(true);
   const [isPartyOpen, setIsPartyOpen] = useState(true);
+
+  // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
+  const getLevelCode = (idx) => {
+    if (pages && pages[idx]) {
+      const name = (pages[idx].floor_name || pages[idx].name || "").trim().toUpperCase();
+      if (name === "LEVEL 1" || name === "GROUND FLOOR" || name === "GROUND" || name === "GF" || name === "TRỆT" || name === "TẦNG TRỆT") return "GF";
+      if (name === "LEVEL 2" || name === "FIRST FLOOR" || name === "FIRST" || name === "FF" || name === "TẦNG 1" || name === "1F") return "FF";
+      if (name === "LEVEL 3" || name === "SECOND FLOOR" || name === "SECOND" || name === "SF" || name === "TẦNG 2" || name === "2F") return "SF";
+      if (name === "LEVEL 4" || name === "THIRD FLOOR" || name === "THIRD" || name === "TF" || name === "TẦNG 3" || name === "3F") return "TF";
+      if (name.startsWith("LEVEL ")) {
+        const num = parseInt(name.replace("LEVEL ", "").trim(), 10);
+        if (num === 1) return "GF";
+        if (num === 2) return "FF";
+        if (num === 3) return "SF";
+        if (num === 4) return "TF";
+        return `${num - 1}F`;
+      }
+    }
+    const labels = ["GF", "FF", "SF", "TF"];
+    return idx < labels.length ? labels[idx] : `${idx}F`;
+  };
+
+  const LEVEL_SORT_ORDER = {
+    GF: 1,
+    "G/F": 1,
+    "GROUND FLOOR": 1,
+    GROUND: 1,
+    "LEVEL 1": 1,
+    "0F": 1,
+    FF: 2,
+    "1/F": 2,
+    "1F": 2,
+    "FIRST FLOOR": 2,
+    FIRST: 2,
+    "LEVEL 2": 2,
+    SF: 3,
+    "2/F": 3,
+    "2F": 3,
+    "SECOND FLOOR": 3,
+    SECOND: 3,
+    "LEVEL 3": 3,
+    TF: 4,
+    "3/F": 4,
+    "3F": 4,
+    "THIRD FLOOR": 4,
+    THIRD: 4,
+    "LEVEL 4": 4,
+    "4F": 5,
+    "4/F": 5,
+    "FOURTH FLOOR": 5,
+    FOURTH: 5,
+    "LEVEL 5": 5,
+    "5F": 6,
+    "5/F": 6,
+    "FIFTH FLOOR": 6,
+    FIFTH: 6,
+    "LEVEL 6": 6,
+    "6F": 7,
+    "6/F": 7,
+    "SIXTH FLOOR": 7,
+    SIXTH: 7,
+    "LEVEL 7": 7,
+    "7F": 8,
+    "7/F": 8,
+    "SEVENTH FLOOR": 8,
+    SEVENTH: 8,
+    "LEVEL 8": 8,
+    "8F": 9,
+    "8/F": 9,
+    "EIGHTH FLOOR": 9,
+    EIGHTH: 9,
+    "LEVEL 9": 9,
+    "9F": 10,
+    "9/F": 10,
+    "NINTH FLOOR": 10,
+    NINTH: 10,
+    "LEVEL 10": 10,
+    "10F": 11,
+    "10/F": 11,
+    "TENTH FLOOR": 11,
+    TENTH: 11,
+    "LEVEL 11": 11
+  };
+
+  const getFloorLevelDisplayName = (lvl) => {
+    const raw = String(lvl || "").trim().toUpperCase();
+    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
+      return "Ground Floor";
+    }
+    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
+      return "First Floor";
+    }
+    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
+      return "Second Floor";
+    }
+    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
+      return "Third Floor";
+    }
+    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
+      return "Fourth Floor";
+    }
+    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
+      return "Fifth Floor";
+    }
+    if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
+      return "Sixth Floor";
+    }
+    if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
+      return "Seventh Floor";
+    }
+    if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
+      return "Eighth Floor";
+    }
+    if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
+      return "Ninth Floor";
+    }
+    if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
+      return "Tenth Floor";
+    }
+    return `${lvl} Floor`;
+  };
+
+  const groupedWallsByLevel = useMemo(() => {
+    const groups = {};
+    (wallEntries || []).forEach(item => {
+      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      if (!groups[lvl]) {
+        groups[lvl] = [];
+      }
+      groups[lvl].push(item);
+    });
+
+    const sortedLevels = Object.keys(groups).sort((a, b) => {
+      const orderA = LEVEL_SORT_ORDER[a] || 99;
+      const orderB = LEVEL_SORT_ORDER[b] || 99;
+      return orderA - orderB;
+    });
+
+    return sortedLevels.map(lvl => ({
+      level: lvl,
+      items: groups[lvl]
+    }));
+  }, [wallEntries]);
 
   const normalizeRValue = (value) => {
     const raw = String(value ?? "").trim().toUpperCase();
@@ -256,9 +402,11 @@ export default function InsulationTask({
     const rakedM2 = parseFloat(raked) || 0;
     const doorM2 = parseFloat(door) || 0;
     const insArea = calcInsulationArea(heightMm, lenMm, rakedM2, doorM2);
+    const currentLevel = getLevelCode(currentPage) || "GF";
 
     const newWall = {
       id: "ins-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
+      floorLevel: currentLevel,
       type,
       height: heightMm,
       length: lenMm,
@@ -296,7 +444,7 @@ export default function InsulationTask({
         return str;
       };
 
-      const processWalls = (pWalls, pDoors, pageName, pScale) => {
+      const processWalls = (pWalls, pDoors, pageName, pScale, pLevelCode) => {
         const effectiveScale = pScale || effScale;
         (pWalls || []).forEach(w => {
           let lengthM = 0;
@@ -326,6 +474,7 @@ export default function InsulationTask({
           payloadWalls.push({
             id: w.id,
             class_name: className,
+            floor_level: pLevelCode || "GF",
             length_m: Math.round(lengthM * 10000) / 10000,
             height_mm: heightMm,
             page_name: pageName,
@@ -341,11 +490,13 @@ export default function InsulationTask({
           const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
           const pageName = pages && pages[pIdx] ? (pages[pIdx].floor_name || pages[pIdx].name || `Page ${pIdx + 1}`) : `Page ${pIdx + 1}`;
           const pScale = (scalesByPage && scalesByPage[pIdx]) ? scalesByPage[pIdx] : effScale;
-          processWalls(pWalls, pDoors, pageName, pScale);
+          const pLevelCode = getLevelCode(pIdx);
+          processWalls(pWalls, pDoors, pageName, pScale, pLevelCode);
         });
       } else {
         const pageName = pages && pages[currentPage] ? (pages[currentPage].floor_name || pages[currentPage].name || `Page ${currentPage + 1}`) : `Page ${currentPage + 1}`;
-        processWalls(walls, doors, pageName, effScale);
+        const pLevelCode = getLevelCode(currentPage);
+        processWalls(walls, doors, pageName, effScale, pLevelCode);
       }
 
       if (payloadWalls.length === 0) {
@@ -370,6 +521,7 @@ export default function InsulationTask({
 
           return {
             id: `ins-ai-${Date.now()}-${idx}`,
+            floorLevel: r.floor_level || "GF",
             type: r.wall_type,
             height: r.wall_height,
             length: r.wall_length,
@@ -402,14 +554,13 @@ export default function InsulationTask({
     const rOptions = getRValueOptionsForWallType(w.type);
     const preferredR = String(w.type || "").toLowerCase().includes("ext") ? "R2.5" : "R2.0";
     const currentRRaw = normalizeRValue(w.rValue);
-    const currentR = rOptions.includes(currentRRaw)
-      ? currentRRaw
-      : (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || currentRRaw || preferredR));
+    const currentR = currentRRaw || (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR));
 
     const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
-    const prod = availableProds.includes(w.product) ? w.product : (availableProds[0] || "");
+    const prod = w.product || (availableProds[0] || "");
 
     setEditRowData({
+      id: w.id,
       type: w.type || "Ext wall",
       height: w.height !== undefined ? w.height : 2400,
       length: w.length !== undefined ? w.length : 0,
@@ -427,7 +578,9 @@ export default function InsulationTask({
         const normalizedR = normalizeRValue(val);
         updated.rValue = normalizedR || val;
         const prods = getProductOptionsForWallTypeAndR(updated.type, updated.rValue);
-        updated.product = prods[0] || "";
+        if (prods.length > 0 && !prods.includes(updated.product)) {
+          updated.product = prods[0] || "";
+        }
       }
       return updated;
     });
@@ -444,18 +597,19 @@ export default function InsulationTask({
     const net = Math.max(0, (h / 1000 * l / 1000) + rk - dr);
     const areaVal = Number(net.toFixed(2));
 
-    const updatedList = (wallEntries || []).map(item => item.id === targetId ? {
-      ...item,
-      ...currentData,
-      height: h,
-      length: l,
-      raked: rk,
-      door: dr,
-      insulationArea: areaVal,
-      totalArea: areaVal
-    } : item);
-
-    onSetWallEntries(updatedList);
+    onSetWallEntries(prev => {
+      const currentList = Array.isArray(prev) ? prev : (wallEntriesRef.current || []);
+      return currentList.map(item => item.id === targetId ? {
+        ...item,
+        ...currentData,
+        height: h,
+        length: l,
+        raked: rk,
+        door: dr,
+        insulationArea: areaVal,
+        totalArea: areaVal
+      } : item);
+    });
     setEditingRowId(null);
   };
 
@@ -496,22 +650,13 @@ export default function InsulationTask({
         const rOptions = getRValueOptionsForWallType(w.type);
         const preferredR = String(w.type || "").toLowerCase().includes("ext") ? "R2.5" : "R2.0";
         const requestedR = normalizeRValue(w.rValue);
-        const resolvedR = rOptions.includes(requestedR)
-          ? requestedR
-          : (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || requestedR));
+        const resolvedR = requestedR || (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR));
 
         const availableProds = getProductOptionsForWallTypeAndR(w.type, resolvedR);
-        const resolvedProduct = availableProds.includes(w.product)
-          ? w.product
-          : (availableProds[0] || "");
-
-        if (!resolvedR || !resolvedProduct) {
-          throw new Error(
-            `No configured Insulation product for ${w.type || "wall"} / ${resolvedR || w.rValue || "R Value"}`
-          );
-        }
+        const resolvedProduct = w.product || availableProds[0] || "";
 
         return {
+          floor_level: w.floorLevel || w.floor_level || "GF",
           wall_type: w.type || "Ext wall",
           insulation_type: w.type || "Ext wall",
           product: resolvedProduct,
@@ -552,8 +697,15 @@ export default function InsulationTask({
   };
 
   // ── Tự động tải dữ liệu đã lưu từ [ProcurementApp].[dbo].[Insulation] ──
+  const hasLoadedSavedRef = useRef(false);
+
+  useEffect(() => {
+    hasLoadedSavedRef.current = false;
+  }, [activeJobNumber, currentProjectName, currentJobId]);
+
   useEffect(() => {
     async function loadExistingSavedInsulation() {
+      if (hasLoadedSavedRef.current) return;
       if (wallEntries && wallEntries.length > 0) return;
       try {
         const res = await ApiService.fetchInsulationJobs();
@@ -566,18 +718,36 @@ export default function InsulationTask({
           });
           const validRows = matchedRows.filter(r => r.wall_length && parseFloat(r.wall_length) > 0);
           if (validRows.length > 0 && onSetWallEntries) {
-            const loaded = validRows.map((r, idx) => ({
-              id: `ins-loaded-${Date.now()}-${idx}`,
-              type: r.insulation_type || r.wall_type || "Ext wall",
-              height: r.wall_height || 2400,
-              length: r.wall_length || 0,
-              rValue: r.r_value || "R2.0",
-              product: r.product || "",
-              raked: r.total_area_raked !== undefined && r.total_area_raked !== null ? r.total_area_raked : 0,
-              door: r.total_area_door !== undefined && r.total_area_door !== null ? r.total_area_door : 0,
-              insulationArea: r.total_area || r.insulation_area || 0,
-              totalArea: r.total_area || r.insulation_area || 0
-            }));
+            hasLoadedSavedRef.current = true;
+            const loaded = validRows.map((r, idx) => {
+              const heightMm = parseFloat(r.wall_height) || 2400;
+              const lenMm = parseFloat(r.wall_length) || 0;
+              const rakedM2 = r.total_area_raked !== undefined && r.total_area_raked !== null ? parseFloat(r.total_area_raked) : 0;
+              const doorM2 = r.total_area_door !== undefined && r.total_area_door !== null ? parseFloat(r.total_area_door) : 0;
+              const rawArea = r.total_area || r.insulation_area;
+              const insArea = rawArea !== undefined && rawArea !== null && parseFloat(rawArea) > 0
+                ? parseFloat(rawArea)
+                : calcInsulationArea(heightMm, lenMm, rakedM2, doorM2);
+
+              const wType = r.insulation_type || r.wall_type || "Ext wall";
+              const rVal = r.r_value || (String(wType).toLowerCase().includes("ext") ? "R2.5" : "R2.0");
+              const prods = getProductOptionsForWallTypeAndR(wType, rVal);
+              const prod = r.product && r.product !== "-" ? r.product : (prods[0] || "");
+
+              return {
+                id: `ins-loaded-${Date.now()}-${idx}`,
+                floorLevel: r.floor_level || "GF",
+                type: wType,
+                height: heightMm,
+                length: lenMm,
+                rValue: rVal,
+                product: prod,
+                raked: rakedM2,
+                door: doorM2,
+                insulationArea: insArea,
+                totalArea: insArea
+              };
+            });
             onSetWallEntries(loaded);
           }
         }
@@ -1053,300 +1223,376 @@ export default function InsulationTask({
               </tr>
             </thead>
             <tbody>
-              {(wallEntries || []).map((w, idx) => {
-                const effWall = selectedWallProp || selectedWall;
-                const effWallIds = selectedWallIdsProp || selectedWallIds || [];
-                const effId = selectedIdProp || selectedId;
-                const effType = selectedTypeProp || selectedType;
-                const effHovered = hoveredWallId;
-
-                const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
-                const hasMatch = (targetId) => {
-                  if (!targetId) return false;
-                  if (matchId(w.wallId, targetId)) return true;
-                  if (Array.isArray(w.wallIds) && w.wallIds.some(id => matchId(id, targetId))) return true;
-                  return false;
-                };
-
-                const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`) ||
-                  (effWall && hasMatch(effWall.id)) ||
-                  (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
-                  (effType === "wall" && hasMatch(effId));
-                const isHovered = effHovered && hasMatch(effHovered);
-                const isRowEditing = editingRowId === w.id;
-                const isExt = (w.type || "").toLowerCase().includes("ext");
-                const rowRValueOptions = getRValueOptionsForWallType(w.type);
-                const preferredR = isExt ? "R2.5" : "R2.0";
-                const currentRRaw = normalizeRValue(w.rValue);
-                const currentR = rowRValueOptions.includes(currentRRaw)
-                  ? currentRRaw
-                  : (rowRValueOptions.includes(preferredR) ? preferredR : (rowRValueOptions[0] || currentRRaw || preferredR));
-                const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
-
-                const editRVal = isRowEditing ? (editRowData.rValue || currentR) : currentR;
-                const editProds = isRowEditing ? getProductOptionsForWallTypeAndR(editRowData.type || w.type, editRVal) : availableProds;
-
+              {groupedWallsByLevel.map(({ level, items }) => {
+                const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
                 return (
-                  <tr
-                    key={w.id || idx}
-                    data-editing-row-id={isRowEditing ? w.id : undefined}
-                    onDoubleClick={(e) => {
-                      if (isRowEditing) return;
-                      if (e.target.closest && e.target.closest("button")) return;
-                      if (editingRowId && editingRowId !== w.id) {
-                        handleSaveInlineEdit(editingRowId);
-                      }
-                      setSelectedEntryId(w.id || `${w.type}-${idx}`);
-                      if (onSelectEntry) onSelectEntry(w);
-                      handleStartEdit(w);
-                    }}
-                    onClick={() => {
-                      if (!isRowEditing) {
-                        if (editingRowId && editingRowId !== w.id) {
-                          handleSaveInlineEdit(editingRowId);
-                        }
-                        setSelectedEntryId(w.id || `${w.type}-${idx}`);
-                        if (onSelectEntry) onSelectEntry(w);
-                      }
-                    }}
-                    style={{
-                      borderBottom: "1px solid #e2e8f0",
-                      background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
-                      cursor: isRowEditing ? "default" : "pointer",
-                      outline: isSelected ? "2px solid #3b82f6" : "none",
-                      outlineOffset: "-1px",
-                      transition: "background 0.15s ease"
-                    }}
-                  >
-                    <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
-
-                    {/* Wall Type */}
-                    <td style={{ padding: "4px 8px" }}>
-                      <span style={{
-                        background: isExt ? "#fee2e2" : "#fef3c7",
-                        color: isExt ? "#991b1b" : "#92400e",
-                        padding: "2px 7px",
-                        borderRadius: "4px",
-                        fontWeight: 700,
-                        fontSize: "10.5px",
-                        display: "inline-block"
-                      }}>
-                        {w.type || "Ext wall"}
-                      </span>
-                    </td>
-
-                    {/* R-Value */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
-                      {isRowEditing ? (
-                        <select
-                          value={editRowData.rValue || currentR}
-                          onChange={(e) => handleEditFieldChange("rValue", e.target.value)}
-                          style={{
-                            width: "100%",
-                            padding: "3px 4px",
-                            fontSize: "10.5px",
-                            fontWeight: 700,
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff"
-                          }}
-                        >
-                          {rowRValueOptions.map(r => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span style={{ fontWeight: 600, color: "#334155" }}>{currentR}</span>
-                      )}
-                    </td>
-
-                    {/* Product */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
-                      {isRowEditing ? (
-                        <select
-                          value={editProds.includes(editRowData.product) ? editRowData.product : (editProds[0] || "")}
-                          onChange={(e) => handleEditFieldChange("product", e.target.value)}
-                          style={{
-                            width: "100%",
-                            minWidth: "200px",
-                            padding: "3px 6px",
-                            fontSize: "10.5px",
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff"
-                          }}
-                          title={editProds.includes(editRowData.product) ? editRowData.product : (editProds[0] || "")}
-                        >
-                          {editProds.length === 0 && (
-                            <option value="">No product configured for {editRVal}</option>
-                          )}
-                          {editProds.map(p => (
-                            <option key={p} value={p}>{p}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span style={{ color: "#1e293b", fontSize: "10.5px" }}>{w.product || "-"}</span>
-                      )}
-                    </td>
-
-                    {/* Wall Height (mm) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
-                      {isRowEditing ? (
-                        <input
-                          type="number"
-                          value={editRowData.height !== undefined ? editRowData.height : (w.height || 2400)}
-                          onChange={(e) => handleEditFieldChange("height", e.target.value)}
-                          style={{
-                            width: "75px",
-                            padding: "3px 5px",
-                            fontSize: "10.5px",
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff"
-                          }}
-                        />
-                      ) : (
-                        <span>{w.height || 2400}</span>
-                      )}
-                    </td>
-
-                    {/* Wall Length (mm) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
-                      {isRowEditing ? (
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={editRowData.length !== undefined ? editRowData.length : (w.length || 0)}
-                          onChange={(e) => handleEditFieldChange("length", e.target.value)}
-                          style={{
-                            width: "90px",
-                            padding: "3px 5px",
-                            fontSize: "10.5px",
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff",
-                            fontWeight: 600
-                          }}
-                        />
-                      ) : (
-                        <span style={{ fontWeight: 600 }}>{w.length || 0}</span>
-                      )}
-                    </td>
-
-                    {/* Raked Wall Area (m²) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
-                      {isRowEditing ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editRowData.raked !== undefined ? editRowData.raked : (w.raked || 0)}
-                          onChange={(e) => handleEditFieldChange("raked", e.target.value)}
-                          style={{
-                            width: "55px",
-                            padding: "3px 5px",
-                            fontSize: "10.5px",
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff"
-                          }}
-                        />
-                      ) : (
-                        <span>{w.raked !== undefined ? w.raked : 0}</span>
-                      )}
-                    </td>
-
-                    {/* Door Area (m²) */}
-                    <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
-                      {isRowEditing ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editRowData.door !== undefined ? editRowData.door : (w.door || 0)}
-                          onChange={(e) => handleEditFieldChange("door", e.target.value)}
-                          style={{
-                            width: "55px",
-                            padding: "3px 5px",
-                            fontSize: "10.5px",
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff",
-                            color: "#059669",
-                            fontWeight: 700
-                          }}
-                        />
-                      ) : (
-                        <span style={{ color: "#059669", fontWeight: 700 }}>{w.door !== undefined ? w.door : 0}</span>
-                      )}
-                    </td>
-
-                    {/* Actions: Edit / Save / Cancel / Delete */}
-                    <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                      {isRowEditing ? (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
-                            style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
-                            title="Save"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
-                            style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                            title="Cancel"
-                          >
-                            ✕
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleRemoveWall(w.id); }}
-                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                            title="Delete row"
-                          >
-                            🗑
-                          </button>
+                  <React.Fragment key={level}>
+                    <tr style={{
+                      background: isLower ? "#f0fdf4" : "#fefce8",
+                      borderTop: "2px solid #cbd5e1",
+                      borderBottom: "1px solid #e2e8f0"
+                    }}>
+                      <td colSpan={9} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{
+                              background: isLower ? "#dcfce7" : "#fef08a",
+                              color: isLower ? "#15803d" : "#854d0e",
+                              border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
+                              padding: "2px 8px",
+                              borderRadius: "4px",
+                              fontWeight: 800,
+                              fontSize: "10.5px",
+                              letterSpacing: "0.5px"
+                            }}>
+                              {level}
+                            </span>
+                            <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
+                              {getFloorLevelDisplayName(level)}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
+                            {items.length} {items.length === 1 ? "wall entry" : "wall entries"}
+                          </span>
                         </div>
-                      ) : (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                      </td>
+                    </tr>
+                    {items.map((w) => {
+                      const globalIdx = (wallEntries || []).findIndex(item => item.id === w.id);
+                      const idx = globalIdx >= 0 ? globalIdx : 0;
+                      const effWall = selectedWallProp || selectedWall;
+                      const effWallIds = selectedWallIdsProp || selectedWallIds || [];
+                      const effId = selectedIdProp || selectedId;
+                      const effType = selectedTypeProp || selectedType;
+                      const effHovered = hoveredWallId;
+
+                      const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1) === String(id2);
+                      const hasMatch = (targetId) => {
+                        if (!targetId) return false;
+                        if (matchId(w.wallId, targetId)) return true;
+                        if (Array.isArray(w.wallIds) && w.wallIds.some(id => matchId(id, targetId))) return true;
+                        return false;
+                      };
+
+                      const isSelected = selectedEntryId === (w.id || `${w.type}-${idx}`) ||
+                        (effWall && hasMatch(effWall.id)) ||
+                        (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
+                        (effType === "wall" && hasMatch(effId));
+                      const isHovered = effHovered && hasMatch(effHovered);
+                      const isRowEditing = editingRowId === w.id;
+                      const isExt = (w.type || "").toLowerCase().includes("ext");
+                      const rowRValueOptions = getRValueOptionsForWallType(w.type);
+                      const preferredR = isExt ? "R2.5" : "R2.0";
+                      const currentRRaw = normalizeRValue(w.rValue);
+                      const currentR = currentRRaw || (rowRValueOptions.includes(preferredR) ? preferredR : (rowRValueOptions[0] || preferredR));
+                      const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
+
+                      const editRVal = isRowEditing ? (editRowData.rValue || currentR) : currentR;
+                      const editProds = isRowEditing ? getProductOptionsForWallTypeAndR(editRowData.type || w.type, editRVal) : availableProds;
+                      const currentEditingProd = isRowEditing
+                        ? (editRowData.product !== undefined ? editRowData.product : (w.product || editProds[0] || ""))
+                        : (w.product || availableProds[0] || "");
+
+                      return (
+                        <tr
+                          key={w.id || idx}
+                          data-editing-row-id={isRowEditing ? w.id : undefined}
+                          onDoubleClick={(e) => {
+                            if (isRowEditing) return;
+                            if (e.target.closest && e.target.closest("button")) return;
+                            if (editingRowId && editingRowId !== w.id) {
+                              handleSaveInlineEdit(editingRowId);
+                            }
+                            setSelectedEntryId(w.id || `${w.type}-${idx}`);
+                            if (onSelectEntry) onSelectEntry(w);
+                            handleStartEdit(w);
+                          }}
+                          onClick={() => {
+                            if (!isRowEditing) {
                               if (editingRowId && editingRowId !== w.id) {
                                 handleSaveInlineEdit(editingRowId);
                               }
-                              handleStartEdit(w);
-                            }}
-                            style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                            title="Edit row"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveWall(w.id);
-                            }}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#ef4444",
-                              cursor: "pointer",
-                              fontWeight: 800,
-                              fontSize: "12px",
-                              padding: "0 2px"
-                            }}
-                            title="Delete row"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
+                              setSelectedEntryId(w.id || `${w.type}-${idx}`);
+
+                              // Auto switch canvas page if item belongs to Level 2 (FF), Level 3 (SF), etc.
+                              if (w.floorLevel) {
+                                const lvlCode = String(w.floorLevel).toUpperCase().trim();
+                                let targetIdx = -1;
+                                (pages || []).forEach((p, pIdx) => {
+                                  const pName = (p.floor_name || p.name || "").toUpperCase().trim();
+                                  if (lvlCode === "GF" && (pIdx === 0 || pName.includes("GROUND") || pName.includes("GF") || pName === "LEVEL 1")) {
+                                    if (targetIdx === -1) targetIdx = pIdx;
+                                  } else if (lvlCode === "FF" && (pIdx === 1 || pName.includes("FIRST") || pName.includes("FF") || pName === "LEVEL 2")) {
+                                    targetIdx = pIdx;
+                                  } else if (lvlCode === "SF" && (pIdx === 2 || pName.includes("SECOND") || pName.includes("SF") || pName === "LEVEL 3")) {
+                                    targetIdx = pIdx;
+                                  } else if (lvlCode === "TF" && (pIdx === 3 || pName.includes("THIRD") || pName.includes("TF") || pName === "LEVEL 4")) {
+                                    targetIdx = pIdx;
+                                  }
+                                });
+                                if (targetIdx === -1) {
+                                  if (lvlCode === "GF") targetIdx = 0;
+                                  else if (lvlCode === "FF") targetIdx = 1;
+                                  else if (lvlCode === "SF") targetIdx = 2;
+                                  else if (lvlCode === "TF") targetIdx = 3;
+                                }
+                                if (targetIdx >= 0 && targetIdx < (pages || []).length && targetIdx !== currentPage) {
+                                  if (goPage) {
+                                    goPage(targetIdx);
+                                  }
+                                }
+                              }
+
+                              if (onSelectEntry) onSelectEntry(w);
+                            }
+                          }}
+                          style={{
+                            borderBottom: "1px solid #e2e8f0",
+                            background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
+                            cursor: isRowEditing ? "default" : "pointer",
+                            outline: isSelected ? "2px solid #3b82f6" : "none",
+                            outlineOffset: "-1px",
+                            transition: "background 0.15s ease"
+                          }}
+                        >
+                          <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+
+                          {/* Wall Type */}
+                          <td style={{ padding: "4px 8px" }}>
+                            <span style={{
+                              background: isExt ? "#fee2e2" : "#fef3c7",
+                              color: isExt ? "#991b1b" : "#92400e",
+                              padding: "2px 7px",
+                              borderRadius: "4px",
+                              fontWeight: 700,
+                              fontSize: "10.5px",
+                              display: "inline-block"
+                            }}>
+                              {w.type || "Ext wall"}
+                            </span>
+                          </td>
+
+                          {/* R-Value */}
+                          <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                            {isRowEditing ? (
+                              <select
+                                value={editRowData.rValue || currentR}
+                                onChange={(e) => handleEditFieldChange("rValue", e.target.value)}
+                                style={{
+                                  width: "100%",
+                                  padding: "3px 4px",
+                                  fontSize: "10.5px",
+                                  fontWeight: 700,
+                                  borderRadius: "4px",
+                                  border: "1px solid #3b82f6",
+                                  background: "#ffffff"
+                                }}
+                              >
+                                {editRowData.rValue && !rowRValueOptions.includes(editRowData.rValue) && (
+                                  <option value={editRowData.rValue}>{editRowData.rValue}</option>
+                                )}
+                                {rowRValueOptions.map(r => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span style={{ fontWeight: 600, color: "#334155" }}>{w.rValue || currentR}</span>
+                            )}
+                          </td>
+
+                          {/* Product */}
+                          <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                            {isRowEditing ? (
+                              <select
+                                value={currentEditingProd}
+                                onChange={(e) => handleEditFieldChange("product", e.target.value)}
+                                style={{
+                                  width: "100%",
+                                  minWidth: "200px",
+                                  padding: "3px 6px",
+                                  fontSize: "10.5px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #3b82f6",
+                                  background: "#ffffff"
+                                }}
+                                title={currentEditingProd}
+                              >
+                                {currentEditingProd && !editProds.includes(currentEditingProd) && (
+                                  <option value={currentEditingProd}>{currentEditingProd}</option>
+                                )}
+                                {editProds.length === 0 && !currentEditingProd && (
+                                  <option value="">No product configured for {editRVal}</option>
+                                )}
+                                {editProds.map(p => (
+                                  <option key={p} value={p}>{p}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span style={{ color: "#1e293b", fontSize: "10.5px" }}>{w.product || (availableProds[0] || "-")}</span>
+                            )}
+                          </td>
+
+                          {/* Wall Height (mm) */}
+                          <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                            {isRowEditing ? (
+                              <input
+                                type="number"
+                                value={editRowData.height !== undefined ? editRowData.height : (w.height || 2400)}
+                                onChange={(e) => handleEditFieldChange("height", e.target.value)}
+                                style={{
+                                  width: "75px",
+                                  padding: "3px 5px",
+                                  fontSize: "10.5px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #3b82f6",
+                                  background: "#ffffff"
+                                }}
+                              />
+                            ) : (
+                              <span>{w.height || 2400}</span>
+                            )}
+                          </td>
+
+                          {/* Wall Length (mm) */}
+                          <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                            {isRowEditing ? (
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={editRowData.length !== undefined ? editRowData.length : (w.length || 0)}
+                                onChange={(e) => handleEditFieldChange("length", e.target.value)}
+                                style={{
+                                  width: "90px",
+                                  padding: "3px 5px",
+                                  fontSize: "10.5px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #3b82f6",
+                                  background: "#ffffff",
+                                  fontWeight: 600
+                                }}
+                              />
+                            ) : (
+                              <span style={{ fontWeight: 600 }}>{w.length || 0}</span>
+                            )}
+                          </td>
+
+                          {/* Raked Wall Area (m²) */}
+                          <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                            {isRowEditing ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editRowData.raked !== undefined ? editRowData.raked : (w.raked || 0)}
+                                onChange={(e) => handleEditFieldChange("raked", e.target.value)}
+                                style={{
+                                  width: "55px",
+                                  padding: "3px 5px",
+                                  fontSize: "10.5px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #3b82f6",
+                                  background: "#ffffff"
+                                }}
+                              />
+                            ) : (
+                              <span>{w.raked !== undefined ? w.raked : 0}</span>
+                            )}
+                          </td>
+
+                          {/* Door Area (m²) */}
+                          <td style={{ padding: "4px 8px" }} onClick={(e) => { if (isRowEditing) e.stopPropagation(); }}>
+                            {isRowEditing ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editRowData.door !== undefined ? editRowData.door : (w.door || 0)}
+                                onChange={(e) => handleEditFieldChange("door", e.target.value)}
+                                style={{
+                                  width: "55px",
+                                  padding: "3px 5px",
+                                  fontSize: "10.5px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #3b82f6",
+                                  background: "#ffffff",
+                                  color: "#059669",
+                                  fontWeight: 700
+                                }}
+                              />
+                            ) : (
+                              <span style={{ color: "#059669", fontWeight: 700 }}>{w.door !== undefined ? w.door : 0}</span>
+                            )}
+                          </td>
+
+                          {/* Actions: Edit / Save / Cancel / Delete */}
+                          <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                            {isRowEditing ? (
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
+                                  style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
+                                  title="Save"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
+                                  style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                                  title="Cancel"
+                                >
+                                  ✕
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleRemoveWall(w.id); }}
+                                  style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
+                                  title="Delete row"
+                                >
+                                  🗑
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (editingRowId && editingRowId !== w.id) {
+                                      handleSaveInlineEdit(editingRowId);
+                                    }
+                                    handleStartEdit(w);
+                                  }}
+                                  style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
+                                  title="Edit row"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveWall(w.id);
+                                  }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#ef4444",
+                                    cursor: "pointer",
+                                    fontWeight: 800,
+                                    fontSize: "12px",
+                                    padding: "0 2px"
+                                  }}
+                                  title="Delete row"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
                 );
               })}
 

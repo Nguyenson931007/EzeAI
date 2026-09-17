@@ -129,20 +129,21 @@ export default function AnnotationPropertyPanel({
   const typeName = typeLabels[annotation.type] || annotation.type || "Annotation";
 
   const isTextLike = !isMulti && ["text", "callout", "sticky-note"].includes(annotation.type);
+  const isText = !isMulti && annotation.type === "text";
   const isCallout = !isMulti && annotation.type === "callout";
   const isHighlight = !isMulti && annotation.type?.startsWith("highlight");
   const isFillable = isMulti
     ? selectedList.some((a) => ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(a.type))
     : ["rect", "oval", "cloud", "polygon", "measure-area-poly", "measure-area", "highlight-poly"].includes(annotation.type);
   const hasStroke = isMulti
-    ? selectedList.some((a) => !["sticky-note", "text"].includes(a.type))
-    : !["sticky-note", "text"].includes(annotation.type);
+    ? selectedList.some((a) => a.type !== "sticky-note")
+    : annotation.type !== "sticky-note";
 
   const currentColor = annotation.color || (isHighlight ? "#facc15" : "#3b82f6");
   const currentOpacity = typeof annotation.opacity === "number" ? annotation.opacity : (isHighlight ? 0.45 : 1.0);
   const currentFillMode = annotation.fillMode || "both";
   const currentFillOpacity = typeof annotation.fillOpacity === "number" ? annotation.fillOpacity : (isHighlight ? 0.4 : 0.25);
-  const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : 3));
+  const currentStrokeWidth = typeof annotation.strokeWidth === "number" ? annotation.strokeWidth : (isHighlight ? 24 : (isCallout ? 3.5 : (isText ? 1.5 : 3)));
   const currentDpi = annotation.dpi || (typeof window !== "undefined" && localStorage.getItem("ezefloor_dpi") ? parseFloat(localStorage.getItem("ezefloor_dpi")) : 250);
   const currentFontSizePt = (typeof annotation.fontSizePt === "number" && annotation.fontSizePt > 0)
     ? annotation.fontSizePt
@@ -409,24 +410,24 @@ export default function AnnotationPropertyPanel({
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <label style={{ fontSize: "12px", fontWeight: 700, color: "#334155" }}>
-              {isCallout ? "Pointer Line Width" : "Stroke Width"}
+              {isCallout ? "Pointer Line Width" : (isText ? "Border Line Width" : "Stroke Width")}
             </label>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "#31456E" }}>
-              {currentStrokeWidth} px
+              {currentStrokeWidth === 0 ? "0 px (None)" : `${currentStrokeWidth} px`}
             </span>
           </div>
           <input
             type="range"
-            min={isHighlight ? "6" : "1"}
-            max={isHighlight ? "60" : (isCallout ? "12" : "36")}
-            step={isCallout ? "0.5" : "1"}
+            min={isHighlight ? "6" : (isText ? "0" : "1")}
+            max={isHighlight ? "60" : (isCallout ? "12" : (isText ? "20" : "36"))}
+            step={isCallout ? "0.5" : (isText ? "0.5" : "1")}
             value={currentStrokeWidth}
             onChange={(e) => handleUpdate("strokeWidth", parseFloat(e.target.value))}
             style={{ width: "100%", cursor: "pointer", accentColor: "#31456E" }}
           />
           {/* Quick preset buttons */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-            {(isHighlight ? [12, 18, 24, 32, 44, 56] : (isCallout ? [2, 3, 3.5, 5, 8] : STROKE_WIDTH_OPTIONS)).map((w) => (
+            {(isHighlight ? [12, 18, 24, 32, 44, 56] : (isCallout ? [2, 3, 3.5, 5, 8] : (isText ? [0, 1, 1.5, 2, 3, 4, 6, 8] : STROKE_WIDTH_OPTIONS))).map((w) => (
               <button
                 key={w}
                 type="button"
@@ -442,7 +443,7 @@ export default function AnnotationPropertyPanel({
                   cursor: "pointer"
                 }}
               >
-                {w}px
+                {w === 0 ? "None" : `${w}px`}
               </button>
             ))}
           </div>

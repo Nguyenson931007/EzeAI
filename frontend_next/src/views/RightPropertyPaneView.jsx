@@ -147,6 +147,7 @@ export default function RightPropertyPaneView({
   hiddenItemIds = new Set(),
   setHiddenItemIds,
   toggleItemVisibility,
+  scalesByPage: scalesByPageProp = {},
   layerVisibility: layerVisibilityProp,
   setLayerVisibility: setLayerVisibilityProp,
   selectWall,
@@ -262,9 +263,13 @@ export default function RightPropertyPaneView({
       if (typeof patch.isBold === "boolean" && setTextBold) setTextBold(patch.isBold);
       if (typeof patch.isItalic === "boolean" && setTextItalic) setTextItalic(patch.isItalic);
       if (typeof patch.isUnderline === "boolean" && setTextUnderline) setTextUnderline(patch.isUnderline);
-      if (typeof patch.isStrikethrough === "boolean" && setTextStrikethrough) setTextStrikethrough(patch.isStrikethrough);
-      if (typeof patch.strokeWidth === "number" && target && target.type === "callout" && setCalloutStrokeWidth) {
-        setCalloutStrokeWidth(patch.strokeWidth);
+      if (typeof patch.strokeWidth === "number") {
+        if (target && target.type === "callout" && setCalloutStrokeWidth) {
+          setCalloutStrokeWidth(patch.strokeWidth);
+        }
+        if (setAnnotationStrokeWidth) {
+          setAnnotationStrokeWidth(patch.strokeWidth);
+        }
       }
     } else {
       // Persist ONLY to drawing defaults (does not affect text tools)
@@ -338,6 +343,8 @@ export default function RightPropertyPaneView({
 
   const pages = (pagesProp && pagesProp.length > 0) ? pagesProp : (pagesContext || []);
   const setPages = setPagesProp || setPagesContext;
+  const effectiveWallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : (wallsByPageCtx || {});
+  const effectiveScalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : (scalesByPageCtx || {});
 
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
@@ -605,6 +612,40 @@ export default function RightPropertyPaneView({
 
     console.log("[TaskPanel] Entry selected for canvas highlight:", entry);
 
+    // Auto-switch to the corresponding floor level / page if needed
+    let targetPageIndex = -1;
+    if (entry.wallIds && entry.wallIds.length > 0) {
+      for (const [pIdxStr, pWalls] of Object.entries(effectiveWallsByPage || {})) {
+        if (Array.isArray(pWalls) && pWalls.some(pw => entry.wallIds.includes(pw.id))) {
+          targetPageIndex = Number(pIdxStr);
+          break;
+        }
+      }
+    }
+    if (targetPageIndex < 0 && entry.floorLevel && pages && pages.length > 0) {
+      const fl = (entry.floorLevel || entry.floor_level || "GF").toUpperCase().trim();
+      targetPageIndex = pages.findIndex((p, idx) => {
+        const pName = (p.floor_name || p.name || "").toUpperCase().trim();
+        if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRỆT") || idx === 0)) return true;
+        if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("TẦNG 1") || pName.includes("1F") || idx === 1)) return true;
+        if (fl === "SF" && (pName === "SF" || pName.includes("SECOND") || pName === "LEVEL 3" || pName.includes("TẦNG 2") || pName.includes("2F") || idx === 2)) return true;
+        if (fl === "TF" && (pName === "TF" || pName.includes("THIRD") || pName === "LEVEL 4" || pName.includes("TẦNG 3") || pName.includes("3F") || idx === 3)) return true;
+        if (pName.includes(fl)) return true;
+        return false;
+      });
+      if (targetPageIndex < 0) {
+        if (fl === "GF") targetPageIndex = 0;
+        else if (fl === "FF" && pages.length > 1) targetPageIndex = 1;
+        else if (fl === "SF" && pages.length > 2) targetPageIndex = 2;
+        else if (fl === "TF" && pages.length > 3) targetPageIndex = 3;
+      }
+    }
+
+    if (targetPageIndex >= 0 && targetPageIndex !== currentPage) {
+      if (typeof goPage === "function") goPage(targetPageIndex);
+      else if (typeof setCurrentPage === "function") setCurrentPage(targetPageIndex);
+    }
+
     // Direct object ID arrays
     if (entry.wallIds && entry.wallIds.length > 0) {
       if (setSelectedWallIds) setSelectedWallIds(entry.wallIds);
@@ -839,59 +880,133 @@ export default function RightPropertyPaneView({
     const totalRoomArea = cadMetrics?.totalRoomArea || 0;
 
     if (moduleId === "frame_hardware") {
-      const groupsMap = {}; // key: `${baseType}_${height}_${spacing}` -> { baseType, height, spacing, totalMm, count, rodSize }
+      const pageIndices = new Set([
+        ...pages.map((_, i) => i),
+        ...Object.keys(effectiveWallsByPage || {}).map(Number)
+      ]);
+      if (pageIndices.size === 0) pageIndices.add(0);
 
-      curWalls.forEach(w => {
-        let lenMm = 0;
-        if (w.length_m) {
-          lenMm = Math.round(w.length_m * 1000);
-        } else if (w.centerline && w.centerline.length === 2) {
-          const dx = w.centerline[1][0] - w.centerline[0][0];
-          const dy = w.centerline[1][1] - w.centerline[0][1];
-          const px = Math.hypot(dx, dy);
-          lenMm = effScale < 0.5 ? Math.round(px * effScale * 1000) : Math.round(px * effScale);
+      const _getFloorLevelByPage = (idx) => {
+        if (pages && pages[idx]) {
+          const page = pages[idx];
+          const name = (page.floor_name || page.name || "").trim();
+          if (name) {
+            const upper = name.toUpperCase();
+            if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
+            if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
+            if (upper === "LEVEL 3" || upper === "SECOND FLOOR" || upper === "SECOND" || upper === "SF" || upper === "TẦNG 2" || upper === "2F") return "SF";
+            if (upper === "LEVEL 4" || upper === "THIRD FLOOR" || upper === "THIRD" || upper === "TF" || upper === "TẦNG 3" || upper === "3F") return "TF";
+            if (upper.startsWith("LEVEL ")) {
+              const num = parseInt(upper.replace("LEVEL ", "").trim(), 10);
+              if (num === 1) return "GF";
+              if (num === 2) return "FF";
+              if (num === 3) return "SF";
+              if (num === 4) return "TF";
+              return `${num - 1}F`;
+            }
+            return name;
+          }
         }
-        if (lenMm <= 0) return;
-        const h = String(w.height_mm || w.height || 2400);
-        const sp = String(w.spacing || w.stud_spacing || 900);
-        const rodSz = w.rod_size || "M12";
+        const labels = ["GF", "FF", "SF", "TF"];
+        return idx < labels.length ? labels[idx] : `${idx}F`;
+      };
 
-        const rawFloor = String(w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
-        const isSlab = rawFloor === "slab" || rawFloor === "concrete slab" || rawFloor.includes("slab") || rawFloor.includes("concrete");
-        const baseType = isSlab ? "Concrete Slab" : "Timber Floor";
+      const _getQualifiedWallInfo = (w) => {
+        const rawClass = String(w.class_name || w.wall_type || "").toLowerCase().trim();
+        const isExt = rawClass === "exterior_wall" || rawClass === "ext" || Boolean(w.is_ext || w.is_exterior);
+        const isLbw = Boolean(w.is_lbw === true || w.is_load_bearing === true || w.lbw === true);
+        const isInt = rawClass === "interior_wall" || rawClass === "int";
 
-        const groupKey = `${baseType}_${h}_${sp}_${rodSz}`;
-        if (!groupsMap[groupKey]) {
-          groupsMap[groupKey] = {
-            baseType,
-            height: h,
-            spacing: sp,
-            rodSize: rodSz,
-            totalMm: 0,
-            count: 0
-          };
+        if (isExt) {
+          return { qualified: true, wallClass: "exterior_wall" };
         }
-        groupsMap[groupKey].totalMm += lenMm;
-        groupsMap[groupKey].count += 1;
+        if ((isInt || !rawClass || rawClass === "wall") && isLbw) {
+          return { qualified: true, wallClass: "interior_wall" };
+        }
+        if (isLbw && !isExt) {
+          return { qualified: true, wallClass: "interior_wall" };
+        }
+        return { qualified: false };
+      };
+
+      const groupsMap = {};
+
+      Array.from(pageIndices).forEach(pIdx => {
+        const pageWalls = (effectiveWallsByPage && effectiveWallsByPage[pIdx]) ? effectiveWallsByPage[pIdx] : [];
+        const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] !== undefined) ? effectiveScalesByPage[pIdx] : null;
+        const floorLevel = _getFloorLevelByPage(pIdx);
+
+        pageWalls.forEach(w => {
+          const qInfo = _getQualifiedWallInfo(w);
+          if (!qInfo.qualified) return;
+
+          let lenMm = 0;
+          if (w.length_m) {
+            lenMm = Math.round(w.length_m * 1000);
+          } else if (w.centerline && Array.isArray(w.centerline) && w.centerline.length === 2) {
+            const dx = w.centerline[1][0] - w.centerline[0][0];
+            const dy = w.centerline[1][1] - w.centerline[0][1];
+            const px = Math.hypot(dx, dy);
+            const s = (pageScale !== undefined && pageScale !== null && pageScale > 0) ? pageScale : (realScale && realScale > 0 ? realScale : effScale);
+            lenMm = s < 0.5 ? Math.round(px * s * 1000) : Math.round(px * s);
+          }
+          if (lenMm <= 0) return;
+
+          const rawFloor = String(w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
+          const isSlab = rawFloor.includes("slab") || rawFloor.includes("concrete");
+          const floorType = isSlab ? "Slab" : "Timber";
+          const hMm = Number(w.height_mm || w.height || 2400);
+          const wallClass = qInfo.wallClass;
+
+          const key = `${floorLevel}_${floorType}_${wallClass}_${hMm}`;
+          if (!groupsMap[key]) {
+            groupsMap[key] = {
+              floorLevel,
+              floorType,
+              baseType: isSlab ? "Concrete Slab" : "Timber Floor",
+              theWallAbove: isSlab ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
+              wallClass,
+              heightMm: hMm,
+              totalMm: 0,
+              wallIds: []
+            };
+          }
+          groupsMap[key].totalMm += lenMm;
+          groupsMap[key].wallIds.push(w.id);
+        });
       });
 
-      const newEntries = [];
-      Object.entries(groupsMap).forEach(([key, g]) => {
-        const spacingNum = Number(g.spacing) || 900;
+      const sortedGroups = Object.values(groupsMap).sort((a, b) => {
+        if (a.floorLevel !== b.floorLevel) {
+          if (a.floorLevel === "GF") return -1;
+          if (b.floorLevel === "GF") return 1;
+          return a.floorLevel.localeCompare(b.floorLevel);
+        }
+        if (a.floorType !== b.floorType) return a.floorType === "Slab" ? -1 : 1;
+        if (a.wallClass !== b.wallClass) return a.wallClass === "exterior_wall" ? -1 : 1;
+        return a.heightMm - b.heightMm;
+      });
+
+      const newEntries = sortedGroups.map((g) => {
+        const spacingNum = 900;
         const rodCount = Math.ceil(g.totalMm / spacingNum) || 1;
-        const rodLen = Number(g.height) <= 2440 ? 2700 : (Number(g.height) <= 2740 ? 3000 : 3600);
-        newEntries.push({
-          id: `frame-ai-${key}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        const rodLen = g.heightMm <= 2440 ? 2700 : (g.heightMm <= 2740 ? 3000 : 3600);
+        return {
+          id: `canvas-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`,
           baseType: g.baseType,
-          theWallAbove: g.baseType === "Concrete Slab" ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
-          height: `${g.height} mm`,
-          length: `${g.totalMm} mm`,
-          spacing: `${g.spacing} mm`,
-          rodSize: g.rodSize || "M12",
+          theWallAbove: g.theWallAbove,
+          height: `${g.heightMm} mm`,
+          length: `${Math.round(g.totalMm)} mm`,
+          spacing: `${spacingNum} mm`,
+          rodSize: "M12",
           rodDemand: (g.totalMm / spacingNum).toFixed(2),
-          rodMapping: `${rodCount} x ${g.rodSize || "M12"} Rod ${rodLen}`,
-          rodsQty: `${rodCount} pcs`
-        });
+          rodMapping: `${rodCount} x M12 Rod ${rodLen}`,
+          rodsQty: `${rodCount} pcs`,
+          floorLevel: g.floorLevel || "GF",
+          wallClass: g.wallClass,
+          isCanvasWall: true,
+          wallIds: g.wallIds
+        };
       });
 
       setFrameWallEntries(newEntries);
@@ -2037,86 +2152,7 @@ export default function RightPropertyPaneView({
     });
   }, [selectedWallIds, selectedWall, updateWallsProperty]);
 
-  // When on Frame task: dynamic wall calculation based on canvas walls
-  // Skip auto-generation if frameWallEntries already has entries (don't overwrite AI-filled, DB-loaded, or entered data)
-  React.useEffect(() => {
-    if (activePaneTab === "frame_hardware") {
-      // Do NOT overwrite if frameWallEntries already exist (preserves all entered/calculated walls)
-      if (frameWallEntries && frameWallEntries.length > 0) return;
-
-      const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
-      const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
-
-      const targetWalls = curWalls;
-
-      if (targetWalls.length > 0) {
-        const groupsMap = {};
-
-        targetWalls.forEach(w => {
-          const override = customWallOverrides[w.id] || {};
-          let lenMm = 0;
-          if (override.length) {
-            lenMm = override.length;
-          } else if (w.length_m) {
-            lenMm = Math.round(w.length_m * 1000);
-          } else if (w.centerline && w.centerline.length === 2) {
-            const dx = w.centerline[1][0] - w.centerline[0][0];
-            const dy = w.centerline[1][1] - w.centerline[0][1];
-            const px = Math.hypot(dx, dy);
-            lenMm = effScale < 0.5 ? Math.round(px * effScale * 1000) : Math.round(px * effScale);
-          }
-          if (lenMm <= 0) return;
-
-          const h = String(override.height || w.height_mm || w.height || 2400);
-          const sp = String(override.spacing || w.spacing || w.stud_spacing || 900);
-          const rodSz = override.rodSize || w.rod_size || "M12";
-          const rawFloor = String(override.baseType || w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
-          const isSlab = rawFloor === "slab" || rawFloor === "concrete slab" || rawFloor.includes("slab") || rawFloor.includes("concrete");
-          const baseType = isSlab ? "Concrete Slab" : "Timber Floor";
-
-          const groupKey = `${baseType}_${h}_${sp}_${rodSz}`;
-          if (!groupsMap[groupKey]) {
-            groupsMap[groupKey] = {
-              baseType,
-              height: h,
-              spacing: sp,
-              rodSize: rodSz,
-              totalMm: 0,
-              count: 0,
-              wallIds: []
-            };
-          }
-          groupsMap[groupKey].totalMm += lenMm;
-          groupsMap[groupKey].count += 1;
-          groupsMap[groupKey].wallIds.push(w.id);
-        });
-
-        const newEntries = [];
-        Object.entries(groupsMap).forEach(([key, g]) => {
-          const spacingNum = Number(g.spacing) || 900;
-          const rodCount = Math.ceil(g.totalMm / spacingNum) || 1;
-          const rodLen = Number(g.height) <= 2440 ? 2700 : (Number(g.height) <= 2740 ? 3000 : 3600);
-          newEntries.push({
-            id: g.count === 1 && g.wallIds.length === 1 ? `wall-single-${g.wallIds[0]}` : `wall-grp-${key}`,
-            wallId: g.count === 1 && g.wallIds.length === 1 ? g.wallIds[0] : undefined,
-            wallIds: g.wallIds,
-            baseType: g.baseType,
-            height: `${g.height} mm`,
-            length: `${g.totalMm} mm`,
-            spacing: `${g.spacing} mm`,
-            rodSize: g.rodSize || "M12",
-            rodDemand: (g.totalMm / spacingNum).toFixed(2),
-            rodMapping: `${rodCount} x ${g.rodSize || "M12"} Rod ${rodLen}`,
-            rodsQty: `${rodCount} pcs`
-          });
-        });
-
-        if (newEntries.length > 0) {
-          setFrameWallEntries(newEntries);
-        }
-      }
-    }
-  }, [activePaneTab, currentPage, walls, wallsByPageProp, realScale, scaleValue]);
+  // Note: Frame Hardware wall calculation is managed in FrameHardwareTask with full multi-page & load-bearing support
 
   // 5. Flooring State & Custom Room Overrides
   const [flooringEntries, setFlooringEntries] = React.useState([]);
@@ -4459,6 +4495,13 @@ export default function RightPropertyPaneView({
           selectedRoomIds={selectedRoomIds}
           selectedId={selectedId}
           selectedType={selectedType}
+          wallsByPage={effectiveWallsByPage}
+          pages={pages}
+          scalesByPage={effectiveScalesByPage}
+          realScale={realScale}
+          scaleValue={scaleValue}
+          walls={walls}
+          updateWallsProperty={updateWallsProperty}
         />
       )}
 

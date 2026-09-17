@@ -72,7 +72,14 @@ export default function TaskModulesContainer({
   selectedRoom,
   selectedRoomIds,
   selectedId,
-  selectedType
+  selectedType,
+  wallsByPage = {},
+  pages = [],
+  scalesByPage = {},
+  realScale,
+  scaleValue,
+  walls = [],
+  updateWallsProperty
 }) {
   if (!activeModuleTab) return null;
 
@@ -258,6 +265,14 @@ export default function TaskModulesContainer({
           selectedWallIds={selectedWallIds}
           selectedId={selectedId}
           selectedType={selectedType}
+          wallsByPage={wallsByPage}
+          pages={pages}
+          scalesByPage={scalesByPage}
+          realScale={realScale}
+          scaleValue={scaleValue}
+          walls={walls}
+          updateWallsProperty={updateWallsProperty}
+          goPage={goPage}
         />
       )}
 

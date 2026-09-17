@@ -1596,6 +1596,24 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             if (!surface.sideB) surface.sideB = {};
             surface.sideB.finishHeight = Number(value);
             newWall.surface = surface;
+          } else if (field === "include_insulation" || field === "includeInsulation" || field === "has_insulation" || field === "hasInsulation") {
+            const incVal = Boolean(value);
+            newWall.include_insulation = incVal;
+            newWall.includeInsulation = incVal;
+            newWall.has_insulation = incVal;
+            newWall.hasInsulation = incVal;
+            newWall.exclude_insulation = !incVal;
+            newWall.excludeInsulation = !incVal;
+          } else if (field === "exclude_insulation" || field === "excludeInsulation") {
+            const excVal = Boolean(value);
+            newWall.exclude_insulation = excVal;
+            newWall.excludeInsulation = excVal;
+            newWall.include_insulation = !excVal;
+            newWall.includeInsulation = !excVal;
+            newWall.has_insulation = !excVal;
+            newWall.hasInsulation = !excVal;
+          } else {
+            newWall[field] = value;
           }
         }
         return newWall;

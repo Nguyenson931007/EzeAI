@@ -1,10 +1,113 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS (aligned with FixoutForm.tsx)
 // ══════════════════════════════════════════════════════
+
+const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
+
+const LEVEL_SORT_ORDER = {
+  GF: 1,
+  "G/F": 1,
+  "GROUND FLOOR": 1,
+  GROUND: 1,
+  "LEVEL 1": 1,
+  "0F": 1,
+  FF: 2,
+  "1/F": 2,
+  "1F": 2,
+  "FIRST FLOOR": 2,
+  FIRST: 2,
+  "LEVEL 2": 2,
+  SF: 3,
+  "2/F": 3,
+  "2F": 3,
+  "SECOND FLOOR": 3,
+  SECOND: 3,
+  "LEVEL 3": 3,
+  TF: 4,
+  "3/F": 4,
+  "3F": 4,
+  "THIRD FLOOR": 4,
+  THIRD: 4,
+  "LEVEL 4": 4,
+  "4F": 5,
+  "4/F": 5,
+  "FOURTH FLOOR": 5,
+  FOURTH: 5,
+  "LEVEL 5": 5,
+  "5F": 6,
+  "5/F": 6,
+  "FIFTH FLOOR": 6,
+  FIFTH: 6,
+  "LEVEL 6": 6,
+  "6F": 7,
+  "6/F": 7,
+  "SIXTH FLOOR": 7,
+  SIXTH: 7,
+  "LEVEL 7": 7,
+  "7F": 8,
+  "7/F": 8,
+  "SEVENTH FLOOR": 8,
+  SEVENTH: 8,
+  "LEVEL 8": 8,
+  "8F": 9,
+  "8/F": 9,
+  "EIGHTH FLOOR": 9,
+  EIGHTH: 9,
+  "LEVEL 9": 9,
+  "9F": 10,
+  "9/F": 10,
+  "NINTH FLOOR": 10,
+  NINTH: 10,
+  "LEVEL 10": 10,
+  "10F": 11,
+  "10/F": 11,
+  "TENTH FLOOR": 11,
+  TENTH: 11,
+  "LEVEL 11": 11
+};
+
+const getFloorLevelDisplayName = (lvl) => {
+  const raw = String(lvl || "").trim().toUpperCase();
+  if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
+    return "Ground Floor";
+  }
+  if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
+    return "First Floor";
+  }
+  if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
+    return "Second Floor";
+  }
+  if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
+    return "Third Floor";
+  }
+  if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
+    return "Fourth Floor";
+  }
+  if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
+    return "Fifth Floor";
+  }
+  if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
+    return "Sixth Floor";
+  }
+  if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
+    return "Seventh Floor";
+  }
+  if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
+    return "Eighth Floor";
+  }
+  if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
+    return "Ninth Floor";
+  }
+  if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
+    return "Tenth Floor";
+  }
+  return `${lvl} Floor`;
+};
 
 const ROOM_LABELS = [
   "Bed 1", "Bed 2", "Bed 3", "Bed 4", "Bed 5", "Bath", "ENS", "WC", "PDR", "Study", "Media", "Hall", "Garage",
@@ -201,18 +304,19 @@ const FURNITURE_LABELS = {
   passage: "Passage Set",
   privacy: "Privacy Set",
   dummy: "Dummy Set",
-  "cavity-passage": "cavity-passage",
-  "cavity-privacy": "cavity-privacy",
+  "cavity-passage": "CSD Passage Set",
+  "cavity-privacy": "CSD Privacy Set",
   "privacy-dummy": "Privacy Dummy",
   "passage-dummy": "Passage Dummy",
-  "face-door-passage": "face-door-passage",
-  "face-door-privacy": "face-door-privacy",
+  "face-door-passage": "Face Door Passage Set",
+  "face-door-privacy": "Face Door Privacy Set",
+  none: "None",
 };
 
 const STOP_LABELS = {
-  "cushion": "cushion",
+  cushion: "Cushion",
   "ds2-riser": "DS2 with Riser",
-  "none": "none"
+  none: "None",
 };
 
 const capitalize = (v) => v ? v.charAt(0).toUpperCase() + v.slice(1) : "None";
@@ -223,20 +327,51 @@ const modeLabel = (mode) => {
   return "Prehung";
 };
 
-// Per-Label defaults for Prehung/LooseJamb: [furniture, stop, hole]
-const ROOM_DEFAULTS = {
+// Per-Label default Door Furniture / Door Stop / Hole for Prehung and
+// Loose-jamb doors (aligned with FixoutForm.tsx ROOM_LABEL_SUGGESTIONS).
+// Format: [furniture, stop, hole]
+const ROOM_LABEL_SUGGESTIONS = {
   "Bed 1": ["privacy", "cushion", "HF"], "Bed 2": ["passage", "cushion", "HF"],
   "Bed 3": ["passage", "cushion", "HF"], "Bed 4": ["passage", "cushion", "HF"],
-  "Bed 5": ["passage", "cushion", "HF"], Bath: ["privacy", "ds2-riser", "HF"],
-  ENS: ["privacy", "ds2-riser", "HF"], WC: ["privacy", "ds2-riser", "HF"],
-  PDR: ["privacy", "ds2-riser", "HF"], Study: ["passage", "cushion", "HF"],
-  Media: ["passage", "cushion", "HF"], Hall: ["passage", "cushion", "HF"],
-  Garage: ["privacy", "cushion", "HF"], Ldry: ["passage", "cushion", "HF"],
-  Pantry: ["passage", "cushion", "HF"], WIR: ["passage", "cushion", "HF"],
-  Master: ["privacy", "cushion", "HF"], Linen: ["dummy", "none", "HO"],
-  Robe: ["dummy", "none", "HO"], Store: ["dummy", "none", "HO"],
-  Broom: ["dummy", "none", "HO"],
+  "Bed 5": ["passage", "cushion", "HF"], "Bath": ["privacy", "ds2-riser", "HF"],
+  "ENS": ["privacy", "ds2-riser", "HF"], "WC": ["privacy", "ds2-riser", "HF"],
+  "PDR": ["privacy", "ds2-riser", "HF"], "Study": ["passage", "cushion", "HF"],
+  "Media": ["passage", "cushion", "HF"], "Hall": ["passage", "cushion", "HF"],
+  "Garage": ["privacy", "cushion", "HF"], "Ldry": ["passage", "cushion", "HF"],
+  "Pantry": ["passage", "cushion", "HF"], "WIR": ["passage", "cushion", "HF"],
+  "Master": ["privacy", "cushion", "HF"], "Linen": ["dummy", "none", "HO"],
+  "Robe": ["dummy", "none", "HO"], "Store": ["dummy", "none", "HO"],
+  "Broom": ["dummy", "none", "HO"], "WC 1": ["privacy", "ds2-riser", "HF"],
+  "WC 2": ["privacy", "ds2-riser", "HF"], "Bath 1": ["privacy", "ds2-riser", "HF"],
+  "Bath 2": ["privacy", "ds2-riser", "HF"], "PDR 1": ["privacy", "ds2-riser", "HF"],
+  "PDR 2": ["privacy", "ds2-riser", "HF"], "ENS 1": ["privacy", "ds2-riser", "HF"],
+  "ENS 2": ["privacy", "ds2-riser", "HF"], "ENS 3": ["privacy", "ds2-riser", "HF"],
+  "Linen 1": ["dummy", "none", "HO"], "Linen 2": ["dummy", "none", "HO"],
+  "Robe 1": ["dummy", "none", "HO"], "Robe 2": ["dummy", "none", "HO"],
+  "Robe 3": ["dummy", "none", "HO"], "Robe 4": ["dummy", "none", "HO"],
+  "Living": ["passage", "cushion", "HF"], "Dining": ["passage", "cushion", "HF"],
+  "Kitchen": ["passage", "cushion", "HF"], "Office": ["passage", "cushion", "HF"],
+  "Meeting": ["passage", "cushion", "HF"], "Kid one": ["passage", "cushion", "HF"],
+  "MPR": ["passage", "cushion", "HF"], "WIP": ["passage", "cushion", "HF"],
+  "WIL": ["passage", "cushion", "HF"], "CPD": ["dummy", "none", "HO"],
 };
+
+// Handing values that force Hole to HO regardless of the Label's default.
+const ROOM_SUGGESTION_HOLE_OVERRIDE_HANDINGS = new Set(["SET of THREE", "RH LO", "DBL DOOR SET"]);
+// When handing is "DBL DOOR SET", swap base furniture to its dummy variant.
+const DUMMY_FURNITURE_VARIANT = { privacy: "privacy-dummy", passage: "passage-dummy" };
+
+// Recomputed whenever Label or (Prehung-only) Handing changes;
+// Cavity doors and unrecognised Labels are left untouched.
+function roomSuggestionPatch(mode, label, handing) {
+  const base = ROOM_LABEL_SUGGESTIONS[label];
+  if (!base || mode === "cavity") return {};
+  const [baseFurniture, stop, baseHole] = base;
+  if (mode !== "prehung") return { furniture: baseFurniture, stop };
+  const hole = ROOM_SUGGESTION_HOLE_OVERRIDE_HANDINGS.has(handing) ? "HO" : baseHole;
+  const furniture = handing === "DBL DOOR SET" ? (DUMMY_FURNITURE_VARIANT[baseFurniture] || baseFurniture) : baseFurniture;
+  return { furniture, stop, hole };
+}
 
 const emptyDraft = (mode) => ({
   label: "", doorName: "", height: "2040", width: "820", qty: "1",
@@ -245,7 +380,6 @@ const emptyDraft = (mode) => ({
   furniture: mode === "cavity" ? "cavity-passage" : "passage",
   stop: "cushion",
 });
-
 
 // ══════════════════════════════════════════════════════
 // SHARED STYLES
@@ -367,13 +501,13 @@ const S = {
   },
 };
 
-
 // ══════════════════════════════════════════════════════
 // COMPACT CUSTOM COMBOBOX COMPONENT
 // ══════════════════════════════════════════════════════
 
-function ComboField({ label, value, options = [], width, onChange, placeholder, numeric }) {
+function ComboField({ label, value, options = [], width, onChange, placeholder, numeric, openUp = false }) {
   const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, bottom: 0, left: 0, width: 0, dropUp: false });
   const containerRef = useRef(null);
 
   const isCommittedSelection = options.includes(value);
@@ -385,9 +519,39 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
     return options.filter((opt) => String(opt).toLowerCase().includes(query));
   }, [open, options, value, isCommittedSelection]);
 
+  const updatePosition = useCallback(() => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const dropUp = openUp || (spaceBelow < 180 && spaceAbove > 140);
+      setCoords({
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        dropUp,
+      });
+    }
+  }, [openUp]);
+
+  useEffect(() => {
+    if (open) {
+      updatePosition();
+      window.addEventListener("scroll", updatePosition, true);
+      window.addEventListener("resize", updatePosition);
+    }
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [open, updatePosition]);
+
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
+        const portalMenu = document.getElementById("fixout-combofield-portal-menu");
+        if (portalMenu && portalMenu.contains(e.target)) return;
         setOpen(false);
       }
     };
@@ -398,6 +562,64 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
       document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [open]);
+
+  const menuElement = open && filtered.length > 0 ? (
+    <div
+      id="fixout-combofield-portal-menu"
+      style={{
+        position: "fixed",
+        ...(coords.dropUp
+          ? { bottom: `${Math.max(6, window.innerHeight - coords.top + 3)}px` }
+          : { top: `${coords.bottom + 3}px` }),
+        left: `${coords.left}px`,
+        zIndex: 999999,
+        minWidth: Math.max(110, coords.width || 0),
+        maxWidth: "260px",
+        maxHeight: coords.dropUp
+          ? `${Math.max(80, Math.min(200, coords.top - 12))}px`
+          : `${Math.max(80, Math.min(200, window.innerHeight - coords.bottom - 12))}px`,
+        overflowY: "auto",
+        background: "#ffffff",
+        border: "1px solid #cbd5e1",
+        borderRadius: "5px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+        padding: "2px 0",
+      }}
+    >
+      {filtered.map((opt) => {
+        const isSel = opt === value;
+        return (
+          <div
+            key={opt}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onChange(opt);
+              setOpen(false);
+            }}
+            style={{
+              padding: "5px 10px",
+              fontSize: "11px",
+              fontWeight: isSel ? 700 : 400,
+              color: isSel ? "#1d4ed8" : "#1e293b",
+              background: isSel ? "#eff6ff" : "transparent",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            onMouseEnter={(e) => {
+              if (!isSel) e.currentTarget.style.background = "#f1f5f9";
+            }}
+            onMouseLeave={(e) => {
+              if (!isSel) e.currentTarget.style.background = "transparent";
+            }}
+          >
+            {opt}
+          </div>
+        );
+      })}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -416,9 +638,15 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
           value={value || ""}
           onChange={(e) => {
             onChange(e.target.value);
-            if (!open) setOpen(true);
+            if (!open) {
+              updatePosition();
+              setOpen(true);
+            }
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            updatePosition();
+            setOpen(true);
+          }}
           style={{
             ...S.input,
             width: "100%",
@@ -431,6 +659,7 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
           tabIndex={-1}
           onMouseDown={(e) => {
             e.preventDefault();
+            updatePosition();
             setOpen((prev) => !prev);
           }}
           style={{
@@ -447,68 +676,14 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
             lineHeight: 1,
           }}
         >
-          ▼
+          {coords.dropUp ? "▲" : "▼"}
         </button>
       </div>
 
-      {/* Sleek Compact Dropdown Menu */}
-      {open && filtered.length > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            zIndex: 9999,
-            minWidth: "110px",
-            maxWidth: "220px",
-            maxHeight: "160px",
-            overflowY: "auto",
-            background: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: "5px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            marginTop: "2px",
-            padding: "2px 0",
-          }}
-        >
-          {filtered.map((opt) => {
-            const isSel = opt === value;
-            return (
-              <div
-                key={opt}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onChange(opt);
-                  setOpen(false);
-                }}
-                style={{
-                  padding: "4px 8px",
-                  fontSize: "11px",
-                  fontWeight: isSel ? 700 : 400,
-                  color: isSel ? "#1d4ed8" : "#1e293b",
-                  background: isSel ? "#eff6ff" : "transparent",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isSel) e.currentTarget.style.background = "#f1f5f9";
-                }}
-                onMouseLeave={(e) => {
-                  if (!isSel) e.currentTarget.style.background = "transparent";
-                }}
-              >
-                {opt}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {typeof document !== "undefined" && menuElement ? createPortal(menuElement, document.body) : menuElement}
     </div>
   );
 }
-
 
 // ══════════════════════════════════════════════════════
 // BASIC FIELD COMPONENT (label + select/input)
@@ -538,12 +713,11 @@ function Field({ label, type = "text", value, options, labels, width, onChange }
   );
 }
 
-
 // ══════════════════════════════════════════════════════
 // CATEGORY SECTION (Cavity / Prehung / Loose-Jamb)
 // ══════════════════════════════════════════════════════
 
-function CategorySection({ mode, title, addLabel, entries, onSetEntries }) {
+function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLevel = "GF" }) {
   const [isOpen, setIsOpen] = useState(true);
   const [draft, setDraft] = useState(() => emptyDraft(mode));
 
@@ -557,13 +731,18 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries }) {
   }, []);
 
   const handleLabelChange = useCallback((label) => {
-    const defaults = ROOM_DEFAULTS[label];
-    if (defaults && mode !== "cavity") {
-      updateDraft({ label, furniture: defaults[0], stop: defaults[1], hole: defaults[2] });
-    } else {
-      updateDraft({ label });
-    }
-  }, [mode, updateDraft]);
+    setDraft((prev) => {
+      const patch = roomSuggestionPatch(mode, label, prev.handing);
+      return { ...prev, label, ...patch };
+    });
+  }, [mode]);
+
+  const handleHandingChange = useCallback((handing) => {
+    setDraft((prev) => {
+      const patch = roomSuggestionPatch(mode, prev.label, handing);
+      return { ...prev, handing, ...patch };
+    });
+  }, [mode]);
 
   const handleAdd = () => {
     const h = parseFloat(draft.height) || 2040;
@@ -573,6 +752,7 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries }) {
 
     const newEntry = {
       id: `fix-${mode}-${Date.now()}`,
+      floorLevel: floorLevel || "GF",
       category: mode,
       door_label: draft.label || "",
       door_type: draft.doorName || "",
@@ -643,7 +823,7 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries }) {
 
             {isPrehung && (
               <>
-                <Field label="Handing" type="select" value={draft.handing} options={OPT.handing} width="85px" onChange={(v) => updateDraft({ handing: v })} />
+                <Field label="Handing" type="select" value={draft.handing} options={OPT.handing} width="85px" onChange={handleHandingChange} />
                 <Field label="Hole" type="select" value={draft.hole} options={OPT.hole} width="50px" onChange={(v) => updateDraft({ hole: v })} />
                 <Field label="Finish" type="select" value={draft.finish} options={OPT.finish} width="50px" onChange={(v) => updateDraft({ finish: v })} />
               </>
@@ -658,35 +838,6 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries }) {
             <button type="button" onClick={handleAdd} style={S.addBtn}>{addLabel}</button>
           </div>
 
-          {/* Compact Section Summary Table */}
-          {catEntries.length > 0 && (
-            <div style={{ overflowX: "auto", marginTop: "6px" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
-                <tbody>
-                  {catEntries.map((item, idx) => (
-                    <tr
-                      key={item.id || idx}
-                      style={{
-                        borderBottom: "1px solid #f1f5f9",
-                        background: idx % 2 === 0 ? "#fff" : "#f8fafc",
-                      }}
-                    >
-                      <td style={{ padding: "4px 4px", fontWeight: 600, color: "#64748b" }}>{item.door_label || "—"}</td>
-                      <td style={{ padding: "4px 4px", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.door_type}>{item.door_type || "—"}</td>
-                      <td style={{ padding: "4px 4px" }}>{item.height}×{item.width}×{item.thicks}</td>
-                      <td style={{ padding: "4px 4px" }}>{item.wall_width} · {item.door_frame}</td>
-                      <td style={{ padding: "4px 4px" }}>{FURNITURE_LABELS[item.door_furniture] || item.door_furniture}</td>
-                      <td style={{ padding: "4px 4px", fontWeight: 700, color: "#2563eb" }}>{item.qty}</td>
-                      <td style={{ padding: "4px 2px", textAlign: "right" }}>
-                        <button type="button" onClick={() => handleRemove(item.id)} style={S.deleteBtn} title="Delete">✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
           <div style={S.note}>
             Door and material codes are looked up automatically from the Bunnings workbook.
           </div>
@@ -696,10 +847,8 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries }) {
   );
 }
 
-
 // ══════════════════════════════════════════════════════
-// SECTION 2: ENTERED DOORS TABLE (COMPACT 10-COLUMN LAYOUT)
-// Columns: # | Category | Label / door | Size | Wall / frame | Lift off | Handing | Furniture | Door stop | Qty | Action
+// SECTION 2: ENTERED DOORS TABLE (GROUPED BY FLOOR LEVEL)
 // ══════════════════════════════════════════════════════
 
 export default function FixoutTask({
@@ -713,82 +862,197 @@ export default function FixoutTask({
   activeJobNumber,
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
+
+  const [floorLevel, setFloorLevel] = useState("GF");
+  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection2Open, setIsSection2Open] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [isSection2Open, setIsSection2Open] = useState(true);
-  const [editingId, setEditingId] = useState(null);
-  const [editData, setEditData] = useState({});
+  const [isLoadingDb, setIsLoadingDb] = useState(false);
+  const [reloadMsg, setReloadMsg] = useState(null);
+
+  const [selectedEntryId, setSelectedEntryId] = useState(null);
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editRowData, setEditRowData] = useState({});
+  const editingRowIdRef = useRef(null);
+  const editRowDataRef = useRef({});
+  const entriesRef = useRef(entries);
   const loadedJobRef = useRef(null);
 
   const totalCount = (entries || []).length;
 
+  useEffect(() => {
+    editingRowIdRef.current = editingRowId;
+  }, [editingRowId]);
+
+  useEffect(() => {
+    editRowDataRef.current = editRowData;
+  }, [editRowData]);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  // Group entries by FloorLevel
+  const groupedDoorsByLevel = useMemo(() => {
+    const groups = {};
+    (entries || []).forEach(item => {
+      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      if (!groups[lvl]) {
+        groups[lvl] = [];
+      }
+      groups[lvl].push(item);
+    });
+
+    const sortedLevels = Object.keys(groups).sort((a, b) => {
+      const orderA = LEVEL_SORT_ORDER[a] || 99;
+      const orderB = LEVEL_SORT_ORDER[b] || 99;
+      return orderA - orderB;
+    });
+
+    return sortedLevels.map(lvl => ({
+      level: lvl,
+      items: groups[lvl]
+    }));
+  }, [entries]);
+
+  const handleStartEdit = (item) => {
+    setEditingRowId(item.id);
+    setEditRowData({
+      ...item,
+      floorLevel: item.floorLevel || item.floor_level || "GF",
+    });
+  };
+
+  const handleSaveInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingRowIdRef.current;
+    if (!targetId || !onSetEntries) return;
+    const currentData = editRowDataRef.current;
+    const q = parseInt(currentData.qty, 10) || 1;
+
+    onSetEntries(prev => {
+      const currentList = Array.isArray(prev) ? prev : (entriesRef.current || []);
+      return currentList.map(item => item.id === targetId ? {
+        ...item,
+        ...currentData,
+        floorLevel: currentData.floorLevel || item.floorLevel || item.floor_level || "GF",
+        qty: q,
+      } : item);
+    });
+    setEditingRowId(null);
+  };
+
+  // Auto-save on outside click
+  useEffect(() => {
+    const handleDocumentMouseDown = (e) => {
+      if (!editingRowIdRef.current) return;
+      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+      if (!editingTr) return;
+
+      const path = e.composedPath ? e.composedPath() : [];
+      const isInsideEditingTr = path.some(el => 
+        el === editingTr || 
+        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current))
+      );
+
+      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
+        return;
+      }
+
+      handleSaveInlineEdit(editingRowIdRef.current);
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, []);
+
+  const handleReloadFromDb = async (force = true) => {
+    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+    if (!force && (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai")) return;
+    setIsLoadingDb(true);
+    setReloadMsg(null);
+
+    try {
+      const res = await ApiService.fetchFixoutJobs(target);
+      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const loaded = res.data
+          .filter((r) => r.door_label || r.door_type || r.height || r.width)
+          .map((r, idx) => ({
+            id: `fix-${r.fixout_id || Date.now()}-${idx}`,
+            floorLevel: r.floor_level || r.floorLevel || "GF",
+            category: r.category || "cavity",
+            door_label: r.door_label || "",
+            door_type: r.door_type || "",
+            height: r.height || 2040,
+            width: r.width || 820,
+            thicks: r.thicks ? String(r.thicks) : "35",
+            wall_width: r.wall_width ? String(r.wall_width) : "90",
+            door_frame: r.door_frame || "Timber Jamb",
+            lift_off_pivot: r.lift_off_pivot || "",
+            handing: r.handing || "",
+            hole: r.hole || "",
+            finish: r.finish || "",
+            door_furniture: r.door_furniture || (r.category === "cavity" ? "cavity-passage" : "passage"),
+            door_stop: r.door_stop || (r.category === "cavity" ? "none" : "cushion"),
+            qty: r.qty || 1,
+          }));
+
+        if (loaded.length > 0 && onSetEntries) {
+          onSetEntries(loaded);
+          const first = loaded[0];
+          if (first && first.floorLevel) {
+            setFloorLevel(first.floorLevel);
+          }
+          if (force) {
+            setReloadMsg({ type: "success", text: `Loaded ${loaded.length} ${loaded.length === 1 ? "door" : "doors"} from SQL` });
+          }
+        } else {
+          if (force) {
+            setReloadMsg({ type: "info", text: "No saved data found in SQL" });
+          }
+        }
+      } else {
+        if (force) {
+          setReloadMsg({ type: "info", text: "No data returned from SQL" });
+        }
+      }
+    } catch (err) {
+      console.error("Error loading Fixout from SQL:", err);
+      if (force) {
+        setReloadMsg({ type: "error", text: "SQL connection error" });
+      }
+    } finally {
+      setIsLoadingDb(false);
+      if (force) {
+        setTimeout(() => setReloadMsg(null), 3500);
+      }
+    }
+  };
+
   // ── Auto-load saved Fixout entries from DB if empty on job load ──
   useEffect(() => {
-    let isCancelled = false;
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
     if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
     if (entries && entries.length > 0) return;
     if (loadedJobRef.current === target) return;
     loadedJobRef.current = target;
 
-    async function loadFromDb() {
-      try {
-        const res = await ApiService.fetchFixoutJobs(target);
-        if (isCancelled) return;
-        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const loaded = res.data
-            .filter((r) => r.door_label || r.door_type || r.height || r.width)
-            .map((r, idx) => ({
-              id: `fix-${r.fixout_id || Date.now()}-${idx}`,
-              category: r.category || "cavity",
-              door_label: r.door_label || "",
-              door_type: r.door_type || "",
-              height: r.height || 2040,
-              width: r.width || 820,
-              thicks: r.thicks ? String(r.thicks) : "35",
-              wall_width: r.wall_width ? String(r.wall_width) : "90",
-              door_frame: r.door_frame || "Timber Jamb",
-              lift_off_pivot: r.lift_off_pivot || "",
-              handing: r.handing || "",
-              hole: r.hole || "",
-              finish: r.finish || "",
-              door_furniture: r.door_furniture || (r.category === "cavity" ? "cavity-passage" : "passage"),
-              door_stop: r.door_stop || (r.category === "cavity" ? "none" : "cushion"),
-              qty: r.qty || 1,
-            }));
-          if (loaded.length > 0 && onSetEntries) {
-            onSetEntries(loaded);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not load Fixout data from DB:", err);
-      }
-    }
-
-    loadFromDb();
-    return () => { isCancelled = true; };
-  }, [activeJobNumber, currentProjectName, currentJobId, entries, onSetEntries]);
+    handleReloadFromDb(false);
+  }, [activeJobNumber, currentProjectName, currentJobId, entries]);
 
   const handleRemoveEntry = (id) => {
     if (onSetEntries) {
       onSetEntries((prev) => (prev || []).filter((e) => e.id !== id));
     }
-    if (editingId === id) { setEditingId(null); setEditData({}); }
-  };
-
-  const handleStartEdit = (item) => {
-    setEditingId(item.id);
-    setEditData({ ...item });
-  };
-
-  const handleSaveEdit = () => {
-    if (onSetEntries && editingId) {
-      onSetEntries((prev) =>
-        (prev || []).map((e) => (e.id === editingId ? { ...e, ...editData } : e))
-      );
+    if (editingRowId === id) {
+      setEditingRowId(null);
+      setEditRowData({});
     }
-    setEditingId(null);
-    setEditData({});
+    if (selectedEntryId === id) {
+      setSelectedEntryId(null);
+    }
   };
 
   const handleSave = async () => {
@@ -798,6 +1062,7 @@ export default function FixoutTask({
 
     try {
       const items = (entries || []).map((item) => ({
+        floor_level: item.floorLevel || item.floor_level || "GF",
         category: item.category || null,
         door_label: item.door_label || null,
         door_type: item.door_type || null,
@@ -817,7 +1082,7 @@ export default function FixoutTask({
 
       const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
       const payload = {
-        user_update: user?.username || user?.name || "EZE0098",
+        user_update: user?.username || user?.name || "admin",
         jobs: [
           {
             id_job_hw: String(targetJob),
@@ -846,20 +1111,96 @@ export default function FixoutTask({
 
       {/* ═══ CARD 1: DOOR INFORMATION ═══ */}
       <div style={S.card}>
-        <div style={S.cardTitle}>
-          <span>▼ 1. Door Information</span>
+        <div onClick={() => setIsSection1Open(!isSection1Open)} style={S.cardTitle}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span>1. Door Information</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {reloadMsg && (
+              <span style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                color: reloadMsg.type === "success" ? "#16a34a" : (reloadMsg.type === "error" ? "#dc2626" : "#2563eb")
+              }}>
+                {reloadMsg.text}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
+              disabled={isLoadingDb}
+              style={{
+                background: "#ffffff",
+                border: "1px solid #cbd5e1",
+                color: "#1e293b",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 8px",
+                borderRadius: "5px",
+                cursor: isLoadingDb ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+              title="Reload Fixout doors from MSSQL"
+            >
+              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
+            </button>
+            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+              {isSection1Open ? "▲" : "▼"}
+            </span>
+          </div>
         </div>
-        <div style={{ padding: "8px" }}>
-          <CategorySection mode="cavity"     title="Cavity sliding units + doors" addLabel="+ Add Cavity"  entries={entries} onSetEntries={onSetEntries} />
-          <CategorySection mode="prehung"    title="Internal prehung doors"       addLabel="+ Add Prehung" entries={entries} onSetEntries={onSetEntries} />
-          <CategorySection mode="loose-jamb" title="Internal loose-jamb doors"    addLabel="+ Add Jamb"    entries={entries} onSetEntries={onSetEntries} />
-        </div>
+
+        {isSection1Open && (
+          <div style={{ padding: "8px" }}>
+            {/* Shared Floor Level Selector at top of Card 1 */}
+            <div style={{
+              padding: "6px 10px 10px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              borderBottom: "1px solid #f1f5f9",
+              marginBottom: "8px"
+            }}>
+              <span style={{ fontSize: "11px", color: "#334155", fontWeight: 700 }}>Floor level:</span>
+              <select
+                value={floorLevel}
+                onChange={(e) => {
+                  setFloorLevel(e.target.value);
+                  if (onChange) onChange("fixout", "floor_level", e.target.value);
+                }}
+                className="task-field-select"
+                style={{
+                  padding: "5px 8px",
+                  fontSize: "11px",
+                  borderRadius: "5px",
+                  border: "1px solid #cbd5e1",
+                  fontWeight: 700,
+                  background: "#f8fafc",
+                  minWidth: "140px",
+                  boxSizing: "border-box",
+                  height: "30px"
+                }}
+              >
+                {FLOOR_LEVEL_OPTIONS.map(opt => (
+                  <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3 Categories all use shared floorLevel */}
+            <CategorySection mode="cavity"     title="Cavity sliding units + doors" addLabel="+ Add Cavity"  entries={entries} onSetEntries={onSetEntries} floorLevel={floorLevel} />
+            <CategorySection mode="prehung"    title="Internal prehung doors"       addLabel="+ Add Prehung" entries={entries} onSetEntries={onSetEntries} floorLevel={floorLevel} />
+            <CategorySection mode="loose-jamb" title="Internal loose-jamb doors"    addLabel="+ Add Jamb"    entries={entries} onSetEntries={onSetEntries} floorLevel={floorLevel} />
+          </div>
+        )}
       </div>
 
-      {/* ═══ CARD 2: ENTERED DOORS ═══ */}
+      {/* ═══ CARD 2: ENTERED DOORS (GROUPED BY FLOOR LEVEL) ═══ */}
       <div style={S.card}>
         <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
-          <span>▼ 2. Entered doors {totalCount > 0 ? `(${totalCount})` : ""}</span>
+          <span>2. Entered doors {totalCount > 0 ? `(${totalCount})` : ""}</span>
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
         </div>
 
@@ -867,266 +1208,414 @@ export default function FixoutTask({
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", tableLayout: "auto" }}>
               <thead>
-                <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", width: "24px", textAlign: "center" }}>#</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "90px" }}>Category</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "130px" }}>Label / door</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "95px" }}>Size</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "110px" }}>Wall / frame</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Lift off</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Handing</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "100px" }}>Furniture</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", minWidth: "75px" }}>Door stop</th>
-                  <th style={{ padding: "7px 8px", fontWeight: 700, fontSize: "10px", width: "40px", textAlign: "center" }}>Qty</th>
-                  <th style={{ padding: "7px 8px", width: "50px", textAlign: "center" }}></th>
+                <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", width: "24px", textAlign: "center" }}>#</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "90px" }}>Category</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "130px" }}>Label / door</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "95px" }}>Size</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "110px" }}>Wall / frame</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Lift off</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Handing</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "50px" }}>Hole</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "55px" }}>Finish</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "105px" }}>Furniture</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "75px" }}>Door stop</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", width: "40px", textAlign: "center" }}>Qty</th>
+                  <th style={{ padding: "6px 8px", width: "50px", textAlign: "center" }}></th>
                 </tr>
               </thead>
               <tbody>
                 {totalCount === 0 ? (
                   <tr>
-                    <td colSpan={11} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                      No Fixout doors entered.
+                    <td colSpan={13} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                      No Fixout doors entered. Fill the inputs above and add doors.
                     </td>
                   </tr>
                 ) : (
-                  (entries || []).map((item, idx) => {
-                    const isEditing = editingId === item.id;
-                    const current = isEditing ? editData : item;
-                    const isCavity = current.category === "cavity";
-                    const isPrehung = current.category === "prehung";
-                    const isLooseJamb = current.category === "loose-jamb";
-
-                    if (isEditing) {
-                      return (
-                        <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}>
-                          <td style={{ padding: "4px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
-                          <td style={{ padding: "4px" }}>
-                            <select
-                              value={current.category || "cavity"}
-                              onChange={(e) => setEditData({ ...current, category: e.target.value })}
-                              style={{ ...S.select, width: "95px", fontSize: "10px" }}
-                            >
-                              <option value="cavity">Cavity sliding</option>
-                              <option value="prehung">Prehung</option>
-                              <option value="loose-jamb">Loose Jamb</option>
-                            </select>
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            <div style={{ display: "flex", gap: "2px" }}>
-                              <ComboField
-                                value={current.door_label || ""}
-                                options={ROOM_LABELS}
-                                width="55px"
-                                onChange={(v) => setEditData({ ...current, door_label: v })}
-                                placeholder="Label"
-                              />
-                              <ComboField
-                                value={current.door_type || ""}
-                                options={DOOR_NAMES}
-                                width="85px"
-                                onChange={(v) => setEditData({ ...current, door_type: v })}
-                                placeholder="Type"
-                              />
-                            </div>
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
-                              <input
-                                type="number"
-                                value={current.height || 2040}
-                                onChange={(e) => setEditData({ ...current, height: e.target.value })}
-                                style={{ ...S.input, width: "45px", fontSize: "10px" }}
-                              />
-                              <span>×</span>
-                              <input
-                                type="number"
-                                value={current.width || 820}
-                                onChange={(e) => setEditData({ ...current, width: e.target.value })}
-                                style={{ ...S.input, width: "40px", fontSize: "10px" }}
-                              />
-                              <span>×</span>
-                              <select
-                                value={current.thicks || "35"}
-                                onChange={(e) => setEditData({ ...current, thicks: e.target.value })}
-                                style={{ ...S.select, width: "40px", fontSize: "10px" }}
-                              >
-                                {OPT.thicks.map((o) => <option key={o}>{o}</option>)}
-                              </select>
-                            </div>
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            <div style={{ display: "flex", gap: "2px" }}>
-                              <select
-                                value={current.wall_width || "90"}
-                                onChange={(e) => setEditData({ ...current, wall_width: e.target.value })}
-                                style={{ ...S.select, width: "45px", fontSize: "10px" }}
-                              >
-                                {OPT.wallWidth.map((o) => <option key={o}>{o}</option>)}
-                              </select>
-                              <select
-                                value={current.door_frame || "Timber Jamb"}
-                                onChange={(e) => setEditData({ ...current, door_frame: e.target.value })}
-                                style={{ ...S.select, width: "80px", fontSize: "10px" }}
-                              >
-                                {(isCavity ? ["Timber Jamb", "Ezy Jamb"] : OPT.frame).map((o) => <option key={o}>{o}</option>)}
-                              </select>
-                            </div>
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            {isLooseJamb ? (
-                              <select
-                                value={current.lift_off_pivot || ""}
-                                onChange={(e) => setEditData({ ...current, lift_off_pivot: e.target.value })}
-                                style={{ ...S.select, width: "65px", fontSize: "10px" }}
-                              >
-                                {OPT.liftOff.map((o) => <option key={o} value={o}>{capitalize(o)}</option>)}
-                              </select>
-                            ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            {isPrehung ? (
-                              <select
-                                value={current.handing || ""}
-                                onChange={(e) => setEditData({ ...current, handing: e.target.value })}
-                                style={{ ...S.select, width: "65px", fontSize: "10px" }}
-                              >
-                                {OPT.handing.map((o) => <option key={o} value={o}>{capitalize(o)}</option>)}
-                              </select>
-                            ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            <select
-                              value={current.door_furniture || ""}
-                              onChange={(e) => setEditData({ ...current, door_furniture: e.target.value })}
-                              style={{ ...S.select, width: "95px", fontSize: "10px" }}
-                            >
-                              {(FURNITURE_BY_MODE[current.category] || FURNITURE_BY_MODE.prehung).map((o) => (
-                                <option key={o} value={o}>{FURNITURE_LABELS[o] || o}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td style={{ padding: "4px" }}>
-                            {!isCavity ? (
-                              <select
-                                value={current.door_stop || "cushion"}
-                                onChange={(e) => setEditData({ ...current, door_stop: e.target.value })}
-                                style={{ ...S.select, width: "70px", fontSize: "10px" }}
-                              >
-                                {OPT.stop.map((o) => <option key={o} value={o}>{STOP_LABELS[o] || capitalize(o)}</option>)}
-                              </select>
-                            ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                          </td>
-                          <td style={{ padding: "4px", textAlign: "center" }}>
-                            <input
-                              type="number"
-                              value={current.qty || 1}
-                              onChange={(e) => setEditData({ ...current, qty: e.target.value })}
-                              style={{ ...S.input, width: "35px", fontSize: "10px", textAlign: "center" }}
-                            />
-                          </td>
-                          <td style={{ padding: "4px", textAlign: "center" }}>
-                            <div style={{ display: "inline-flex", gap: "3px" }}>
-                              <button type="button" onClick={handleSaveEdit} style={{ ...S.editBtn, background: "#dcfce7", color: "#16a34a", borderColor: "#86efac" }} title="Save">✓</button>
-                              <button type="button" onClick={() => { setEditingId(null); setEditData({}); }} style={S.deleteBtn} title="Cancel">✕</button>
+                  groupedDoorsByLevel.map(({ level, items }) => {
+                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
+                    return (
+                      <React.Fragment key={level}>
+                        <tr style={{
+                          background: isLower ? "#f0fdf4" : "#fefce8",
+                          borderTop: "2px solid #cbd5e1",
+                          borderBottom: "1px solid #e2e8f0"
+                        }}>
+                          <td colSpan={13} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                                <span style={{
+                                  background: isLower ? "#dcfce7" : "#fef08a",
+                                  color: isLower ? "#15803d" : "#854d0e",
+                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
+                                  padding: "2px 8px",
+                                  borderRadius: "4px",
+                                  fontWeight: 800,
+                                  fontSize: "10.5px",
+                                  letterSpacing: "0.5px"
+                                }}>
+                                  {level}
+                                </span>
+                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
+                                  {getFloorLevelDisplayName(level)}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
+                                {items.length} {items.length === 1 ? "door" : "doors"}
+                              </span>
                             </div>
                           </td>
                         </tr>
-                      );
-                    }
 
-                    // ── Display Mode Row (Matching Image 1) ──
-                    const sizeStr = `${item.height || 2040}×${item.width || 820}×${item.thicks || 35}`;
-                    const wallFrameStr = `${item.wall_width || 90} · ${item.door_frame || "Timber Jamb"}`;
-                    const liftOffStr = isLooseJamb ? (item.lift_off_pivot || "—") : "—";
-                    const handingStr = isPrehung ? (item.handing || "—") : "—";
-                    const furnitureStr = item.door_furniture || (isCavity ? "cavity-passage" : "passage");
-                    const doorStopStr = isCavity ? "—" : (item.door_stop || "cushion");
+                        {items.map((item) => {
+                          const globalIdx = (entries || []).findIndex(e => e.id === item.id);
+                          const idx = globalIdx >= 0 ? globalIdx : 0;
+                          const isSelected = selectedEntryId === item.id;
+                          const isRowEditing = editingRowId === item.id;
+                          const isCavity = (isRowEditing ? editRowData.category : item.category) === "cavity";
+                          const isPrehung = (isRowEditing ? editRowData.category : item.category) === "prehung";
+                          const isLooseJamb = (isRowEditing ? editRowData.category : item.category) === "loose-jamb";
 
-                    return (
-                      <tr
-                        key={item.id || idx}
-                        style={{
-                          borderBottom: "1px solid #f1f5f9",
-                          background: idx % 2 === 0 ? "#ffffff" : "#f8fafc",
-                        }}
-                      >
-                        {/* # */}
-                        <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
-                          {idx + 1}
-                        </td>
+                          if (isRowEditing) {
+                            return (
+                              <tr
+                                key={item.id || idx}
+                                data-editing-row-id={item.id}
+                                style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}
+                              >
+                                <td style={{ padding: "4px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                                <td style={{ padding: "4px" }}>
+                                  <select
+                                    value={editRowData.category || "cavity"}
+                                    onChange={(e) => setEditRowData({ ...editRowData, category: e.target.value })}
+                                    style={{ ...S.select, width: "95px", fontSize: "10px" }}
+                                  >
+                                    <option value="cavity">Cavity sliding</option>
+                                    <option value="prehung">Prehung</option>
+                                    <option value="loose-jamb">Loose Jamb</option>
+                                  </select>
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  <div style={{ display: "flex", gap: "2px" }}>
+                                    <ComboField
+                                      value={editRowData.door_label || ""}
+                                      options={ROOM_LABELS}
+                                      width="55px"
+                                      openUp={true}
+                                      onChange={(v) => {
+                                        const mode = editRowData.category || "prehung";
+                                        const patch = roomSuggestionPatch(mode, v, editRowData.handing || "");
+                                        setEditRowData({
+                                          ...editRowData,
+                                          door_label: v,
+                                          ...(patch.furniture ? { door_furniture: patch.furniture } : {}),
+                                          ...(patch.stop !== undefined ? { door_stop: patch.stop } : {}),
+                                          ...(patch.hole !== undefined ? { hole: patch.hole } : {}),
+                                        });
+                                      }}
+                                      placeholder="Label"
+                                    />
+                                    <ComboField
+                                      value={editRowData.door_type || ""}
+                                      options={DOOR_NAMES}
+                                      width="85px"
+                                      openUp={true}
+                                      onChange={(v) => setEditRowData({ ...editRowData, door_type: v })}
+                                      placeholder="Type"
+                                    />
+                                  </div>
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
+                                    <input
+                                      type="number"
+                                      value={editRowData.height || 2040}
+                                      onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
+                                      style={{ ...S.input, width: "45px", fontSize: "10px" }}
+                                    />
+                                    <span>×</span>
+                                    <input
+                                      type="number"
+                                      value={editRowData.width || 820}
+                                      onChange={(e) => setEditRowData({ ...editRowData, width: e.target.value })}
+                                      style={{ ...S.input, width: "40px", fontSize: "10px" }}
+                                    />
+                                    <span>×</span>
+                                    <select
+                                      value={editRowData.thicks || "35"}
+                                      onChange={(e) => setEditRowData({ ...editRowData, thicks: e.target.value })}
+                                      style={{ ...S.select, width: "40px", fontSize: "10px" }}
+                                    >
+                                      {OPT.thicks.map((o) => <option key={o}>{o}</option>)}
+                                    </select>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  <div style={{ display: "flex", gap: "2px" }}>
+                                    <select
+                                      value={editRowData.wall_width || "90"}
+                                      onChange={(e) => setEditRowData({ ...editRowData, wall_width: e.target.value })}
+                                      style={{ ...S.select, width: "45px", fontSize: "10px" }}
+                                    >
+                                      {OPT.wallWidth.map((o) => <option key={o}>{o}</option>)}
+                                    </select>
+                                    <select
+                                      value={editRowData.door_frame || "Timber Jamb"}
+                                      onChange={(e) => setEditRowData({ ...editRowData, door_frame: e.target.value })}
+                                      style={{ ...S.select, width: "80px", fontSize: "10px" }}
+                                    >
+                                      {(isCavity ? ["Timber Jamb", "Ezy Jamb"] : OPT.frame).map((o) => <option key={o}>{o}</option>)}
+                                    </select>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  {isLooseJamb ? (
+                                    <select
+                                      value={editRowData.lift_off_pivot || ""}
+                                      onChange={(e) => setEditRowData({ ...editRowData, lift_off_pivot: e.target.value })}
+                                      style={{ ...S.select, width: "65px", fontSize: "10px" }}
+                                    >
+                                      {OPT.liftOff.map((o) => <option key={o} value={o}>{capitalize(o)}</option>)}
+                                    </select>
+                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  {isPrehung ? (
+                                    <select
+                                      value={editRowData.handing || ""}
+                                      onChange={(e) => {
+                                        const handing = e.target.value;
+                                        const mode = editRowData.category || "prehung";
+                                        const patch = roomSuggestionPatch(mode, editRowData.door_label || "", handing);
+                                        setEditRowData({
+                                          ...editRowData,
+                                          handing,
+                                          ...(patch.furniture ? { door_furniture: patch.furniture } : {}),
+                                          ...(patch.stop !== undefined ? { door_stop: patch.stop } : {}),
+                                          ...(patch.hole !== undefined ? { hole: patch.hole } : {}),
+                                        });
+                                      }}
+                                      style={{ ...S.select, width: "65px", fontSize: "10px" }}
+                                    >
+                                      {OPT.handing.map((o) => <option key={o} value={o}>{capitalize(o)}</option>)}
+                                    </select>
+                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  {isPrehung ? (
+                                    <select
+                                      value={editRowData.hole || ""}
+                                      onChange={(e) => setEditRowData({ ...editRowData, hole: e.target.value })}
+                                      style={{ ...S.select, width: "50px", fontSize: "10px" }}
+                                    >
+                                      {OPT.hole.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+                                    </select>
+                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  {isPrehung ? (
+                                    <select
+                                      value={editRowData.finish || ""}
+                                      onChange={(e) => setEditRowData({ ...editRowData, finish: e.target.value })}
+                                      style={{ ...S.select, width: "55px", fontSize: "10px" }}
+                                    >
+                                      {OPT.finish.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+                                    </select>
+                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  <select
+                                    value={editRowData.door_furniture || ""}
+                                    onChange={(e) => setEditRowData({ ...editRowData, door_furniture: e.target.value })}
+                                    style={{ ...S.select, width: "105px", fontSize: "10px" }}
+                                  >
+                                    {(FURNITURE_BY_MODE[editRowData.category] || FURNITURE_BY_MODE.prehung).map((o) => (
+                                      <option key={o} value={o}>{FURNITURE_LABELS[o] || o}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  {!isCavity ? (
+                                    <select
+                                      value={editRowData.door_stop || "cushion"}
+                                      onChange={(e) => setEditRowData({ ...editRowData, door_stop: e.target.value })}
+                                      style={{ ...S.select, width: "70px", fontSize: "10px" }}
+                                    >
+                                      {OPT.stop.map((o) => <option key={o} value={o}>{STOP_LABELS[o] || capitalize(o)}</option>)}
+                                    </select>
+                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "4px", textAlign: "center" }}>
+                                  <input
+                                    type="number"
+                                    value={editRowData.qty !== undefined ? editRowData.qty : item.qty}
+                                    onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
+                                    style={{ ...S.input, width: "35px", fontSize: "10px", textAlign: "center" }}
+                                  />
+                                </td>
+                                <td style={{ padding: "4px", textAlign: "center" }}>
+                                  <div style={{ display: "inline-flex", gap: "3px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
+                                      style={{ ...S.editBtn, background: "#dcfce7", color: "#16a34a", borderColor: "#86efac" }}
+                                      title="Save"
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setEditingRowId(null); setEditRowData({}); }}
+                                      style={S.deleteBtn}
+                                      title="Cancel"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
 
-                        {/* Category */}
-                        <td style={{ padding: "6px 8px", fontWeight: 600, color: "#334155" }}>
-                          {modeLabel(item.category)}
-                        </td>
+                          // ── Display Mode Row ──
+                          const sizeStr = `${item.height || 2040}×${item.width || 820}×${item.thicks || 35}`;
+                          const wallFrameStr = `${item.wall_width || 90} · ${item.door_frame || "Timber Jamb"}`;
+                          const liftOffStr = isLooseJamb ? (item.lift_off_pivot || "—") : "—";
+                          const handingStr = isPrehung ? (item.handing || "—") : "—";
+                          const holeStr = isPrehung ? (item.hole || "—") : "—";
+                          const finishStr = isPrehung ? (item.finish || "—") : "—";
+                          const furnitureStr = item.door_furniture || (isCavity ? "cavity-passage" : "passage");
+                          const doorStopStr = isCavity ? "—" : (item.door_stop || "cushion");
 
-                        {/* Label / door */}
-                        <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
-                          <span style={{ fontWeight: 700, color: "#0f172a", marginRight: "6px" }}>
-                            {item.door_label || "—"}
-                          </span>
-                          <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>
-                            {item.door_type || ""}
-                          </span>
-                        </td>
-
-                        {/* Size */}
-                        <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
-                          {sizeStr}
-                        </td>
-
-                        {/* Wall / frame */}
-                        <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
-                          {wallFrameStr}
-                        </td>
-
-                        {/* Lift off */}
-                        <td style={{ padding: "6px 8px", color: liftOffStr === "—" ? "#94a3b8" : "#334155" }}>
-                          {liftOffStr}
-                        </td>
-
-                        {/* Handing */}
-                        <td style={{ padding: "6px 8px", color: handingStr === "—" ? "#94a3b8" : "#334155" }}>
-                          {handingStr}
-                        </td>
-
-                        {/* Furniture */}
-                        <td style={{ padding: "6px 8px", color: "#0f766e", fontWeight: 500 }}>
-                          {furnitureStr}
-                        </td>
-
-                        {/* Door stop */}
-                        <td style={{ padding: "6px 8px", color: doorStopStr === "—" ? "#94a3b8" : "#0369a1" }}>
-                          {doorStopStr}
-                        </td>
-
-                        {/* Qty */}
-                        <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
-                          {item.qty || 1}
-                        </td>
-
-                        {/* Action: Delete */}
-                        <td style={{ padding: "6px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
-                          <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(item)}
-                              style={S.editBtn}
-                              title="Edit door"
+                          return (
+                            <tr
+                              key={item.id || idx}
+                              data-editing-row-id={isRowEditing ? item.id : undefined}
+                              onDoubleClick={(e) => {
+                                if (isRowEditing) return;
+                                if (e.target.closest && e.target.closest("button")) return;
+                                if (editingRowId && editingRowId !== item.id) {
+                                  handleSaveInlineEdit(editingRowId);
+                                }
+                                setSelectedEntryId(item.id);
+                                if (onSelectEntry) onSelectEntry(item);
+                                handleStartEdit(item);
+                              }}
+                              onClick={() => {
+                                if (!isRowEditing) {
+                                  if (editingRowId && editingRowId !== item.id) {
+                                    handleSaveInlineEdit(editingRowId);
+                                  }
+                                  const nextSelected = isSelected ? null : item.id;
+                                  setSelectedEntryId(nextSelected);
+                                  if (onSelectEntry) onSelectEntry(isSelected ? null : item);
+                                }
+                              }}
+                              style={{
+                                borderBottom: "1px solid #f1f5f9",
+                                background: isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"),
+                                cursor: "pointer",
+                                outline: isSelected ? "2px solid #3b82f6" : "none",
+                                outlineOffset: "-1px",
+                                transition: "background 0.15s ease"
+                              }}
                             >
-                              ✎
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveEntry(item.id)}
-                              style={S.deleteBtn}
-                              title="Delete door"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                              {/* # */}
+                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
+                                {idx + 1}
+                              </td>
+
+                              {/* Category */}
+                              <td style={{ padding: "6px 8px", fontWeight: 600, color: "#334155" }}>
+                                {modeLabel(item.category)}
+                              </td>
+
+                              {/* Label / door */}
+                              <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                                <span style={{ fontWeight: 700, color: "#0f172a", marginRight: "6px" }}>
+                                  {item.door_label || "—"}
+                                </span>
+                                <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>
+                                  {item.door_type || ""}
+                                </span>
+                              </td>
+
+                              {/* Size */}
+                              <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
+                                {sizeStr}
+                              </td>
+
+                              {/* Wall / frame */}
+                              <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
+                                {wallFrameStr}
+                              </td>
+
+                              {/* Lift off */}
+                              <td style={{ padding: "6px 8px", color: liftOffStr === "—" ? "#94a3b8" : "#334155" }}>
+                                {liftOffStr}
+                              </td>
+
+                              {/* Handing */}
+                              <td style={{ padding: "6px 8px", color: handingStr === "—" ? "#94a3b8" : "#334155" }}>
+                                {handingStr}
+                              </td>
+
+                              {/* Hole */}
+                              <td style={{ padding: "6px 8px", color: holeStr === "—" ? "#94a3b8" : "#334155" }}>
+                                {holeStr}
+                              </td>
+
+                              {/* Finish */}
+                              <td style={{ padding: "6px 8px", color: finishStr === "—" ? "#94a3b8" : "#334155" }}>
+                                {finishStr}
+                              </td>
+
+                              {/* Furniture */}
+                              <td style={{ padding: "6px 8px", color: "#0f766e", fontWeight: 500 }}>
+                                {FURNITURE_LABELS[furnitureStr] || furnitureStr}
+                              </td>
+
+                              {/* Door stop */}
+                              <td style={{ padding: "6px 8px", color: doorStopStr === "—" ? "#94a3b8" : "#0369a1" }}>
+                                {STOP_LABELS[doorStopStr] || doorStopStr}
+                              </td>
+
+                              {/* Qty */}
+                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
+                                {item.qty || 1}
+                              </td>
+
+                              {/* Action: Edit & Delete */}
+                              <td style={{ padding: "6px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
+                                <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStartEdit(item);
+                                    }}
+                                    style={S.editBtn}
+                                    title="Edit door"
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveEntry(item.id);
+                                    }}
+                                    style={S.deleteBtn}
+                                    title="Delete door"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1138,38 +1627,48 @@ export default function FixoutTask({
         {/* Footer: Save */}
         {totalCount > 0 && (
           <div style={{
-            padding: "10px 14px",
+            padding: "8px 12px",
             background: "#f8fafc",
             borderTop: "1px solid #e2e8f0",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            gap: "8px"
           }}>
             <span style={{ fontSize: "11px", color: "#475569", fontWeight: 600 }}>
-              {totalCount} {totalCount === 1 ? "door item" : "door items"} calculated
+              {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
             </span>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              style={{
-                padding: "7px 18px",
-                background: saveSuccess ? "#059669" : (isSaving ? "#64748b" : "#0f2744"),
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: 700,
-                cursor: isSaving ? "not-allowed" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                transition: "background 0.2s ease",
-              }}
-            >
-              {isSaving ? "⏳ Saving..." : saveSuccess ? "✅ Saved to DB!" : "💾 Save"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {saveSuccess && (
+                <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 700 }}>
+                  ✓ Saved to SQL!
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                style={{
+                  padding: "5px 14px",
+                  background: saveSuccess ? "#16a34a" : "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  cursor: isSaving ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
+                  opacity: isSaving ? 0.7 : 1,
+                  transition: "all 0.2s ease"
+                }}
+              >
+                <span>{isSaving ? "⏳" : "💾"}</span>
+                <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

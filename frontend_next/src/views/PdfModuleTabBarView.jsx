@@ -1,6 +1,8 @@
 "use client";
 import React from "react";
 import { useDialog } from "@/components/DialogContext";
+import { useAppModel } from "@/models/app.context";
+import { exportPdfToolsDocument } from "@/utils/pdfExportUtils";
 
 export const DEFAULT_TASK_STEPS = [
   { id: "frame_hardware", label: "Frame", name: "Frame Hardware", icon: "", color: "#2563eb" },
@@ -47,8 +49,6 @@ export default function PdfModuleTabBarView({
 }) {
   const { showConfirm } = useDialog();
 
-  const [selectedEmptyStep, setSelectedEmptyStep] = React.useState(null);
-
   // Đọc danh sách module/step được cấu hình từ TaskList API (nguồn chân lý của Job)
   const activeTaskListStepIds = React.useMemo(() => {
     try {
@@ -90,12 +90,9 @@ export default function PdfModuleTabBarView({
   };
 
   // Determine which steps should be shown in the switcher bar
-  // Only show steps that have pages added to them (or explicitly picked from dropdown to add pages)
+  // Only show steps that have pages added to them
   const visibleSteps = availableTaskSteps.filter(step => {
-    const hasPages = pages.some(p => isCategoryMatch(p?.category, step.id));
-    if (hasPages) return true;
-    if (selectedEmptyStep && isCategoryMatch(selectedEmptyStep, step.id)) return true;
-    return false;
+    return pages.some(p => isCategoryMatch(p?.category, step.id));
   });
 
   // Automatically select the first step with pages if activeCategory has no pages
@@ -105,7 +102,6 @@ export default function PdfModuleTabBarView({
     }
   }, [pages, visibleSteps, activeCategory, setActiveCategory]);
 
-  const remainingSteps = availableTaskSteps.filter(step => !visibleSteps.some(vs => vs.id === step.id));
   const currentModulePages = getPagesForStep(activeCategory);
   const activeStepObj = availableTaskSteps.find(s => isCategoryMatch(activeCategory, s.id)) || (visibleSteps[0] || availableTaskSteps[0]);
 
@@ -115,6 +111,36 @@ export default function PdfModuleTabBarView({
     setPages((prev) =>
       prev.map((p, idx) => (idx === originalIndex ? { ...p, category: targetCat } : p))
     );
+  };
+
+  const {
+    annotationsByPage = {},
+    currentProjectName = "Project",
+    realScale = 20
+  } = useAppModel();
+
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [showExportMenu, setShowExportMenu] = React.useState(false);
+
+  const handleExport = async (mode = "step") => {
+    try {
+      setIsExporting(true);
+      setShowExportMenu(false);
+      await exportPdfToolsDocument({
+        pages,
+        currentPage,
+        annotationsByPage,
+        activeCategory,
+        projectName: currentProjectName || "EzeFloor_Project",
+        realScale: (typeof realScale === "number" && realScale > 0) ? realScale : 20,
+        mode
+      });
+    } catch (err) {
+      console.error("[TabBar Export PDF Error]", err);
+      alert("Failed to export PDF: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -149,47 +175,39 @@ export default function PdfModuleTabBarView({
               <span className="badge" style={isActive ? { background: "rgba(255,255,255,0.3)", color: "#fff" } : {}}>
                 {stepPages.length}
               </span>
+
+              {/* Quick delete / close step button */}
+              <span
+                className="step-close-x"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (await showConfirm(`Delete all pages in ${step.name || step.label}?`)) {
+                    if (setPages) {
+                      setPages((prev) => prev.filter((p) => !isCategoryMatch(p?.category, step.id)));
+                    }
+                  }
+                }}
+                title={`Delete ${step.label} step`}
+                style={{
+                  marginLeft: "4px",
+                  fontSize: "11px",
+                  lineHeight: 1,
+                  padding: "2px 4px",
+                  borderRadius: "4px",
+                  opacity: 0.7,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(0,0,0,0.2)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.7"; e.currentTarget.style.background = "transparent"; }}
+              >
+                ✕
+              </span>
             </button>
           );
         })}
-
-        {/* More Steps Dropdown to switch to or add pages to another step */}
-        {remainingSteps.length > 0 && (
-          <select
-            value=""
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val) {
-                setSelectedEmptyStep(val);
-                if (setActiveCategory) setActiveCategory(val);
-                const firstMatching = pages.findIndex(p => isCategoryMatch(p?.category, val));
-                if (firstMatching >= 0 && firstMatching !== currentPage) {
-                  onPageClick && onPageClick(firstMatching);
-                }
-              }
-            }}
-            style={{
-              background: 'transparent',
-              border: '1px dashed #cbd5e1',
-              color: '#64748b',
-              borderRadius: '6px',
-              padding: '2px 8px',
-              fontSize: '11px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              outline: 'none',
-              height: '24px'
-            }}
-            title="Switch to or add pages to another step"
-          >
-            <option value="" disabled>+ Add Step...</option>
-            {remainingSteps.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
       <div style={{ width: "1px", height: "20px", background: "#e2e8f0", margin: "0 2px" }} />
@@ -311,8 +329,91 @@ export default function PdfModuleTabBarView({
         </label>
       </div>
 
-      {/* Right: Import / Assign PDF Pages Modal Trigger */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+      {/* Right: Actions (Export PDF & Assign PDF Pages) */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, position: "relative" }}>
+        {/* Export PDF Menu Trigger */}
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={() => setShowExportMenu(prev => !prev)}
+            disabled={isExporting}
+            title="Export markups & drawings to PDF"
+            style={{
+              height: "26px",
+              padding: "0 10px",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "11px",
+              fontWeight: 700,
+              color: "#059669",
+              background: "#ecfdf5",
+              border: "1px solid #a7f3d0",
+              borderRadius: "6px",
+              cursor: "pointer",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+            }}
+          >
+            <span>📥</span>
+            <span>{isExporting ? "Exporting..." : "Export PDF ▾"}</span>
+          </button>
+
+          {showExportMenu && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                zIndex: 3000,
+                background: "#ffffff",
+                border: "1px solid #cbd5e1",
+                borderRadius: "8px",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.18)",
+                padding: "6px",
+                minWidth: "200px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "3px"
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => handleExport("current")}
+                style={{
+                  width: "100%", textAlign: "left", padding: "6px 10px", border: "none",
+                  background: "#f8fafc", borderRadius: "5px", cursor: "pointer", fontSize: "11px",
+                  fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "6px"
+                }}
+              >
+                <span>📄</span> Export Current Page
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("step")}
+                style={{
+                  width: "100%", textAlign: "left", padding: "6px 10px", border: "none",
+                  background: "#f8fafc", borderRadius: "5px", cursor: "pointer", fontSize: "11px",
+                  fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "6px"
+                }}
+              >
+                <span>📑</span> Export All {activeCategory ? (activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)) : "Task"} Pages
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("all")}
+                style={{
+                  width: "100%", textAlign: "left", padding: "6px 10px", border: "none",
+                  background: "#f8fafc", borderRadius: "5px", cursor: "pointer", fontSize: "11px",
+                  fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "6px"
+                }}
+              >
+                <span>📚</span> Export All Project Pages
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Import / Assign PDF Pages Modal Trigger */}
         <button
           type="button"
           onClick={() => onOpenImportSelector && onOpenImportSelector()}

@@ -1,6 +1,72 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+
+// ══════════════════════════════════════════════════════
+// CONSTANTS & OPTIONS
+// ══════════════════════════════════════════════════════
+
+export const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
+
+export const LEVEL_SORT_ORDER = {
+  GF: 1,
+  "G/F": 1,
+  "GROUND FLOOR": 1,
+  GROUND: 1,
+  "LEVEL 1": 1,
+  "0F": 1,
+  FF: 2,
+  "1/F": 2,
+  "1F": 2,
+  "FIRST FLOOR": 2,
+  FIRST: 2,
+  "LEVEL 2": 2,
+  SF: 3,
+  "2/F": 3,
+  "2F": 3,
+  "SECOND FLOOR": 3,
+  SECOND: 3,
+  "LEVEL 3": 3,
+  TF: 4,
+  "3/F": 4,
+  "3F": 4,
+  "THIRD FLOOR": 4,
+  THIRD: 4,
+  "LEVEL 4": 4,
+  "4F": 5,
+  "4/F": 5,
+  "FOURTH FLOOR": 5,
+  FOURTH: 5,
+  "LEVEL 5": 5,
+  "5F": 6,
+  "5/F": 6,
+  "FIFTH FLOOR": 6,
+  FIFTH: 6,
+  "LEVEL 6": 6,
+};
+
+export const getFloorLevelDisplayName = (lvl) => {
+  const raw = String(lvl || "").trim().toUpperCase();
+  if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
+    return "Ground Floor";
+  }
+  if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
+    return "First Floor";
+  }
+  if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
+    return "Second Floor";
+  }
+  if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
+    return "Third Floor";
+  }
+  if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
+    return "Fourth Floor";
+  }
+  if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
+    return "Fifth Floor";
+  }
+  return `${lvl} Floor`;
+};
 
 // ══════════════════════════════════════════════════════
 // SHARED STYLES
@@ -489,6 +555,9 @@ export default function FowPlumbingTask({
   const [isSection1Open, setIsSection1Open] = useState(true);
   const [isSection2Open, setIsSection2Open] = useState(true);
 
+  // Floor level state
+  const [floorLevel, setFloorLevel] = useState(formData.floor_level || "GF");
+
   // Draft input state matching screenshot
   const [itemNameDraft, setItemNameDraft] = useState("");
   const [codeDraft, setCodeDraft] = useState("");
@@ -500,9 +569,55 @@ export default function FowPlumbingTask({
   const [editData, setEditData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isLoadingDb, setIsLoadingDb] = useState(false);
+  const [reloadMsg, setReloadMsg] = useState({ text: "", type: "info" });
   const loadedJobRef = useRef(null);
+  const editingRowIdRef = useRef(null);
+  const editRowDataRef = useRef({});
 
   const totalCount = (entries || []).length;
+
+  useEffect(() => {
+    editingRowIdRef.current = editingId;
+    editRowDataRef.current = editData;
+  }, [editingId, editData]);
+
+  // Click outside auto-save inline edit
+  useEffect(() => {
+    const handleDocumentMouseDown = (e) => {
+      if (!editingRowIdRef.current) return;
+      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+      if (!editingTr) return;
+
+      const path = e.composedPath ? e.composedPath() : [];
+      const isInsideEditingTr = path.some(el =>
+        el === editingTr ||
+        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current))
+      );
+
+      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
+        return;
+      }
+
+      handleSaveInlineEdit(editingRowIdRef.current);
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+    };
+  }, []);
+
+  const handleSaveInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingRowIdRef.current;
+    if (!targetId || !onSetEntries) return;
+    const currentData = editRowDataRef.current;
+    onSetEntries((prev) =>
+      (prev || []).map((e) => (e.id === targetId ? { ...e, ...currentData } : e))
+    );
+    setEditingId(null);
+    setEditData({});
+  };
 
   // Auto-fill code and description when Item Name is selected
   const handleItemNameChange = (name) => {
@@ -533,42 +648,73 @@ export default function FowPlumbingTask({
     }
   };
 
-  // ── Auto-load saved FOW Plumbing entries from DB if empty on job load ──
-  useEffect(() => {
-    let isCancelled = false;
+  // ── Reload FOW Plumbing entries from DB ──
+  const handleReloadFromDb = useCallback(async (manual = false) => {
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
-    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
+    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") {
+      if (manual) {
+        setReloadMsg({ text: "Please select a valid Job first", type: "error" });
+        setTimeout(() => setReloadMsg({ text: "", type: "info" }), 3500);
+      }
+      return;
+    }
 
-    async function loadFromDb() {
-      try {
-        const res = await ApiService.fetchFowPlumbingJobs(target);
-        if (isCancelled) return;
-        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          const loaded = res.data
-            .filter((r) => r.item_name || r.code || r.description)
-            .map((r, idx) => ({
+    setIsLoadingDb(true);
+    if (manual) setReloadMsg({ text: "Loading...", type: "info" });
+
+    try {
+      const res = await ApiService.fetchFowPlumbingJobs(target);
+      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const loaded = res.data
+          .filter((r) => r.item_name || r.code || r.description)
+          .map((r, idx) => {
+            const fl = String(r.floor_level || r.FloorLevel || "GF").trim().toUpperCase();
+            return {
               id: `plumb-${r.id || Date.now()}-${idx}`,
               itemName: r.item_name || "",
               code: r.code || "",
               description: r.description || "",
               qty: r.qty != null ? Number(r.qty) : 1,
               note: r.note || "",
-            }));
-          if (loaded.length > 0 && onSetEntries) {
-            onSetEntries(loaded);
+              floorLevel: fl || "GF",
+              floor_level: fl || "GF",
+            };
+          });
+        if (loaded.length > 0 && onSetEntries) {
+          onSetEntries(loaded);
+          if (manual) {
+            setReloadMsg({ text: `Loaded ${loaded.length} fixtures from SQL`, type: "success" });
+            setTimeout(() => setReloadMsg({ text: "", type: "info" }), 3500);
           }
+        } else if (manual) {
+          setReloadMsg({ text: "No saved data found in SQL", type: "info" });
+          setTimeout(() => setReloadMsg({ text: "", type: "info" }), 3500);
         }
-      } catch (err) {
-        console.warn("Could not load FOW Plumbing data from DB:", err);
+      } else if (manual) {
+        setReloadMsg({ text: "No saved data found in SQL", type: "info" });
+        setTimeout(() => setReloadMsg({ text: "", type: "info" }), 3500);
       }
+    } catch (err) {
+      console.warn("Could not load FOW Plumbing data from DB:", err);
+      if (manual) {
+        setReloadMsg({ text: "Failed to reload from SQL", type: "error" });
+        setTimeout(() => setReloadMsg({ text: "", type: "info" }), 3500);
+      }
+    } finally {
+      setIsLoadingDb(false);
     }
+  }, [activeJobNumber, currentProjectName, currentJobId, onSetEntries]);
 
-    loadFromDb();
-    return () => { isCancelled = true; };
-  }, [activeJobNumber, currentProjectName, currentJobId, entries, onSetEntries]);
+  // ── Auto-load saved FOW Plumbing entries from DB if empty on job load ──
+  useEffect(() => {
+    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
+    if (entries && entries.length > 0) return;
+    if (loadedJobRef.current === target) return;
+    loadedJobRef.current = target;
+
+    handleReloadFromDb(false);
+  }, [activeJobNumber, currentProjectName, currentJobId, entries, handleReloadFromDb]);
 
   const handleAdd = () => {
     const name = String(itemNameDraft || "").trim();
@@ -586,6 +732,8 @@ export default function FowPlumbingTask({
       description: desc,
       qty: q,
       note: n,
+      floorLevel: floorLevel || "GF",
+      floor_level: floorLevel || "GF",
     };
 
     if (onSetEntries) {
@@ -637,6 +785,7 @@ export default function FowPlumbingTask({
         description: item.description || "",
         qty: item.qty != null ? Number(item.qty) : 1,
         note: item.note || "",
+        floor_level: item.floorLevel || item.floor_level || "GF",
       }));
 
       const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
@@ -665,6 +814,27 @@ export default function FowPlumbingTask({
     }
   };
 
+  // Group entries by FloorLevel
+  const groupedPlumbingByLevel = useMemo(() => {
+    const groups = {};
+    (entries || []).forEach((item) => {
+      const lvl = (item.floorLevel || item.floor_level || "GF").trim().toUpperCase();
+      if (!groups[lvl]) groups[lvl] = [];
+      groups[lvl].push(item);
+    });
+
+    return Object.keys(groups)
+      .sort((a, b) => {
+        const orderA = LEVEL_SORT_ORDER[a] || 99;
+        const orderB = LEVEL_SORT_ORDER[b] || 99;
+        return orderA - orderB;
+      })
+      .map((lvl) => ({
+        level: lvl,
+        items: groups[lvl],
+      }));
+  }, [entries]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
 
@@ -675,6 +845,36 @@ export default function FowPlumbingTask({
             <span>▶ 1. Plumbing fixtures</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {reloadMsg.text && (
+              <span style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                color: reloadMsg.type === "success" ? "#16a34a" : (reloadMsg.type === "error" ? "#dc2626" : "#2563eb")
+              }}>
+                {reloadMsg.text}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
+              disabled={isLoadingDb}
+              style={{
+                background: "#ffffff",
+                border: "1px solid #cbd5e1",
+                color: "#1e293b",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 8px",
+                borderRadius: "5px",
+                cursor: isLoadingDb ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+              title="Reload FOW Plumbing from MSSQL"
+            >
+              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
+            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
@@ -683,6 +883,41 @@ export default function FowPlumbingTask({
 
         {isSection1Open && (
           <div style={{ padding: "12px" }}>
+            {/* Shared Floor Level Selector at top of Card 1 */}
+            <div style={{
+              padding: "0 0 10px 0",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              borderBottom: "1px solid #f1f5f9",
+              marginBottom: "12px"
+            }}>
+              <span style={{ fontSize: "11px", color: "#334155", fontWeight: 700 }}>Floor level:</span>
+              <select
+                value={floorLevel}
+                onChange={(e) => {
+                  setFloorLevel(e.target.value);
+                  if (onChange) onChange("fow_plumbing", "floor_level", e.target.value);
+                }}
+                className="task-field-select"
+                style={{
+                  padding: "5px 8px",
+                  fontSize: "11px",
+                  borderRadius: "5px",
+                  border: "1px solid #cbd5e1",
+                  fontWeight: 700,
+                  background: "#f8fafc",
+                  minWidth: "140px",
+                  boxSizing: "border-box",
+                  height: "30px"
+                }}
+              >
+                {FLOOR_LEVEL_OPTIONS.map(opt => (
+                  <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
               {/* Dropdown 1: Item Name (Combobox) */}
               <ComboField
@@ -789,140 +1024,187 @@ export default function FowPlumbingTask({
                     </td>
                   </tr>
                 ) : (
-                  (entries || []).map((item, idx) => {
-                    const isEditing = editingId === item.id;
-                    const current = isEditing ? editData : item;
-
-                    if (isEditing) {
-                      return (
-                        <tr key={item.id || idx} style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}>
-                          <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
-                          <td style={{ padding: "6px 8px", minWidth: "140px" }}>
-                            <ComboField
-                              value={current.itemName || ""}
-                              options={ITEM_NAME_OPTIONS}
-                              isYellow={true}
-                              onChange={handleEditItemNameChange}
-                              placeholder="Item Name"
-                            />
-                          </td>
-                          <td style={{ padding: "6px 8px" }}>
-                            <input
-                              type="text"
-                              value={current.code || ""}
-                              onChange={(e) => setEditData({ ...current, code: e.target.value })}
-                              style={{ ...S.input(false), height: "34px", fontSize: "11px", padding: "4px 8px" }}
-                            />
-                          </td>
-                          <td style={{ padding: "6px 8px", minWidth: "160px" }}>
-                            <ComboField
-                              value={current.description || ""}
-                              options={ITEM_DESCRIPTION_OPTIONS}
-                              isYellow={true}
-                              onChange={(v) => setEditData({ ...current, description: v })}
-                              placeholder="Item Description"
-                            />
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                            <input
-                              type="number"
-                              value={current.qty || 1}
-                              onChange={(e) => setEditData({ ...current, qty: e.target.value })}
-                              style={{ ...S.input(true), minWidth: "45px", height: "34px", fontSize: "11px", textAlign: "center", padding: "4px 6px" }}
-                            />
-                          </td>
-                          <td style={{ padding: "6px 8px" }}>
-                            <input
-                              type="text"
-                              value={current.note || ""}
-                              onChange={(e) => setEditData({ ...current, note: e.target.value })}
-                              style={{ ...S.input(false), height: "34px", fontSize: "11px", padding: "4px 8px" }}
-                            />
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                            <div style={{ display: "inline-flex", gap: "4px" }}>
-                              <button
-                                type="button"
-                                onClick={handleSaveEdit}
-                                style={{ ...S.editBtn, background: "#dcfce7", color: "#16a34a", borderColor: "#86efac" }}
-                                title="Save"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setEditingId(null); setEditData({}); }}
-                                style={S.deleteBtn}
-                                title="Cancel"
-                              >
-                                ✕
-                              </button>
+                  groupedPlumbingByLevel.map(({ level, items }) => {
+                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
+                    return (
+                      <React.Fragment key={level}>
+                        <tr style={{
+                          background: isLower ? "#f0fdf4" : "#fefce8",
+                          borderTop: "2px solid #cbd5e1",
+                          borderBottom: "1px solid #e2e8f0"
+                        }}>
+                          <td colSpan={7} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                                <span style={{
+                                  background: isLower ? "#dcfce7" : "#fef08a",
+                                  color: isLower ? "#15803d" : "#854d0e",
+                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
+                                  padding: "2px 8px",
+                                  borderRadius: "4px",
+                                  fontWeight: 800,
+                                  fontSize: "10.5px",
+                                  letterSpacing: "0.5px"
+                                }}>
+                                  {level}
+                                </span>
+                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
+                                  {getFloorLevelDisplayName(level)}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
+                                {items.length} {items.length === 1 ? "fixture" : "fixtures"}
+                              </span>
                             </div>
                           </td>
                         </tr>
-                      );
-                    }
 
-                    return (
-                      <tr
-                        key={item.id || idx}
-                        style={{
-                          borderBottom: "1px solid #f1f5f9",
-                          background: idx % 2 === 0 ? "#ffffff" : "#f8fafc",
-                        }}
-                      >
-                        {/* # */}
-                        <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
-                          {idx + 1}
-                        </td>
+                        {items.map((item) => {
+                          const globalIdx = (entries || []).findIndex(e => e.id === item.id);
+                          const idx = globalIdx >= 0 ? globalIdx : 0;
+                          const isEditing = editingId === item.id;
+                          const current = isEditing ? editData : item;
 
-                        {/* Item Name */}
-                        <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1d4ed8" }}>
-                          {item.itemName || item.item_name || "—"}
-                        </td>
+                          if (isEditing) {
+                            return (
+                              <tr
+                                key={item.id || idx}
+                                data-editing-row-id={item.id}
+                                style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}
+                              >
+                                <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                                <td style={{ padding: "6px 8px", minWidth: "140px" }}>
+                                  <ComboField
+                                    value={current.itemName || ""}
+                                    options={ITEM_NAME_OPTIONS}
+                                    isYellow={true}
+                                    onChange={handleEditItemNameChange}
+                                    placeholder="Item Name"
+                                  />
+                                </td>
+                                <td style={{ padding: "6px 8px" }}>
+                                  <input
+                                    type="text"
+                                    value={current.code || ""}
+                                    onChange={(e) => setEditData({ ...current, code: e.target.value })}
+                                    style={{ ...S.input(false), height: "34px", fontSize: "11px", padding: "4px 8px" }}
+                                  />
+                                </td>
+                                <td style={{ padding: "6px 8px", minWidth: "160px" }}>
+                                  <ComboField
+                                    value={current.description || ""}
+                                    options={ITEM_DESCRIPTION_OPTIONS}
+                                    isYellow={true}
+                                    onChange={(v) => setEditData({ ...current, description: v })}
+                                    placeholder="Item Description"
+                                  />
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                                  <input
+                                    type="number"
+                                    value={current.qty || 1}
+                                    onChange={(e) => setEditData({ ...current, qty: e.target.value })}
+                                    style={{ ...S.input(true), minWidth: "45px", height: "34px", fontSize: "11px", textAlign: "center", padding: "4px 6px" }}
+                                  />
+                                </td>
+                                <td style={{ padding: "6px 8px" }}>
+                                  <input
+                                    type="text"
+                                    value={current.note || ""}
+                                    onChange={(e) => setEditData({ ...current, note: e.target.value })}
+                                    style={{ ...S.input(false), height: "34px", fontSize: "11px", padding: "4px 8px" }}
+                                  />
+                                </td>
+                                <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                                  <div style={{ display: "inline-flex", gap: "4px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={handleSaveEdit}
+                                      style={{ ...S.editBtn, background: "#dcfce7", color: "#16a34a", borderColor: "#86efac" }}
+                                      title="Save"
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setEditingId(null); setEditData({}); }}
+                                      style={S.deleteBtn}
+                                      title="Cancel"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
 
-                        {/* Code */}
-                        <td style={{ padding: "8px 12px", color: "#64748b", fontSize: "11px" }}>
-                          {item.code || "—"}
-                        </td>
-
-                        {/* Description */}
-                        <td style={{ padding: "8px 12px", color: "#334155" }}>
-                          {item.description || "—"}
-                        </td>
-
-                        {/* Qty */}
-                        <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
-                          {item.qty || 1}
-                        </td>
-
-                        {/* Note */}
-                        <td style={{ padding: "8px 12px", color: "#64748b", fontSize: "11px" }}>
-                          {item.note || "—"}
-                        </td>
-
-                        {/* Action Buttons */}
-                        <td style={{ padding: "8px 12px", textAlign: "center", whiteSpace: "nowrap" }}>
-                          <div style={{ display: "inline-flex", gap: "5px", alignItems: "center" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(item)}
-                              style={S.editBtn}
-                              title="Edit fixture"
+                          return (
+                            <tr
+                              key={item.id || idx}
+                              onDoubleClick={() => handleStartEdit(item)}
+                              style={{
+                                borderBottom: "1px solid #f1f5f9",
+                                background: idx % 2 === 0 ? "#ffffff" : "#f8fafc",
+                                cursor: "pointer"
+                              }}
+                              title="Double-click to edit fixture inline"
                             >
-                              ✎
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemove(item.id)}
-                              style={S.deleteBtn}
-                              title="Delete fixture"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                              {/* # */}
+                              <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
+                                {idx + 1}
+                              </td>
+
+                              {/* Item Name */}
+                              <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1d4ed8" }}>
+                                {item.itemName || item.item_name || "—"}
+                              </td>
+
+                              {/* Code */}
+                              <td style={{ padding: "8px 12px", color: "#64748b", fontSize: "11px" }}>
+                                {item.code || "—"}
+                              </td>
+
+                              {/* Description */}
+                              <td style={{ padding: "8px 12px", color: "#334155" }}>
+                                {item.description || "—"}
+                              </td>
+
+                              {/* Qty */}
+                              <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
+                                {item.qty || 1}
+                              </td>
+
+                              {/* Note */}
+                              <td style={{ padding: "8px 12px", color: "#64748b", fontSize: "11px" }}>
+                                {item.note || "—"}
+                              </td>
+
+                              {/* Action Buttons */}
+                              <td style={{ padding: "8px 12px", textAlign: "center", whiteSpace: "nowrap" }}>
+                                <div style={{ display: "inline-flex", gap: "5px", alignItems: "center" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartEdit(item)}
+                                    style={S.editBtn}
+                                    title="Edit fixture"
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemove(item.id)}
+                                    style={S.deleteBtn}
+                                    title="Delete fixture"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })
                 )}
