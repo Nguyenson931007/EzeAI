@@ -4,108 +4,38 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 
 // ══════════════════════════════════════════════════════
-// CONSTANTS & OPTIONS (aligned with FixoutForm.tsx)
+// CONSTANTS & OPTIONS (aligned with FixoutForm.tsx & dropdown_api.py)
 // ══════════════════════════════════════════════════════
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
 
 const LEVEL_SORT_ORDER = {
-  GF: 1,
-  "G/F": 1,
-  "GROUND FLOOR": 1,
-  GROUND: 1,
-  "LEVEL 1": 1,
-  "0F": 1,
-  FF: 2,
-  "1/F": 2,
-  "1F": 2,
-  "FIRST FLOOR": 2,
-  FIRST: 2,
-  "LEVEL 2": 2,
-  SF: 3,
-  "2/F": 3,
-  "2F": 3,
-  "SECOND FLOOR": 3,
-  SECOND: 3,
-  "LEVEL 3": 3,
-  TF: 4,
-  "3/F": 4,
-  "3F": 4,
-  "THIRD FLOOR": 4,
-  THIRD: 4,
-  "LEVEL 4": 4,
-  "4F": 5,
-  "4/F": 5,
-  "FOURTH FLOOR": 5,
-  FOURTH: 5,
-  "LEVEL 5": 5,
-  "5F": 6,
-  "5/F": 6,
-  "FIFTH FLOOR": 6,
-  FIFTH: 6,
-  "LEVEL 6": 6,
-  "6F": 7,
-  "6/F": 7,
-  "SIXTH FLOOR": 7,
-  SIXTH: 7,
-  "LEVEL 7": 7,
-  "7F": 8,
-  "7/F": 8,
-  "SEVENTH FLOOR": 8,
-  SEVENTH: 8,
-  "LEVEL 8": 8,
-  "8F": 9,
-  "8/F": 9,
-  "EIGHTH FLOOR": 9,
-  EIGHTH: 9,
-  "LEVEL 9": 9,
-  "9F": 10,
-  "9/F": 10,
-  "NINTH FLOOR": 10,
-  NINTH: 10,
-  "LEVEL 10": 10,
-  "10F": 11,
-  "10/F": 11,
-  "TENTH FLOOR": 11,
-  TENTH: 11,
-  "LEVEL 11": 11
+  GF: 1, "G/F": 1, "GROUND FLOOR": 1, GROUND: 1, "LEVEL 1": 1, "0F": 1,
+  FF: 2, "1/F": 2, "1F": 2, "FIRST FLOOR": 2, FIRST: 2, "LEVEL 2": 2,
+  SF: 3, "2/F": 3, "2F": 3, "SECOND FLOOR": 3, SECOND: 3, "LEVEL 3": 3,
+  TF: 4, "3/F": 4, "3F": 4, "THIRD FLOOR": 4, THIRD: 4, "LEVEL 4": 4,
+  "4F": 5, "4/F": 5, "FOURTH FLOOR": 5, FOURTH: 5, "LEVEL 5": 5,
+  "5F": 6, "5/F": 6, "FIFTH FLOOR": 6, FIFTH: 6, "LEVEL 6": 6,
+  "6F": 7, "6/F": 7, "SIXTH FLOOR": 7, SIXTH: 7, "LEVEL 7": 7,
+  "7F": 8, "7/F": 8, "SEVENTH FLOOR": 8, SEVENTH: 8, "LEVEL 8": 8,
+  "8F": 9, "8/F": 9, "EIGHTH FLOOR": 9, EIGHTH: 9, "LEVEL 9": 9,
+  "9F": 10, "9/F": 10, "NINTH FLOOR": 10, NINTH: 10, "LEVEL 10": 10,
+  "10F": 11, "10/F": 11, "TENTH FLOOR": 11, TENTH: 11, "LEVEL 11": 11
 };
 
 const getFloorLevelDisplayName = (lvl) => {
   const raw = String(lvl || "").trim().toUpperCase();
-  if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
-    return "Ground Floor";
-  }
-  if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
-    return "First Floor";
-  }
-  if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
-    return "Second Floor";
-  }
-  if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
-    return "Third Floor";
-  }
-  if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
-    return "Fourth Floor";
-  }
-  if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
-    return "Fifth Floor";
-  }
-  if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
-    return "Sixth Floor";
-  }
-  if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
-    return "Seventh Floor";
-  }
-  if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
-    return "Eighth Floor";
-  }
-  if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
-    return "Ninth Floor";
-  }
-  if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
-    return "Tenth Floor";
-  }
+  if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") return "Ground Floor";
+  if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") return "First Floor";
+  if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") return "Second Floor";
+  if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") return "Third Floor";
+  if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") return "Fourth Floor";
+  if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") return "Fifth Floor";
+  if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") return "Sixth Floor";
+  if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") return "Seventh Floor";
+  if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") return "Eighth Floor";
+  if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") return "Ninth Floor";
+  if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") return "Tenth Floor";
   return `${lvl} Floor`;
 };
 
@@ -116,41 +46,14 @@ const ROOM_LABELS = [
   "Living", "Dining", "Kitchen", "Office", "Meeting", "Kid one", "MPR", "WIP", "WIL", "CPD",
 ];
 
-const DOOR_NAMES = [
-  "ASC",
-  "ASC-G CLEAR",
-  "ASC-G UNGLAZED",
-  "BF1 PCM",
-  "BF1 SPM",
-  "BF18",
-  "BF19 CLEAR",
-  "BF19 UNGLAZED",
-  "BF26",
-  "BF27",
-  "BF28 CLEAR",
-  "BF28 UNGLAZED",
-  "BF29 PCM",
-  "BF30 PCM CLEAR",
-  "BF30 PCM UNGLAZED",
-  "BF34",
-  "BF6",
-  "BFHA10",
-  "BFHA45",
-  "BFHA5",
-  "CAP",
-  "DEN",
-  "FBDS1 PCM",
-  "FBDS2 PCM",
-  "FBDS3 PCM",
-  "FBDS4 PCM",
-  "FBDS5 PCM",
-  "FBDU1 PCM",
-  "FBDU2 PCM",
-  "FBDU3 PCM",
-  "FBDU4 PCM",
-  "FBDU5 PCM",
-  "H1 PCLC 4.75mm",
+const FALLBACK_PREHUNG_INTERNAL_DOORS = [
   "H1 PCM",
+  "SCX1 PCM",
+  "HAG9",
+  "HAG11",
+  "LIN1 CLR",
+  "HLR240",
+  "H1 PCLC 4.75mm",
   "H1 SPM",
   "HA10",
   "HA15",
@@ -158,12 +61,10 @@ const DOOR_NAMES = [
   "HA40",
   "HA45",
   "HA5",
-  "HAG11",
   "HAG12",
   "HAG14",
   "HAG18",
   "HAG6",
-  "HAG9",
   "HAM1",
   "HAM1 CLEAR",
   "HAM1 MDF INFILL",
@@ -176,147 +77,125 @@ const DOOR_NAMES = [
   "HAM12 MDF INFILL",
   "HAM12 TRANS",
   "HAM12 TRANS LAM",
-  "HAM16 CLEAR",
-  "HAM16 MDF INFILL",
-  "HAM16 TRANS",
-  "HAM16 TRANS LAM",
-  "HAM4 CLEAR",
-  "HAM4 MDF INFILL",
-  "HAM4 TRANS LAM",
-  "HAM5 CLEAR",
-  "HAM5 MDF INFILL",
-  "HAM5 TRANS LAM",
-  "HAM6 CLEAR",
-  "HAM6 MDF INFILL",
-  "HAM6 TRANS LAM",
-  "HAY",
-  "HLR210 PCM U/G",
-  "HLR220 PCM U/G",
-  "HLR230",
-  "HLR230 PCM",
-  "HLR240",
-  "HLR240 PCM",
-  "HLR250 SPM",
-  "HLR270 PCM",
-  "HLR400 SPM",
-  "HLR410 SPM",
-  "HLR500 SPM",
-  "HLR600 SPM",
-  "HMC1 PCM",
-  "HMC10 PCM",
-  "HMC11 PCM CLEAR",
-  "HMC2 PCM",
-  "HMC4 PCM",
-  "HMC7 PCM",
-  "HMC8 PCM",
-  "HMC9 PCM",
-  "HST1",
-  "HST1M",
-  "HST4",
-  "HST4M",
-  "HST5",
-  "LIN1 CLAM",
-  "LIN1 CLR",
-  "LIN1 CLR TGH",
-  "LIN1 SPM CLEAR",
-  "LIN1 SPM CLEAR LAM",
-  "LIN1 SPM CLEAR TGH",
-  "LIN1 SPM UNGLAZED",
-  "LIN10 SPM CLEAR",
-  "LIN10 SPM TRANSLAM",
-  "LIN10 SPM UNGLAZED",
-  "LIN2 SPM",
-  "LIN3 SPM CLEAR",
-  "LIN3 SPM UNGLAZED",
-  "MF1 LEAF PCM",
-  "MF1 LEAF SPM",
-  "MF18 LEAF",
-  "MF19 LEAF CLEAR",
-  "MF19 LEAF UNGLAZED",
-  "MF26 LEAF",
-  "MF27 LEAF",
-  "MF28 LEAF CLEAR",
-  "MF28 LEAF UNGLAZED",
-  "MF29 LEAF PCM",
-  "MF30 LEAF PCM CLR",
-  "MF30 LEAF PCM UNG",
-  "MF34 LEAF",
-  "MF6 LEAF",
-  "MFHA10 LEAF",
-  "MFHAG11 LEAF",
-  "MFHAG12 LEAF",
-  "MFHAG9 LEAF",
-  "MFSOR1 LEAF",
-  "OAK",
-  "OAK G CLEAR",
-  "OAK G UNGLAZED",
-  "OAK GBR",
-  "PCSG 6mm",
-  "PRE11",
-  "PRE18",
-  "PRE4",
-  "PRE40",
-  "PRE44",
-  "PRE9",
-  "SCX1 D/C",
-  "SCX1 P/PLY",
+  "FLUSH PANEL HONEYCOMB",
+  "REDICOTE FLUSH INTERNAL",
+  "DECO 1S",
+  "DECO 2S",
+  "DECO 3S",
+  "DECO 4S",
+  "MOTIVE MOT1",
+  "MOTIVE MOT2",
+  "ACCENT LINEAR HAG11",
+  "ACCENT LINEAR HAG12",
+  "REGENCY 4-PANEL",
+  "OAKFIELD 2-PANEL",
+  "COLONIAL 4-PANEL",
+  "CORINTHIAN INTERNAL FLUSH",
+  "HUME INTERNAL FLUSH"
+];
+
+const FALLBACK_LOOSE_JAMB_INTERNAL_DOORS = [
+  "H1 PCM",
   "SCX1 PCM",
-  "SCX1 SPM",
-  "SOR1",
-  "SOR11",
-  "SOR12",
-  "SOR2",
-  "SOR5",
-  "SOR6",
-  "SOR7",
-  "SOR8",
-  "STPC D/C",
-  "STPC P/PLY",
-  "STPC SPM",
-  "TO",
-  "X1 D/C",
-  "X1 P/PLY",
-  "X1 SPM",
-  "XB2 OAK SOLID",
+  "HAG9",
+  "HAG11",
+  "LIN1 CLR",
+  "HLR240",
+  "FLUSH PANEL HONEYCOMB",
+  "REDICOTE FLUSH INTERNAL",
+  "DECO 1S",
+  "DECO 2S",
+  "DECO 3S",
+  "DECO 4S",
+  "MOTIVE MOT1",
+  "MOTIVE MOT2",
+  "ACCENT LINEAR HAG11",
+  "ACCENT LINEAR HAG12",
+  "REGENCY 4-PANEL",
+  "OAKFIELD 2-PANEL",
+  "COLONIAL 4-PANEL",
+  "CORINTHIAN INTERNAL FLUSH",
+  "HUME INTERNAL FLUSH"
 ];
 
 const OPT = {
   height:      ["2040", "2340", "2150", "2450"],
   width:       ["320", "370", "420", "460", "520", "570", "620", "720", "770", "820", "870", "920", "970", "1020", "1200"],
   cavityWidth: ["620", "720", "770", "820", "870", "920", "970", "1020", "1200", "1000"],
-  wallWidth:   ["70", "90"],
+  wallWidth:   ["90", "70"],
   thicks:      ["35", "38", "40"],
-  frame:       ["Timber Jamb", "Ezy Jamb", "Steel Frame"],
-  liftOff:     ["", "LH LO", "RH LO", "PIVOT DOOR"],
-  handing:     ["", "RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"],
-  hole:        ["", "HF", "HO"],
-  finish:      ["", "CHR", "SCH"],
-  stop:        ["cushion", "ds2-riser", "none"],
+  frame:       ["None", "Steel Frame", "Ezy Jamb"],
+  liftOff:     ["None", "LH LO", "RH LO", "PIVOT DOOR"],
+  handing:     ["None", "RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"],
+  hole:        ["None", "HF", "HO"],
+  finish:      ["None", "CHR", "SCH"],
+  stop:        ["None", "Cushion", "DS2 with Riser"],
 };
 
-const FURNITURE_BY_MODE = {
-  cavity:      ["cavity-passage", "cavity-privacy", "face-door-passage", "face-door-privacy", "none"],
-  prehung:     ["passage", "privacy", "dummy", "privacy-dummy", "passage-dummy", "none"],
-  "loose-jamb": ["passage", "privacy", "dummy", "privacy-dummy", "passage-dummy", "none"],
+const FURNITURE_OPTIONS_BY_MODE = {
+  cavity: [
+    "CSD Passage Set",
+    "CSD Privacy Set",
+    "Face Door Passage Set",
+    "Face Door Privacy Set",
+    "None"
+  ],
+  prehung: [
+    "None",
+    "Passage Set",
+    "Privacy Set",
+    "Dummy Set",
+    "Privacy Dummy",
+    "Passage Dummy"
+  ],
+  "loose-jamb": [
+    "None",
+    "Passage Set",
+    "Privacy Set",
+    "Dummy Set",
+    "Privacy Dummy",
+    "Passage Dummy"
+  ],
 };
 
-const FURNITURE_LABELS = {
-  passage: "Passage Set",
-  privacy: "Privacy Set",
-  dummy: "Dummy Set",
+const FURNITURE_CODE_MAP = {
+  "CSD Passage Set": "cavity-passage",
+  "CSD Privacy Set": "cavity-privacy",
+  "Face Door Passage Set": "face-door-passage",
+  "Face Door Privacy Set": "face-door-privacy",
+  "Passage Set": "passage",
+  "Privacy Set": "privacy",
+  "Dummy Set": "dummy",
+  "Privacy Dummy": "privacy-dummy",
+  "Passage Dummy": "passage-dummy",
+  "None": "none",
+  "none": "none",
   "cavity-passage": "CSD Passage Set",
   "cavity-privacy": "CSD Privacy Set",
-  "privacy-dummy": "Privacy Dummy",
-  "passage-dummy": "Passage Dummy",
   "face-door-passage": "Face Door Passage Set",
   "face-door-privacy": "Face Door Privacy Set",
-  none: "None",
+  "passage": "Passage Set",
+  "privacy": "Privacy Set",
+  "dummy": "Dummy Set",
+  "privacy-dummy": "Privacy Dummy",
+  "passage-dummy": "Passage Dummy",
 };
 
-const STOP_LABELS = {
-  cushion: "Cushion",
-  "ds2-riser": "DS2 with Riser",
-  none: "None",
+const normalizeFurnitureDisplay = (val) => {
+  if (!val) return "None";
+  if (FURNITURE_CODE_MAP[val]) {
+    const mapped = FURNITURE_CODE_MAP[val];
+    if (mapped.includes("Set") || mapped.includes("Dummy") || mapped === "None") return mapped;
+  }
+  return val;
+};
+
+const normalizeStopDisplay = (val) => {
+  if (!val || val === "none") return "None";
+  const s = String(val).toLowerCase();
+  if (s.includes("ds2") || s.includes("riser")) return "DS2 with Riser";
+  if (s.includes("cushion")) return "Cushion";
+  return val;
 };
 
 const capitalize = (v) => v ? v.charAt(0).toUpperCase() + v.slice(1) : "None";
@@ -327,42 +206,36 @@ const modeLabel = (mode) => {
   return "Prehung";
 };
 
-// Per-Label default Door Furniture / Door Stop / Hole for Prehung and
-// Loose-jamb doors (aligned with FixoutForm.tsx ROOM_LABEL_SUGGESTIONS).
-// Format: [furniture, stop, hole]
+// Suggestions for room labels
 const ROOM_LABEL_SUGGESTIONS = {
-  "Bed 1": ["privacy", "cushion", "HF"], "Bed 2": ["passage", "cushion", "HF"],
-  "Bed 3": ["passage", "cushion", "HF"], "Bed 4": ["passage", "cushion", "HF"],
-  "Bed 5": ["passage", "cushion", "HF"], "Bath": ["privacy", "ds2-riser", "HF"],
-  "ENS": ["privacy", "ds2-riser", "HF"], "WC": ["privacy", "ds2-riser", "HF"],
-  "PDR": ["privacy", "ds2-riser", "HF"], "Study": ["passage", "cushion", "HF"],
-  "Media": ["passage", "cushion", "HF"], "Hall": ["passage", "cushion", "HF"],
-  "Garage": ["privacy", "cushion", "HF"], "Ldry": ["passage", "cushion", "HF"],
-  "Pantry": ["passage", "cushion", "HF"], "WIR": ["passage", "cushion", "HF"],
-  "Master": ["privacy", "cushion", "HF"], "Linen": ["dummy", "none", "HO"],
-  "Robe": ["dummy", "none", "HO"], "Store": ["dummy", "none", "HO"],
-  "Broom": ["dummy", "none", "HO"], "WC 1": ["privacy", "ds2-riser", "HF"],
-  "WC 2": ["privacy", "ds2-riser", "HF"], "Bath 1": ["privacy", "ds2-riser", "HF"],
-  "Bath 2": ["privacy", "ds2-riser", "HF"], "PDR 1": ["privacy", "ds2-riser", "HF"],
-  "PDR 2": ["privacy", "ds2-riser", "HF"], "ENS 1": ["privacy", "ds2-riser", "HF"],
-  "ENS 2": ["privacy", "ds2-riser", "HF"], "ENS 3": ["privacy", "ds2-riser", "HF"],
-  "Linen 1": ["dummy", "none", "HO"], "Linen 2": ["dummy", "none", "HO"],
-  "Robe 1": ["dummy", "none", "HO"], "Robe 2": ["dummy", "none", "HO"],
-  "Robe 3": ["dummy", "none", "HO"], "Robe 4": ["dummy", "none", "HO"],
-  "Living": ["passage", "cushion", "HF"], "Dining": ["passage", "cushion", "HF"],
-  "Kitchen": ["passage", "cushion", "HF"], "Office": ["passage", "cushion", "HF"],
-  "Meeting": ["passage", "cushion", "HF"], "Kid one": ["passage", "cushion", "HF"],
-  "MPR": ["passage", "cushion", "HF"], "WIP": ["passage", "cushion", "HF"],
-  "WIL": ["passage", "cushion", "HF"], "CPD": ["dummy", "none", "HO"],
+  "Bed 1": ["Privacy Set", "Cushion", "HF"], "Bed 2": ["Passage Set", "Cushion", "HF"],
+  "Bed 3": ["Passage Set", "Cushion", "HF"], "Bed 4": ["Passage Set", "Cushion", "HF"],
+  "Bed 5": ["Passage Set", "Cushion", "HF"], "Bath": ["Privacy Set", "DS2 with Riser", "HF"],
+  "ENS": ["Privacy Set", "DS2 with Riser", "HF"], "WC": ["Privacy Set", "DS2 with Riser", "HF"],
+  "PDR": ["Privacy Set", "DS2 with Riser", "HF"], "Study": ["Passage Set", "Cushion", "HF"],
+  "Media": ["Passage Set", "Cushion", "HF"], "Hall": ["Passage Set", "Cushion", "HF"],
+  "Garage": ["Privacy Set", "Cushion", "HF"], "Ldry": ["Passage Set", "Cushion", "HF"],
+  "Pantry": ["Passage Set", "Cushion", "HF"], "WIR": ["Passage Set", "Cushion", "HF"],
+  "Master": ["Privacy Set", "Cushion", "HF"], "Linen": ["Dummy Set", "None", "HO"],
+  "Robe": ["Dummy Set", "None", "HO"], "Store": ["Dummy Set", "None", "HO"],
+  "Broom": ["Dummy Set", "None", "HO"], "WC 1": ["Privacy Set", "DS2 with Riser", "HF"],
+  "WC 2": ["Privacy Set", "DS2 with Riser", "HF"], "Bath 1": ["Privacy Set", "DS2 with Riser", "HF"],
+  "Bath 2": ["Privacy Set", "DS2 with Riser", "HF"], "PDR 1": ["Privacy Set", "DS2 with Riser", "HF"],
+  "PDR 2": ["Privacy Set", "DS2 with Riser", "HF"], "ENS 1": ["Privacy Set", "DS2 with Riser", "HF"],
+  "ENS 2": ["Privacy Set", "DS2 with Riser", "HF"], "ENS 3": ["Privacy Set", "DS2 with Riser", "HF"],
+  "Linen 1": ["Dummy Set", "None", "HO"], "Linen 2": ["Dummy Set", "None", "HO"],
+  "Robe 1": ["Dummy Set", "None", "HO"], "Robe 2": ["Dummy Set", "None", "HO"],
+  "Robe 3": ["Dummy Set", "None", "HO"], "Robe 4": ["Dummy Set", "None", "HO"],
+  "Living": ["Passage Set", "Cushion", "HF"], "Dining": ["Passage Set", "Cushion", "HF"],
+  "Kitchen": ["Passage Set", "Cushion", "HF"], "Office": ["Passage Set", "Cushion", "HF"],
+  "Meeting": ["Passage Set", "Cushion", "HF"], "Kid one": ["Passage Set", "Cushion", "HF"],
+  "MPR": ["Passage Set", "Cushion", "HF"], "WIP": ["Passage Set", "Cushion", "HF"],
+  "WIL": ["Passage Set", "Cushion", "HF"], "CPD": ["Dummy Set", "None", "HO"],
 };
 
-// Handing values that force Hole to HO regardless of the Label's default.
 const ROOM_SUGGESTION_HOLE_OVERRIDE_HANDINGS = new Set(["SET of THREE", "RH LO", "DBL DOOR SET"]);
-// When handing is "DBL DOOR SET", swap base furniture to its dummy variant.
-const DUMMY_FURNITURE_VARIANT = { privacy: "privacy-dummy", passage: "passage-dummy" };
+const DUMMY_FURNITURE_VARIANT = { "Privacy Set": "Privacy Dummy", "Passage Set": "Passage Dummy" };
 
-// Recomputed whenever Label or (Prehung-only) Handing changes;
-// Cavity doors and unrecognised Labels are left untouched.
 function roomSuggestionPatch(mode, label, handing) {
   const base = ROOM_LABEL_SUGGESTIONS[label];
   if (!base || mode === "cavity") return {};
@@ -374,11 +247,22 @@ function roomSuggestionPatch(mode, label, handing) {
 }
 
 const emptyDraft = (mode) => ({
-  label: "", doorName: "", height: "2040", width: "820", qty: "1",
-  configuration: "single", thickness: "35", wallWidth: "90",
-  frameType: "Timber Jamb", liftOff: "", handing: "", hole: "", finish: "",
-  furniture: mode === "cavity" ? "cavity-passage" : "passage",
-  stop: "cushion",
+  label: "",
+  doorName: "",
+  height: "2040",
+  width: "820",
+  qty: "1",
+  wallWidth: "90",
+  thickness: "35",
+  frameType: mode === "cavity" ? "Timber Jamb" : "None",
+  ezyJamb: "No",
+  configuration: "single",
+  liftOff: "None",
+  handing: "None",
+  hole: "None",
+  finish: "None",
+  furniture: mode === "cavity" ? "CSD Passage Set" : "None",
+  stop: mode === "cavity" ? "None" : "None",
 });
 
 // ══════════════════════════════════════════════════════
@@ -407,11 +291,11 @@ const S = {
   },
   sectionHeader: (isOpen) => ({
     padding: "8px 12px",
-    background: "#fff",
+    background: "#fcfcfd",
     borderBottom: isOpen ? "1px solid #f1f5f9" : "none",
     fontWeight: 700,
     fontSize: "12px",
-    color: "#d97706",
+    color: "#b45309",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -421,12 +305,12 @@ const S = {
   fieldWrap: {
     display: "flex",
     flexDirection: "column",
-    gap: "1px",
+    gap: "2px",
     minWidth: 0,
   },
   fieldLabel: {
     fontSize: "10px",
-    color: "#64748b",
+    color: "#475569",
     fontWeight: 600,
     whiteSpace: "nowrap",
   },
@@ -435,34 +319,46 @@ const S = {
     fontSize: "11px",
     border: "1px solid #cbd5e1",
     borderRadius: "4px",
-    background: "#fefce8",
+    background: "#ffffff",
     outline: "none",
     boxSizing: "border-box",
-    minWidth: "55px",
+    minWidth: "50px",
+    height: "28px",
+    color: "#0f172a",
+    fontWeight: 600,
   },
   select: {
-    padding: "5px 6px",
+    padding: "4px 6px",
     fontSize: "11px",
     border: "1px solid #cbd5e1",
     borderRadius: "4px",
-    background: "#fff",
+    background: "#ffffff",
     outline: "none",
     boxSizing: "border-box",
     cursor: "pointer",
     minWidth: "55px",
+    height: "28px",
+    color: "#0f172a",
+    fontWeight: 600,
   },
   addBtn: {
-    padding: "6px 14px",
+    padding: "0 14px",
+    height: "28px",
     background: "#0f2744",
     color: "#ffffff",
     border: "none",
-    borderRadius: "5px",
+    borderRadius: "4px",
     fontSize: "11px",
     fontWeight: 700,
     cursor: "pointer",
     whiteSpace: "nowrap",
     alignSelf: "flex-end",
     flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+    transition: "background 0.15s ease",
   },
   deleteBtn: {
     background: "#fef2f2",
@@ -494,18 +390,30 @@ const S = {
     lineHeight: 1,
   },
   note: {
-    fontSize: "9px",
+    fontSize: "10px",
     color: "#94a3b8",
     fontStyle: "italic",
-    padding: "4px 10px 8px",
+    padding: "6px 2px 2px",
   },
 };
 
 // ══════════════════════════════════════════════════════
-// COMPACT CUSTOM COMBOBOX COMPONENT
+// COMPACT SEARCHABLE DROPDOWN COMPONENT (Portal-backed)
 // ══════════════════════════════════════════════════════
 
-function ComboField({ label, value, options = [], width, onChange, placeholder, numeric, openUp = false }) {
+function SearchDropdown({
+  label,
+  value,
+  options = [],
+  placeholder = "Select or search...",
+  onChange,
+  disabled = false,
+  width,
+  style = {},
+  isYellow = false,
+  numeric = false,
+  allowCustom = true,
+}) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, bottom: 0, left: 0, width: 0, dropUp: false });
   const containerRef = useRef(null);
@@ -524,7 +432,7 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
-      const dropUp = openUp || (spaceBelow < 180 && spaceAbove > 140);
+      const dropUp = spaceBelow < 200 && spaceAbove > 150;
       setCoords({
         top: rect.top,
         bottom: rect.bottom,
@@ -533,7 +441,7 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
         dropUp,
       });
     }
-  }, [openUp]);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -550,7 +458,7 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
-        const portalMenu = document.getElementById("fixout-combofield-portal-menu");
+        const portalMenu = document.getElementById("fixout-search-portal-menu");
         if (portalMenu && portalMenu.contains(e.target)) return;
         setOpen(false);
       }
@@ -563,9 +471,10 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
     };
   }, [open]);
 
-  const menuElement = open && filtered.length > 0 ? (
+  const menuElement = open && !disabled && (
     <div
-      id="fixout-combofield-portal-menu"
+      id="fixout-search-portal-menu"
+      data-search-dropdown="true"
       style={{
         position: "fixed",
         ...(coords.dropUp
@@ -573,71 +482,87 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
           : { top: `${coords.bottom + 3}px` }),
         left: `${coords.left}px`,
         zIndex: 999999,
-        minWidth: Math.max(110, coords.width || 0),
-        maxWidth: "260px",
+        minWidth: Math.max(120, coords.width || 0),
+        maxWidth: "280px",
         maxHeight: coords.dropUp
-          ? `${Math.max(80, Math.min(200, coords.top - 12))}px`
-          : `${Math.max(80, Math.min(200, window.innerHeight - coords.bottom - 12))}px`,
+          ? `${Math.max(80, Math.min(220, coords.top - 12))}px`
+          : `${Math.max(80, Math.min(220, window.innerHeight - coords.bottom - 12))}px`,
         overflowY: "auto",
         background: "#ffffff",
         border: "1px solid #cbd5e1",
-        borderRadius: "5px",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
-        padding: "2px 0",
+        borderRadius: "6px",
+        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 0 1px rgba(0, 0, 0, 0.1)",
+        padding: "3px 0",
+        boxSizing: "border-box",
       }}
     >
-      {filtered.map((opt) => {
-        const isSel = opt === value;
-        return (
-          <div
-            key={opt}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onChange(opt);
-              setOpen(false);
-            }}
-            style={{
-              padding: "5px 10px",
-              fontSize: "11px",
-              fontWeight: isSel ? 700 : 400,
-              color: isSel ? "#1d4ed8" : "#1e293b",
-              background: isSel ? "#eff6ff" : "transparent",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-            onMouseEnter={(e) => {
-              if (!isSel) e.currentTarget.style.background = "#f1f5f9";
-            }}
-            onMouseLeave={(e) => {
-              if (!isSel) e.currentTarget.style.background = "transparent";
-            }}
-          >
-            {opt}
-          </div>
-        );
-      })}
+      {filtered.length === 0 ? (
+        <div style={{ padding: "8px 10px", fontSize: "11px", color: "#94a3b8", fontStyle: "italic", textAlign: "center" }}>
+          No matching options
+        </div>
+      ) : (
+        filtered.map((opt, idx) => {
+          const isSel = String(opt).toLowerCase() === String(value || "").toLowerCase();
+          return (
+            <div
+              key={`${opt}-${idx}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(opt);
+                setOpen(false);
+              }}
+              style={{
+                padding: "5px 10px",
+                fontSize: "11px",
+                fontWeight: isSel ? 700 : 500,
+                color: isSel ? "#1d4ed8" : "#1e293b",
+                background: isSel ? "#eff6ff" : "transparent",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }}
+              onMouseEnter={(e) => {
+                if (!isSel) e.currentTarget.style.background = "#f8fafc";
+              }}
+              onMouseLeave={(e) => {
+                if (!isSel) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <span>{opt || "—"}</span>
+              {isSel && <span style={{ fontSize: "10px", color: "#2563eb", fontWeight: 800 }}>✓</span>}
+            </div>
+          );
+        })
+      )}
     </div>
-  ) : null;
+  );
 
   return (
     <div
       ref={containerRef}
+      data-search-dropdown="true"
       style={{
         ...S.fieldWrap,
         width: width || "auto",
         flex: width ? `0 0 ${width}` : "1 1 0",
         position: "relative",
+        ...style,
       }}
     >
-      {label ? <span style={S.fieldLabel}>{label}</span> : null}
-      <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+      {label && <span style={S.fieldLabel}>{label}</span>}
+      <div style={{ position: "relative", display: "flex", alignItems: "center", width: "100%" }}>
         <input
           type={numeric ? "number" : "text"}
           value={value || ""}
+          disabled={disabled}
           onChange={(e) => {
-            onChange(e.target.value);
+            if (allowCustom || numeric) {
+              onChange(e.target.value);
+            }
             if (!open) {
               updatePosition();
               setOpen(true);
@@ -647,37 +572,67 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
             updatePosition();
             setOpen(true);
           }}
+          onClick={() => {
+            if (!open) {
+              updatePosition();
+              setOpen(true);
+            }
+          }}
           style={{
             ...S.input,
             width: "100%",
-            paddingRight: "16px",
+            background: isYellow ? "#fffbeb" : "#ffffff",
+            paddingRight: value ? "34px" : "20px",
           }}
-          placeholder={placeholder || label}
+          placeholder={placeholder}
         />
-        <button
-          type="button"
-          tabIndex={-1}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            updatePosition();
-            setOpen((prev) => !prev);
-          }}
-          style={{
-            position: "absolute",
-            right: "2px",
-            top: "50%",
-            transform: "translateY(-50%)",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            fontSize: "8px",
-            color: "#64748b",
-            padding: "2px",
-            lineHeight: 1,
-          }}
-        >
-          {coords.dropUp ? "▲" : "▼"}
-        </button>
+
+        <div style={{ position: "absolute", right: "4px", display: "flex", alignItems: "center", gap: "2px" }}>
+          {value && !disabled && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+                updatePosition();
+                setOpen(true);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                fontSize: "10px",
+                cursor: "pointer",
+                padding: "1px 3px",
+                lineHeight: 1,
+                borderRadius: "50%",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; }}
+              title="Clear"
+            >
+              ✕
+            </button>
+          )}
+          <span
+            onClick={() => {
+              if (!disabled) {
+                updatePosition();
+                setOpen((prev) => !prev);
+              }
+            }}
+            style={{
+              cursor: "pointer",
+              color: "#64748b",
+              fontSize: "8px",
+              userSelect: "none",
+              padding: "2px",
+            }}
+          >
+            {coords.dropUp ? "▲" : "▼"}
+          </span>
+        </div>
       </div>
 
       {typeof document !== "undefined" && menuElement ? createPortal(menuElement, document.body) : menuElement}
@@ -686,18 +641,18 @@ function ComboField({ label, value, options = [], width, onChange, placeholder, 
 }
 
 // ══════════════════════════════════════════════════════
-// BASIC FIELD COMPONENT (label + select/input)
+// BASIC SELECT / INPUT FIELD COMPONENT
 // ══════════════════════════════════════════════════════
 
-function Field({ label, type = "text", value, options, labels, width, onChange }) {
+function Field({ label, type = "text", value, options, labels, width, onChange, placeholder }) {
   const isSelect = type === "select" || Array.isArray(options);
   return (
     <div style={{ ...S.fieldWrap, width: width || "auto", flex: width ? `0 0 ${width}` : "1 1 0" }}>
-      <span style={S.fieldLabel}>{label}</span>
+      {label && <span style={S.fieldLabel}>{label}</span>}
       {isSelect ? (
         <select value={value || ""} onChange={(e) => onChange(e.target.value)} style={S.select}>
           {(options || []).map((opt) => (
-            <option key={opt} value={opt}>{labels?.[opt] || capitalize(opt) || "—"}</option>
+            <option key={opt} value={opt}>{labels?.[opt] || opt || "—"}</option>
           ))}
         </select>
       ) : (
@@ -706,7 +661,7 @@ function Field({ label, type = "text", value, options, labels, width, onChange }
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
           style={{ ...S.input, width: "100%" }}
-          placeholder={label}
+          placeholder={placeholder || label}
         />
       )}
     </div>
@@ -717,14 +672,17 @@ function Field({ label, type = "text", value, options, labels, width, onChange }
 // CATEGORY SECTION (Cavity / Prehung / Loose-Jamb)
 // ══════════════════════════════════════════════════════
 
-function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLevel = "GF" }) {
+function CategorySection({
+  mode,
+  title,
+  addLabel,
+  entries,
+  onSetEntries,
+  floorLevel = "GF",
+  doorOptions = [],
+}) {
   const [isOpen, setIsOpen] = useState(true);
   const [draft, setDraft] = useState(() => emptyDraft(mode));
-
-  const catEntries = useMemo(
-    () => (entries || []).filter((e) => e.category === mode),
-    [entries, mode]
-  );
 
   const updateDraft = useCallback((patch) => {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -733,14 +691,26 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLe
   const handleLabelChange = useCallback((label) => {
     setDraft((prev) => {
       const patch = roomSuggestionPatch(mode, label, prev.handing);
-      return { ...prev, label, ...patch };
+      return {
+        ...prev,
+        label,
+        ...(patch.furniture ? { furniture: patch.furniture } : {}),
+        ...(patch.stop !== undefined ? { stop: patch.stop } : {}),
+        ...(patch.hole !== undefined ? { hole: patch.hole } : {}),
+      };
     });
   }, [mode]);
 
   const handleHandingChange = useCallback((handing) => {
     setDraft((prev) => {
       const patch = roomSuggestionPatch(mode, prev.label, handing);
-      return { ...prev, handing, ...patch };
+      return {
+        ...prev,
+        handing,
+        ...(patch.furniture ? { furniture: patch.furniture } : {}),
+        ...(patch.stop !== undefined ? { stop: patch.stop } : {}),
+        ...(patch.hole !== undefined ? { hole: patch.hole } : {}),
+      };
     });
   }, [mode]);
 
@@ -749,6 +719,11 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLe
     const w = parseFloat(draft.width) || 820;
     const q = parseInt(draft.qty, 10) || 1;
     if (!draft.doorName && !draft.label) return;
+
+    let finalDoorFrame = draft.frameType || "Timber Jamb";
+    if (mode === "cavity") {
+      finalDoorFrame = draft.ezyJamb === "Yes" ? "Ezy Jamb" : "Timber Jamb";
+    }
 
     const newEntry = {
       id: `fix-${mode}-${Date.now()}`,
@@ -761,14 +736,14 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLe
       thicks: draft.thickness || "35",
       qty: q,
       wall_width: draft.wallWidth || "90",
-      door_frame: draft.frameType || "Timber Jamb",
+      door_frame: finalDoorFrame,
       configuration: draft.configuration || "single",
-      lift_off_pivot: draft.liftOff || "",
-      handing: draft.handing || "",
-      hole: draft.hole || "",
-      finish: draft.finish || "",
-      door_furniture: draft.furniture || (mode === "cavity" ? "cavity-passage" : "passage"),
-      door_stop: mode === "cavity" ? "none" : (draft.stop || "cushion"),
+      lift_off_pivot: draft.liftOff === "None" ? "" : (draft.liftOff || ""),
+      handing: draft.handing === "None" ? "" : (draft.handing || ""),
+      hole: draft.hole === "None" ? "" : (draft.hole || ""),
+      finish: draft.finish === "None" ? "" : (draft.finish || ""),
+      door_furniture: draft.furniture === "None" ? "none" : (draft.furniture || (mode === "cavity" ? "CSD Passage Set" : "None")),
+      door_stop: mode === "cavity" ? "none" : (draft.stop === "None" ? "none" : (draft.stop || "None")),
     };
 
     if (onSetEntries) {
@@ -777,22 +752,16 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLe
     setDraft(emptyDraft(mode));
   };
 
-  const handleRemove = (id) => {
-    if (onSetEntries) {
-      onSetEntries((prev) => (prev || []).filter((e) => e.id !== id));
-    }
-  };
-
   const isCavity = mode === "cavity";
   const isPrehung = mode === "prehung";
   const isLooseJamb = mode === "loose-jamb";
-  const furnitureOpts = FURNITURE_BY_MODE[mode] || FURNITURE_BY_MODE.prehung;
+  const furnitureOpts = FURNITURE_OPTIONS_BY_MODE[mode] || FURNITURE_OPTIONS_BY_MODE.prehung;
 
   return (
-    <div style={{ marginBottom: "10px" }}>
-      {/* Header */}
+    <div style={{ marginBottom: "12px" }}>
+      {/* Subgroup Header */}
       <div onClick={() => setIsOpen(!isOpen)} style={S.sectionHeader(isOpen)}>
-        <span>▼ {title}</span>
+        <span>{isOpen ? "▼" : "▶"} {title}</span>
         <span style={{ fontSize: "11px", color: "#64748b" }}>{isOpen ? "▲" : "▼"}</span>
       </div>
 
@@ -800,42 +769,199 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLe
         <div style={{ padding: "8px 10px" }}>
           {/* ── Input Row ── */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "flex-end" }}>
-            <ComboField label="Door label" value={draft.label} options={ROOM_LABELS} width="85px" onChange={handleLabelChange} />
-            <ComboField label="Door type" value={draft.doorName} options={DOOR_NAMES} width="125px" onChange={(v) => updateDraft({ doorName: v })} />
-            <Field label="Height (mm)" type="number" value={draft.height} width="70px" onChange={(v) => updateDraft({ height: v })} />
-            <Field label={isCavity ? "Door Size (mm)" : "Width (mm)"} type="number" value={draft.width} width="70px" onChange={(v) => updateDraft({ width: v })} />
-            <Field label="Quantity" type="number" value={draft.qty} width="50px" onChange={(v) => updateDraft({ qty: v })} />
-            <Field label="Wall width" type="select" value={draft.wallWidth} options={OPT.wallWidth} width="65px" onChange={(v) => updateDraft({ wallWidth: v })} />
-            <Field label="Thickness" type="select" value={draft.thickness} options={OPT.thicks} width="60px" onChange={(v) => updateDraft({ thickness: v })} />
-
+            {/* Label */}
             {isCavity ? (
-              <>
-                <Field label="Frame" type="select" value={draft.frameType} options={["Timber Jamb", "Ezy Jamb"]} width="95px" onChange={(v) => updateDraft({ frameType: v })} />
-                <Field label="Configuration" type="select" value={draft.configuration} options={["single", "double"]} width="90px" onChange={(v) => updateDraft({ configuration: v })} />
-              </>
+              <Field
+                label="Door label"
+                value={draft.label}
+                width="110px"
+                onChange={(v) => updateDraft({ label: v })}
+                placeholder="Door label"
+              />
             ) : (
-              <Field label="Frame" type="select" value={draft.frameType} options={OPT.frame} width="95px" onChange={(v) => updateDraft({ frameType: v })} />
+              <SearchDropdown
+                label="Label"
+                value={draft.label}
+                options={ROOM_LABELS}
+                width="100px"
+                onChange={handleLabelChange}
+                placeholder="Label"
+              />
             )}
 
-            {isLooseJamb && (
-              <Field label="Lift off / pivot" type="select" value={draft.liftOff} options={OPT.liftOff} width="95px" onChange={(v) => updateDraft({ liftOff: v })} />
+            {/* Height */}
+            <SearchDropdown
+              label="Height"
+              value={draft.height}
+              options={OPT.height}
+              width="70px"
+              numeric={true}
+              onChange={(v) => updateDraft({ height: v })}
+              placeholder="2040"
+            />
+
+            {/* Door Size / Width */}
+            <SearchDropdown
+              label={isCavity ? "Door Size" : "Width"}
+              value={draft.width}
+              options={isCavity ? OPT.cavityWidth : OPT.width}
+              width="75px"
+              numeric={true}
+              onChange={(v) => updateDraft({ width: v })}
+              placeholder="820"
+            />
+
+            {/* Qty */}
+            <Field
+              label={isCavity ? "Qty" : "QTY"}
+              type="number"
+              value={draft.qty}
+              width="45px"
+              onChange={(v) => updateDraft({ qty: v })}
+            />
+
+            {/* Wall Width / Steel Frame Jamb */}
+            {isCavity ? (
+              <Field
+                label="Wall Width"
+                type="select"
+                value={draft.wallWidth}
+                options={OPT.wallWidth}
+                width="65px"
+                onChange={(v) => updateDraft({ wallWidth: v })}
+              />
+            ) : (
+              <Field
+                label="Jamb or Wall for Steel Frame"
+                value={draft.wallWidth}
+                width="100px"
+                placeholder="Jamb/Wall"
+                onChange={(v) => updateDraft({ wallWidth: v })}
+              />
             )}
 
+            {/* Door Type */}
+            <SearchDropdown
+              label={isCavity ? "Door Type" : "Type"}
+              value={draft.doorName}
+              options={doorOptions}
+              width="140px"
+              onChange={(v) => updateDraft({ doorName: v })}
+              placeholder={isCavity ? "Door Type" : "Type"}
+            />
+
+            {/* Thicks */}
+            <Field
+              label="Thicks"
+              type="select"
+              value={draft.thickness}
+              options={OPT.thicks}
+              width="55px"
+              onChange={(v) => updateDraft({ thickness: v })}
+            />
+
+            {/* EzyJamb (for Cavity) or Door Frame (for Prehung / Loose-Jamb) */}
+            {isCavity ? (
+              <Field
+                label="EzyJamb"
+                type="select"
+                value={draft.ezyJamb}
+                options={["No", "Yes"]}
+                width="75px"
+                onChange={(v) => updateDraft({ ezyJamb: v })}
+              />
+            ) : (
+              <Field
+                label="Door Frame"
+                type="select"
+                value={draft.frameType}
+                options={OPT.frame}
+                width="95px"
+                onChange={(v) => updateDraft({ frameType: v })}
+              />
+            )}
+
+            {/* Unit Type (Cavity only) */}
+            {isCavity && (
+              <Field
+                label="Unit Type"
+                type="select"
+                value={draft.configuration}
+                options={["single", "double"]}
+                labels={{ single: "SINGLE", double: "DBL" }}
+                width="80px"
+                onChange={(v) => updateDraft({ configuration: v })}
+              />
+            )}
+
+            {/* Lift Off / Pivot Frame (Prehung / Loose-Jamb) */}
+            {!isCavity && (
+              <Field
+                label="Lift Off / Pivot Frame"
+                type="select"
+                value={draft.liftOff}
+                options={OPT.liftOff}
+                width="100px"
+                onChange={(v) => updateDraft({ liftOff: v })}
+              />
+            )}
+
+            {/* Door Stop (Prehung / Loose-Jamb) */}
+            {!isCavity && (
+              <Field
+                label="Door Stop"
+                type="select"
+                value={draft.stop}
+                options={OPT.stop}
+                width="90px"
+                onChange={(v) => updateDraft({ stop: v })}
+              />
+            )}
+
+            {/* Door Furniture */}
+            <Field
+              label="Door Furniture"
+              type="select"
+              value={draft.furniture}
+              options={furnitureOpts}
+              width="135px"
+              onChange={(v) => updateDraft({ furniture: v })}
+            />
+
+            {/* Prehung specific: Hole, Handing, Finish */}
             {isPrehung && (
               <>
-                <Field label="Handing" type="select" value={draft.handing} options={OPT.handing} width="85px" onChange={handleHandingChange} />
-                <Field label="Hole" type="select" value={draft.hole} options={OPT.hole} width="50px" onChange={(v) => updateDraft({ hole: v })} />
-                <Field label="Finish" type="select" value={draft.finish} options={OPT.finish} width="50px" onChange={(v) => updateDraft({ finish: v })} />
+                <Field
+                  label="Hole"
+                  type="select"
+                  value={draft.hole}
+                  options={OPT.hole}
+                  width="55px"
+                  onChange={(v) => updateDraft({ hole: v })}
+                />
+                <Field
+                  label="Handing"
+                  type="select"
+                  value={draft.handing}
+                  options={OPT.handing}
+                  width="90px"
+                  onChange={handleHandingChange}
+                />
+                <Field
+                  label="Finish"
+                  type="select"
+                  value={draft.finish}
+                  options={OPT.finish}
+                  width="60px"
+                  onChange={(v) => updateDraft({ finish: v })}
+                />
               </>
             )}
 
-            <Field label="Furniture" type="select" value={draft.furniture} options={furnitureOpts} labels={FURNITURE_LABELS} width="105px" onChange={(v) => updateDraft({ furniture: v })} />
-
-            {!isCavity && (
-              <Field label="Door stop" type="select" value={draft.stop} options={OPT.stop} labels={STOP_LABELS} width="75px" onChange={(v) => updateDraft({ stop: v })} />
-            )}
-
-            <button type="button" onClick={handleAdd} style={S.addBtn}>{addLabel}</button>
+            {/* Add Button */}
+            <button type="button" onClick={handleAdd} style={S.addBtn}>
+              + Add door
+            </button>
           </div>
 
           <div style={S.note}>
@@ -848,7 +974,7 @@ function CategorySection({ mode, title, addLabel, entries, onSetEntries, floorLe
 }
 
 // ══════════════════════════════════════════════════════
-// SECTION 2: ENTERED DOORS TABLE (GROUPED BY FLOOR LEVEL)
+// MAIN FIXOUT TASK COMPONENT
 // ══════════════════════════════════════════════════════
 
 export default function FixoutTask({
@@ -879,6 +1005,9 @@ export default function FixoutTask({
   const entriesRef = useRef(entries);
   const loadedJobRef = useRef(null);
 
+  const [prehungDoors, setPrehungDoors] = useState(FALLBACK_PREHUNG_INTERNAL_DOORS);
+  const [looseJambDoors, setLooseJambDoors] = useState(FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
+
   const totalCount = (entries || []).length;
 
   useEffect(() => {
@@ -893,10 +1022,52 @@ export default function FixoutTask({
     entriesRef.current = entries;
   }, [entries]);
 
+  // Load dropdown options from backend
+  useEffect(() => {
+    let isMounted = true;
+    const loadOptions = async () => {
+      try {
+        let data = null;
+        if (ApiService.getLockoutOptions) {
+          const res = await ApiService.getLockoutOptions();
+          data = res?.data || res;
+        } else if (ApiService.getLockoutDoorTypes) {
+          const res = await ApiService.getLockoutDoorTypes();
+          data = res?.data || res;
+        } else {
+          const res = await fetch("/api/lockout/options");
+          if (res.ok) {
+            const json = await res.json();
+            data = json?.data || json;
+          }
+        }
+
+        if (isMounted && data) {
+          const rawPrehung = Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0
+            ? data.prehung_internal
+            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : FALLBACK_PREHUNG_INTERNAL_DOORS);
+          const preSet = new Set([...rawPrehung, ...FALLBACK_PREHUNG_INTERNAL_DOORS]);
+          setPrehungDoors(Array.from(preSet));
+
+          const rawLoose = Array.isArray(data.loose_jamb_internal) && data.loose_jamb_internal.length > 0
+            ? data.loose_jamb_internal
+            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
+          const looseSet = new Set([...rawLoose, ...FALLBACK_LOOSE_JAMB_INTERNAL_DOORS]);
+          setLooseJambDoors(Array.from(looseSet));
+        }
+      } catch (err) {
+        console.warn("[FixoutTask] Could not fetch options from backend, using fallbacks:", err);
+      }
+    };
+
+    loadOptions();
+    return () => { isMounted = false; };
+  }, []);
+
   // Group entries by FloorLevel
   const groupedDoorsByLevel = useMemo(() => {
     const groups = {};
-    (entries || []).forEach(item => {
+    (entries || []).forEach((item) => {
       const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
       if (!groups[lvl]) {
         groups[lvl] = [];
@@ -910,17 +1081,20 @@ export default function FixoutTask({
       return orderA - orderB;
     });
 
-    return sortedLevels.map(lvl => ({
+    return sortedLevels.map((lvl) => ({
       level: lvl,
-      items: groups[lvl]
+      items: groups[lvl],
     }));
   }, [entries]);
 
   const handleStartEdit = (item) => {
     setEditingRowId(item.id);
+    const isCavity = (item.category || "cavity") === "cavity";
+    const isEzyJamb = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb";
     setEditRowData({
       ...item,
       floorLevel: item.floorLevel || item.floor_level || "GF",
+      ezyJamb: isCavity ? (isEzyJamb ? "Yes" : "No") : "No",
     });
   };
 
@@ -929,15 +1103,22 @@ export default function FixoutTask({
     if (!targetId || !onSetEntries) return;
     const currentData = editRowDataRef.current;
     const q = parseInt(currentData.qty, 10) || 1;
+    const isCavity = (currentData.category || "cavity") === "cavity";
 
-    onSetEntries(prev => {
+    let finalDoorFrame = currentData.door_frame || "Timber Jamb";
+    if (isCavity) {
+      finalDoorFrame = currentData.ezyJamb === "Yes" ? "Ezy Jamb" : "Timber Jamb";
+    }
+
+    onSetEntries((prev) => {
       const currentList = Array.isArray(prev) ? prev : (entriesRef.current || []);
-      return currentList.map(item => item.id === targetId ? {
+      return currentList.map((item) => (item.id === targetId ? {
         ...item,
         ...currentData,
         floorLevel: currentData.floorLevel || item.floorLevel || item.floor_level || "GF",
+        door_frame: finalDoorFrame,
         qty: q,
-      } : item);
+      } : item));
     });
     setEditingRowId(null);
   };
@@ -950,9 +1131,12 @@ export default function FixoutTask({
       if (!editingTr) return;
 
       const path = e.composedPath ? e.composedPath() : [];
-      const isInsideEditingTr = path.some(el => 
+      const isInsideEditingTr = path.some((el) => 
         el === editingTr || 
-        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current))
+        (el.getAttribute && (
+          el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current) ||
+          el.getAttribute("data-search-dropdown") === "true"
+        ))
       );
 
       if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
@@ -994,8 +1178,8 @@ export default function FixoutTask({
             handing: r.handing || "",
             hole: r.hole || "",
             finish: r.finish || "",
-            door_furniture: r.door_furniture || (r.category === "cavity" ? "cavity-passage" : "passage"),
-            door_stop: r.door_stop || (r.category === "cavity" ? "none" : "cushion"),
+            door_furniture: r.door_furniture || (r.category === "cavity" ? "CSD Passage Set" : "None"),
+            door_stop: r.door_stop || "None",
             qty: r.qty || 1,
           }));
 
@@ -1031,7 +1215,7 @@ export default function FixoutTask({
     }
   };
 
-  // ── Auto-load saved Fixout entries from DB if empty on job load ──
+  // Auto-load saved Fixout entries from DB if empty on job load
   useEffect(() => {
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
     if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
@@ -1113,7 +1297,7 @@ export default function FixoutTask({
       <div style={S.card}>
         <div onClick={() => setIsSection1Open(!isSection1Open)} style={S.cardTitle}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>1. Door Information</span>
+            <span>▼ 1. DOOR INFORMATION</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {reloadMsg && (
@@ -1183,16 +1367,40 @@ export default function FixoutTask({
                   height: "30px"
                 }}
               >
-                {FLOOR_LEVEL_OPTIONS.map(opt => (
+                {FLOOR_LEVEL_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
                 ))}
               </select>
             </div>
 
             {/* 3 Categories all use shared floorLevel */}
-            <CategorySection mode="cavity"     title="Cavity sliding units + doors" addLabel="+ Add Cavity"  entries={entries} onSetEntries={onSetEntries} floorLevel={floorLevel} />
-            <CategorySection mode="prehung"    title="Internal prehung doors"       addLabel="+ Add Prehung" entries={entries} onSetEntries={onSetEntries} floorLevel={floorLevel} />
-            <CategorySection mode="loose-jamb" title="Internal loose-jamb doors"    addLabel="+ Add Jamb"    entries={entries} onSetEntries={onSetEntries} floorLevel={floorLevel} />
+            <CategorySection
+              mode="cavity"
+              title="Cavity Sliding Door"
+              addLabel="+ Add door"
+              entries={entries}
+              onSetEntries={onSetEntries}
+              floorLevel={floorLevel}
+              doorOptions={looseJambDoors}
+            />
+            <CategorySection
+              mode="prehung"
+              title="Internal prehung doors"
+              addLabel="+ Add door"
+              entries={entries}
+              onSetEntries={onSetEntries}
+              floorLevel={floorLevel}
+              doorOptions={prehungDoors}
+            />
+            <CategorySection
+              mode="loose-jamb"
+              title="Internal loose-jamb doors"
+              addLabel="+ Add door"
+              entries={entries}
+              onSetEntries={onSetEntries}
+              floorLevel={floorLevel}
+              doorOptions={looseJambDoors}
+            />
           </div>
         )}
       </div>
@@ -1211,15 +1419,16 @@ export default function FixoutTask({
                 <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                   <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", width: "24px", textAlign: "center" }}>#</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "90px" }}>Category</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "130px" }}>Label / door</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "95px" }}>Size</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "110px" }}>Wall / frame</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Lift off</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "140px" }}>Label / Door</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "100px" }}>Size</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "80px" }}>Wall</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "85px" }}>EzyJamb</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Lift Off</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Handing</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "50px" }}>Hole</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "55px" }}>Finish</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "105px" }}>Furniture</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "75px" }}>Door stop</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "115px" }}>Furniture</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "80px" }}>Door Stop</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", width: "40px", textAlign: "center" }}>Qty</th>
                   <th style={{ padding: "6px 8px", width: "50px", textAlign: "center" }}></th>
                 </tr>
@@ -1227,7 +1436,7 @@ export default function FixoutTask({
               <tbody>
                 {totalCount === 0 ? (
                   <tr>
-                    <td colSpan={13} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                    <td colSpan={14} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
                       No Fixout doors entered. Fill the inputs above and add doors.
                     </td>
                   </tr>
@@ -1241,7 +1450,7 @@ export default function FixoutTask({
                           borderTop: "2px solid #cbd5e1",
                           borderBottom: "1px solid #e2e8f0"
                         }}>
-                          <td colSpan={13} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
+                          <td colSpan={14} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                               <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
                                 <span style={{
@@ -1268,7 +1477,7 @@ export default function FixoutTask({
                         </tr>
 
                         {items.map((item) => {
-                          const globalIdx = (entries || []).findIndex(e => e.id === item.id);
+                          const globalIdx = (entries || []).findIndex((e) => e.id === item.id);
                           const idx = globalIdx >= 0 ? globalIdx : 0;
                           const isSelected = selectedEntryId === item.id;
                           const isRowEditing = editingRowId === item.id;
@@ -1277,6 +1486,7 @@ export default function FixoutTask({
                           const isLooseJamb = (isRowEditing ? editRowData.category : item.category) === "loose-jamb";
 
                           if (isRowEditing) {
+                            const currentDoorOptions = isPrehung ? prehungDoors : looseJambDoors;
                             return (
                               <tr
                                 key={item.id || idx}
@@ -1297,11 +1507,10 @@ export default function FixoutTask({
                                 </td>
                                 <td style={{ padding: "4px" }}>
                                   <div style={{ display: "flex", gap: "2px" }}>
-                                    <ComboField
+                                    <SearchDropdown
                                       value={editRowData.door_label || ""}
                                       options={ROOM_LABELS}
-                                      width="55px"
-                                      openUp={true}
+                                      width="60px"
                                       onChange={(v) => {
                                         const mode = editRowData.category || "prehung";
                                         const patch = roomSuggestionPatch(mode, v, editRowData.handing || "");
@@ -1315,11 +1524,10 @@ export default function FixoutTask({
                                       }}
                                       placeholder="Label"
                                     />
-                                    <ComboField
+                                    <SearchDropdown
                                       value={editRowData.door_type || ""}
-                                      options={DOOR_NAMES}
-                                      width="85px"
-                                      openUp={true}
+                                      options={currentDoorOptions}
+                                      width="90px"
                                       onChange={(v) => setEditRowData({ ...editRowData, door_type: v })}
                                       placeholder="Type"
                                     />
@@ -1351,38 +1559,62 @@ export default function FixoutTask({
                                   </div>
                                 </td>
                                 <td style={{ padding: "4px" }}>
-                                  <div style={{ display: "flex", gap: "2px" }}>
+                                  {isCavity ? (
                                     <select
                                       value={editRowData.wall_width || "90"}
                                       onChange={(e) => setEditRowData({ ...editRowData, wall_width: e.target.value })}
-                                      style={{ ...S.select, width: "45px", fontSize: "10px" }}
+                                      style={{ ...S.select, width: "50px", fontSize: "10px" }}
                                     >
                                       {OPT.wallWidth.map((o) => <option key={o}>{o}</option>)}
                                     </select>
+                                  ) : (
+                                    <input
+                                      value={editRowData.wall_width || ""}
+                                      onChange={(e) => setEditRowData({ ...editRowData, wall_width: e.target.value })}
+                                      style={{ ...S.input, width: "65px", fontSize: "10px" }}
+                                      placeholder="Jamb/Wall"
+                                    />
+                                  )}
+                                </td>
+                                <td style={{ padding: "4px" }}>
+                                  {isCavity ? (
                                     <select
-                                      value={editRowData.door_frame || "Timber Jamb"}
+                                      value={editRowData.ezyJamb || (editRowData.door_frame === "Ezy Jamb" || editRowData.door_frame === "Eze Jamb" ? "Yes" : "No")}
+                                      onChange={(e) => setEditRowData({
+                                        ...editRowData,
+                                        ezyJamb: e.target.value,
+                                        door_frame: e.target.value === "Yes" ? "Ezy Jamb" : "Timber Jamb",
+                                      })}
+                                      style={{ ...S.select, width: "65px", fontSize: "10px" }}
+                                    >
+                                      <option value="No">No</option>
+                                      <option value="Yes">Yes</option>
+                                    </select>
+                                  ) : (
+                                    <select
+                                      value={editRowData.door_frame || "None"}
                                       onChange={(e) => setEditRowData({ ...editRowData, door_frame: e.target.value })}
                                       style={{ ...S.select, width: "80px", fontSize: "10px" }}
                                     >
-                                      {(isCavity ? ["Timber Jamb", "Ezy Jamb"] : OPT.frame).map((o) => <option key={o}>{o}</option>)}
+                                      {OPT.frame.map((o) => <option key={o} value={o}>{o}</option>)}
                                     </select>
-                                  </div>
+                                  )}
                                 </td>
                                 <td style={{ padding: "4px" }}>
-                                  {isLooseJamb ? (
+                                  {!isCavity ? (
                                     <select
-                                      value={editRowData.lift_off_pivot || ""}
+                                      value={editRowData.lift_off_pivot || "None"}
                                       onChange={(e) => setEditRowData({ ...editRowData, lift_off_pivot: e.target.value })}
                                       style={{ ...S.select, width: "65px", fontSize: "10px" }}
                                     >
-                                      {OPT.liftOff.map((o) => <option key={o} value={o}>{capitalize(o)}</option>)}
+                                      {OPT.liftOff.map((o) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : <span style={{ color: "#94a3b8" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "4px" }}>
                                   {isPrehung ? (
                                     <select
-                                      value={editRowData.handing || ""}
+                                      value={editRowData.handing || "None"}
                                       onChange={(e) => {
                                         const handing = e.target.value;
                                         const mode = editRowData.category || "prehung";
@@ -1397,51 +1629,51 @@ export default function FixoutTask({
                                       }}
                                       style={{ ...S.select, width: "65px", fontSize: "10px" }}
                                     >
-                                      {OPT.handing.map((o) => <option key={o} value={o}>{capitalize(o)}</option>)}
+                                      {OPT.handing.map((o) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : <span style={{ color: "#94a3b8" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "4px" }}>
                                   {isPrehung ? (
                                     <select
-                                      value={editRowData.hole || ""}
+                                      value={editRowData.hole || "None"}
                                       onChange={(e) => setEditRowData({ ...editRowData, hole: e.target.value })}
                                       style={{ ...S.select, width: "50px", fontSize: "10px" }}
                                     >
-                                      {OPT.hole.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+                                      {OPT.hole.map((o) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : <span style={{ color: "#94a3b8" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "4px" }}>
                                   {isPrehung ? (
                                     <select
-                                      value={editRowData.finish || ""}
+                                      value={editRowData.finish || "None"}
                                       onChange={(e) => setEditRowData({ ...editRowData, finish: e.target.value })}
                                       style={{ ...S.select, width: "55px", fontSize: "10px" }}
                                     >
-                                      {OPT.finish.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+                                      {OPT.finish.map((o) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : <span style={{ color: "#94a3b8" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "4px" }}>
                                   <select
-                                    value={editRowData.door_furniture || ""}
+                                    value={editRowData.door_furniture || (isCavity ? "CSD Passage Set" : "None")}
                                     onChange={(e) => setEditRowData({ ...editRowData, door_furniture: e.target.value })}
-                                    style={{ ...S.select, width: "105px", fontSize: "10px" }}
+                                    style={{ ...S.select, width: "115px", fontSize: "10px" }}
                                   >
-                                    {(FURNITURE_BY_MODE[editRowData.category] || FURNITURE_BY_MODE.prehung).map((o) => (
-                                      <option key={o} value={o}>{FURNITURE_LABELS[o] || o}</option>
+                                    {(FURNITURE_OPTIONS_BY_MODE[editRowData.category] || FURNITURE_OPTIONS_BY_MODE.prehung).map((o) => (
+                                      <option key={o} value={o}>{o}</option>
                                     ))}
                                   </select>
                                 </td>
                                 <td style={{ padding: "4px" }}>
                                   {!isCavity ? (
                                     <select
-                                      value={editRowData.door_stop || "cushion"}
+                                      value={editRowData.door_stop || "None"}
                                       onChange={(e) => setEditRowData({ ...editRowData, door_stop: e.target.value })}
-                                      style={{ ...S.select, width: "70px", fontSize: "10px" }}
+                                      style={{ ...S.select, width: "75px", fontSize: "10px" }}
                                     >
-                                      {OPT.stop.map((o) => <option key={o} value={o}>{STOP_LABELS[o] || capitalize(o)}</option>)}
+                                      {OPT.stop.map((o) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : <span style={{ color: "#94a3b8" }}>—</span>}
                                 </td>
@@ -1479,13 +1711,26 @@ export default function FixoutTask({
 
                           // ── Display Mode Row ──
                           const sizeStr = `${item.height || 2040}×${item.width || 820}×${item.thicks || 35}`;
-                          const wallFrameStr = `${item.wall_width || 90} · ${item.door_frame || "Timber Jamb"}`;
-                          const liftOffStr = isLooseJamb ? (item.lift_off_pivot || "—") : "—";
-                          const handingStr = isPrehung ? (item.handing || "—") : "—";
-                          const holeStr = isPrehung ? (item.hole || "—") : "—";
-                          const finishStr = isPrehung ? (item.finish || "—") : "—";
-                          const furnitureStr = item.door_furniture || (isCavity ? "cavity-passage" : "passage");
-                          const doorStopStr = isCavity ? "—" : (item.door_stop || "cushion");
+                          const wallStr = item.wall_width ? `${item.wall_width}` : "—";
+                          
+                          let ezyJambDisplay = "—";
+                          if (isCavity) {
+                            const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
+                            ezyJambDisplay = isEzy ? "Eze Jamb" : "—";
+                          } else {
+                            if (item.door_frame && item.door_frame !== "Timber Jamb" && item.door_frame !== "None" && item.door_frame !== "-") {
+                              ezyJambDisplay = item.door_frame;
+                            } else {
+                              ezyJambDisplay = "—";
+                            }
+                          }
+
+                          const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
+                          const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
+                          const holeStr = isPrehung && item.hole && item.hole !== "None" ? item.hole : "—";
+                          const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
+                          const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
+                          const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
 
                           return (
                             <tr
@@ -1545,9 +1790,19 @@ export default function FixoutTask({
                                 {sizeStr}
                               </td>
 
-                              {/* Wall / frame */}
+                              {/* Wall */}
                               <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
-                                {wallFrameStr}
+                                {wallStr}
+                              </td>
+
+                              {/* EzyJamb */}
+                              <td style={{
+                                padding: "6px 8px",
+                                whiteSpace: "nowrap",
+                                color: ezyJambDisplay === "Eze Jamb" ? "#0284c7" : (ezyJambDisplay === "—" ? "#94a3b8" : "#334155"),
+                                fontWeight: ezyJambDisplay === "Eze Jamb" ? 700 : 500
+                              }}>
+                                {ezyJambDisplay}
                               </td>
 
                               {/* Lift off */}
@@ -1571,13 +1826,13 @@ export default function FixoutTask({
                               </td>
 
                               {/* Furniture */}
-                              <td style={{ padding: "6px 8px", color: "#0f766e", fontWeight: 500 }}>
-                                {FURNITURE_LABELS[furnitureStr] || furnitureStr}
+                              <td style={{ padding: "6px 8px", color: furnitureStr === "None" ? "#94a3b8" : "#0f766e", fontWeight: 500 }}>
+                                {furnitureStr}
                               </td>
 
                               {/* Door stop */}
-                              <td style={{ padding: "6px 8px", color: doorStopStr === "—" ? "#94a3b8" : "#0369a1" }}>
-                                {STOP_LABELS[doorStopStr] || doorStopStr}
+                              <td style={{ padding: "6px 8px", color: doorStopStr === "None" || doorStopStr === "—" ? "#94a3b8" : "#0369a1" }}>
+                                {doorStopStr}
                               </td>
 
                               {/* Qty */}

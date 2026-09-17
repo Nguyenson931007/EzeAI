@@ -29,11 +29,7 @@ export default function FloorTabBarView({
     .map((p, originalIndex) => ({ ...p, originalIndex }))
     .filter((p) => !p?.category && p?.source !== "pdf_tools");
 
-  const displayPages = architecturalPages.length > 0
-    ? architecturalPages
-    : (pages.length > 0 && !pages.some(p => p?.category || p?.source === "pdf_tools")
-        ? pages.map((p, originalIndex) => ({ ...p, originalIndex }))
-        : [{ originalIndex: 0, name: "Level 1" }]);
+  const displayPages = architecturalPages;
 
   return (
     <div className="cad-floor-tabs">

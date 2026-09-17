@@ -231,11 +231,7 @@ export default function TreeExplorerPanel({
             .map((page, originalIndex) => ({ ...page, originalIndex }))
             .filter(p => !p?.category && p?.source !== "pdf_tools");
 
-          const displayPages = architecturalPages.length > 0
-            ? architecturalPages
-            : (pages.length > 0 && !pages.some(p => p?.category || p?.source === "pdf_tools")
-                ? pages.map((p, originalIndex) => ({ ...p, originalIndex }))
-                : [{ id: 0, originalIndex: 0, name: "Floor 1" }]);
+          const displayPages = architecturalPages;
 
           return displayPages.map((page, archIdx) => {
             const pageIdx = page.originalIndex !== undefined ? page.originalIndex : archIdx;

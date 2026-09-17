@@ -4,101 +4,130 @@ import SearchableSelect from '@/components/SearchableSelect';
 
 const STORAGE_KEY = 'ezefloor_door_config';
 
-// const FALLBACK_EXTERNAL_DOOR_TYPES = [
-//   "SCX1 D/C",
-//   "SCX1 P/PLY",
-//   "SCX1 PCM",
-//   "SCX1 SPM",
-//   "STPC D/C",
-//   "STPC P/PLY",
-//   "STPC SPM",
-//   "X1 D/C",
-//   "X1 P/PLY",
-//   "X1 SPM",
-//   "XB2 OAK SOLID",
-//   "BFR1 D/C CLEAR",
-//   "BFR13 D/C",
-//   "BFR14 D/C CLEAR",
-//   "BFR14 D/C FROST",
-//   "BFR15 D/C CLEAR",
-//   "BFR15 D/C FROST",
-//   "BFR16 D/C CLEAR",
-//   "BFR16 D/C FROST",
-//   "BFR17 D/C CLEAR",
-//   "BFR17 D/C FROST",
-//   "BFR18 D/C CLEAR",
-//   "BFR18 D/C FROST",
-//   "BFR19 D/C CLEAR",
-//   "BFR19 D/C FROST",
-//   "BFR2 D/C CLEAR",
-//   "BFR20 D/C CLEAR",
-//   "BFR20 D/C FROST",
-//   "BFR21 D/C CLEAR",
-//   "BFR21 D/C FROST",
-//   "BFR22 D/C CLEAR",
-//   "BFR22 D/C FROST",
-//   "BFR23 D/C CLEAR",
-//   "BFR23 D/C FROST",
-//   "BFR4 D/C CLEAR",
-//   "BFR4 D/C FROST",
-//   "BFR5 D/C CLEAR",
-//   "BFR6 D/C CLEAR",
-//   "BFR7 D/C CLEAR",
-//   "BFR7 D/C FROST",
-//   "BFR8 D/C CLEAR",
-//   "BFR8 D/C FROST",
-//   "BFR9 D/C CLEAR",
-//   "BFR9 D/C FROST",
-//   "DURACOTE FLUSH SOLID",
-//   "FLUSH SOLID CORE",
-//   "HUME SOLID ENTRANCE",
-//   "CORINTHIAN PMAD 104"
-// ];
+const FALLBACK_EXTERNAL_DOOR_TYPES = [
+  "TBA",
+  "SCX1 D/C",
+  "SCX1 P/PLY",
+  "SCX1 PRIMECOAT",
+  "SCX1 SPM",
+  "JST1 CLR DBL GLAZE",
+  "JST1 FROST DBL GLAZE",
+  "JST1 TRANSLUCENT DBL GLAZE",
+  "JST1 CLR SG",
+  "JST1 FROST SG",
+  "JST1 TRANSLUCENT SG",
+  "JST2 CLR DBL GLAZE",
+  "JST2 FROST DBL GLAZE",
+  "JST2 TRANSLUCENT DBL GLAZE",
+  "JST2 CLR SG",
+  "JST2 FROST SG",
+  "JST2 TRANSLUCENT SG",
+  "JST4 CLR DBL GLAZE",
+  "JST4 FROST DBL GLAZE",
+  "JST4 TRANSLUCENT DBL GLAZE",
+  "JST4 CLR SG",
+  "JST4 FROST SG",
+  "JST4 TRANSLUCENT SG",
+  "JST6 CLR DBL GLAZE",
+  "JST6 FROST DBL GLAZE",
+  "JST6 TRANSLUCENT DBL GLAZE",
+  "JST6 CLR SG",
+  "JST6 FROST SG",
+  "JST6 TRANSLUCENT SG",
+  "SCX1 PCM",
+  "STPC D/C",
+  "STPC P/PLY",
+  "STPC SPM",
+  "X1 D/C",
+  "X1 P/PLY",
+  "X1 SPM",
+  "XB2 OAK SOLID",
+  "BFR1 D/C CLEAR",
+  "BFR13 D/C",
+  "BFR14 D/C CLEAR",
+  "BFR14 D/C FROST",
+  "BFR15 D/C CLEAR",
+  "BFR15 D/C FROST",
+  "BFR16 D/C CLEAR",
+  "BFR16 D/C FROST",
+  "BFR17 D/C CLEAR",
+  "BFR17 D/C FROST",
+  "BFR18 D/C CLEAR",
+  "BFR18 D/C FROST",
+  "BFR19 D/C CLEAR",
+  "BFR19 D/C FROST",
+  "BFR2 D/C CLEAR",
+  "BFR20 D/C CLEAR",
+  "BFR20 D/C FROST",
+  "BFR21 D/C CLEAR",
+  "BFR21 D/C FROST",
+  "BFR22 D/C CLEAR",
+  "BFR22 D/C FROST",
+  "BFR23 D/C CLEAR",
+  "BFR23 D/C FROST",
+  "BFR4 D/C CLEAR",
+  "BFR4 D/C FROST",
+  "BFR5 D/C CLEAR",
+  "BFR6 D/C CLEAR",
+  "BFR7 D/C CLEAR",
+  "BFR7 D/C FROST",
+  "BFR8 D/C CLEAR",
+  "BFR8 D/C FROST",
+  "BFR9 D/C CLEAR",
+  "BFR9 D/C FROST",
+  "DURACOTE FLUSH SOLID",
+  "FLUSH SOLID CORE",
+  "HUME SOLID ENTRANCE",
+  "CORINTHIAN PMAD 104"
+];
 
-// const FALLBACK_INTERNAL_DOOR_TYPES = [
-//   "H1 PCM",
-//   "H1 PCLC 4.75mm",
-//   "H1 SPM",
-//   "HA10",
-//   "HA15",
-//   "HA4",
-//   "HA40",
-//   "HA45",
-//   "HA5",
-//   "HAG11",
-//   "HAG12",
-//   "HAG14",
-//   "HAG18",
-//   "HAG6",
-//   "HAG9",
-//   "HAM1",
-//   "HAM1 CLEAR",
-//   "HAM1 MDF INFILL",
-//   "HAM1 TRANS",
-//   "HAM1 TRANS LAM",
-//   "HAM10 CLEAR",
-//   "HAM10 MDF INFILL",
-//   "HAM10 TRANS LAM",
-//   "HAM12 CLEAR",
-//   "HAM12 MDF INFILL",
-//   "HAM12 TRANS",
-//   "HAM12 TRANS LAM",
-//   "FLUSH PANEL HONEYCOMB",
-//   "REDICOTE FLUSH INTERNAL",
-//   "DECO 1S",
-//   "DECO 2S",
-//   "DECO 3S",
-//   "DECO 4S",
-//   "MOTIVE MOT1",
-//   "MOTIVE MOT2",
-//   "ACCENT LINEAR HAG11",
-//   "ACCENT LINEAR HAG12",
-//   "REGENCY 4-PANEL",
-//   "OAKFIELD 2-PANEL",
-//   "COLONIAL 4-PANEL",
-//   "CORINTHIAN INTERNAL FLUSH",
-//   "HUME INTERNAL FLUSH"
-// ];
+const FALLBACK_INTERNAL_DOOR_TYPES = [
+  "H1 PCM",
+  "SCX1 PCM",
+  "HAG9",
+  "HAG11",
+  "LIN1 CLR",
+  "HLR240",
+  "H1 PCLC 4.75mm",
+  "H1 SPM",
+  "HA10",
+  "HA15",
+  "HA4",
+  "HA40",
+  "HA45",
+  "HA5",
+  "HAG12",
+  "HAG14",
+  "HAG18",
+  "HAG6",
+  "HAM1",
+  "HAM1 CLEAR",
+  "HAM1 MDF INFILL",
+  "HAM1 TRANS",
+  "HAM1 TRANS LAM",
+  "HAM10 CLEAR",
+  "HAM10 MDF INFILL",
+  "HAM10 TRANS LAM",
+  "HAM12 CLEAR",
+  "HAM12 MDF INFILL",
+  "HAM12 TRANS",
+  "HAM12 TRANS LAM",
+  "FLUSH PANEL HONEYCOMB",
+  "REDICOTE FLUSH INTERNAL",
+  "DECO 1S",
+  "DECO 2S",
+  "DECO 3S",
+  "DECO 4S",
+  "MOTIVE MOT1",
+  "MOTIVE MOT2",
+  "ACCENT LINEAR HAG11",
+  "ACCENT LINEAR HAG12",
+  "REGENCY 4-PANEL",
+  "OAKFIELD 2-PANEL",
+  "COLONIAL 4-PANEL",
+  "CORINTHIAN INTERNAL FLUSH",
+  "HUME INTERNAL FLUSH"
+];
 
 function loadSavedConfig() {
   try {
@@ -131,8 +160,8 @@ export default function DoorConfigDialog({ visible, onConfirm, onClose }) {
   const [extDoorType, setExtDoorType] = useState(saved?.extDoorType || "SCX1 D/C");
   const [intDoorType, setIntDoorType] = useState(saved?.intDoorType || "H1 PCM");
 
-  const [extOptions, setExtOptions] = useState();
-  const [intOptions, setIntOptions] = useState();
+  const [extOptions, setExtOptions] = useState(FALLBACK_EXTERNAL_DOOR_TYPES);
+  const [intOptions, setIntOptions] = useState(FALLBACK_INTERNAL_DOOR_TYPES);
   const [isLoading, setIsLoading] = useState(false);
 
   // Load door types from API when modal is mounted/opened
@@ -153,14 +182,23 @@ export default function DoorConfigDialog({ visible, onConfirm, onClose }) {
     const fetchDoorTypes = async () => {
       try {
         let data = null;
-        if (ApiService.getLockoutDoorTypes) {
+        if (ApiService.getLockoutOptions) {
+          const res = await ApiService.getLockoutOptions();
+          data = res?.data || res;
+        } else if (ApiService.getLockoutDoorTypes) {
           const res = await ApiService.getLockoutDoorTypes();
-          data = res?.data;
+          data = res?.data || res;
         } else {
-          const res = await fetch("/api/lockout/door-types");
+          const res = await fetch("/api/lockout/options");
           if (res.ok) {
             const json = await res.json();
-            data = json?.data;
+            data = json?.data || json;
+          } else {
+            const altRes = await fetch("/api/lockout/door-types");
+            if (altRes.ok) {
+              const altJson = await altRes.json();
+              data = altJson?.data || altJson;
+            }
           }
         }
 
@@ -169,19 +207,19 @@ export default function DoorConfigDialog({ visible, onConfirm, onClose }) {
           const rawExt = Array.isArray(data.external) && data.external.length > 0
             ? data.external
             : FALLBACK_EXTERNAL_DOOR_TYPES;
-          const extSet = new Set(rawExt);
+          const extSet = new Set([...rawExt, ...FALLBACK_EXTERNAL_DOOR_TYPES]);
           extSet.add("SCX1 D/C");
-          const finalExt = Array.from(extSet).sort();
-          setExtOptions(finalExt);
+          setExtOptions(Array.from(extSet));
 
           // Merge internal options ensuring 'H1 PCM' is included
           const rawInt = Array.isArray(data.internal) && data.internal.length > 0
             ? data.internal
-            : FALLBACK_INTERNAL_DOOR_TYPES;
-          const intSet = new Set(rawInt);
+            : (Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0
+                ? data.prehung_internal
+                : FALLBACK_INTERNAL_DOOR_TYPES);
+          const intSet = new Set([...rawInt, ...FALLBACK_INTERNAL_DOOR_TYPES]);
           intSet.add("H1 PCM");
-          const finalInt = Array.from(intSet).sort();
-          setIntOptions(finalInt);
+          setIntOptions(Array.from(intSet));
         }
       } catch (err) {
         console.warn("[DoorConfigDialog] Could not fetch door types from backend, using fallbacks:", err);

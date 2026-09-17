@@ -215,7 +215,7 @@ export default function PdfToolsRibbon({
     pushAnnotationHistory,
     pages = [],
     currentPage = 0,
-    activePdfCategory = "cladding",
+    activePdfCategory = "frame_hardware",
     currentProjectName = "Project",
     realScale = 20,
     setCurrentProjectName,

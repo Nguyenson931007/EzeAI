@@ -11,6 +11,131 @@ import {
 import { getDoorWindowDisplayWidthMm } from "../UIComponents";
 import SearchableSelect from "@/components/SearchableSelect";
 
+const FALLBACK_EXT_TYPES = [
+  "TBA",
+  "SCX1 D/C",
+  "SCX1 P/PLY",
+  "SCX1 PRIMECOAT",
+  "SCX1 SPM",
+  "JST1 CLR DBL GLAZE",
+  "JST1 FROST DBL GLAZE",
+  "JST1 TRANSLUCENT DBL GLAZE",
+  "JST1 CLR SG",
+  "JST1 FROST SG",
+  "JST1 TRANSLUCENT SG",
+  "JST2 CLR DBL GLAZE",
+  "JST2 FROST DBL GLAZE",
+  "JST2 TRANSLUCENT DBL GLAZE",
+  "JST2 CLR SG",
+  "JST2 FROST SG",
+  "JST2 TRANSLUCENT SG",
+  "JST4 CLR DBL GLAZE",
+  "JST4 FROST DBL GLAZE",
+  "JST4 TRANSLUCENT DBL GLAZE",
+  "JST4 CLR SG",
+  "JST4 FROST SG",
+  "JST4 TRANSLUCENT SG",
+  "JST6 CLR DBL GLAZE",
+  "JST6 FROST DBL GLAZE",
+  "JST6 TRANSLUCENT DBL GLAZE",
+  "JST6 CLR SG",
+  "JST6 FROST SG",
+  "JST6 TRANSLUCENT SG",
+  "SCX1 PCM",
+  "STPC D/C",
+  "STPC P/PLY",
+  "STPC SPM",
+  "X1 D/C",
+  "X1 P/PLY",
+  "X1 SPM",
+  "XB2 OAK SOLID",
+  "BFR1 D/C CLEAR",
+  "BFR13 D/C",
+  "BFR14 D/C CLEAR",
+  "BFR14 D/C FROST",
+  "BFR15 D/C CLEAR",
+  "BFR15 D/C FROST",
+  "BFR16 D/C CLEAR",
+  "BFR16 D/C FROST",
+  "BFR17 D/C CLEAR",
+  "BFR17 D/C FROST",
+  "BFR18 D/C CLEAR",
+  "BFR18 D/C FROST",
+  "BFR19 D/C CLEAR",
+  "BFR19 D/C FROST",
+  "BFR2 D/C CLEAR",
+  "BFR20 D/C CLEAR",
+  "BFR20 D/C FROST",
+  "BFR21 D/C CLEAR",
+  "BFR21 D/C FROST",
+  "BFR22 D/C CLEAR",
+  "BFR22 D/C FROST",
+  "BFR23 D/C CLEAR",
+  "BFR23 D/C FROST",
+  "BFR4 D/C CLEAR",
+  "BFR4 D/C FROST",
+  "BFR5 D/C CLEAR",
+  "BFR6 D/C CLEAR",
+  "BFR7 D/C CLEAR",
+  "BFR7 D/C FROST",
+  "BFR8 D/C CLEAR",
+  "BFR8 D/C FROST",
+  "BFR9 D/C CLEAR",
+  "BFR9 D/C FROST",
+  "DURACOTE FLUSH SOLID",
+  "FLUSH SOLID CORE",
+  "HUME SOLID ENTRANCE",
+  "CORINTHIAN PMAD 104"
+];
+
+const FALLBACK_INT_TYPES = [
+  "H1 PCM",
+  "SCX1 PCM",
+  "HAG9",
+  "HAG11",
+  "LIN1 CLR",
+  "HLR240",
+  "H1 PCLC 4.75mm",
+  "H1 SPM",
+  "HA10",
+  "HA15",
+  "HA4",
+  "HA40",
+  "HA45",
+  "HA5",
+  "HAG12",
+  "HAG14",
+  "HAG18",
+  "HAG6",
+  "HAM1",
+  "HAM1 CLEAR",
+  "HAM1 MDF INFILL",
+  "HAM1 TRANS",
+  "HAM1 TRANS LAM",
+  "HAM10 CLEAR",
+  "HAM10 MDF INFILL",
+  "HAM10 TRANS LAM",
+  "HAM12 CLEAR",
+  "HAM12 MDF INFILL",
+  "HAM12 TRANS",
+  "HAM12 TRANS LAM",
+  "FLUSH PANEL HONEYCOMB",
+  "REDICOTE FLUSH INTERNAL",
+  "DECO 1S",
+  "DECO 2S",
+  "DECO 3S",
+  "DECO 4S",
+  "MOTIVE MOT1",
+  "MOTIVE MOT2",
+  "ACCENT LINEAR HAG11",
+  "ACCENT LINEAR HAG12",
+  "REGENCY 4-PANEL",
+  "OAKFIELD 2-PANEL",
+  "COLONIAL 4-PANEL",
+  "CORINTHIAN INTERNAL FLUSH",
+  "HUME INTERNAL FLUSH"
+];
+
 export default function DoorWindowPropertyPanel({
   selectedDoor,
   selectedType,
@@ -29,31 +154,43 @@ export default function DoorWindowPropertyPanel({
   scaleValue,
   showConfirm = window.confirm
 }) {
-  const [lockoutDoorTypes, setLockoutDoorTypes] = useState({ internal: [], external: [] });
+  const [lockoutDoorTypes, setLockoutDoorTypes] = useState({
+    internal: FALLBACK_INT_TYPES,
+    external: FALLBACK_EXT_TYPES
+  });
 
   useEffect(() => {
     let isMounted = true;
     const loadTypes = async () => {
       try {
         let data = null;
-        if (ApiService.getLockoutDoorTypes) {
+        if (ApiService.getLockoutOptions) {
+          const res = await ApiService.getLockoutOptions();
+          data = res?.data || res;
+        } else if (ApiService.getLockoutDoorTypes) {
           const res = await ApiService.getLockoutDoorTypes();
-          data = res?.data;
+          data = res?.data || res;
         } else {
-          const res = await fetch("/api/lockout/door-types");
+          const res = await fetch("/api/lockout/options");
           if (res.ok) {
             const json = await res.json();
-            data = json?.data;
+            data = json?.data || json;
           }
         }
         if (isMounted && data) {
-          const extSet = new Set(Array.isArray(data.external) ? data.external : []);
+          const rawExt = Array.isArray(data.external) && data.external.length > 0 ? data.external : [];
+          const extSet = new Set([...rawExt, ...FALLBACK_EXT_TYPES]);
           extSet.add("SCX1 D/C");
-          const intSet = new Set(Array.isArray(data.internal) ? data.internal : []);
+
+          const rawInt = Array.isArray(data.internal) && data.internal.length > 0
+            ? data.internal
+            : (Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0 ? data.prehung_internal : []);
+          const intSet = new Set([...rawInt, ...FALLBACK_INT_TYPES]);
           intSet.add("H1 PCM");
+
           setLockoutDoorTypes({
-            external: Array.from(extSet).sort(),
-            internal: Array.from(intSet).sort()
+            external: Array.from(extSet),
+            internal: Array.from(intSet)
           });
         }
       } catch (_) { }

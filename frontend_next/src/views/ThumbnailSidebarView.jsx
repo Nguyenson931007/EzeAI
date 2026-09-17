@@ -33,11 +33,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
     .map((p, originalIndex) => ({ ...p, originalIndex }))
     .filter((p) => !p?.category && p?.source !== "pdf_tools");
 
-  const displayPages = architecturalPages.length > 0
-    ? architecturalPages
-    : (pages.length > 0 && !pages.some(p => p?.category || p?.source === "pdf_tools")
-        ? pages.map((p, originalIndex) => ({ ...p, originalIndex }))
-        : []);
+  const displayPages = architecturalPages;
 
   return (
     <div className="cad-page-sidebar">

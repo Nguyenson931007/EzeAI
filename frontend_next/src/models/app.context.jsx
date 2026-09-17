@@ -18,8 +18,8 @@ export const AppProvider = ({ children }) => {
     { id: "lvl-2", name: "Level 2", code: "FF" }
   ]);
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
-  const [activePdfCategory, setActivePdfCategory] = useState("cladding"); // "cladding" | "eaves"
-  const [importTarget, setImportTarget] = useState("level"); // "level" | "pdf_tools"
+  const [activePdfCategory, setActivePdfCategory] = useState("frame_hardware");
+  const [importTarget, setImportTarget] = useState("level");
   const [roomsByPage, setRoomsByPage] = useState({});
   const [doorsByPage, setDoorsByPage] = useState({});
   const [wallsByPage, setWallsByPage] = useState({});

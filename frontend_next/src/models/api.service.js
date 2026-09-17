@@ -1163,6 +1163,14 @@ export const ApiService = {
       credentials: "include"
     });
     return handleResponse(res);
+  },
+
+  async getLockoutOptions() {
+    const res = await fetch(`${BASE_URL}/api/lockout/options`, {
+      headers: getHeaders(null),
+      credentials: "include"
+    });
+    return handleResponse(res);
   }
 };
 

@@ -55,49 +55,110 @@ class SaveLockoutJobsPayloadSchema(BaseModel):
 
 
 # ══════════════════════════════════════════════════════
-# DROPDOWN DOOR TYPE (READ-ONLY)
+# DROPDOWN DOOR OPTIONS (READ-ONLY)
 # ══════════════════════════════════════════════════════
 
+def _query_catalog_options(cursor, group: str) -> List[str]:
+    try:
+        cursor.execute("""
+            SELECT option_value
+            FROM [ProcurementApp].[dbo].[catalog_options]
+            WHERE customer_id = 'BUN-NSW-ACT'
+              AND option_group = %s
+              AND is_active = 1
+            ORDER BY sort_order, id
+        """, (group,))
+        rows = cursor.fetchall()
+        return [str(r.get("option_value") or "").strip() for r in rows if str(r.get("option_value") or "").strip()]
+    except Exception as e:
+        logger.warning(f"Failed to query catalog_options for {group}: {e}")
+        return []
+
+
+def _query_internal_door_types(cursor, prehung: bool) -> List[str]:
+    start_row, end_row = (2, 2214) if prehung else (2216, 5000)
+    try:
+        cursor.execute("""
+            SELECT door_type, MIN(source_row) AS first_source_row
+            FROM [ProcurementApp].[dbo].[product_catalog]
+            WHERE customer_id = 'BUN-NSW-ACT'
+              AND catalog_type = N'DOOR'
+              AND is_active = 1
+              AND source_row BETWEEN %s AND %s
+              AND NULLIF(LTRIM(RTRIM(door_type)), N'') IS NOT NULL
+            GROUP BY door_type
+            ORDER BY MIN(source_row), door_type
+        """, (start_row, end_row))
+        rows = cursor.fetchall()
+        return [str(r.get("door_type") or "").strip() for r in rows if str(r.get("door_type") or "").strip()]
+    except Exception as e:
+        logger.warning(f"Failed to query internal door types from catalog: {e}")
+        return []
+
+
+def _query_external_door_types(cursor) -> List[str]:
+    try:
+        cursor.execute("""
+            SELECT lookup_value
+            FROM [ProcurementApp].[dbo].[product_catalog]
+            WHERE customer_id = 'BUN-NSW-ACT'
+              AND catalog_type = N'ENTRY_DOOR'
+              AND is_active = 1
+              AND lookup_value IS NOT NULL
+            ORDER BY source_row, id
+        """)
+        rows = cursor.fetchall()
+        values: List[str] = []
+        for r in rows:
+            full_key = str(r.get("lookup_value") or "").strip()
+            first_space = full_key.find(" ")
+            if first_space >= 0 and full_key[first_space + 1:]:
+                values.append(full_key[first_space + 1:].strip())
+
+        priority = {"SCX1": 1, "JST1": 2, "JST10": 3, "XS26": 4, "ABC": 5}
+        values.sort(key=lambda val: (priority.get(val.split(" ", 1)[0], 999), val))
+        unique: List[str] = []
+        seen = set()
+        for v in values:
+            if v not in seen and v:
+                seen.add(v)
+                unique.append(v)
+        if unique:
+            return ["TBA", *unique]
+        return []
+    except Exception as e:
+        logger.warning(f"Failed to query external door types from product_catalog: {e}")
+        return []
+
+
+@router.get("/options")
 @router.get("/door-types")
-async def get_lockout_door_types():
-    """Đọc danh sách Door Types từ Database / Selector Catalog, phân theo Internal / External."""
-    options = {"internal": set(), "external": set()}
+async def get_lockout_options():
+    """Đọc toàn bộ danh sách dropdown options cho BUN-NSW-ACT LockUp từ Database."""
+    prehung_int: List[str] = []
+    loose_int: List[str] = []
+    external_types: List[str] = []
+    jamb_ext: List[str] = []
+    jamb_int: List[str] = []
+
     conn = None
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
-        cursor.execute("""
-            SELECT DISTINCT
-                LOWER(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.category')))) AS category,
-                COALESCE(
-                    NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_name'))), N''),
-                    NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))), N'')
-                ) AS door_type
-            FROM [ProcurementApp].[dbo].[data_find_items] AS d
-            CROSS APPLY OPENJSON(
-                CASE
-                    WHEN ISJSON(d.parameters_json) = 1 THEN d.parameters_json
-                    ELSE N'{}'
-                END,
-                '$.selector_variants'
-            ) AS v
-            WHERE d.customer_id = 'BUN-NSW-ACT'
-              AND JSON_VALUE(v.[value], '$.task_key') = 'lock-up'
-              AND JSON_VALUE(v.[value], '$.formula_key') = 'door-selection'
-              AND (
-                NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_name'))), N'') IS NOT NULL
-                OR NULLIF(LTRIM(RTRIM(JSON_VALUE(v.[value], '$.parameters.door_type'))), N'') IS NOT NULL
-              )
-            ORDER BY category, door_type;
-        """)
 
-        for row in cursor.fetchall():
-            category = str(row.get("category") or "").strip().lower()
-            door_type = str(row.get("door_type") or "").strip()
-            if category in options and door_type:
-                options[category].add(door_type)
+        prehung_int = _query_catalog_options(cursor, "List_Prehung")
+        loose_int = _query_catalog_options(cursor, "List_LooseJamb")
+        jamb_ext = _query_catalog_options(cursor, "JambSizeExternal")
+        jamb_int = _query_catalog_options(cursor, "JambSizeInternal")
+
+        if not prehung_int:
+            prehung_int = _query_internal_door_types(cursor, prehung=True)
+        if not loose_int:
+            loose_int = _query_internal_door_types(cursor, prehung=False)
+
+        external_types = _query_external_door_types(cursor)
     except Exception as db_err:
-        logger.warning(f"MSSQL door-types query failed ({db_err}), loading from selector_variants.json...")
+        logger.warning(f"MSSQL lockup options query failed ({db_err})")
     finally:
         if conn:
             try:
@@ -105,30 +166,57 @@ async def get_lockout_door_types():
             except Exception:
                 pass
 
-    # Fallback to local selector_variants.json if DB returned empty or errored
-    if not options["internal"] or not options["external"]:
+    # Fallback to local selector_variants.json or static fallback if empty
+    if not external_types or not prehung_int:
         try:
             from pathlib import Path
             import json
             catalog_file = Path(__file__).resolve().parent.parent / "app" / "customer_modules" / "bun_nsw_act" / "selector_variants.json"
             if catalog_file.exists():
                 variants = json.loads(catalog_file.read_text(encoding="utf-8"))
+                ext_set = set(external_types)
+                int_set = set(prehung_int)
                 for item in variants:
                     if item.get("task_key") == "lock-up" and item.get("formula_key") == "door-selection":
                         params = item.get("parameters") or {}
                         cat = str(params.get("category") or "").strip().lower()
                         d_name = str(params.get("door_name") or params.get("door_type") or "").strip()
-                        if cat in options and d_name:
-                            options[cat].add(d_name)
+                        if cat == "external" and d_name:
+                            ext_set.add(d_name)
+                        elif cat == "internal" and d_name:
+                            int_set.add(d_name)
+                if not external_types:
+                    external_types = sorted(list(ext_set))
+                if not prehung_int:
+                    prehung_int = sorted(list(int_set))
         except Exception as json_err:
             logger.error(f"Error fallback reading selector_variants.json: {json_err}")
 
+    if not jamb_ext:
+        jamb_ext = ["Steel Frame", "112×19mm 5.4m", "112×19mm 5.4m Loose Jamb", "112x19mm", "92x18mm", "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"]
+    if not jamb_int:
+        jamb_int = ["Steel Frame", "112×19mm 5.4m", "112×19mm 5.4m Loose Jamb", "112x19mm", "92x18mm", "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"]
+
+    res_data = {
+        "internal": prehung_int,
+        "external": external_types,
+        "prehung_internal": prehung_int,
+        "loose_jamb_internal": loose_int if loose_int else prehung_int,
+        "jamb_size_external": jamb_ext,
+        "jamb_size_internal": jamb_int,
+        "external_hung": ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door"],
+        "external_type": ["Type A", "Type B", "Type CG", "Type DG", "Type G", "Pivot Frame A", "Pivot Frame B", "Steel Frame"],
+        "internal_hung": ["RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"],
+        "internal_type": ["Steel Frame", "Ezy Jamb"],
+        "internal_hole": ["HF", "HO"],
+        "internal_finish": ["CHR", "SCH"],
+        "door_stop": ["Cushion", "DS2 with Riser"],
+    }
+
     return {
         "success": True,
-        "data": {
-            "internal": sorted(list(options["internal"])),
-            "external": sorted(list(options["external"])),
-        },
+        "data": res_data,
+        **res_data
     }
 
 

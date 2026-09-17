@@ -452,7 +452,7 @@ export default function RibbonView({
 
   const effectiveImportTarget = propsImportTarget || contextImportTarget || (activeTab === "PDF Tools" ? "pdf_tools" : "level");
   const [taskSteps, setTaskSteps] = useState(DEFAULT_TASK_STEPS);
-  const [selectedStepId, setSelectedStepId] = useState("cladding");
+  const [selectedStepId, setSelectedStepId] = useState("frame_hardware");
 
   // Fetch & filter task steps from TaskList API / selectedModules (Image 2)
   useEffect(() => {
@@ -2653,7 +2653,7 @@ export default function RibbonView({
                       {pendingPages.map((pg, i) => {
                         const pageNum = pg.pageNumber || (i + 1);
                         const isChecked = importSelectedPages.includes(i);
-                        const assignedCat = importPageCategories[i] || selectedStepId || "cladding";
+                        const assignedCat = importPageCategories[i] || selectedStepId || taskSteps[0]?.id || "frame_hardware";
                         const isCladding = assignedCat === "cladding";
                         const isEaves = assignedCat === "eaves" || assignedCat === "eaves_soffit";
                         const assignedStep = taskSteps.find(s => s.id === assignedCat) || { label: assignedCat, name: assignedCat, color: '#2563eb' };

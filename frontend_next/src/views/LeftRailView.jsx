@@ -46,11 +46,7 @@ export default function LeftRailView({
     .map((p, originalIndex) => ({ ...p, originalIndex }))
     .filter((p) => !p?.category && p?.source !== "pdf_tools");
 
-  const displayLevels = architecturalPages.length > 0
-    ? architecturalPages
-    : (currentPages.length > 0 && !currentPages.some(p => p?.category || p?.source === "pdf_tools")
-        ? currentPages.map((p, originalIndex) => ({ ...p, originalIndex }))
-        : (propLevels || appModel.levels || [{ originalIndex: 0, name: "Level 1", code: "GF" }]));
+  const displayLevels = architecturalPages;
 
   const getFloorCode = (p, idx) => {
     if (p.code) return p.code;

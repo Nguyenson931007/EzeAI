@@ -1371,8 +1371,8 @@ export default function App() {
 
     const effectiveTarget = forcedTarget || importTarget;
     const hasCategoryAssignments = categoryAssignments && Object.keys(categoryAssignments).length > 0;
-    // An import is ONLY for architectural levels if explicitly target is "level" AND no category assignments/active task category were provided
-    const isLevel = effectiveTarget === "level" && !hasCategoryAssignments && !activePdfCategory;
+    // An import is ONLY for architectural levels if explicitly target is "level" and no category assignments were selected
+    const isLevel = effectiveTarget === "level" && !hasCategoryAssignments;
     const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => {
       const p = pendingPages[idx];
       if (isLevel) {
@@ -1384,7 +1384,7 @@ export default function App() {
           pageNumber: p?.pageNumber || (idx + 1)
         };
       }
-      const assignedCat = (categoryAssignments && categoryAssignments[idx]) || p?.category || activePdfCategory || "cladding";
+      const assignedCat = (categoryAssignments && categoryAssignments[idx]) || p?.category || activePdfCategory || "frame_hardware";
       return {
         ...p,
         id: `pdf_pg_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,

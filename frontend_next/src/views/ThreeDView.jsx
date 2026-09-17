@@ -252,9 +252,7 @@ export default function ThreeDView({
       .map((p, i) => ({ page: p, originalIndex: i, level: getFloorLevel(p, i) }))
       .filter(({ page }) => isLevelPage(page));
 
-    const candidates = levelPages.length > 0
-      ? levelPages
-      : pages.map((p, i) => ({ page: p, originalIndex: i, level: getFloorLevel(p, i) }));
+    const candidates = levelPages;
 
     return candidates
       .sort((a, b) => a.level - b.level)

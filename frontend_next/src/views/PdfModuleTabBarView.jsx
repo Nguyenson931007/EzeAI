@@ -10,13 +10,13 @@ export const DEFAULT_TASK_STEPS = [
   { id: "eaves_soffit", label: "Eaves", name: "Eaves Soffit", icon: "", color: "#d97706", aliases: ["eaves"] },
   { id: "cladding", label: "Cladding", name: "Cladding", icon: "", color: "#ea580c" },
   { id: "lock_up", label: "Lockup", name: "Lockup", icon: "", color: "#4f46e5" },
+  { id: "shelving", label: "Shelving", name: "Shelving", icon: "", color: "#7c3aed" },
+  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "", color: "#9333ea" },
   { id: "power_truss_braces", label: "Truss", name: "Power Truss Braces", icon: "", color: "#db2777" },
   { id: "fow_plumbing", label: "Plumbing", name: "FOW Plumbing", icon: "", color: "#0891b2" },
   { id: "fixout", label: "Fixout", name: "Fixout", icon: "", color: "#0d9488" },
-  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "", color: "#dc2626" },
-  { id: "shelving", label: "Shelving", name: "Shelving", icon: "", color: "#7c3aed" },
-  { id: "timber_posts", label: "Beams", name: "Beams & Posts", icon: "", color: "#9333ea" },
-  { id: "final_fit", label: "Final", name: "Final Fit", icon: "", color: "#ca8a04" }
+  { id: "final_fit", label: "Final", name: "Final Fit", icon: "", color: "#ca8a04" },
+  { id: "hardies_fire_walls", label: "Fire Wall", name: "Hardies Fire Walls", icon: "", color: "#dc2626" }
 ];
 
 export const isCategoryMatch = (pageCat, stepId) => {
@@ -40,7 +40,7 @@ export default function PdfModuleTabBarView({
   setPages,
   currentPage = 0,
   onPageClick,
-  activeCategory = "cladding",
+  activeCategory = "frame_hardware",
   setActiveCategory,
   onAddPagesClick,
   onOpenImportSelector,
@@ -89,28 +89,12 @@ export default function PdfModuleTabBarView({
     return DEFAULT_TASK_STEPS;
   }, [activeTaskListStepIds]);
 
-  // Helper to get pages for a given step
-  const getPagesForStep = (stepId) => {
+  // All pages added for PDF Tools / Takeoff tasks (distinct from architectural Level pages GF, FF...)
+  const allPages = React.useMemo(() => {
     return pages
       .map((p, originalIndex) => ({ ...p, originalIndex }))
-      .filter((p) => isCategoryMatch(p?.category, stepId));
-  };
-
-  // Determine which steps should be shown in the switcher bar
-  // Only show steps that have pages added to them
-  const visibleSteps = availableTaskSteps.filter(step => {
-    return pages.some(p => isCategoryMatch(p?.category, step.id));
-  });
-
-  // Automatically select the first step with pages if activeCategory has no pages
-  React.useEffect(() => {
-    if (visibleSteps.length > 0 && !visibleSteps.some(s => isCategoryMatch(activeCategory, s.id))) {
-      if (setActiveCategory) setActiveCategory(visibleSteps[0].id);
-    }
-  }, [pages, visibleSteps, activeCategory, setActiveCategory]);
-
-  const currentModulePages = getPagesForStep(activeCategory);
-  const activeStepObj = availableTaskSteps.find(s => isCategoryMatch(activeCategory, s.id)) || (visibleSteps[0] || availableTaskSteps[0]);
+      .filter((p) => p.category || p.source === "pdf_tools");
+  }, [pages]);
 
   // Move page between any of the steps
   const handleMovePageCategory = (originalIndex, targetCat) => {
@@ -177,18 +161,16 @@ export default function PdfModuleTabBarView({
     }
   };
 
-
-
   return (
     <div className="pdf-module-tab-bar">
-      {/* Middle: PDF Pages belonging to active module */}
+      {/* Middle: PDF Pages */}
       <div className="pdf-pages-scroll-row">
-        {currentModulePages.length === 0 ? (
+        {allPages.length === 0 ? (
           <div style={{ fontSize: "11px", color: "#94a3b8", fontStyle: "italic", padding: "0 8px", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>No pages in {activeStepObj.label || activeStepObj.name}.</span>
+            <span>No pages added yet.</span>
           </div>
         ) : (
-          currentModulePages.map((p) => {
+          allPages.map((p) => {
             const isActive = p.originalIndex === currentPage;
             const pageNum = p.pageNumber || (p.originalIndex !== undefined ? p.originalIndex + 1 : 1);
             const pageTitle = p.customName || (p.name && p.name !== p.fileName && !p.name.startsWith("architectural-drawing") ? p.name : `Page ${pageNum}`);
@@ -197,7 +179,12 @@ export default function PdfModuleTabBarView({
               <div
                 key={p.originalIndex}
                 className={`pdf-page-tab ${isActive ? "active" : ""}`}
-                onClick={() => onPageClick && onPageClick(p.originalIndex)}
+                onClick={() => {
+                  if (onPageClick) onPageClick(p.originalIndex);
+                  if (p.category && setActiveCategory && p.category !== activeCategory) {
+                    setActiveCategory(p.category);
+                  }
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -213,9 +200,9 @@ export default function PdfModuleTabBarView({
                 <span style={{ fontSize: "12px", opacity: 0.85 }}>📄</span>
                 <span>{pageTitle}</span>
 
-                {/* Move to another step dropdown */}
+                {/* Move / assign to step dropdown */}
                 <select
-                  value={p.category || activeCategory}
+                  value={p.category || activeCategory || "frame_hardware"}
                   onClick={(e) => e.stopPropagation()}
                   onChange={(e) => {
                     e.stopPropagation();
@@ -232,7 +219,7 @@ export default function PdfModuleTabBarView({
                     cursor: "pointer",
                     outline: "none"
                   }}
-                  title="Move page to another step"
+                  title="Assign page to step"
                 >
                   {availableTaskSteps.map(s => (
                     <option key={s.id} value={s.id} style={{ color: '#1e293b', background: '#ffffff' }}>
@@ -242,13 +229,13 @@ export default function PdfModuleTabBarView({
                 </select>
 
                 {/* Delete Page button */}
-                {pages.length > 1 && (
+                {onDeletePage && (
                   <button
                     type="button"
                     onClick={async (e) => {
                       e.stopPropagation();
                       if (await showConfirm(`Delete ${pageTitle}?`)) {
-                        if (onDeletePage) onDeletePage(p.originalIndex);
+                        onDeletePage(p.originalIndex);
                       }
                     }}
                     title="Delete this page"
@@ -349,7 +336,7 @@ export default function PdfModuleTabBarView({
               <span>✏️</span>
               <span>Rename Page</span>
             </button>
-            {pages.length > 1 && (
+            {onDeletePage && (
               <>
                 <div style={{ height: "1px", background: "#f1f5f9", margin: "2px 0" }} />
                 <button
@@ -359,7 +346,7 @@ export default function PdfModuleTabBarView({
                     const title = contextMenu.pageTitle;
                     setContextMenu(null);
                     if (await showConfirm(`Delete ${title}?`)) {
-                      if (onDeletePage) onDeletePage(idx);
+                      onDeletePage(idx);
                     }
                   }}
                   style={{
