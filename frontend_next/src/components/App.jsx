@@ -1873,9 +1873,11 @@ export default function App() {
                         });
                         if (uniqueList.length > 0) {
                           setPendingPages(uniqueList);
+                          setImportSelectedPages(uniqueList.map((_, i) => i));
                         }
+                      } else if (pendingPages && pendingPages.length > 0) {
+                        setImportSelectedPages(pendingPages.map((_, i) => i));
                       }
-                      setImportSelectedPages([]);
                       setShowImportPageSelector(true);
                     }}
                     onDeletePage={handleDeletePage}

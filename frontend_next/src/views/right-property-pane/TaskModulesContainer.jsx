@@ -79,7 +79,9 @@ export default function TaskModulesContainer({
   realScale,
   scaleValue,
   walls = [],
-  updateWallsProperty
+  updateWallsProperty,
+  updateDoor,
+  updateDoorsProperty
 }) {
   if (!activeModuleTab) return null;
 
@@ -404,6 +406,8 @@ export default function TaskModulesContainer({
           selectedDoorIds={selectedDoorIds}
           selectedId={selectedId}
           selectedType={selectedType}
+          updateDoor={updateDoor}
+          updateDoorsProperty={updateDoorsProperty}
         />
       )}
 

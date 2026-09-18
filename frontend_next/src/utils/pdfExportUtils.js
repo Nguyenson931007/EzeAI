@@ -5,6 +5,7 @@
  */
 
 import { jsPDF } from "jspdf";
+import { formatLintelCalloutText, syncLintelWithDoor } from "@/controllers/lintel.controller";
 
 // Geometry helpers matching AnnotationCanvasLayer
 const calcCentroid = (pts) => {
@@ -573,9 +574,369 @@ export function drawAnnotationOnCanvas(ctx, ann, realScale = 20) {
 }
 
 /**
- * Render a single page (Background plan + annotations) onto an HTML5 Canvas at full 1:1 resolution
+ * Draw Rooms Layer onto 2D Canvas context
  */
-export async function renderPageToCanvas(page, annotations = [], realScale = 20) {
+export function drawRoomsOnCanvas(ctx, rooms = [], scaleValue = null) {
+  if (!Array.isArray(rooms) || rooms.length === 0) return;
+  rooms.filter(r => r.polygon && r.polygon.length >= 3 && (!r.id || !String(r.id).startsWith("text-"))).forEach(r => {
+    ctx.save();
+    ctx.beginPath();
+    r.polygon.forEach((p, i) => {
+      const px = typeof p.x === "number" ? p.x : p[0];
+      const py = typeof p.y === "number" ? p.y : p[1];
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    const isWet = r.wetness === "wet" || r.type === "wet";
+    ctx.fillStyle = isWet ? "rgba(239, 68, 68, 0.16)" : "rgba(59, 130, 246, 0.16)";
+    ctx.fill();
+    ctx.strokeStyle = isWet ? "#ef4444" : "#3b82f6";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Room Label
+    const c = calcCentroid(r.polygon);
+    if (r.room_name) {
+      ctx.fillStyle = "#1e293b";
+      ctx.font = "bold 14px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(r.room_name, c.x, c.y - (scaleValue ? 8 : 0));
+    }
+    if (scaleValue) {
+      const areaPx = calcPolygonArea(r.polygon);
+      const areaM2 = (areaPx / (scaleValue * scaleValue));
+      ctx.fillStyle = "#475569";
+      ctx.font = "11px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${areaM2.toFixed(2)} m²`, c.x, c.y + (r.room_name ? 8 : 0));
+    }
+    ctx.restore();
+  });
+}
+
+/**
+ * Draw Walls Layer onto 2D Canvas context
+ */
+export function drawWallsOnCanvas(ctx, walls = [], realScale = 20) {
+  if (!Array.isArray(walls) || walls.length === 0) return;
+  walls.forEach(w => {
+    if (!w.centerline || w.centerline.length !== 2) return;
+    const p1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+    const p2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+    const thickness = w.thickness_px || 20;
+    const isExt = w.class_name === "exterior_wall";
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = isExt ? "#2563eb" : "#475569";
+    ctx.lineWidth = thickness;
+    ctx.lineCap = "square";
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+/**
+ * Draw Doors Layer onto 2D Canvas context
+ */
+export function drawDoorsOnCanvas(ctx, doors = [], walls = [], realScale = 20) {
+  if (!Array.isArray(doors) || doors.length === 0) return;
+  doors.forEach(d => {
+    ctx.save();
+    if (d.mask_polygon && d.mask_polygon.length >= 3) {
+      ctx.beginPath();
+      d.mask_polygon.forEach((p, i) => {
+        const px = typeof p.x === "number" ? p.x : p[0];
+        const py = typeof p.y === "number" ? p.y : p[1];
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fillStyle = "rgba(16, 185, 129, 0.4)";
+      ctx.fill();
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else if (d.polygon && d.polygon.length >= 3) {
+      ctx.beginPath();
+      d.polygon.forEach((p, i) => {
+        const px = typeof p.x === "number" ? p.x : p[0];
+        const py = typeof p.y === "number" ? p.y : p[1];
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fillStyle = "rgba(16, 185, 129, 0.3)";
+      ctx.fill();
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else if (d.points && d.points.length >= 2) {
+      const p1 = d.points[0];
+      const p2 = d.points[1];
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+/**
+ * Draw Roof Layer onto 2D Canvas context
+ */
+export function drawRoofsOnCanvas(ctx, roofs = []) {
+  if (!Array.isArray(roofs) || roofs.length === 0) return;
+  roofs.forEach(rf => {
+    if (!rf.polygon || rf.polygon.length < 3) return;
+    ctx.save();
+    ctx.beginPath();
+    rf.polygon.forEach((p, i) => {
+      const px = typeof p.x === "number" ? p.x : p[0];
+      const py = typeof p.y === "number" ? p.y : p[1];
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.fillStyle = "rgba(249, 115, 22, 0.15)";
+    ctx.fill();
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+/**
+ * Draw Lintels Layer (Badges, Leader Lines, Arrowheads, Opening Rectangles) matching LintelsLayer
+ */
+export function drawLintelsOnCanvas(ctx, lintels = [], allLintels = [], walls = [], doors = [], realScale = 20, scaleValue = null) {
+  if (!Array.isArray(lintels) || lintels.length === 0) return;
+
+  lintels.forEach(l => {
+    // Check if this lintel is linked to an active door from Door AI
+    const associatedDoor = (l.isAutoDoorLintel && l.doorId && doors && doors.length > 0)
+      ? doors.find(d => String(d.id) === String(l.doorId))
+      : null;
+
+    const effectiveL = associatedDoor
+      ? syncLintelWithDoor(l, associatedDoor, walls, realScale, scaleValue, l.lengthOffset)
+      : l;
+
+    // Resolve lintel start/end coordinates
+    let startPt, endPt, wallThickness;
+    const getBaseWallId = (id) => id ? String(id).split('-A-')[0].split('-B-')[0] : '';
+    const wall = effectiveL.wallId ? (walls || []).find(w => w.id === effectiveL.wallId || getBaseWallId(w.id) === getBaseWallId(effectiveL.wallId)) : null;
+
+    if (effectiveL.points && effectiveL.points.length === 2) {
+      startPt = { x: effectiveL.points[0][0], y: effectiveL.points[0][1] };
+      endPt = { x: effectiveL.points[1][0], y: effectiveL.points[1][1] };
+      wallThickness = wall?.thickness_px || effectiveL.wallThickness_px || 20;
+    } else if (wall && wall.centerline && wall.centerline.length === 2 && effectiveL.startOffset !== null && effectiveL.startOffset !== undefined && effectiveL.endOffset !== null && effectiveL.endOffset !== undefined) {
+      const p1 = { x: wall.centerline[0][0], y: wall.centerline[0][1] };
+      const p2 = { x: wall.centerline[1][0], y: wall.centerline[1][1] };
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      startPt = { x: p1.x + effectiveL.startOffset * dx, y: p1.y + effectiveL.startOffset * dy };
+      endPt = { x: p1.x + effectiveL.endOffset * dx, y: p1.y + effectiveL.endOffset * dy };
+      wallThickness = wall.thickness_px || 20;
+    } else {
+      return;
+    }
+
+    const cx = (startPt.x + endPt.x) / 2;
+    const cy = (startPt.y + endPt.y) / 2;
+    const len = Math.hypot(endPt.x - startPt.x, endPt.y - startPt.y);
+    const angle = Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x);
+    const lintelThickness = wallThickness * 0.7;
+
+    // 1. Draw Opening Rectangle on the Wall
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.fillStyle = "#DC2626";
+    ctx.fillRect(-len / 2, -lintelThickness / 2, len, lintelThickness);
+    ctx.strokeStyle = "#991b1b";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-len / 2, -lintelThickness / 2, len, lintelThickness);
+    ctx.restore();
+
+    // 2. DPI & Font Size Calculation
+    const appDpi = (typeof window !== 'undefined' && localStorage.getItem('ezefloor_dpi'))
+      ? parseFloat(localStorage.getItem('ezefloor_dpi'))
+      : 250;
+    const dpi = (effectiveL.dpi && Number(effectiveL.dpi) > 0) ? Number(effectiveL.dpi) : appDpi;
+    const fontSizePt = Math.max(1, (effectiveL.fontSizePt !== undefined && effectiveL.fontSizePt !== null && !isNaN(Number(effectiveL.fontSizePt)))
+      ? Number(effectiveL.fontSizePt)
+      : 14);
+    const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
+
+    // 3. Format Callout Text
+    const fullList = allLintels && allLintels.length > 0 ? allLintels : lintels;
+    const catList = fullList.filter(item => (item.category || 'lintel') === (effectiveL.category || 'lintel'));
+    const catIdx = catList.findIndex(item => item.id === effectiveL.id) + 1;
+    const autoCalloutText = formatLintelCalloutText(effectiveL, fullList);
+    const calloutText = (effectiveL.calloutNote && effectiveL.calloutNote.trim() !== "")
+      ? effectiveL.calloutNote
+      : autoCalloutText;
+
+    // 4. Box Sizing & Spacing
+    const boxHPt = Math.max(17, fontSizePt + 3);
+    const boxH = Math.round(boxHPt * (dpi / 72));
+    const paddingPt = 10;
+    const paddingPx = Math.round(paddingPt * (dpi / 72));
+    const charWidthPx = fontSizePx * 0.62;
+    const textWidthPx = Math.round(calloutText.length * charWidthPx);
+    const boxW = Math.max(Math.round(fontSizePx * 5), textWidthPx + (2 * paddingPx));
+
+    // 5. Smart Default Placement
+    const dx = endPt.x - startPt.x;
+    const dy = endPt.y - startPt.y;
+    const isVertical = Math.abs(dy) >= Math.abs(dx);
+    let defDx = isVertical ? -Math.round(boxW / 2 + 40) : 0;
+    let defDy = isVertical ? (catIdx % 2 === 1 ? -1 : 1) * 12 : -Math.round(boxH / 2 + 35);
+
+    const offsetX = effectiveL.calloutOffset ? effectiveL.calloutOffset.x : defDx;
+    const offsetY = effectiveL.calloutOffset ? effectiveL.calloutOffset.y : defDy;
+
+    const boxCenterX = cx + offsetX;
+    const boxCenterY = cy + offsetY;
+    const boxLeft = boxCenterX - boxW / 2;
+    const boxTop = boxCenterY - boxH / 2;
+    const boxRight = boxLeft + boxW;
+    const boxBottom = boxTop + boxH;
+
+    // Anchor tip at opening center
+    const tipX = cx;
+    const tipY = cy;
+
+    const shoulderLen = Math.max(16, Math.round(fontSizePx * 0.35));
+    const barbLen = Math.max(12, Math.round(fontSizePx * 0.28));
+    const leaderStrokeW = Math.max(1.75, Math.round(fontSizePx * 0.035 * 10) / 10);
+
+    // Leader line landing attachment to callout box
+    let attachX, attachY, shoulderX, shoulderY;
+    if (tipX >= boxRight) {
+      attachX = boxRight;
+      attachY = boxCenterY;
+      shoulderX = Math.min(boxRight + shoulderLen, (boxRight + tipX) / 2);
+      shoulderY = boxCenterY;
+    } else if (tipX <= boxLeft) {
+      attachX = boxLeft;
+      attachY = boxCenterY;
+      shoulderX = Math.max(boxLeft - shoulderLen, (boxLeft + tipX) / 2);
+      shoulderY = boxCenterY;
+    } else {
+      attachX = Math.max(boxLeft + 12, Math.min(boxRight - 12, tipX));
+      if (tipY >= boxBottom) {
+        attachY = boxBottom;
+        shoulderX = attachX;
+        shoulderY = Math.min(boxBottom + shoulderLen, (boxBottom + tipY) / 2);
+      } else {
+        attachY = boxTop;
+        shoulderX = attachX;
+        shoulderY = Math.max(boxTop - shoulderLen, (boxTop + tipY) / 2);
+      }
+    }
+
+    // 6. Draw Leader Line
+    const leaderColor = effectiveL.calloutBorderColor || effectiveL.calloutColor || "#DC2626";
+    ctx.save();
+    ctx.strokeStyle = leaderColor;
+    ctx.lineWidth = leaderStrokeW;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(attachX, attachY);
+    ctx.lineTo(shoulderX, shoulderY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    // 7. Draw Arrowhead Barbs
+    const arrowAngle = Math.atan2(tipY - shoulderY, tipX - shoulderX);
+    const barbSpread = 28 * Math.PI / 180;
+    const a1 = arrowAngle + Math.PI - barbSpread;
+    const a2 = arrowAngle + Math.PI + barbSpread;
+    ctx.beginPath();
+    ctx.moveTo(tipX + barbLen * Math.cos(a1), tipY + barbLen * Math.sin(a1));
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(tipX + barbLen * Math.cos(a2), tipY + barbLen * Math.sin(a2));
+    ctx.stroke();
+    ctx.restore();
+
+    // 8. Draw Yellow Badge Callout Box
+    const boxBg = effectiveL.calloutBgColor || "#FFFF00";
+    const boxBorder = effectiveL.calloutBorderColor || effectiveL.calloutColor || "#DC2626";
+    const textColor = effectiveL.calloutTextColor || "#000000";
+
+    ctx.save();
+    ctx.fillStyle = boxBg;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(boxLeft, boxTop, boxW, boxH, 4);
+    } else {
+      ctx.rect(boxLeft, boxTop, boxW, boxH);
+    }
+    ctx.fill();
+
+    ctx.strokeStyle = boxBorder;
+    ctx.lineWidth = Math.max(leaderStrokeW, 1.75);
+    ctx.stroke();
+
+    // 9. Draw Centered Callout Text
+    ctx.fillStyle = textColor;
+    ctx.font = `bold ${fontSizePx}px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(calloutText, boxCenterX, boxCenterY);
+    ctx.restore();
+  });
+}
+
+/**
+ * Render a single page (Background plan + CAD layers + annotations) onto an HTML5 Canvas at full 1:1 resolution
+ * Supports selective layer rendering based on layerVisibility flags.
+ */
+export async function renderPageToCanvas(pageOrOptions, legacyAnnotations = [], legacyRealScale = 20) {
+  // Support both object parameter and legacy parameter signature
+  let page, annotations, walls, doors, rooms, lintels, allLintels, roofs, realScale, scaleValue, layerVisibility, showPDF;
+
+  if (pageOrOptions && typeof pageOrOptions === "object" && !pageOrOptions.src && !pageOrOptions.image && pageOrOptions.page) {
+    page = pageOrOptions.page;
+    annotations = pageOrOptions.annotations || [];
+    walls = pageOrOptions.walls || [];
+    doors = pageOrOptions.doors || [];
+    rooms = pageOrOptions.rooms || [];
+    lintels = pageOrOptions.lintels || [];
+    allLintels = pageOrOptions.allLintels || lintels;
+    roofs = pageOrOptions.roofs || [];
+    realScale = pageOrOptions.realScale || 20;
+    scaleValue = pageOrOptions.scaleValue || null;
+    layerVisibility = pageOrOptions.layerVisibility || { floor: true, wall: true, door: true, lintel: true, ocr: true, labels: true, roof: true, annotations: true };
+    showPDF = pageOrOptions.showPDF !== false;
+  } else {
+    page = pageOrOptions;
+    annotations = legacyAnnotations || [];
+    walls = [];
+    doors = [];
+    rooms = [];
+    lintels = [];
+    allLintels = [];
+    roofs = [];
+    realScale = legacyRealScale || 20;
+    scaleValue = null;
+    layerVisibility = { floor: true, wall: true, door: true, lintel: true, ocr: true, labels: true, roof: true, annotations: true };
+    showPDF = true;
+  }
+
   if (!page) return null;
 
   // Load Background Image first to get true native dimensions
@@ -596,13 +957,38 @@ export async function renderPageToCanvas(page, annotations = [], realScale = 20)
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  // Draw Background Image
-  if (bgImg) {
+  // 1. Draw Background Image (if PDF Background layer is visible / enabled)
+  if (showPDF && bgImg) {
     ctx.drawImage(bgImg, 0, 0, width, height);
   }
 
-  // Draw Annotations
-  if (Array.isArray(annotations) && annotations.length > 0) {
+  // 2. Draw Floor / Rooms Layer (if visible)
+  if (layerVisibility?.floor !== false && rooms.length > 0) {
+    drawRoomsOnCanvas(ctx, rooms, scaleValue);
+  }
+
+  // 3. Draw Roofs Layer (if visible)
+  if (layerVisibility?.roof !== false && roofs.length > 0) {
+    drawRoofsOnCanvas(ctx, roofs);
+  }
+
+  // 4. Draw Walls Layer (if visible)
+  if (layerVisibility?.wall !== false && walls.length > 0) {
+    drawWallsOnCanvas(ctx, walls, realScale);
+  }
+
+  // 5. Draw Doors Layer (if visible)
+  if (layerVisibility?.door !== false && doors.length > 0) {
+    drawDoorsOnCanvas(ctx, doors, walls, realScale);
+  }
+
+  // 6. Draw Lintels Layer (if visible)
+  if (layerVisibility?.lintel !== false && lintels.length > 0) {
+    drawLintelsOnCanvas(ctx, lintels, allLintels, walls, doors, realScale, scaleValue);
+  }
+
+  // 7. Draw Vector Annotations & Markups (if visible)
+  if (layerVisibility?.annotations !== false && Array.isArray(annotations) && annotations.length > 0) {
     annotations.forEach((ann) => {
       drawAnnotationOnCanvas(ctx, ann, realScale);
     });
@@ -630,26 +1016,40 @@ export const isCategoryMatch = (pageCat, stepId) => {
 };
 
 /**
- * Export specific pages and their markups to PDF
+ * Export specific pages and their markups & CAD layers to PDF
+ * Honors layerVisibility to exclude hidden layers (Rooms, Walls, Doors, Lintels, Roofs, PDF Background, etc.)
  */
 export async function exportPdfToolsDocument({
   pages = [],
   currentPage = 0,
   annotationsByPage = {},
-  activeCategory = "cladding",
+  wallsByPage = {},
+  doorsByPage = {},
+  roomsByPage = {},
+  lintelsByPage = {},
+  roofsByPage = {},
+  layerVisibility = { floor: true, wall: true, door: true, lintel: true, ocr: true, labels: true, roof: true, annotations: true },
+  showPDF = true,
+  scaleValue = null,
+  activeCategory = "frame_hardware",
   projectName = "EzeFloor_Project",
   realScale = 20,
-  mode = "current",
+  mode = "current", // "current" | "lintel" | "step" | "all"
+  customLayers = null, // Optional layer override from export modal
   onProgress = null
 }) {
   if (!pages || pages.length === 0) {
     throw new Error("No pages available to export.");
   }
 
+  // Determine effective layer visibility
+  const effectiveLayers = customLayers ? { ...layerVisibility, ...customLayers } : { ...layerVisibility };
+  const effectiveShowPdf = customLayers?.showPDF !== undefined ? customLayers.showPDF : showPDF;
+
   // Determine target pages to export
   let targetPagesWithIndex = [];
 
-  if (mode === "current") {
+  if (mode === "current" || mode === "lintel") {
     const curP = pages[currentPage] || pages[0];
     targetPagesWithIndex = [{ page: curP, originalIndex: currentPage }];
   } else if (mode === "step") {
@@ -677,10 +1077,30 @@ export async function exportPdfToolsDocument({
 
   if (onProgress) onProgress(10, `Preparing ${totalPages} page(s)...`);
 
+  // Aggregate all lintels across all pages for consistent indexing
+  const allLintels = Object.values(lintelsByPage).flat();
+
+  // Helper to render a page item to canvas
+  const renderItem = async (item) => {
+    const idx = item.originalIndex;
+    return await renderPageToCanvas({
+      page: item.page,
+      annotations: annotationsByPage[idx] || [],
+      walls: wallsByPage[idx] || [],
+      doors: doorsByPage[idx] || [],
+      rooms: roomsByPage[idx] || [],
+      lintels: lintelsByPage[idx] || [],
+      allLintels,
+      roofs: roofsByPage[idx] || [],
+      realScale,
+      scaleValue,
+      layerVisibility: effectiveLayers,
+      showPDF: effectiveShowPdf
+    });
+  };
+
   // Render first page canvas
-  const firstItem = targetPagesWithIndex[0];
-  const firstAnns = annotationsByPage[firstItem.originalIndex] || [];
-  const firstCanvas = await renderPageToCanvas(firstItem.page, firstAnns, realScale);
+  const firstCanvas = await renderItem(targetPagesWithIndex[0]);
 
   if (!firstCanvas) {
     throw new Error("Failed to render the first page.");
@@ -709,9 +1129,7 @@ export async function exportPdfToolsDocument({
 
   // Render subsequent pages
   for (let i = 1; i < totalPages; i++) {
-    const item = targetPagesWithIndex[i];
-    const anns = annotationsByPage[item.originalIndex] || [];
-    const canvas = await renderPageToCanvas(item.page, anns, realScale);
+    const canvas = await renderItem(targetPagesWithIndex[i]);
 
     if (canvas) {
       const pageLandscape = canvas.width >= canvas.height;
@@ -743,9 +1161,11 @@ export async function exportPdfToolsDocument({
 
   // Build filename
   const cleanProjName = (projectName || "Project").replace(/[^a-zA-Z0-9_-]/g, "_");
-  const cleanCat = (activeCategory || "Markup").replace(/[^a-zA-Z0-9_-]/g, "_");
-  const suffix = mode === "current" ? `_Pg${currentPage + 1}` : `_${cleanCat}`;
-  const fileName = `${cleanProjName}${suffix}_Markup.pdf`;
+  const cleanCat = (activeCategory || "Plan").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const suffix = mode === "lintel"
+    ? `_Lintel_Plan_Pg${currentPage + 1}`
+    : (mode === "current" ? `_Pg${currentPage + 1}` : `_${cleanCat}`);
+  const fileName = `${cleanProjName}${suffix}.pdf`;
 
   doc.save(fileName);
 

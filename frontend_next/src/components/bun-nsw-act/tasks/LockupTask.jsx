@@ -1,6 +1,249 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
+
+// ══════════════════════════════════════════════════════
+// SEARCHABLE DROPDOWN COMPONENT (Select or search...)
+// ══════════════════════════════════════════════════════
+const SearchDropdown = ({
+  value,
+  options = [],
+  placeholder = "Select or search...",
+  onChange,
+  disabled = false,
+  style = {},
+  isYellow = true,
+  minWidth = "130px",
+}) => {
+  const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
+  const containerRef = useRef(null);
+
+  const isCommittedSelection = options.includes(value);
+
+  const filtered = useMemo(() => {
+    if (!open) return options;
+    const query = String(value || "").trim().toLowerCase();
+    if (!query || isCommittedSelection) return options;
+    return options.filter((opt) => String(opt).toLowerCase().includes(query));
+  }, [open, options, value, isCommittedSelection]);
+
+  useEffect(() => {
+    if (open && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      if (spaceBelow < 220 && spaceAbove > 160) {
+        setOpenUp(true);
+      } else {
+        setOpenUp(false);
+      }
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener("mousedown", handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={containerRef}
+      data-search-dropdown="true"
+      style={{
+        position: "relative",
+        width: "100%",
+        minWidth: minWidth,
+        zIndex: open ? 99999 : 1,
+        ...style,
+      }}
+    >
+      <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+        <input
+          type="text"
+          value={value || ""}
+          disabled={disabled}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (!open) setOpen(true);
+          }}
+          onFocus={(e) => {
+            setOpen(true);
+            e.target.select();
+          }}
+          onClick={(e) => {
+            if (!open) setOpen(true);
+          }}
+          style={{
+            width: "100%",
+            padding: value ? "5px 36px 5px 8px" : "5px 22px 5px 8px",
+            fontSize: "11px",
+            borderRadius: "4px",
+            border: isYellow ? "1px solid #fde047" : "1px solid #cbd5e1",
+            background: isYellow ? "#fffbeb" : "#ffffff",
+            boxSizing: "border-box",
+            outline: "none",
+            color: "#0f172a",
+            fontWeight: 600,
+            height: "28px",
+          }}
+          placeholder={placeholder}
+        />
+        <div style={{ position: "absolute", right: "4px", display: "flex", alignItems: "center", gap: "2px" }}>
+          {value ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={disabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+                setOpen(true);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                fontSize: "11px",
+                cursor: "pointer",
+                padding: "1px 3px",
+                lineHeight: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "50%",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#ef4444";
+                e.currentTarget.style.background = "#fee2e2";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "#94a3b8";
+                e.currentTarget.style.background = "transparent";
+              }}
+              title="Xóa lựa chọn (Clear)"
+            >
+              ✕
+            </button>
+          ) : null}
+          <button
+            type="button"
+            tabIndex={-1}
+            disabled={disabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((prev) => !prev);
+            }}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#64748b",
+              fontSize: "8.5px",
+              cursor: "pointer",
+              padding: "3px 2px",
+              lineHeight: 1,
+            }}
+          >
+            {open ? "▲" : "▼"}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            ...(openUp
+              ? { bottom: "calc(100% + 4px)", top: "auto" }
+              : { top: "calc(100% + 2px)", bottom: "auto" }),
+            left: 0,
+            right: 0,
+            minWidth: "100%",
+            background: "#ffffff",
+            border: "1px solid #cbd5e1",
+            borderRadius: "5px",
+            boxShadow: openUp
+              ? "0 -8px 20px rgba(0,0,0,0.18)"
+              : "0 8px 20px rgba(0,0,0,0.18)",
+            maxHeight: "190px",
+            overflowY: "auto",
+            zIndex: 999999,
+          }}
+        >
+          {value && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onChange("");
+                setOpen(false);
+              }}
+              style={{
+                padding: "5px 10px",
+                fontSize: "10.5px",
+                cursor: "pointer",
+                background: "#fef2f2",
+                color: "#ef4444",
+                fontWeight: 600,
+                borderBottom: "1px solid #fee2e2",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#fee2e2";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#fef2f2";
+              }}
+            >
+              <span>✕</span>
+              <span>-- Clear / Trống --</span>
+            </div>
+          )}
+          {filtered.map((opt, i) => (
+            <div
+              key={i}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onChange(opt);
+                setOpen(false);
+              }}
+              style={{
+                padding: "6px 10px",
+                fontSize: "11px",
+                cursor: "pointer",
+                background: opt === value ? "#e0f2fe" : "#ffffff",
+                color: opt === value ? "#0369a1" : "#1e293b",
+                fontWeight: opt === value ? 700 : 400,
+                borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f8fafc";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = opt === value ? "#e0f2fe" : "#ffffff";
+              }}
+            >
+              {opt}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function LockupTask({
   formData = {},
@@ -14,7 +257,9 @@ export default function LockupTask({
   selectedDoor: selectedDoorProp,
   selectedDoorIds: selectedDoorIdsProp,
   selectedId: selectedIdProp,
-  selectedType: selectedTypeProp
+  selectedType: selectedTypeProp,
+  updateDoor,
+  updateDoorsProperty
 }) {
   const {
     user,
@@ -22,6 +267,7 @@ export default function LockupTask({
     wallsByPage = {},
     doors = [],
     doorsByPage = {},
+    setDoorsByPage,
     pages = [],
     scalesByPage = {},
     realScale,
@@ -175,7 +421,7 @@ export default function LockupTask({
       }
     }
 
-    // Parse height and width
+    // Parse height and width with sanitization against unscaled pixel bugs
     let h = row.height || 2040;
     let w = row.width || 820;
     if (row.size && typeof row.size === "string" && row.size.includes("×")) {
@@ -186,6 +432,15 @@ export default function LockupTask({
       const parts = row.size.split("x").map(p => p.trim());
       if (parts[0]) h = parts[0];
       if (parts[1]) w = parts[1];
+    }
+
+    const numW = Number(w);
+    if (isNaN(numW) || numW < 300 || numW > 6000) {
+      w = 820;
+    }
+    const numH = Number(h);
+    if (isNaN(numH) || numH < 1000 || numH > 3500) {
+      h = 2040;
     }
 
     let th = row.thickness || (isExt ? (isLoose ? 38 : 40) : (isLoose ? 38 : 35));
@@ -218,53 +473,117 @@ export default function LockupTask({
     setEditModalOpen(true);
   };
 
+  // ── Helper đồng bộ thay đổi từ bảng Lockup sang trực tiếp Door trên Canvas / Properties Panel ──
+  const syncCanvasDoor = (target) => {
+    if (!target) return;
+    const targetDoorId = target.doorId || target.id;
+    if (!targetDoorId) return;
+
+    const wMm = Number(target.width) || 820;
+    const hMm = Number(target.height) || 2040;
+    const isExt = target.scope === "external" || target.location === "External";
+
+    const patchToDoor = {
+      width_mm: wMm,
+      width: wMm,
+      width_source: "manual",
+      height_mm: hMm,
+      height: hMm,
+      thickness_mm: Number(target.thickness) || (isExt ? 40 : 35),
+      door_name: target.label || target.door_name || "D-1",
+      doorName: target.label || target.door_name || "D-1",
+      label: target.label || target.door_name || "D-1",
+      door_type: target.door_type || "",
+      lockup_door_type: target.door_type || "",
+      product: target.door_type || "",
+      location: isExt ? "external" : "internal",
+      scope: isExt ? "external" : "internal",
+      is_ext: isExt,
+      is_exterior: isExt,
+      isExternal: isExt,
+      hung: target.hung,
+      hinge_side: (target.hung === "Hung B" || target.hung === "LH") ? "left" : "right",
+      hingeSide: (target.hung === "Hung B" || target.hung === "LH") ? "left" : "right"
+    };
+
+    if (updateDoorsProperty) {
+      updateDoorsProperty([targetDoorId], patchToDoor);
+    } else if (updateDoor) {
+      const curList = (doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : (doors || []);
+      const found = curList.find(d => matchId(d.id, targetDoorId) || matchId(d.doorId, targetDoorId));
+      if (found) {
+        updateDoor({ ...found, ...patchToDoor });
+      }
+    } else if (setDoorsByPage) {
+      setDoorsByPage(prev => {
+        const cur = prev[currentPage] || doors || [];
+        const updated = cur.map(d => {
+          if (matchId(d.id, targetDoorId) || matchId(d.doorId, targetDoorId)) {
+            return { ...d, ...patchToDoor };
+          }
+          return d;
+        });
+        return { ...prev, [currentPage]: updated };
+      });
+    }
+  };
+
   // ── Auto-save directly on change in floating popup ──
   const updateEditingDoorField = (patch) => {
+    let updatedSnapshot = null;
     setEditingDoorData(prev => {
       if (!prev) return prev;
       const updated = { ...prev, ...patch };
-
-      if (onSetEntries) {
-        const isLoose = updated.mode === "Loose" || updated.category === "Loose Jamb";
-        const isPrehung = updated.mode === "Prehung" || updated.category === "Prehung";
-        const isExt = updated.scope === "external" || updated.location === "External";
-
-        onSetEntries(currentEntries => (currentEntries || []).map(item => {
-          if (item.id !== updated.id) return item;
-          return {
-            ...item,
-            ...updated,
-            scope: isExt ? "external" : "internal",
-            location: isExt ? "External" : "Internal",
-            door: updated.door_type || item.door,
-            product: updated.door_type || item.product,
-            category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
-            mode: isLoose ? "Loose" : (isPrehung ? "Prehung" : updated.mode),
-            size: `${updated.height || 2040} × ${updated.width || 820}`,
-            thicks: `${updated.thickness || (isExt ? 40 : 35)}mm`,
-            thickness: Number(updated.thickness) || (isExt ? 40 : 35),
-            height: Number(updated.height) || 2040,
-            width: Number(updated.width) || 820,
-            jambWall: updated.jamb_or_wall,
-            jamb_or_wall: updated.jamb_or_wall,
-            jambSize: updated.jamb_size || null,
-            jamb_size: updated.jamb_size || null,
-            hung: updated.hung,
-            type: isCadDoorType(updated.type) ? (isExt ? "Type A" : "-") : (updated.type || "-"),
-            weatherguard: isExt ? (updated.weatherguard || "No") : "-",
-            dbl_rebated: isExt ? (updated.dbl_rebated || "No") : "-",
-            hfHo: isExt ? "-" : (updated.internal_type || "HF"),
-            internal_type: isExt ? "-" : (updated.internal_type || "HF"),
-            color: isExt ? "-" : (updated.color || "CHR"),
-            stop: updated.door_stop,
-            door_stop: updated.door_stop,
-            qty: Number(updated.default_qty || updated.qty) || 1,
-            default_qty: Number(updated.default_qty || updated.qty) || 1
-          };
-        }));
-      }
+      updatedSnapshot = updated;
       return updated;
     });
+
+    if (onSetEntries) {
+      setTimeout(() => {
+        const target = updatedSnapshot || (editingDoorData ? { ...editingDoorData, ...patch } : null);
+        if (!target) return;
+        const isLoose = target.mode === "Loose" || target.category === "Loose Jamb";
+        const isPrehung = target.mode === "Prehung" || target.category === "Prehung";
+        const isExt = target.scope === "external" || target.location === "External";
+
+        onSetEntries(currentEntries => (currentEntries || []).map(item => {
+          if (item.id !== target.id) return item;
+          return {
+            ...item,
+            ...target,
+            scope: isExt ? "external" : "internal",
+            location: isExt ? "External" : "Internal",
+            door: target.door_type || item.door,
+            product: target.door_type || item.product,
+            category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
+            mode: isLoose ? "Loose" : (isPrehung ? "Prehung" : target.mode),
+            size: `${target.height || 2040} × ${target.width || 820}`,
+            thicks: `${target.thickness || (isExt ? 40 : 35)}mm`,
+            thickness: Number(target.thickness) || (isExt ? 40 : 35),
+            height: Number(target.height) || 2040,
+            width: Number(target.width) || 820,
+            jambWall: target.jamb_or_wall,
+            jamb_or_wall: target.jamb_or_wall,
+            jambSize: target.jamb_size || null,
+            jamb_size: target.jamb_size || null,
+            hung: target.hung,
+            type: isCadDoorType(target.type) ? (isExt ? "Type A" : "-") : (target.type || "-"),
+            weatherguard: isExt ? (target.weatherguard || "No") : "-",
+            dbl_rebated: isExt ? (target.dbl_rebated || "No") : "-",
+            hfHo: isExt ? "-" : (target.internal_type || "HF"),
+            internal_type: isExt ? "-" : (target.internal_type || "HF"),
+            color: isExt ? "-" : (target.color || "CHR"),
+            stop: target.door_stop,
+            door_stop: target.door_stop,
+            qty: Number(target.default_qty || target.qty) || 1,
+            default_qty: Number(target.default_qty || target.qty) || 1
+          };
+        }));
+
+        // Đồng bộ kích thước và thuộc tính của cửa ra Canvas và Properties Panel
+        syncCanvasDoor(target);
+      }, 0);
+    }
   };
 
   const handleSaveModalData = (savedData) => {
@@ -310,6 +629,10 @@ export default function LockupTask({
         default_qty: Number(savedData.default_qty || savedData.qty) || 1
       };
     }));
+
+    // Đồng bộ sang Canvas
+    syncCanvasDoor(savedData);
+
     setEditModalOpen(false);
     setEditingDoorData(null);
   };
@@ -600,247 +923,7 @@ export default function LockupTask({
     return (lockupOptions.door_stop && lockupOptions.door_stop.length > 0) ? lockupOptions.door_stop : DOOR_STOP_OPTIONS;
   }, [lockupOptions.door_stop]);
 
-  // ══════════════════════════════════════════════════════
-  // SEARCHABLE DROPDOWN COMPONENT (Select or search...)
-  // ══════════════════════════════════════════════════════
-  const SearchDropdown = ({
-    value,
-    options = [],
-    placeholder = "Select or search...",
-    onChange,
-    disabled = false,
-    style = {},
-    isYellow = true,
-    minWidth = "130px",
-  }) => {
-    const [open, setOpen] = useState(false);
-    const [openUp, setOpenUp] = useState(false);
-    const containerRef = useRef(null);
 
-    const isCommittedSelection = options.includes(value);
-
-    const filtered = useMemo(() => {
-      if (!open) return options;
-      const query = String(value || "").trim().toLowerCase();
-      if (!query || isCommittedSelection) return options;
-      return options.filter((opt) => String(opt).toLowerCase().includes(query));
-    }, [open, options, value, isCommittedSelection]);
-
-    useEffect(() => {
-      if (open && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const spaceAbove = rect.top;
-        if (spaceBelow < 220 && spaceAbove > 160) {
-          setOpenUp(true);
-        } else {
-          setOpenUp(false);
-        }
-      }
-    }, [open]);
-
-    useEffect(() => {
-      const handleOutsideClick = (e) => {
-        if (containerRef.current && !containerRef.current.contains(e.target)) {
-          setOpen(false);
-        }
-      };
-      if (open) {
-        document.addEventListener("mousedown", handleOutsideClick);
-      }
-      return () => {
-        document.removeEventListener("mousedown", handleOutsideClick);
-      };
-    }, [open]);
-
-    return (
-      <div
-        ref={containerRef}
-        data-search-dropdown="true"
-        style={{
-          position: "relative",
-          width: "100%",
-          minWidth: minWidth,
-          zIndex: open ? 99999 : 1,
-          ...style,
-        }}
-      >
-        <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-          <input
-            type="text"
-            value={value || ""}
-            disabled={disabled}
-            onChange={(e) => {
-              onChange(e.target.value);
-              if (!open) setOpen(true);
-            }}
-            onFocus={(e) => {
-              setOpen(true);
-              e.target.select();
-            }}
-            onClick={(e) => {
-              if (!open) setOpen(true);
-            }}
-            style={{
-              width: "100%",
-              padding: value ? "5px 36px 5px 8px" : "5px 22px 5px 8px",
-              fontSize: "11px",
-              borderRadius: "4px",
-              border: isYellow ? "1px solid #fde047" : "1px solid #cbd5e1",
-              background: isYellow ? "#fffbeb" : "#ffffff",
-              boxSizing: "border-box",
-              outline: "none",
-              color: "#0f172a",
-              fontWeight: 600,
-              height: "28px",
-            }}
-            placeholder={placeholder}
-          />
-          <div style={{ position: "absolute", right: "4px", display: "flex", alignItems: "center", gap: "2px" }}>
-            {value ? (
-              <button
-                type="button"
-                tabIndex={-1}
-                disabled={disabled}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onChange("");
-                  setOpen(true);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#94a3b8",
-                  fontSize: "11px",
-                  cursor: "pointer",
-                  padding: "1px 3px",
-                  lineHeight: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderRadius: "50%",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "#ef4444";
-                  e.currentTarget.style.background = "#fee2e2";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "#94a3b8";
-                  e.currentTarget.style.background = "transparent";
-                }}
-                title="Xóa lựa chọn (Clear)"
-              >
-                ✕
-              </button>
-            ) : null}
-            <button
-              type="button"
-              tabIndex={-1}
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen((prev) => !prev);
-              }}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#64748b",
-                fontSize: "8.5px",
-                cursor: "pointer",
-                padding: "3px 2px",
-                lineHeight: 1,
-              }}
-            >
-              {open ? "▲" : "▼"}
-            </button>
-          </div>
-        </div>
-
-        {open && (
-          <div
-            style={{
-              position: "absolute",
-              ...(openUp
-                ? { bottom: "calc(100% + 4px)", top: "auto" }
-                : { top: "calc(100% + 2px)", bottom: "auto" }),
-              left: 0,
-              right: 0,
-              minWidth: "100%",
-              background: "#ffffff",
-              border: "1px solid #cbd5e1",
-              borderRadius: "5px",
-              boxShadow: openUp
-                ? "0 -8px 20px rgba(0,0,0,0.18)"
-                : "0 8px 20px rgba(0,0,0,0.18)",
-              maxHeight: "190px",
-              overflowY: "auto",
-              zIndex: 999999,
-            }}
-          >
-            {value && (
-              <div
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onChange("");
-                  setOpen(false);
-                }}
-                style={{
-                  padding: "5px 10px",
-                  fontSize: "10.5px",
-                  cursor: "pointer",
-                  background: "#fef2f2",
-                  color: "#ef4444",
-                  fontWeight: 600,
-                  borderBottom: "1px solid #fee2e2",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#fee2e2";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#fef2f2";
-                }}
-              >
-                <span>✕</span>
-                <span>-- Clear / Trống --</span>
-              </div>
-            )}
-            {filtered.map((opt, i) => (
-              <div
-                key={i}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onChange(opt);
-                  setOpen(false);
-                }}
-                style={{
-                  padding: "6px 10px",
-                  fontSize: "11px",
-                  cursor: "pointer",
-                  background: opt === value ? "#e0f2fe" : "#ffffff",
-                  color: opt === value ? "#0369a1" : "#1e293b",
-                  fontWeight: opt === value ? 700 : 400,
-                  borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#f8fafc";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = opt === value ? "#e0f2fe" : "#ffffff";
-                }}
-              >
-                {opt}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   // Prehung - External Door State
   const [preExtDoorName, setPreExtDoorName] = useState("");
@@ -930,6 +1013,7 @@ export default function LockupTask({
   const handleRowFieldChange = (rowId, field, val) => {
     if (!onSetEntries) return;
     const finalVal = (val === "" || val === null || (typeof val === "string" && val.trim().toUpperCase() === "NULL")) ? null : val;
+    let targetRow = null;
     onSetEntries(prev => (prev || []).map(r => {
       if (r.id !== rowId) return r;
       const updated = { ...r, [field]: finalVal };
@@ -947,8 +1031,16 @@ export default function LockupTask({
           updated.jambSize = "112×19mm 5.4m Loose Jamb";
         }
       }
+      if (field === "width" || field === "height") {
+        updated.size = `${updated.height || 2040} × ${updated.width || 820}`;
+      }
+      targetRow = updated;
       return updated;
     }));
+
+    if (targetRow) {
+      setTimeout(() => syncCanvasDoor(targetRow), 0);
+    }
   };
 
   const handleAddBlankRow = () => {
@@ -1020,8 +1112,8 @@ export default function LockupTask({
         const pWall = allWalls.find(w => w.id === d.parentWallId);
         const wallThick = pWall?.thickness || pWall?.thickness_mm || d.thickness_mm || d.wall_thickness || 90;
         const doorLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
-        const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
-        const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+        const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
+        const dHeight = getDoorHeightInMm(d);
         const isExt = Boolean(
           d.is_ext ||
           d.is_exterior ||
@@ -1113,6 +1205,11 @@ export default function LockupTask({
           }
         }
 
+        const origWidth = getDoorWidthInMm(origDoor, realScale, scaleValue);
+        const origHeight = getDoorHeightInMm(origDoor);
+        const finalWidth = (r.width && Number(r.width) >= 300 && Number(r.width) <= 6000) ? Math.round(Number(r.width)) : origWidth;
+        const finalHeight = (r.height && Number(r.height) >= 1000 && Number(r.height) <= 3500) ? Math.round(Number(r.height)) : origHeight;
+
         return {
           id: `door-ai-${Date.now()}-${idx}`,
           doorId: r.doorId || r.id || origDoor.doorId || origDoor.id,
@@ -1122,8 +1219,9 @@ export default function LockupTask({
           label: doorLabel,
           door_name: doorLabel,
           door_type: r.door_type || origDoor.door_type || origDoor.product || null,
-          height: r.height || origDoor.height || 2040,
-          width: r.width || origDoor.width || 820,
+          height: finalHeight,
+          width: finalWidth,
+          size: `${finalHeight} × ${finalWidth}`,
           thickness: r.thickness || origDoor.thickness || (isExt ? 40 : (isLoose ? 38 : 35)),
           jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
           jamb_size: isExt ? (r.jamb_size || "Steel Frame") : (isLoose ? "112×19mm 5.4m Loose Jamb" : (r.jamb_size || "92x18mm")),

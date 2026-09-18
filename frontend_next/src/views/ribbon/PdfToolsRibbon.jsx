@@ -197,7 +197,11 @@ export default function PdfToolsRibbon({
   setPendingPages,
   setImportSelectedPages,
   setIsAddingPagesMode,
-  setShowImportPageSelector
+  setShowImportPageSelector,
+  layerVisibility: layerVisibilityProp,
+  setLayerVisibility: setLayerVisibilityProp,
+  showPDF: showPDFProp,
+  setShowPDF: setShowPDFProp
 }) {
   const {
     activeAnnotationTool,
@@ -218,6 +222,14 @@ export default function PdfToolsRibbon({
     activePdfCategory = "frame_hardware",
     currentProjectName = "Project",
     realScale = 20,
+    scaleValue = null,
+    wallsByPage = {},
+    doorsByPage = {},
+    roomsByPage = {},
+    lintelsByPage = {},
+    roofsByPage = {},
+    layerVisibility: layerVisibilityCtx,
+    showPDF: showPDFCtx,
     setCurrentProjectName,
     textBold = true,
     setTextBold,
@@ -232,22 +244,66 @@ export default function PdfToolsRibbon({
     setImportTarget
   } = useAppModel();
 
+  const layerVisibility = layerVisibilityProp || layerVisibilityCtx || { floor: true, wall: true, door: true, lintel: true, ocr: true, labels: true, roof: true, annotations: true };
+  const showPDF = showPDFProp !== undefined ? showPDFProp : (showPDFCtx !== undefined ? showPDFCtx : true);
+
   // PDF Export State & Handlers
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [exportProgressText, setExportProgressText] = useState("");
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportModalLayers, setExportModalLayers] = useState({
+    showPDF: true,
+    lintel: true,
+    wall: true,
+    door: true,
+    floor: true,
+    labels: true,
+    ocr: true,
+    roof: true,
+    annotations: true
+  });
+  const [exportModalPageRange, setExportModalPageRange] = useState("current"); // "current" | "step" | "all"
 
-  const handleExportPdf = async (mode = "current") => {
+  const openExportModal = () => {
+    setExportModalLayers({
+      showPDF: showPDF !== false,
+      lintel: layerVisibility?.lintel !== false,
+      wall: layerVisibility?.wall !== false,
+      door: layerVisibility?.door !== false,
+      floor: layerVisibility?.floor !== false,
+      labels: layerVisibility?.labels !== false,
+      ocr: layerVisibility?.ocr !== false,
+      roof: layerVisibility?.roof !== false,
+      annotations: true
+    });
+    setExportModalPageRange("current");
+    setShowExportModal(true);
+  };
+
+  const handleExportPdf = async (mode = "current", customLayers = null) => {
     try {
       setIsExportingPdf(true);
       setExportProgressText("Preparing export...");
+      const effectiveLayerVis = customLayers ? { ...layerVisibility, ...customLayers } : layerVisibility;
+      const effectiveShowPdf = customLayers?.showPDF !== undefined ? customLayers.showPDF : showPDF;
+
       const savedFileName = await exportPdfToolsDocument({
         pages,
         currentPage,
         annotationsByPage,
+        wallsByPage,
+        doorsByPage,
+        roomsByPage,
+        lintelsByPage,
+        roofsByPage,
+        layerVisibility: effectiveLayerVis,
+        showPDF: effectiveShowPdf,
+        scaleValue,
         activeCategory: activePdfCategory,
         projectName: currentProjectName || "EzeFloor_Project",
         realScale: (typeof realScale === "number" && realScale > 0) ? realScale : 20,
         mode,
+        customLayers,
         onProgress: (pct, text) => {
           setExportProgressText(`${text} (${pct}%)`);
         }
@@ -555,9 +611,32 @@ export default function PdfToolsRibbon({
                   <span style={{ fontSize: "15px" }}>📄</span>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: "12px", color: "#1e293b" }}>Export Current Page</div>
-                    <div style={{ fontSize: "10px", color: "#64748b" }}>Active page with all markups</div>
+                    <div style={{ fontSize: "10px", color: "#64748b" }}>Active page with visible layers</div>
                   </div>
                 </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => { handleExportPdf("lintel"); setOpenDropdown(null); }}
+                  style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "7px 10px", minWidth: "auto", textAlign: "left" }}
+                >
+                  <span style={{ fontSize: "15px" }}>📏</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "12px", color: "#1e293b" }}>Export Lintel Plan</div>
+                    <div style={{ fontSize: "10px", color: "#64748b" }}>Current page with Lintel callouts</div>
+                  </div>
+                </button>
+                <button
+                  className="ribbon-btn"
+                  onClick={() => { openExportModal(); setOpenDropdown(null); }}
+                  style={{ width: "100%", justifyContent: "flex-start", flexDirection: "row", gap: "8px", padding: "7px 10px", minWidth: "auto", textAlign: "left", background: "#f8fafc" }}
+                >
+                  <span style={{ fontSize: "15px" }}>⚙️</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "12px", color: "#2563eb" }}>Custom Layer Options...</div>
+                    <div style={{ fontSize: "10px", color: "#64748b" }}>Select/hide rooms, walls, doors, etc.</div>
+                  </div>
+                </button>
+                <div style={{ height: "1px", background: "#e2e8f0", margin: "2px 0" }} />
                 <button
                   className="ribbon-btn"
                   onClick={() => { handleExportPdf("step"); setOpenDropdown(null); }}
@@ -1244,6 +1323,331 @@ export default function PdfToolsRibbon({
             }}
           />
           <span>{exportProgressText || "Exporting PDF..."}</span>
+        </div>
+      )}
+
+      {/* ── MODAL: CUSTOM LAYER PDF EXPORT ── */}
+      {showExportModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(6px)",
+            zIndex: 999999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}
+          onClick={() => setShowExportModal(false)}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "14px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              width: "100%",
+              maxWidth: "520px",
+              border: "1px solid #e2e8f0",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: "16px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "linear-gradient(to right, #f8fafc, #ffffff)"
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "20px" }}>📐</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+                    Export PDF with Layer Options
+                  </h3>
+                  <p style={{ margin: 0, fontSize: "11px", color: "#64748b" }}>
+                    Select visible layers to include or exclude from the exported PDF
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  fontSize: "18px",
+                  cursor: "pointer",
+                  color: "#94a3b8",
+                  padding: "4px 8px",
+                  borderRadius: "6px"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: "18px 20px", maxHeight: "75vh", overflowY: "auto" }}>
+              {/* Presets */}
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b", marginBottom: "8px" }}>
+                  Quick Presets
+                </label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportModalLayers({
+                        showPDF: true,
+                        lintel: true,
+                        wall: true,
+                        door: true,
+                        floor: false,
+                        labels: false,
+                        ocr: false,
+                        roof: false,
+                        annotations: false
+                      });
+                    }}
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #fde047",
+                      background: "#fef9c3",
+                      color: "#854d0e",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    📏 Lintel Plan (Clean)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportModalLayers({
+                        showPDF: true,
+                        lintel: true,
+                        wall: true,
+                        door: true,
+                        floor: true,
+                        labels: true,
+                        ocr: true,
+                        roof: true,
+                        annotations: true
+                      });
+                    }}
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      background: "#f8fafc",
+                      color: "#334155",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    📋 Full Plan (All Layers)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportModalLayers({
+                        showPDF: false,
+                        lintel: true,
+                        wall: true,
+                        door: true,
+                        floor: true,
+                        labels: true,
+                        ocr: false,
+                        roof: true,
+                        annotations: true
+                      });
+                    }}
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      background: "#f8fafc",
+                      color: "#334155",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    📄 CAD Vector Only (No PDF)
+                  </button>
+                </div>
+              </div>
+
+              {/* Layer Selection Grid */}
+              <div style={{ marginBottom: "18px" }}>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b", marginBottom: "8px" }}>
+                  Layer Visibility
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  {[
+                    { key: "showPDF", label: "PDF Background", icon: "🖼️", desc: "Original architectural drawing" },
+                    { key: "lintel", label: "Lintel Callouts", icon: "📏", desc: "Yellow badges & leader lines" },
+                    { key: "wall", label: "Walls Layer", icon: "🧱", desc: "Wall thickness & centerlines" },
+                    { key: "door", label: "Doors & Windows", icon: "🚪", desc: "Door swings & opening blocks" },
+                    { key: "floor", label: "Rooms & Floors", icon: "🏠", desc: "Room polygons & area m²" },
+                    { key: "labels", label: "Dimension Labels", icon: "🏷️", desc: "Wall and opening measurements" },
+                    { key: "ocr", label: "OCR Text Notes", icon: "🔤", desc: "Detected text elements" },
+                    { key: "roof", label: "Roofs Layer", icon: "⌂", desc: "Roof polygon outlines" },
+                    { key: "annotations", label: "Annotations & Markups", icon: "🎨", desc: "Drawings, shapes, callouts" }
+                  ].map(layer => {
+                    const isChecked = exportModalLayers[layer.key] !== false;
+                    return (
+                      <div
+                        key={layer.key}
+                        onClick={() => {
+                          setExportModalLayers(prev => ({ ...prev, [layer.key]: !isChecked }));
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "8px",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: isChecked ? "1px solid #3b82f6" : "1px solid #e2e8f0",
+                          backgroundColor: isChecked ? "#eff6ff" : "#f8fafc",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setExportModalLayers(prev => ({ ...prev, [layer.key]: e.target.checked }));
+                          }}
+                          style={{ marginTop: "2px", cursor: "pointer", accentColor: "#2563eb" }}
+                        />
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 600, color: isChecked ? "#1d4ed8" : "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
+                            <span>{layer.icon}</span>
+                            <span>{layer.label}</span>
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#64748b" }}>{layer.desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Page Range Selection */}
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b", marginBottom: "8px" }}>
+                  Export Range
+                </label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", background: "#f8fafc", padding: "10px 14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#334155", cursor: "pointer", fontWeight: exportModalPageRange === "current" ? 600 : 400 }}>
+                    <input
+                      type="radio"
+                      name="exportPageRange"
+                      value="current"
+                      checked={exportModalPageRange === "current"}
+                      onChange={() => setExportModalPageRange("current")}
+                      style={{ accentColor: "#2563eb" }}
+                    />
+                    Current Page (Pg {currentPage + 1})
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#334155", cursor: "pointer", fontWeight: exportModalPageRange === "step" ? 600 : 400 }}>
+                    <input
+                      type="radio"
+                      name="exportPageRange"
+                      value="step"
+                      checked={exportModalPageRange === "step"}
+                      onChange={() => setExportModalPageRange("step")}
+                      style={{ accentColor: "#2563eb" }}
+                    />
+                    {activePdfCategory ? (activePdfCategory.charAt(0).toUpperCase() + activePdfCategory.slice(1)) : "Task"} Pages
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#334155", cursor: "pointer", fontWeight: exportModalPageRange === "all" ? 600 : 400 }}>
+                    <input
+                      type="radio"
+                      name="exportPageRange"
+                      value="all"
+                      checked={exportModalPageRange === "all"}
+                      onChange={() => setExportModalPageRange("all")}
+                      style={{ accentColor: "#2563eb" }}
+                    />
+                    All Project Pages ({pages.length})
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                padding: "12px 20px",
+                borderTop: "1px solid #e2e8f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: "10px",
+                background: "#f8fafc"
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                disabled={isExportingPdf}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#475569",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await handleExportPdf(exportModalPageRange, exportModalLayers);
+                  setShowExportModal(false);
+                }}
+                disabled={isExportingPdf}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#ffffff",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: isExportingPdf ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  boxShadow: "0 2px 4px rgba(37, 99, 235, 0.3)"
+                }}
+              >
+                {isExportingPdf ? "Exporting..." : "Export PDF Now"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

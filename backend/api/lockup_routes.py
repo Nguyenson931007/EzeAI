@@ -558,8 +558,23 @@ async def calculate_lockout(payload: DoorCalcPayload):
             or d.get("product")
             or ""
         ).strip() or None
-        d_width = float(d.get("width_mm") or d.get("width") or 820.0)
-        d_height = float(d.get("height_mm") or d.get("height") or 2040.0)
+        try:
+            d_width = float(d.get("width_mm") or d.get("width") or 820.0)
+        except (ValueError, TypeError):
+            d_width = 820.0
+        if 0.3 <= d_width <= 6.0:
+            d_width = d_width * 1000.0
+        elif d_width > 6000.0 or d_width < 300.0:
+            d_width = 820.0
+
+        try:
+            d_height = float(d.get("height_mm") or d.get("height") or 2040.0)
+        except (ValueError, TypeError):
+            d_height = 2040.0
+        if 1.0 <= d_height <= 3.5:
+            d_height = d_height * 1000.0
+        elif d_height > 3500.0 or d_height < 1000.0:
+            d_height = 2040.0
 
         # 1. Scope: Lấy theo Door Type (External vs Internal Penetrations)
         explicit_scope = str(d.get("scope") or d.get("location") or "").strip().lower()

@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
+import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 
 export default function LockoutJobsModal({
   visible,
@@ -135,8 +136,8 @@ export default function LockoutJobsModal({
         const pWall = (walls || []).find(w => w.id === d.parentWallId);
         const wallThick = pWall?.thickness || pWall?.thickness_mm || d.thickness_mm || d.wall_thickness || 90;
         const dName = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D${idx + 1}`).trim();
-        const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
-        const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+        const dWidth = getDoorWidthInMm(d);
+        const dHeight = getDoorHeightInMm(d);
         const isExtDoor = Boolean(
           d.is_ext ||
           d.is_exterior ||

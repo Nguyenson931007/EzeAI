@@ -2192,8 +2192,13 @@ export default function RibbonView({
             setActiveTab={setActiveTab}
             setPendingPages={setPendingPages}
             setImportSelectedPages={setImportSelectedPages}
+            isAddingPagesMode={isAddingPagesMode}
             setIsAddingPagesMode={setIsAddingPagesMode}
             setShowImportPageSelector={setShowImportPageSelector}
+            layerVisibility={layerVisibility}
+            setLayerVisibility={setLayerVisibility}
+            showPDF={showPDF}
+            setShowPDF={setShowPDF}
           />
         )}
 
@@ -2524,7 +2529,17 @@ export default function RibbonView({
                 const handleNextStep = () => {
                   const currentIdx = taskSteps.findIndex(s => s.id === selectedStepId);
                   const nextIdx = (currentIdx + 1) % taskSteps.length;
-                  setSelectedStepId(taskSteps[nextIdx].id);
+                  const nextStep = taskSteps[nextIdx];
+                  if (!nextStep) return;
+                  setSelectedStepId(nextStep.id);
+                  if (pendingPages && pendingPages.length > 0) {
+                    setImportSelectedPages(pendingPages.map((_, i) => i));
+                    const updated = { ...importPageCategories };
+                    pendingPages.forEach((_, i) => {
+                      updated[i] = nextStep.id;
+                    });
+                    setImportPageCategories(updated);
+                  }
                 };
 
                 const handleAssignCurrentStepToSelected = () => {

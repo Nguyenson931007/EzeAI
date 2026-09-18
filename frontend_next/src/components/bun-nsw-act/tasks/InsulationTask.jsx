@@ -4,6 +4,52 @@ import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
+export const DEFAULT_WALL_PRODUCTS = {
+  "R2.0": [
+    "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 - 10 m²/pack",
+    "0810593 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X580 PK20 - 13.5 m²/pack",
+    "0810324 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.0 90X430 PK 32 - 16 m²/pack",
+    "0810325 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.0 90X580 PK 32 - 21.5 m²/pack"
+  ],
+  "R2.5": [
+    "0810602 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12 - 6 m²/pack",
+    "0810603 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X580 PK12 - 8.1 m²/pack",
+    "0810326 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.5 90X430 PK 20 - 10 m²/pack",
+    "0810327 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.5 90X580 PK 20 - 13.5 m²/pack"
+  ],
+  "R2.7": [
+    "0810328 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.7 90X430 PK 16 - 8 m²/pack",
+    "0810329 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R2.7 90X580 PK 16 - 10.8 m²/pack"
+  ],
+  "R1.5": [
+    "0810320 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R1.5 75X430 PK 24 - 12 m²/pack",
+    "0810321 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R1.5 75X580 PK 24 - 16.2 m²/pack"
+  ],
+  "R4.0": [
+    "0810330 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R4.0 90X430 PK 10 - 5 m²/pack",
+    "0810331 · INSULATION BATTS G/WOOL KNAUF++EARTHWOOL R4.0 90X580 PK 10 - 6.8 m²/pack"
+  ]
+};
+
+export const DEFAULT_AREA_PRODUCTS = {
+  "R3.5": [
+    "0300784 · INSULATION BATTS G/WOOL KNAUF++175X430 EARTHWOOL R3.5 PK17 - 8.5 m²/pack",
+    "0300787 · INSULATION BATTS G/WOOL KNAUF++175X580 EARTHWOOL R3.5 PK17 - 11.4 m²/pack"
+  ],
+  "R4.0": [
+    "0300788 · INSULATION BATTS G/WOOL KNAUF++195X430 EARTHWOOL R4.0 PK16 - 8.0 m²/pack",
+    "0300789 · INSULATION BATTS G/WOOL KNAUF++195X580 EARTHWOOL R4.0 PK16 - 10.8 m²/pack"
+  ],
+  "R5.0": [
+    "0300790 · INSULATION BATTS G/WOOL KNAUF++215X430 EARTHWOOL R5.0 PK12 - 6.0 m²/pack",
+    "0300791 · INSULATION BATTS G/WOOL KNAUF++215X580 EARTHWOOL R5.0 PK12 - 8.1 m²/pack"
+  ],
+  "R6.0": [
+    "0300792 · INSULATION BATTS G/WOOL KNAUF++240X430 EARTHWOOL R6.0 PK10 - 5.0 m²/pack",
+    "0300793 · INSULATION BATTS G/WOOL KNAUF++240X580 EARTHWOOL R6.0 PK10 - 6.7 m²/pack"
+  ]
+};
+
 export default function InsulationTask({
   formData = {},
   onChange,
@@ -53,13 +99,26 @@ export default function InsulationTask({
   editingRowIdRef.current = editingRowId;
   const wallEntriesRef = useRef(wallEntries);
   wallEntriesRef.current = wallEntries;
+  const areaEntriesRef = useRef(areaEntries);
+  areaEntriesRef.current = areaEntries;
+
+  const [editingAreaRowId, setEditingAreaRowId] = useState(null);
+  const [editAreaRowData, setEditAreaRowData] = useState({});
+  const editAreaRowDataRef = useRef(editAreaRowData);
+  editAreaRowDataRef.current = editAreaRowData;
+  const editingAreaRowIdRef = useRef(editingAreaRowId);
+  editingAreaRowIdRef.current = editingAreaRowId;
+
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [isSection1Open, setIsSection1Open] = useState(false);
+
+  // Sections Collapsible states
+  const [isSection1Open, setIsSection1Open] = useState(true);
   const [isExtOpen, setIsExtOpen] = useState(true);
   const [isIntOpen, setIsIntOpen] = useState(true);
   const [isPartyOpen, setIsPartyOpen] = useState(true);
+  const [isSection3Open, setIsSection3Open] = useState(true);
 
   // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
   const getLevelCode = (idx) => {
@@ -90,102 +149,22 @@ export default function InsulationTask({
   };
 
   const LEVEL_SORT_ORDER = {
-    GF: 1,
-    "G/F": 1,
-    "GROUND FLOOR": 1,
-    GROUND: 1,
-    "LEVEL 1": 1,
-    "0F": 1,
-    FF: 2,
-    "1/F": 2,
-    "1F": 2,
-    "FIRST FLOOR": 2,
-    FIRST: 2,
-    "LEVEL 2": 2,
-    SF: 3,
-    "2/F": 3,
-    "2F": 3,
-    "SECOND FLOOR": 3,
-    SECOND: 3,
-    "LEVEL 3": 3,
-    TF: 4,
-    "3/F": 4,
-    "3F": 4,
-    "THIRD FLOOR": 4,
-    THIRD: 4,
-    "LEVEL 4": 4,
-    "4F": 5,
-    "4/F": 5,
-    "FOURTH FLOOR": 5,
-    FOURTH: 5,
-    "LEVEL 5": 5,
-    "5F": 6,
-    "5/F": 6,
-    "FIFTH FLOOR": 6,
-    FIFTH: 6,
-    "LEVEL 6": 6,
-    "6F": 7,
-    "6/F": 7,
-    "SIXTH FLOOR": 7,
-    SIXTH: 7,
-    "LEVEL 7": 7,
-    "7F": 8,
-    "7/F": 8,
-    "SEVENTH FLOOR": 8,
-    SEVENTH: 8,
-    "LEVEL 8": 8,
-    "8F": 9,
-    "8/F": 9,
-    "EIGHTH FLOOR": 9,
-    EIGHTH: 9,
-    "LEVEL 9": 9,
-    "9F": 10,
-    "9/F": 10,
-    "NINTH FLOOR": 10,
-    NINTH: 10,
-    "LEVEL 10": 10,
-    "10F": 11,
-    "10/F": 11,
-    "TENTH FLOOR": 11,
-    TENTH: 11,
-    "LEVEL 11": 11
+    GF: 1, "G/F": 1, "GROUND FLOOR": 1, GROUND: 1, "LEVEL 1": 1, "0F": 1,
+    FF: 2, "1/F": 2, "1F": 2, "FIRST FLOOR": 2, FIRST: 2, "LEVEL 2": 2,
+    SF: 3, "2/F": 3, "2F": 3, "SECOND FLOOR": 3, SECOND: 3, "LEVEL 3": 3,
+    TF: 4, "3/F": 4, "3F": 4, "THIRD FLOOR": 4, THIRD: 4, "LEVEL 4": 4,
+    "4F": 5, "4/F": 5, "FOURTH FLOOR": 5, FOURTH: 5, "LEVEL 5": 5,
+    "5F": 6, "5/F": 6, "FIFTH FLOOR": 6, FIFTH: 6, "LEVEL 6": 6
   };
 
   const getFloorLevelDisplayName = (lvl) => {
     const raw = String(lvl || "").trim().toUpperCase();
-    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
-      return "Ground Floor";
-    }
-    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
-      return "First Floor";
-    }
-    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
-      return "Second Floor";
-    }
-    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
-      return "Third Floor";
-    }
-    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
-      return "Fourth Floor";
-    }
-    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
-      return "Fifth Floor";
-    }
-    if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
-      return "Sixth Floor";
-    }
-    if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
-      return "Seventh Floor";
-    }
-    if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
-      return "Eighth Floor";
-    }
-    if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
-      return "Ninth Floor";
-    }
-    if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
-      return "Tenth Floor";
-    }
+    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") return "Ground Floor";
+    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") return "First Floor";
+    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") return "Second Floor";
+    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") return "Third Floor";
+    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") return "Fourth Floor";
+    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") return "Fifth Floor";
     return `${lvl} Floor`;
   };
 
@@ -193,9 +172,7 @@ export default function InsulationTask({
     const groups = {};
     (wallEntries || []).forEach(item => {
       const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
-      if (!groups[lvl]) {
-        groups[lvl] = [];
-      }
+      if (!groups[lvl]) groups[lvl] = [];
       groups[lvl].push(item);
     });
 
@@ -210,6 +187,26 @@ export default function InsulationTask({
       items: groups[lvl]
     }));
   }, [wallEntries]);
+
+  const groupedAreasByLevel = useMemo(() => {
+    const groups = {};
+    (areaEntries || []).forEach(item => {
+      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      if (!groups[lvl]) groups[lvl] = [];
+      groups[lvl].push(item);
+    });
+
+    const sortedLevels = Object.keys(groups).sort((a, b) => {
+      const orderA = LEVEL_SORT_ORDER[a] || 99;
+      const orderB = LEVEL_SORT_ORDER[b] || 99;
+      return orderA - orderB;
+    });
+
+    return sortedLevels.map(lvl => ({
+      level: lvl,
+      items: groups[lvl]
+    }));
+  }, [areaEntries]);
 
   const normalizeRValue = (value) => {
     const raw = String(value ?? "").trim().toUpperCase();
@@ -278,28 +275,30 @@ export default function InsulationTask({
     [catalogItems]
   );
 
-  const extRValueOptions = useMemo(
-    () => getRValueOptions(extCatalogItems),
-    [extCatalogItems]
-  );
-  const intRValueOptions = useMemo(
-    () => getRValueOptions(intCatalogItems),
-    [intCatalogItems]
-  );
-  const partyRValueOptions = useMemo(
-    () => getRValueOptions(partyCatalogItems),
-    [partyCatalogItems]
-  );
+  const extRValueOptions = useMemo(() => {
+    const fromCat = getRValueOptions(extCatalogItems);
+    return fromCat.length > 0 ? fromCat : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"];
+  }, [extCatalogItems]);
 
-  // Ext Wall State (Card 1 manual inputs)
+  const intRValueOptions = useMemo(() => {
+    const fromCat = getRValueOptions(intCatalogItems);
+    return fromCat.length > 0 ? fromCat : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"];
+  }, [intCatalogItems]);
+
+  const partyRValueOptions = useMemo(() => {
+    const fromCat = getRValueOptions(partyCatalogItems);
+    return fromCat.length > 0 ? fromCat : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"];
+  }, [partyCatalogItems]);
+
+  // Section 1: Ext Wall State
   const [extHeight, setExtHeight] = useState("2400");
   const [extLength, setExtLength] = useState("");
-  const [extRValue, setExtRValue] = useState("R2.5");
+  const [extRValue, setExtRValue] = useState("R2.0");
   const [extProduct, setExtProduct] = useState("");
   const [extRaked, setExtRaked] = useState("0");
   const [extDoor, setExtDoor] = useState("0");
 
-  // Int Wall State
+  // Section 1: Int Wall State
   const [intHeight, setIntHeight] = useState("2400");
   const [intLength, setIntLength] = useState("");
   const [intRValue, setIntRValue] = useState("R2.0");
@@ -307,7 +306,7 @@ export default function InsulationTask({
   const [intRaked, setIntRaked] = useState("0");
   const [intDoor, setIntDoor] = useState("0");
 
-  // Partywall State
+  // Section 1: Partywall State
   const [partyHeight, setPartyHeight] = useState("2400");
   const [partyLength, setPartyLength] = useState("");
   const [partyRValue, setPartyRValue] = useState("R2.0");
@@ -315,83 +314,75 @@ export default function InsulationTask({
   const [partyRaked, setPartyRaked] = useState("0");
   const [partyDoor, setPartyDoor] = useState("0");
 
+  // Section 3: Insulation Floor & Ceiling State
+  const [areaInsType, setAreaInsType] = useState("Ceiling"); // "Ceiling" | "Floor"
+  const [areaRValue, setAreaRValue] = useState("R3.5"); // "R3.5" | "R4.0" | "R5.0" | "R6.0"
+  const [areaProduct, setAreaProduct] = useState("");
+  const [areaTotalInsulation, setAreaTotalInsulation] = useState("");
+
+  const areaRValueOptions = useMemo(() => ["R3.5", "R4.0", "R5.0", "R6.0"], []);
+
+  const getProductOptionsForWallTypeAndR = (type, rValue) => {
+    const normR = normalizeRValue(rValue);
+    const catItems = String(type || "").toLowerCase().includes("ext") ? extCatalogItems : (String(type || "").toLowerCase().includes("party") ? partyCatalogItems : intCatalogItems);
+    const fromCat = uniqueCanonicalProducts(filterCatalogByRValue(catItems, normR));
+    if (fromCat.length > 0) return fromCat;
+    return DEFAULT_WALL_PRODUCTS[normR] || DEFAULT_WALL_PRODUCTS["R2.0"] || [];
+  };
+
+  const getProductOptionsForAreaAndR = (type, rValue) => {
+    const normR = normalizeRValue(rValue);
+    const areaCatalog = catalogByGroup(catalogItems, [String(type).toLowerCase(), "ceiling", "floor"]);
+    const fromCat = uniqueCanonicalProducts(filterCatalogByRValue(areaCatalog, normR));
+    if (fromCat.length > 0) return fromCat;
+    return DEFAULT_AREA_PRODUCTS[normR] || DEFAULT_AREA_PRODUCTS["R3.5"] || [];
+  };
+
   const extProductOptions = useMemo(
-    () => uniqueCanonicalProducts(filterCatalogByRValue(extCatalogItems, extRValue)),
+    () => getProductOptionsForWallTypeAndR("Ext wall", extRValue),
     [extCatalogItems, extRValue]
   );
 
   const intProductOptions = useMemo(
-    () => uniqueCanonicalProducts(filterCatalogByRValue(intCatalogItems, intRValue)),
+    () => getProductOptionsForWallTypeAndR("Int Wall", intRValue),
     [intCatalogItems, intRValue]
   );
 
   const partyProductOptions = useMemo(
-    () => uniqueCanonicalProducts(filterCatalogByRValue(partyCatalogItems, partyRValue)),
+    () => getProductOptionsForWallTypeAndR("Partywall", partyRValue),
     [partyCatalogItems, partyRValue]
   );
 
-  const getCatalogItemsForWallType = (type) => {
-    const normalized = String(type || "").toLowerCase();
-    if (normalized.includes("ext")) return extCatalogItems;
-    if (normalized.includes("party") || normalized.includes("partial")) return partyCatalogItems;
-    return intCatalogItems;
-  };
+  const areaProductOptions = useMemo(
+    () => getProductOptionsForAreaAndR(areaInsType, areaRValue),
+    [catalogItems, areaInsType, areaRValue]
+  );
 
-  const getRValueOptionsForWallType = (type) =>
-    getRValueOptions(getCatalogItemsForWallType(type));
-
-  const getProductOptionsForWallTypeAndR = (type, rValue) =>
-    uniqueCanonicalProducts(
-      filterCatalogByRValue(getCatalogItemsForWallType(type), rValue)
-    );
-
+  // Sync Wall Default Products
   useEffect(() => {
-    if (extRValueOptions.length > 0 && !extRValueOptions.includes(normalizeRValue(extRValue))) {
-      setExtRValue(extRValueOptions[0]);
-    }
-  }, [extRValueOptions, extRValue]);
-
-  useEffect(() => {
-    if (intRValueOptions.length > 0 && !intRValueOptions.includes(normalizeRValue(intRValue))) {
-      setIntRValue(intRValueOptions[0]);
-    }
-  }, [intRValueOptions, intRValue]);
-
-  useEffect(() => {
-    if (partyRValueOptions.length > 0 && !partyRValueOptions.includes(normalizeRValue(partyRValue))) {
-      setPartyRValue(partyRValueOptions[0]);
-    }
-  }, [partyRValueOptions, partyRValue]);
-
-  useEffect(() => {
-    if (extProductOptions.length === 0) {
-      if (extProduct) setExtProduct("");
-      return;
-    }
-    if (!extProduct || !extProductOptions.includes(extProduct)) {
+    if (extProductOptions.length > 0 && (!extProduct || !extProductOptions.includes(extProduct))) {
       setExtProduct(extProductOptions[0]);
     }
   }, [extProductOptions, extProduct]);
 
   useEffect(() => {
-    if (intProductOptions.length === 0) {
-      if (intProduct) setIntProduct("");
-      return;
-    }
-    if (!intProduct || !intProductOptions.includes(intProduct)) {
+    if (intProductOptions.length > 0 && (!intProduct || !intProductOptions.includes(intProduct))) {
       setIntProduct(intProductOptions[0]);
     }
   }, [intProductOptions, intProduct]);
 
   useEffect(() => {
-    if (partyProductOptions.length === 0) {
-      if (partyProduct) setPartyProduct("");
-      return;
-    }
-    if (!partyProduct || !partyProductOptions.includes(partyProduct)) {
+    if (partyProductOptions.length > 0 && (!partyProduct || !partyProductOptions.includes(partyProduct))) {
       setPartyProduct(partyProductOptions[0]);
     }
   }, [partyProductOptions, partyProduct]);
+
+  // Sync Area Default Product
+  useEffect(() => {
+    if (areaProductOptions.length > 0 && (!areaProduct || !areaProductOptions.includes(areaProduct))) {
+      setAreaProduct(areaProductOptions[0]);
+    }
+  }, [areaProductOptions, areaProduct]);
 
   const calcInsulationArea = (h, l, raked, door) => {
     const heightM = (parseFloat(h) || 2400) / 1000;
@@ -437,7 +428,36 @@ export default function InsulationTask({
     }
   };
 
-  // ── Auto-Calculate & Fill Insulation trực tiếp từ bản vẽ ──
+  // Add Floor & Ceiling Entry
+  const handleAddAreaEntry = () => {
+    const areaVal = parseFloat(areaTotalInsulation) || 0;
+    if (areaVal <= 0) return;
+    const currentLevel = getLevelCode(currentPage) || "GF";
+
+    const newArea = {
+      id: "ins-area-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
+      floorLevel: currentLevel,
+      type: areaInsType,
+      rValue: areaRValue,
+      product: areaProduct,
+      insulationArea: Number(areaVal.toFixed(2)),
+      totalArea: Number(areaVal.toFixed(2)),
+      area: Number(areaVal.toFixed(2))
+    };
+
+    if (onSetAreaEntries) {
+      onSetAreaEntries(prev => [...(prev || []), newArea]);
+    }
+    setAreaTotalInsulation("");
+  };
+
+  const handleRemoveArea = (id) => {
+    if (onSetAreaEntries) {
+      onSetAreaEntries(prev => (prev || []).filter(a => a.id !== id));
+    }
+  };
+
+  // Auto Fill AI
   const handleAutoFillAI = async () => {
     setIsAutoFilling(true);
     try {
@@ -516,8 +536,8 @@ export default function InsulationTask({
       if (res && res.success && res.rows && res.rows.length > 0) {
         const mappedRows = res.rows.map((r, idx) => {
           const isExt = (r.wall_type || "").toLowerCase().includes("ext");
-          const rOptions = getRValueOptionsForWallType(r.wall_type);
-          const preferredR = isExt ? "R2.5" : "R2.0";
+          const rOptions = isExt ? extRValueOptions : intRValueOptions;
+          const preferredR = "R2.0";
           const rVal = rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR);
           const prodList = getProductOptionsForWallTypeAndR(r.wall_type, rVal);
           const prod = prodList[0] || "";
@@ -555,14 +575,13 @@ export default function InsulationTask({
     }
   };
 
-  // ── Inline Edit Logic ──
+  // Wall Inline Edit Logic
   const handleStartEdit = (w) => {
     setEditingRowId(w.id);
-    const rOptions = getRValueOptionsForWallType(w.type);
-    const preferredR = String(w.type || "").toLowerCase().includes("ext") ? "R2.5" : "R2.0";
+    const isExt = String(w.type || "").toLowerCase().includes("ext");
+    const rOptions = isExt ? extRValueOptions : intRValueOptions;
     const currentRRaw = normalizeRValue(w.rValue);
-    const currentR = currentRRaw || (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR));
-
+    const currentR = currentRRaw || "R2.0";
     const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
     const prod = w.product || (availableProds[0] || "");
 
@@ -620,25 +639,79 @@ export default function InsulationTask({
     setEditingRowId(null);
   };
 
-  // Tự động lưu khi click ra ngoài dòng đang chỉnh sửa
+  // Area Inline Edit Logic
+  const handleStartAreaEdit = (a) => {
+    setEditingAreaRowId(a.id);
+    const currentR = normalizeRValue(a.rValue) || "R3.5";
+    const availableProds = getProductOptionsForAreaAndR(a.type, currentR);
+    const prod = a.product || (availableProds[0] || "");
+
+    setEditAreaRowData({
+      id: a.id,
+      type: a.type || "Ceiling",
+      rValue: currentR,
+      product: prod,
+      insulationArea: a.insulationArea || a.area || a.totalArea || 0
+    });
+  };
+
+  const handleEditAreaFieldChange = (field, val) => {
+    setEditAreaRowData(prev => {
+      const updated = { ...prev, [field]: val };
+      if (field === "rValue") {
+        const normalizedR = normalizeRValue(val);
+        updated.rValue = normalizedR || val;
+        const prods = getProductOptionsForAreaAndR(updated.type, updated.rValue);
+        if (prods.length > 0 && !prods.includes(updated.product)) {
+          updated.product = prods[0] || "";
+        }
+      }
+      return updated;
+    });
+  };
+
+  const handleSaveAreaInlineEdit = (idToSave) => {
+    const targetId = idToSave || editingAreaRowIdRef.current;
+    if (!targetId || !onSetAreaEntries) return;
+    const currentData = editAreaRowDataRef.current;
+    const areaVal = Number(parseFloat(currentData.insulationArea || 0).toFixed(2));
+
+    onSetAreaEntries(prev => {
+      const currentList = Array.isArray(prev) ? prev : (areaEntriesRef.current || []);
+      return currentList.map(item => item.id === targetId ? {
+        ...item,
+        ...currentData,
+        insulationArea: areaVal,
+        totalArea: areaVal,
+        area: areaVal
+      } : item);
+    });
+    setEditingAreaRowId(null);
+  };
+
+  // Auto save when clicking outside
   useEffect(() => {
     const handleDocumentMouseDown = (e) => {
-      if (!editingRowIdRef.current) return;
-      const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
-      if (!editingTr) return;
-
-      const path = e.composedPath ? e.composedPath() : [];
-      const isInsideEditingTr = path.some(el => 
-        el === editingTr || 
-        (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current)) ||
-        (el.getAttribute && el.getAttribute("data-search-dropdown"))
-      );
-
-      if (isInsideEditingTr || (e.target && editingTr.contains(e.target))) {
-        return;
+      if (editingRowIdRef.current) {
+        const editingTr = document.querySelector(`[data-editing-row-id="${editingRowIdRef.current}"]`);
+        if (editingTr) {
+          const path = e.composedPath ? e.composedPath() : [];
+          const isInside = path.some(el => el === editingTr || (el.getAttribute && el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current)));
+          if (!isInside && (!e.target || !editingTr.contains(e.target))) {
+            handleSaveInlineEdit(editingRowIdRef.current);
+          }
+        }
       }
-
-      handleSaveInlineEdit(editingRowIdRef.current);
+      if (editingAreaRowIdRef.current) {
+        const editingAreaTr = document.querySelector(`[data-editing-area-row-id="${editingAreaRowIdRef.current}"]`);
+        if (editingAreaTr) {
+          const path = e.composedPath ? e.composedPath() : [];
+          const isInside = path.some(el => el === editingAreaTr || (el.getAttribute && el.getAttribute("data-editing-area-row-id") === String(editingAreaRowIdRef.current)));
+          if (!isInside && (!e.target || !editingAreaTr.contains(e.target))) {
+            handleSaveAreaInlineEdit(editingAreaRowIdRef.current);
+          }
+        }
+      }
     };
 
     document.addEventListener("mousedown", handleDocumentMouseDown);
@@ -647,18 +720,19 @@ export default function InsulationTask({
     };
   }, []);
 
-  // ── Lưu toàn bộ danh sách Insulation vào [ProcurementApp].[dbo].[Insulation] ──
+  // Save All to MSSQL Database [ProcurementApp].[dbo].[Insulation]
   const handleSaveToDatabase = async () => {
-    if (!wallEntries || wallEntries.length === 0) return;
+    const totalCount = (wallEntries || []).length + (areaEntries || []).length;
+    if (totalCount === 0) return;
     setIsSaving(true);
     setSaveSuccess(false);
     try {
-      const items = (wallEntries || []).map(w => {
-        const rOptions = getRValueOptionsForWallType(w.type);
-        const preferredR = String(w.type || "").toLowerCase().includes("ext") ? "R2.5" : "R2.0";
+      const wallItems = (wallEntries || []).map(w => {
+        const isExt = String(w.type || "").toLowerCase().includes("ext");
+        const rOptions = isExt ? extRValueOptions : intRValueOptions;
+        const preferredR = "R2.0";
         const requestedR = normalizeRValue(w.rValue);
         const resolvedR = requestedR || (rOptions.includes(preferredR) ? preferredR : (rOptions[0] || preferredR));
-
         const availableProds = getProductOptionsForWallTypeAndR(w.type, resolvedR);
         const resolvedProduct = w.product || availableProds[0] || "";
 
@@ -676,10 +750,29 @@ export default function InsulationTask({
         };
       });
 
+      const areaItems = (areaEntries || []).map(a => {
+        const rVal = normalizeRValue(a.rValue) || "R3.5";
+        const areaNum = parseFloat(a.insulationArea || a.area || a.totalArea || 0);
+        const availableProds = getProductOptionsForAreaAndR(a.type, rVal);
+        const resolvedProduct = a.product || availableProds[0] || "";
+
+        return {
+          floor_level: a.floorLevel || a.floor_level || "GF",
+          wall_type: a.type || "Ceiling",
+          insulation_type: a.type || "Ceiling",
+          product: resolvedProduct,
+          wall_height: 1000,
+          wall_length: Math.round(areaNum * 1000),
+          total_area_raked: areaNum,
+          total_area_door: 0,
+          r_value: rVal,
+          short_name: activeCustomerShortName
+        };
+      });
+
+      const items = [...wallItems, ...areaItems];
       const targetJob = activeJobNumber || currentProjectName || currentJobId || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
-      if (!targetJob) {
-        console.warn("Chưa chọn Job để lưu Insulation");
-      }
+
       const payload = {
         user_update: user?.username || "admin",
         jobs: [{
@@ -703,7 +796,7 @@ export default function InsulationTask({
     }
   };
 
-  // ── Tự động tải dữ liệu đã lưu từ [ProcurementApp].[dbo].[Insulation] ──
+  // Auto Load Existing Saved Insulation
   const hasLoadedSavedRef = useRef(false);
 
   useEffect(() => {
@@ -713,7 +806,7 @@ export default function InsulationTask({
   useEffect(() => {
     async function loadExistingSavedInsulation() {
       if (hasLoadedSavedRef.current) return;
-      if (wallEntries && wallEntries.length > 0) return;
+      if ((wallEntries && wallEntries.length > 0) || (areaEntries && areaEntries.length > 0)) return;
       try {
         const res = await ApiService.fetchInsulationJobs();
         if (res && res.data) {
@@ -723,10 +816,16 @@ export default function InsulationTask({
             const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
             return (jn && jn === target) || (hw && hw === target);
           });
-          const validRows = matchedRows.filter(r => r.wall_length && parseFloat(r.wall_length) > 0);
-          if (validRows.length > 0 && onSetWallEntries) {
+          const validRows = matchedRows.filter(r => (r.wall_length && parseFloat(r.wall_length) > 0) || (r.total_area_raked && parseFloat(r.total_area_raked) > 0));
+
+          if (validRows.length > 0) {
             hasLoadedSavedRef.current = true;
-            const loaded = validRows.map((r, idx) => {
+            const loadedWalls = [];
+            const loadedAreas = [];
+
+            validRows.forEach((r, idx) => {
+              const wType = r.insulation_type || r.wall_type || "Ext wall";
+              const isArea = String(wType).toLowerCase().includes("ceiling") || String(wType).toLowerCase().includes("floor");
               const heightMm = parseFloat(r.wall_height) || 2400;
               const lenMm = parseFloat(r.wall_length) || 0;
               const rakedM2 = r.total_area_raked !== undefined && r.total_area_raked !== null ? parseFloat(r.total_area_raked) : 0;
@@ -734,28 +833,42 @@ export default function InsulationTask({
               const rawArea = r.total_area || r.insulation_area;
               const insArea = rawArea !== undefined && rawArea !== null && parseFloat(rawArea) > 0
                 ? parseFloat(rawArea)
-                : calcInsulationArea(heightMm, lenMm, rakedM2, doorM2);
+                : (isArea ? (rakedM2 > 0 ? rakedM2 : (lenMm / 1000)) : calcInsulationArea(heightMm, lenMm, rakedM2, doorM2));
 
-              const wType = r.insulation_type || r.wall_type || "Ext wall";
-              const rVal = r.r_value || (String(wType).toLowerCase().includes("ext") ? "R2.5" : "R2.0");
-              const prods = getProductOptionsForWallTypeAndR(wType, rVal);
+              const rVal = r.r_value || (isArea ? "R3.5" : "R2.0");
+              const prods = isArea ? getProductOptionsForAreaAndR(wType, rVal) : getProductOptionsForWallTypeAndR(wType, rVal);
               const prod = r.product && r.product !== "-" ? r.product : (prods[0] || "");
 
-              return {
-                id: `ins-loaded-${Date.now()}-${idx}`,
-                floorLevel: r.floor_level || "GF",
-                type: wType,
-                height: heightMm,
-                length: lenMm,
-                rValue: rVal,
-                product: prod,
-                raked: rakedM2,
-                door: doorM2,
-                insulationArea: insArea,
-                totalArea: insArea
-              };
+              if (isArea) {
+                loadedAreas.push({
+                  id: `ins-area-loaded-${Date.now()}-${idx}`,
+                  floorLevel: r.floor_level || "GF",
+                  type: String(wType).toLowerCase().includes("floor") ? "Floor" : "Ceiling",
+                  rValue: rVal,
+                  product: prod,
+                  insulationArea: Number(insArea.toFixed(2)),
+                  totalArea: Number(insArea.toFixed(2)),
+                  area: Number(insArea.toFixed(2))
+                });
+              } else {
+                loadedWalls.push({
+                  id: `ins-loaded-${Date.now()}-${idx}`,
+                  floorLevel: r.floor_level || "GF",
+                  type: wType,
+                  height: heightMm,
+                  length: lenMm,
+                  rValue: rVal,
+                  product: prod,
+                  raked: rakedM2,
+                  door: doorM2,
+                  insulationArea: Number(insArea.toFixed(2)),
+                  totalArea: Number(insArea.toFixed(2))
+                });
+              }
             });
-            onSetWallEntries(loaded);
+
+            if (loadedWalls.length > 0 && onSetWallEntries) onSetWallEntries(loadedWalls);
+            if (loadedAreas.length > 0 && onSetAreaEntries) onSetAreaEntries(loadedAreas);
           }
         }
       } catch (e) {
@@ -763,17 +876,21 @@ export default function InsulationTask({
       }
     }
     loadExistingSavedInsulation();
-  }, [activeJobNumber, currentProjectName, currentJobId, onSetWallEntries]);
+  }, [activeJobNumber, currentProjectName, currentJobId, onSetWallEntries, onSetAreaEntries]);
 
-  // Thống kê tổng
+  // Statistics
   const totalLengthM = useMemo(() => {
     const sumMm = (wallEntries || []).reduce((acc, w) => acc + (parseFloat(w.length) || 0), 0);
     return (sumMm / 1000).toFixed(4);
   }, [wallEntries]);
 
-  const totalNetAreaM2 = useMemo(() => {
+  const totalWallAreaM2 = useMemo(() => {
     return (wallEntries || []).reduce((acc, w) => acc + (parseFloat(w.insulationArea || w.totalArea) || 0), 0).toFixed(2);
   }, [wallEntries]);
+
+  const totalFloorCeilingAreaM2 = useMemo(() => {
+    return (areaEntries || []).reduce((acc, a) => acc + (parseFloat(a.insulationArea || a.area || a.totalArea) || 0), 0).toFixed(2);
+  }, [areaEntries]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -795,383 +912,380 @@ export default function InsulationTask({
             userSelect: "none"
           }}
         >
-          <span>1. Insulation Wall</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "11px", color: "#64748b" }}>{isSection1Open ? "▼" : "▶"}</span>
+            <span>1. INSULATION WALL</span>
+          </div>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>
             {isSection1Open ? "▲" : "▼"}
           </span>
         </div>
 
         {isSection1Open && (
-        <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
 
-          {/* SECTION 1: EXT WALL */}
-          <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div
-              onClick={() => setIsExtOpen(!isExtOpen)}
-              style={{
-                padding: "6px 10px",
-                background: "#f1f5f9",
-                borderBottom: isExtOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#334155",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>{isExtOpen ? "▼" : "▶"} Ext wall</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isExtOpen ? "▲" : "▼"}
-              </span>
-            </div>
-            {isExtOpen && (
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 85px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder="Height"
-                  value={extHeight}
-                  onChange={(e) => setExtHeight(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1.2 1 110px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder="Length mm"
-                  value={extLength}
-                  onChange={(e) => setExtLength(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "0.8 1 70px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
-                <select
-                  value={extRValue}
-                  onChange={(e) => {
-                    setExtRValue(e.target.value);
-                  }}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                >
-                  {extRValueOptions.map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ flex: "2.4 1 180px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Product</span>
-                <select
-                  value={extProduct}
-                  onChange={(e) => setExtProduct(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                >
-                  {extProductOptions.length === 0 && (
-                    <option value="">No product configured for selected R Value</option>
-                  )}
-                  {extProductOptions.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ flex: "1 1 75px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Raked Wall</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  value={extRaked}
-                  onChange={(e) => setExtRaked(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1 1 75px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Door</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  value={extDoor}
-                  onChange={(e) => setExtDoor(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleAddWallEntry("Ext wall", extHeight, extLength, extRValue, extProduct, extRaked, extDoor, setExtLength)}
-                style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+            {/* SECTION 1.1: EXTERNAL WALL */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div
+                onClick={() => setIsExtOpen(!isExtOpen)}
+                style={{
+                  padding: "6px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isExtOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#334155",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
+                }}
               >
-                + Add wall
-              </button>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: "#ef4444", display: "inline-block" }} />
+                  <span>External</span>
+                </div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isExtOpen ? "▲" : "▼"}
+                </span>
+              </div>
+              {isExtOpen && (
+                <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 85px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={extHeight}
+                      onChange={(e) => setExtHeight(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1.2 1 110px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Length mm"
+                      value={extLength}
+                      onChange={(e) => setExtLength(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "0.8 1 70px" }}>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
+                    <select
+                      value={extRValue}
+                      onChange={(e) => setExtRValue(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {extRValueOptions.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: "2.4 1 200px" }}>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Product</span>
+                    <select
+                      value={extProduct}
+                      onChange={(e) => setExtProduct(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {extProductOptions.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: "1 1 75px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Raked Wall</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={extRaked}
+                      onChange={(e) => setExtRaked(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1 1 75px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Door</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={extDoor}
+                      onChange={(e) => setExtDoor(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAddWallEntry("Ext wall", extHeight, extLength, extRValue, extProduct, extRaked, extDoor, setExtLength)}
+                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    + Add wall
+                  </button>
+                </div>
+              )}
             </div>
-            )}
-          </div>
 
-          {/* SECTION 2: INT WALL */}
-          <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div
-              onClick={() => setIsIntOpen(!isIntOpen)}
-              style={{
-                padding: "6px 10px",
-                background: "#f1f5f9",
-                borderBottom: isIntOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#334155",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>{isIntOpen ? "▼" : "▶"} Int Wall</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isIntOpen ? "▲" : "▼"}
-              </span>
-            </div>
-            {isIntOpen && (
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 85px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder="Height"
-                  value={intHeight}
-                  onChange={(e) => setIntHeight(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1.2 1 110px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder="Length mm"
-                  value={intLength}
-                  onChange={(e) => setIntLength(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "0.8 1 70px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
-                <select
-                  value={intRValue}
-                  onChange={(e) => {
-                    setIntRValue(e.target.value);
-                  }}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                >
-                  {intRValueOptions.map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ flex: "2.4 1 180px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Product</span>
-                <select
-                  value={intProduct}
-                  onChange={(e) => setIntProduct(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                >
-                  {intProductOptions.length === 0 && (
-                    <option value="">No product configured for selected R Value</option>
-                  )}
-                  {intProductOptions.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ flex: "1 1 75px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Raked Wall</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  value={intRaked}
-                  onChange={(e) => setIntRaked(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1 1 75px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Door</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  value={intDoor}
-                  onChange={(e) => setIntDoor(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleAddWallEntry("Int Wall", intHeight, intLength, intRValue, intProduct, intRaked, intDoor, setIntLength)}
-                style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+            {/* SECTION 1.2: INTERNAL WALL */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div
+                onClick={() => setIsIntOpen(!isIntOpen)}
+                style={{
+                  padding: "6px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isIntOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#334155",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
+                }}
               >
-                + Add wall
-              </button>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: "#16a34a", display: "inline-block" }} />
+                  <span>Internal</span>
+                </div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isIntOpen ? "▲" : "▼"}
+                </span>
+              </div>
+              {isIntOpen && (
+                <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 85px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={intHeight}
+                      onChange={(e) => setIntHeight(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1.2 1 110px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Length mm"
+                      value={intLength}
+                      onChange={(e) => setIntLength(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "0.8 1 70px" }}>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
+                    <select
+                      value={intRValue}
+                      onChange={(e) => setIntRValue(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {intRValueOptions.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: "2.4 1 200px" }}>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Product</span>
+                    <select
+                      value={intProduct}
+                      onChange={(e) => setIntProduct(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {intProductOptions.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: "1 1 75px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Raked Wall</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={intRaked}
+                      onChange={(e) => setIntRaked(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1 1 75px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Door</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={intDoor}
+                      onChange={(e) => setIntDoor(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAddWallEntry("Int Wall", intHeight, intLength, intRValue, intProduct, intRaked, intDoor, setIntLength)}
+                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    + Add wall
+                  </button>
+                </div>
+              )}
             </div>
-            )}
-          </div>
 
-          {/* SECTION 3: PARTYWALL */}
-          <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-            <div
-              onClick={() => setIsPartyOpen(!isPartyOpen)}
-              style={{
-                padding: "6px 10px",
-                background: "#f1f5f9",
-                borderBottom: isPartyOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#334155",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>{isPartyOpen ? "▼" : "▶"} Partywall</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isPartyOpen ? "▲" : "▼"}
-              </span>
-            </div>
-            {isPartyOpen && (
-            <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 85px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder="Height"
-                  value={partyHeight}
-                  onChange={(e) => setPartyHeight(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1.2 1 110px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
-                </div>
-                <input
-                  type="number"
-                  placeholder="Length mm"
-                  value={partyLength}
-                  onChange={(e) => setPartyLength(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "0.8 1 70px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
-                <select
-                  value={partyRValue}
-                  onChange={(e) => {
-                    setPartyRValue(e.target.value);
-                  }}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                >
-                  {partyRValueOptions.map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ flex: "2.4 1 180px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Product</span>
-                <select
-                  value={partyProduct}
-                  onChange={(e) => setPartyProduct(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                >
-                  {partyProductOptions.length === 0 && (
-                    <option value="">No product configured for selected R Value</option>
-                  )}
-                  {partyProductOptions.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ flex: "1 1 75px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Raked Wall</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  value={partyRaked}
-                  onChange={(e) => setPartyRaked(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1 1 75px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                  <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Door</span>
-                  <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  value={partyDoor}
-                  onChange={(e) => setPartyDoor(e.target.value)}
-                  style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleAddWallEntry("Partywall", partyHeight, partyLength, partyRValue, partyProduct, partyRaked, partyDoor, setPartyLength)}
-                style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+            {/* SECTION 1.3: PARTYWALL */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div
+                onClick={() => setIsPartyOpen(!isPartyOpen)}
+                style={{
+                  padding: "6px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isPartyOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#334155",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
+                }}
               >
-                + Add wall
-              </button>
-            </div>
-            )}
-          </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: "#d97706", display: "inline-block" }} />
+                  <span>Partiwall</span>
+                </div>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isPartyOpen ? "▲" : "▼"}
+                </span>
+              </div>
+              {isPartyOpen && (
+                <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 85px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={partyHeight}
+                      onChange={(e) => setPartyHeight(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
 
-        </div>
+                  <div style={{ flex: "1.2 1 110px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Length mm"
+                      value={partyLength}
+                      onChange={(e) => setPartyLength(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "0.8 1 70px" }}>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
+                    <select
+                      value={partyRValue}
+                      onChange={(e) => setPartyRValue(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {partyRValueOptions.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: "2.4 1 200px" }}>
+                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Product</span>
+                    <select
+                      value={partyProduct}
+                      onChange={(e) => setPartyProduct(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                    >
+                      {partyProductOptions.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: "1 1 75px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Raked Wall</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={partyRaked}
+                      onChange={(e) => setPartyRaked(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1 1 75px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700 }}>Total Area Door</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>m²</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={partyDoor}
+                      onChange={(e) => setPartyDoor(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAddWallEntry("Partywall", partyHeight, partyLength, partyRValue, partyProduct, partyRaked, partyDoor, setPartyLength)}
+                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    + Add wall
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
         )}
       </div>
 
-      {/* ── CARD 2: ENTERED INSULATION WALLS (MATCHING AUTO-CALCULATE) ── */}
+      {/* ── CARD 2: ENTERED INSULATION WALLS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
         <div
           style={{
@@ -1187,7 +1301,7 @@ export default function InsulationTask({
             gap: "6px"
           }}
         >
-          <span>2. Entered Insulation Walls ({(wallEntries || []).length})</span>
+          <span>2. ENTERED INSULATION WALLS ({(wallEntries || []).length})</span>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <button
               type="button"
@@ -1220,8 +1334,8 @@ export default function InsulationTask({
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                 <th style={{ padding: "6px 8px", width: "26px" }}>#</th>
                 <th style={{ padding: "6px 8px", width: "80px" }}>Wall Type*</th>
-                <th style={{ padding: "6px 8px", width: "90px" }}>R-Value</th>
-                <th style={{ padding: "6px 8px", minWidth: "200px" }}>Product</th>
+                <th style={{ padding: "6px 8px", width: "80px" }}>R-Value</th>
+                <th style={{ padding: "6px 8px", minWidth: "220px" }}>Product</th>
                 <th style={{ padding: "6px 8px", width: "90px" }}>Wall Height (mm)*</th>
                 <th style={{ padding: "6px 8px", width: "105px" }}>Wall Length (mm)*</th>
                 <th style={{ padding: "6px 8px", width: "75px" }}>Raked (m²)*</th>
@@ -1288,10 +1402,10 @@ export default function InsulationTask({
                       const isHovered = effHovered && hasMatch(effHovered);
                       const isRowEditing = editingRowId === w.id;
                       const isExt = (w.type || "").toLowerCase().includes("ext");
-                      const rowRValueOptions = getRValueOptionsForWallType(w.type);
-                      const preferredR = isExt ? "R2.5" : "R2.0";
+                      const rowRValueOptions = isExt ? extRValueOptions : intRValueOptions;
+                      const preferredR = "R2.0";
                       const currentRRaw = normalizeRValue(w.rValue);
-                      const currentR = currentRRaw || (rowRValueOptions.includes(preferredR) ? preferredR : (rowRValueOptions[0] || preferredR));
+                      const currentR = currentRRaw || "R2.0";
                       const availableProds = getProductOptionsForWallTypeAndR(w.type, currentR);
 
                       const editRVal = isRowEditing ? (editRowData.rValue || currentR) : currentR;
@@ -1321,7 +1435,6 @@ export default function InsulationTask({
                               }
                               setSelectedEntryId(w.id || `${w.type}-${idx}`);
 
-                              // Auto switch canvas page if item belongs to Level 2 (FF), Level 3 (SF), etc.
                               if (w.floorLevel) {
                                 const lvlCode = String(w.floorLevel).toUpperCase().trim();
                                 let targetIdx = -1;
@@ -1344,9 +1457,7 @@ export default function InsulationTask({
                                   else if (lvlCode === "TF") targetIdx = 3;
                                 }
                                 if (targetIdx >= 0 && targetIdx < (pages || []).length && targetIdx !== currentPage) {
-                                  if (goPage) {
-                                    goPage(targetIdx);
-                                  }
+                                  if (goPage) goPage(targetIdx);
                                 }
                               }
 
@@ -1395,9 +1506,6 @@ export default function InsulationTask({
                                   background: "#ffffff"
                                 }}
                               >
-                                {editRowData.rValue && !rowRValueOptions.includes(editRowData.rValue) && (
-                                  <option value={editRowData.rValue}>{editRowData.rValue}</option>
-                                )}
                                 {rowRValueOptions.map(r => (
                                   <option key={r} value={r}>{r}</option>
                                 ))}
@@ -1415,7 +1523,7 @@ export default function InsulationTask({
                                 onChange={(e) => handleEditFieldChange("product", e.target.value)}
                                 style={{
                                   width: "100%",
-                                  minWidth: "200px",
+                                  minWidth: "220px",
                                   padding: "3px 6px",
                                   fontSize: "10.5px",
                                   borderRadius: "4px",
@@ -1424,12 +1532,6 @@ export default function InsulationTask({
                                 }}
                                 title={currentEditingProd}
                               >
-                                {currentEditingProd && !editProds.includes(currentEditingProd) && (
-                                  <option value={currentEditingProd}>{currentEditingProd}</option>
-                                )}
-                                {editProds.length === 0 && !currentEditingProd && (
-                                  <option value="">No product configured for {editRVal}</option>
-                                )}
                                 {editProds.map(p => (
                                   <option key={p} value={p}>{p}</option>
                                 ))}
@@ -1529,7 +1631,7 @@ export default function InsulationTask({
                             )}
                           </td>
 
-                          {/* Actions: Edit / Save / Cancel / Delete */}
+                          {/* Actions */}
                           <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
                             {isRowEditing ? (
                               <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -1613,44 +1715,383 @@ export default function InsulationTask({
             </tbody>
           </table>
         </div>
+      </div>
 
-        {/* Footer Summary & Save */}
-        <div style={{
-          padding: "8px 12px",
-          background: "#f8fafc",
-          borderTop: "1px solid #e2e8f0",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "8px",
-          fontSize: "11px"
-        }}>
-          <div style={{ display: "flex", gap: "16px", color: "#475569", fontWeight: 600 }}>
-            <span>Total Rows: <b style={{ color: "#0f172a" }}>{(wallEntries || []).length}</b></span>
-            <span>Total Length: <b style={{ color: "#0f172a" }}>{totalLengthM} m</b></span>
-            <span>Total Net Area: <b style={{ color: "#059669" }}>{totalNetAreaM2} m²</b></span>
+      {/* ── CARD 3: INSULATION FLOOR & CEILING (MATCHING IMAGES 1, 2, 3) ── */}
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+        <div
+          onClick={() => setIsSection3Open(!isSection3Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection3Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "11px", color: "#64748b" }}>{isSection3Open ? "▼" : "▶"}</span>
+            <span>3. INSULATION FLOOR &amp; CEILING</span>
           </div>
-          <button
-            type="button"
-            onClick={handleSaveToDatabase}
-            disabled={isSaving || !wallEntries || wallEntries.length === 0}
-            style={{
-              background: saveSuccess ? "#16a34a" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "5px",
-              padding: "5px 12px",
-              fontSize: "11px",
-              fontWeight: 700,
-              cursor: (isSaving || !wallEntries || wallEntries.length === 0) ? "not-allowed" : "pointer",
-              opacity: (isSaving || !wallEntries || wallEntries.length === 0) ? 0.6 : 1,
-              transition: "all 0.2s ease"
-            }}
-          >
-            {isSaving ? "Saving..." : saveSuccess ? "✓ Saved to Database" : "Save Entries to DB"}
-          </button>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>
+            {isSection3Open ? "▲" : "▼"}
+          </span>
         </div>
+
+        {isSection3Open && (
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+            {/* Form Inputs matching Image 1, 2, 3 */}
+            <div style={{ padding: "10px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+              {/* Insulation Type Dropdown (Image 1) */}
+              <div style={{ flex: "1 1 110px" }}>
+                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Insulation Type</span>
+                <select
+                  value={areaInsType}
+                  onChange={(e) => setAreaInsType(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    borderRadius: "5px",
+                    border: "1px solid #3b82f6",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    outline: "none"
+                  }}
+                >
+                  <option value="Ceiling">Ceiling</option>
+                  <option value="Floor">Floor</option>
+                </select>
+              </div>
+
+              {/* R Value Dropdown (Image 2) */}
+              <div style={{ flex: "0.9 1 90px" }}>
+                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>R Value</span>
+                <select
+                  value={areaRValue}
+                  onChange={(e) => setAreaRValue(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    borderRadius: "5px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    outline: "none"
+                  }}
+                >
+                  {areaRValueOptions.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Product Dropdown (Image 3) */}
+              <div style={{ flex: "2.8 1 240px" }}>
+                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
+                <select
+                  value={areaProduct}
+                  onChange={(e) => setAreaProduct(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    borderRadius: "5px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    outline: "none"
+                  }}
+                >
+                  {areaProductOptions.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Total Area Insulation Input (Image 3) */}
+              <div style={{ flex: "1.2 1 120px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700 }}>Total Area Insulation</span>
+                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>m²</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Area m²"
+                  value={areaTotalInsulation}
+                  onChange={(e) => setAreaTotalInsulation(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    borderRadius: "5px",
+                    border: "1px solid #fde047",
+                    background: "#fffbeb",
+                    boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              {/* Add Button */}
+              <button
+                type="button"
+                onClick={handleAddAreaEntry}
+                style={{
+                  padding: "6px 14px",
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                + Add
+              </button>
+            </div>
+
+            {/* Table of Entered Floor & Ceiling Entries */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
+                ENTERED INSULATION FLOOR &amp; CEILING ({(areaEntries || []).length})
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ background: "#334155", color: "#ffffff", textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px", width: "26px" }}>#</th>
+                      <th style={{ padding: "6px 8px", width: "90px" }}>Type</th>
+                      <th style={{ padding: "6px 8px", width: "80px" }}>R-Value</th>
+                      <th style={{ padding: "6px 8px", minWidth: "240px" }}>Product</th>
+                      <th style={{ padding: "6px 8px", width: "130px" }}>Total Area (m²)</th>
+                      <th style={{ padding: "6px 8px", width: "80px" }}>Level</th>
+                      <th style={{ padding: "6px 8px", width: "55px", textAlign: "right" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedAreasByLevel.map(({ level, items }) => (
+                      <React.Fragment key={`area-lvl-${level}`}>
+                        <tr style={{ background: "#f8fafc", borderTop: "1px solid #cbd5e1", borderBottom: "1px solid #e2e8f0" }}>
+                          <td colSpan={7} style={{ padding: "4px 8px", fontWeight: 800, fontSize: "10.5px", color: "#475569" }}>
+                            Level: <span style={{ color: "#2563eb" }}>{level}</span> ({getFloorLevelDisplayName(level)})
+                          </td>
+                        </tr>
+                        {items.map((a, idx) => {
+                          const isAreaRowEditing = editingAreaRowId === a.id;
+                          const isCeiling = String(a.type).toLowerCase() === "ceiling";
+                          const currentR = normalizeRValue(a.rValue) || "R3.5";
+                          const editRVal = isAreaRowEditing ? (editAreaRowData.rValue || currentR) : currentR;
+                          const editProds = isAreaRowEditing ? getProductOptionsForAreaAndR(editAreaRowData.type || a.type, editRVal) : getProductOptionsForAreaAndR(a.type, currentR);
+                          const currentEditingProd = isAreaRowEditing
+                            ? (editAreaRowData.product !== undefined ? editAreaRowData.product : (a.product || editProds[0] || ""))
+                            : (a.product || editProds[0] || "");
+
+                          return (
+                            <tr
+                              key={a.id || idx}
+                              data-editing-area-row-id={isAreaRowEditing ? a.id : undefined}
+                              onDoubleClick={(e) => {
+                                if (isAreaRowEditing) return;
+                                if (e.target.closest && e.target.closest("button")) return;
+                                if (editingAreaRowId && editingAreaRowId !== a.id) {
+                                  handleSaveAreaInlineEdit(editingAreaRowId);
+                                }
+                                handleStartAreaEdit(a);
+                              }}
+                              style={{
+                                borderBottom: "1px solid #e2e8f0",
+                                background: isAreaRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")
+                              }}
+                            >
+                              <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                              <td style={{ padding: "4px 8px" }}>
+                                <span style={{
+                                  background: isCeiling ? "#f3e8ff" : "#ffedd5",
+                                  color: isCeiling ? "#7e22ce" : "#c2410c",
+                                  border: `1px solid ${isCeiling ? "#d8b4fe" : "#fed7aa"}`,
+                                  padding: "2px 7px",
+                                  borderRadius: "4px",
+                                  fontWeight: 700,
+                                  fontSize: "10.5px",
+                                  display: "inline-block"
+                                }}>
+                                  {a.type || "Ceiling"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                {isAreaRowEditing ? (
+                                  <select
+                                    value={editAreaRowData.rValue || currentR}
+                                    onChange={(e) => handleEditAreaFieldChange("rValue", e.target.value)}
+                                    style={{ width: "100%", padding: "3px 4px", fontSize: "10.5px", fontWeight: 700, borderRadius: "4px", border: "1px solid #3b82f6" }}
+                                  >
+                                    {areaRValueOptions.map(r => (
+                                      <option key={r} value={r}>{r}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span style={{ fontWeight: 600, color: "#334155" }}>{a.rValue || currentR}</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                {isAreaRowEditing ? (
+                                  <select
+                                    value={currentEditingProd}
+                                    onChange={(e) => handleEditAreaFieldChange("product", e.target.value)}
+                                    style={{ width: "100%", minWidth: "220px", padding: "3px 6px", fontSize: "10.5px", borderRadius: "4px", border: "1px solid #3b82f6" }}
+                                  >
+                                    {editProds.map(p => (
+                                      <option key={p} value={p}>{p}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span style={{ color: "#1e293b", fontSize: "10.5px" }}>{a.product || editProds[0] || "-"}</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                {isAreaRowEditing ? (
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editAreaRowData.insulationArea !== undefined ? editAreaRowData.insulationArea : (a.insulationArea || a.area || 0)}
+                                    onChange={(e) => handleEditAreaFieldChange("insulationArea", e.target.value)}
+                                    style={{ width: "80px", padding: "3px 5px", fontSize: "10.5px", borderRadius: "4px", border: "1px solid #3b82f6", fontWeight: 700 }}
+                                  />
+                                ) : (
+                                  <span style={{ fontWeight: 700, color: "#059669" }}>{a.insulationArea || a.area || 0} m²</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                <span style={{ background: "#f1f5f9", padding: "1px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                                  {a.floorLevel || "GF"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                                {isAreaRowEditing ? (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveAreaInlineEdit(a.id)}
+                                      style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px" }}
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingAreaRowId(null)}
+                                      style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px" }}
+                                    >
+                                      ✕
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveArea(a.id)}
+                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "11px" }}
+                                    >
+                                      🗑
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (editingAreaRowId && editingAreaRowId !== a.id) {
+                                          handleSaveAreaInlineEdit(editingAreaRowId);
+                                        }
+                                        handleStartAreaEdit(a);
+                                      }}
+                                      style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "11px" }}
+                                      title="Edit row"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveArea(a.id)}
+                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
+                                      title="Delete row"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+
+                    {(!areaEntries || areaEntries.length === 0) && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                          No floor &amp; ceiling insulation entered yet. Enter above and click &quot;+ Add&quot;.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+      </div>
+
+      {/* ── FOOTER SUMMARY & SAVE ── */}
+      <div style={{
+        background: "#ffffff",
+        border: "1px solid #cbd5e1",
+        borderRadius: "8px",
+        padding: "10px 14px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: "10px",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+      }}>
+        <div style={{ display: "flex", gap: "16px", color: "#475569", fontWeight: 600, fontSize: "11px", flexWrap: "wrap" }}>
+          <span>Wall Length: <b style={{ color: "#0f172a" }}>{totalLengthM} m</b></span>
+          <span>Wall Net Area: <b style={{ color: "#059669" }}>{totalWallAreaM2} m²</b></span>
+          <span>Floor &amp; Ceiling Area: <b style={{ color: "#7e22ce" }}>{totalFloorCeilingAreaM2} m²</b></span>
+          <span>Total Records: <b style={{ color: "#0f172a" }}>{(wallEntries || []).length + (areaEntries || []).length}</b></span>
+        </div>
+        <button
+          type="button"
+          onClick={handleSaveToDatabase}
+          disabled={isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)}
+          style={{
+            background: saveSuccess ? "#16a34a" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "6px",
+            padding: "7px 16px",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: (isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)) ? "not-allowed" : "pointer",
+            opacity: (isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)) ? 0.6 : 1,
+            transition: "all 0.2s ease",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px"
+          }}
+        >
+          {isSaving ? "Saving..." : saveSuccess ? "✓ Saved to Database" : "Save All to Database"}
+        </button>
       </div>
     </div>
   );

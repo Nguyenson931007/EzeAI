@@ -21,6 +21,7 @@ import { BASE_URL } from "@/models/api.service";
 import { useDialog } from "@/components/DialogContext";
 import { calculateDoorGeometry, getDoorBoundingBox } from "@/engines/DoorArcLabelEngine";
 import { getDoorGeometry } from "@/utils/doorGeometryCache";
+import { exportPdfToolsDocument } from "@/utils/pdfExportUtils";
 
 export function useDocumentController({
   image, setImage,
@@ -658,55 +659,29 @@ export function useDocumentController({
 
 
   async function exportPDF() {
-    if (!image) { await showAlert("No plan to export!"); return; }
-    const canvas = document.createElement("canvas");
-    canvas.width = imgSize.w;
-    canvas.height = imgSize.h;
-    const ctx = canvas.getContext("2d");
-
-    const img = new window.Image();
-    await new Promise(r => { img.onload = r; img.src = image; });
-    ctx.drawImage(img, 0, 0, imgSize.w, imgSize.h);
-
-    rooms.filter(r => !r.id || !String(r.id).startsWith("text-")).forEach(r => {
-      ctx.beginPath();
-      r.polygon.forEach((p, i) => {
-        if (i === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
+    if (!image && (!pages || pages.length === 0)) {
+      await showAlert("No plan to export!");
+      return;
+    }
+    try {
+      await exportPdfToolsDocument({
+        pages,
+        currentPage,
+        annotationsByPage: {},
+        wallsByPage,
+        doorsByPage,
+        roomsByPage,
+        lintelsByPage,
+        roofsByPage,
+        scaleValue,
+        projectName: currentProjectName || "EzeFloor_Project",
+        realScale: (typeof realScale === "number" && realScale > 0) ? realScale : 20,
+        mode: "current"
       });
-      ctx.closePath();
-      const wType = r.wetness || r.type;
-      ctx.fillStyle = wType === "wet" ? "rgba(245, 19, 19, 0.5)" : "rgba(33, 150, 243, 0.5)";
-      ctx.fill();
-      ctx.strokeStyle = "#333";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      const c = centroid(r.polygon);
-      ctx.fillStyle = "#000";
-      ctx.font = "8px Inter, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(`${r.room_name} (${wType})`, c.x, c.y);
-      if (scaleValue) {
-        const area = polygonAreaM2Util(r.polygon, scaleValue);
-        ctx.font = "7px Inter, sans-serif";
-        ctx.fillText(`${area.toFixed(2)} m²`, c.x, c.y + 10);
-      }
-    });
-
-    const doc = new jsPDF("landscape", "mm", "a4");
-    const pW = doc.internal.pageSize.getWidth();
-    const pH = doc.internal.pageSize.getHeight();
-    doc.addImage(canvas.toDataURL("image/png"), "PNG", 0, 15, pW, pH - 25);
-    
-    doc.setFillColor(31, 41, 55);
-    doc.rect(0, 0, pW, 15, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text("EzeFloor – Floor Plan Analysis", 10, 10);
-    
-    doc.save(`EzeFloor_Plan_Pg${currentPage + 1}.pdf`);
+    } catch (err) {
+      console.error("[Export PDF Error]", err);
+      await showAlert("Failed to export PDF: " + (err?.message || "Unknown error"));
+    }
   }
 
   async function exportWallLabels() {

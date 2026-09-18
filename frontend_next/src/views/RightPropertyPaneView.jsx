@@ -50,6 +50,8 @@ import {
   ExportButton,
   PitchInput,
   getDoorWindowDisplayWidthMm,
+  getDoorWidthInMm,
+  getDoorHeightInMm,
   EXTRA_MODULE_TABS,
   ALL_MODULE_IDS,
   normalizeCustomerKey,
@@ -1196,8 +1198,8 @@ export default function RightPropertyPaneView({
           const dLabel = d.label || d.name || d.door_name || `D-${idx + 1}`;
           const rawType = String(d.door_type || d.type || "").toLowerCase();
           const isCavity = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
-          const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
-          const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+          const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
+          const dHeight = getDoorHeightInMm(d);
           return {
             id: `fix-ai-${d.id || idx}-${Date.now()}`,
             category: isCavity ? "cavity" : "prehung",
@@ -1246,8 +1248,8 @@ export default function RightPropertyPaneView({
 
           const category = d.category || (d.mode === "Loose" ? "Loose Jamb" : (d.mode === "Prehung" ? "Prehung" : "-"));
           const isLoose = category === "Loose Jamb";
-          const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
-          const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+          const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
+          const dHeight = getDoorHeightInMm(d);
           const wallThick = d.wall_thickness || d.thickness_mm || 90;
           const dHinge = String(d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
           const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
@@ -3024,8 +3026,8 @@ export default function RightPropertyPaneView({
         const rawType = String(d.door_type || d.type || "").toLowerCase();
         const isExt = getDoorIsExt(d, dLabel, rawType);
 
-        const dWidth = d.width ? Math.round(d.width > 200 ? d.width : (d.width * 1000 || 820)) : 820;
-        const dHeight = d.height ? Math.round(d.height > 500 ? d.height : (d.height * 1000 || 2040)) : 2040;
+        const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
+        const dHeight = getDoorHeightInMm(d);
         const wallThick = d.wall_thickness || d.thickness_mm || 90;
         const isLoose = override.category === "Loose Jamb" || (!isExt && d.mode === "Loose");
 
@@ -4520,6 +4522,8 @@ export default function RightPropertyPaneView({
           scaleValue={scaleValue}
           walls={walls}
           updateWallsProperty={updateWallsProperty}
+          updateDoor={updateDoor}
+          updateDoorsProperty={updateDoorsProperty}
         />
       )}
 
