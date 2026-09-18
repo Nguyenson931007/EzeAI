@@ -269,6 +269,7 @@ export default function WindowEditDialog({
       sillHeight: parsedSill,
       sill_height: parsedSill,
       height_mm: parsedHeight,
+      height: parsedHeight,
       width_mm: parsedWidth,
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null

@@ -225,9 +225,22 @@ export function syncLintelWithDoor(
   }
 
   const is90x45 = wallThicknessMm > 75;
-  const catalogId = is90x45 ? '800053734' : '800053733';
-  const lintelWidth = is90x45 ? 45 : 35;
-  const lintelHeight = 90;
+  const defaultCatalogId = is90x45 ? '800053734' : '800053733';
+  const defaultWidth = is90x45 ? 45 : 35;
+  const defaultHeight = 90;
+
+  // Check if this lintel has a user-overridden custom size
+  const hasUserCustomSize = Boolean(
+    lintel.isCustomSize ||
+    (lintel.height && lintel.height !== 90) ||
+    (lintel.width && lintel.width !== 35 && lintel.width !== 45) ||
+    (lintel.catalogId && lintel.catalogId !== '800053733' && lintel.catalogId !== '800053734')
+  );
+
+  const catalogId = hasUserCustomSize ? (lintel.catalogId || defaultCatalogId) : defaultCatalogId;
+  const lintelWidth = hasUserCustomSize ? (lintel.width || defaultWidth) : defaultWidth;
+  const lintelHeight = hasUserCustomSize ? (lintel.height || defaultHeight) : defaultHeight;
+  const lintelSize = hasUserCustomSize ? (lintel.size || lintelHeight) : lintelHeight;
 
   // Project endpoints onto parent wall centerline if available
   let startOffset = null;
@@ -295,6 +308,8 @@ export function syncLintelWithDoor(
     catalogId,
     width: lintelWidth,
     height: lintelHeight,
+    size: lintelSize,
+    isCustomSize: hasUserCustomSize ? true : Boolean(lintel.isCustomSize),
     wallThickness_px: wallThicknessPx,
     openingName: door.doorName || door.door_name || door.label || lintel.openingName
   };

@@ -19,7 +19,7 @@ import { computeWallAreas } from "@/engines/WallAreaCalculator";
 import { getFinishTypeOptions, SKIRTING_MATERIALS, normalizeWallSurfaceAndSkirting } from "@/models/FinishRegistry";
 import floorTypesConfig from "@/constants/floorTypes.json";
 import RoofInspectorCard from "@/components/RoofInspectorCard";
-import { roundLintelLength } from "@/controllers/lintel.controller";
+import { roundLintelLength, syncLintelWithDoor } from "@/controllers/lintel.controller";
 import * as CairnsHardwareTasks from "@/components/cairns-hardware/tasks";
 import * as BunNswActTasks from "@/components/bun-nsw-act/tasks";
 import * as AtsFtTasks from "@/components/ats-ft/tasks";
@@ -3744,26 +3744,33 @@ export default function RightPropertyPaneView({
 
       const pageLintels = lintelsByPage[currentPage] || [];
       const mappedLintels = pageLintels.map(l => {
-        const cat = l.category || 'lintel';
+        const associatedDoor = (l.isAutoDoorLintel && l.doorId && doors && doors.length > 0)
+          ? doors.find(d => String(d.id) === String(l.doorId))
+          : null;
+        const effL = associatedDoor
+          ? syncLintelWithDoor(l, associatedDoor, pageWalls, realScale, scaleValue, (lintelController?.globalLengthOffset ?? l.lengthOffset))
+          : l;
+
+        const cat = effL.category || 'lintel';
         const desc = cat === 'beam' ? 'Beam' : (cat === 'bh' ? 'BH' : 'Lintel');
-        const numMeasured = typeof l.measuredLength === 'number' ? l.measuredLength : (l.baseLength || 0);
-        const finalLen = (l.isRounded && l.finalLength) ? l.finalLength : roundLintelLength(numMeasured);
+        const numMeasured = typeof effL.measuredLength === 'number' ? effL.measuredLength : (effL.baseLength || 0);
+        const finalLen = (effL.isRounded && effL.finalLength) ? effL.finalLength : roundLintelLength(numMeasured);
         return {
-          id: String(l.id),
-          wall_id: String(l.wallId),
-          start_offset: l.startOffset,
-          end_offset: l.endOffset,
+          id: String(effL.id),
+          wall_id: String(effL.wallId),
+          start_offset: effL.startOffset,
+          end_offset: effL.endOffset,
           measured_length: numMeasured,
           final_length: finalLen,
-          catalog_id: l.catalogId,
-          type: l.type || "LVL",
-          size: l.size || 90,
-          width: l.width || 35,
-          height: l.height || 90,
+          catalog_id: effL.catalogId || "800053733",
+          type: effL.type || "LVL",
+          size: effL.size || effL.height || 90,
+          width: effL.width || 35,
+          height: effL.height || 90,
           description: desc,
-          ply: l.ply || 1,
+          ply: effL.ply || 1,
           category: cat,
-          lengthOffset: l.lengthOffset || 0
+          lengthOffset: effL.lengthOffset || 0
         };
       });
 

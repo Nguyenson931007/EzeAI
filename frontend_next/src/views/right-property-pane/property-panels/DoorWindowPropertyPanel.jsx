@@ -279,10 +279,10 @@ export default function DoorWindowPropertyPanel({
       : getDoorWindowDisplayWidthMm(activeDoor, realScale, scaleValue);
 
     const effectiveWindowHeightMm = isMulti
-      ? (selectedDoors.every((d) => (d.height_mm || 1200) === (activeDoor.height_mm || 1200))
-          ? (activeDoor.height_mm || 1200)
+      ? (selectedDoors.every((d) => (d.height_mm || d.height || 1200) === (activeDoor.height_mm || activeDoor.height || 1200))
+          ? (activeDoor.height_mm || activeDoor.height || 1200)
           : "")
-      : (activeDoor.height_mm || 1200);
+      : (activeDoor.height_mm || activeDoor.height || 1200);
 
     return (
       <>
@@ -506,7 +506,7 @@ export default function DoorWindowPropertyPanel({
               onChange={(e) => {
                 const val = Number(e.target.value);
                 if (!isNaN(val) && val > 0) {
-                  handleApplyProperty({ height_mm: val });
+                  handleApplyProperty({ height_mm: val, height: val });
                 }
               }}
             />
@@ -516,7 +516,8 @@ export default function DoorWindowPropertyPanel({
               value={effectiveWindowHeightMm || ""}
               onChange={(e) => {
                 if (e.target.value) {
-                  handleApplyProperty({ height_mm: Number(e.target.value) });
+                  const val = Number(e.target.value);
+                  handleApplyProperty({ height_mm: val, height: val });
                 }
               }}
             >
@@ -578,10 +579,10 @@ export default function DoorWindowPropertyPanel({
     : getDoorWindowDisplayWidthMm(activeDoor, realScale, scaleValue);
 
   const effectiveDoorHeightMm = isMulti
-    ? (selectedDoors.every((d) => (d.height_mm || 1980) === (activeDoor.height_mm || 1980))
-        ? (activeDoor.height_mm || 1980)
+    ? (selectedDoors.every((d) => (d.height_mm || d.height || 2040) === (activeDoor.height_mm || activeDoor.height || 2040))
+        ? (activeDoor.height_mm || activeDoor.height || 2040)
         : "")
-    : (activeDoor.height_mm || 1980);
+    : (activeDoor.height_mm || activeDoor.height || 2040);
 
   return (
     <>
@@ -895,7 +896,7 @@ export default function DoorWindowPropertyPanel({
             onChange={(e) => {
               const val = Number(e.target.value);
               if (!isNaN(val) && val > 0) {
-                handleApplyProperty({ height_mm: val });
+                handleApplyProperty({ height_mm: val, height: val });
               }
             }}
           />
@@ -905,7 +906,8 @@ export default function DoorWindowPropertyPanel({
             value={effectiveDoorHeightMm || ""}
             onChange={(e) => {
               if (e.target.value) {
-                handleApplyProperty({ height_mm: Number(e.target.value) });
+                const val = Number(e.target.value);
+                handleApplyProperty({ height_mm: val, height: val });
               }
             }}
           >

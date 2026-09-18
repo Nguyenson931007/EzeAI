@@ -2697,6 +2697,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         setSnapAlignPoints([]);
         if (setInteractionMode) setInteractionMode("select");
+        interactionModeRef.current = "select";
         await showAlert(`Level ${currentPage + 1} snapped successfully to Level ${refPage + 1}!`, { x: e.clientX, y: e.clientY });
         return;
       }

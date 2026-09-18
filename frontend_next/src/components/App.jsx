@@ -867,6 +867,7 @@ export default function App() {
           if (savedSession.roofsByPage) setRoofsByPage(savedSession.roofsByPage);
           if (savedSession.lintelsByPage) setLintelsByPage(savedSession.lintelsByPage);
           if (savedSession.annotationsByPage && setAnnotationsByPage) setAnnotationsByPage(savedSession.annotationsByPage);
+          if (savedSession.pdfOffsetsByPage && setPdfOffsetsByPage) setPdfOffsetsByPage(savedSession.pdfOffsetsByPage);
           if (savedSession.currentProjectName) setCurrentProjectName(savedSession.currentProjectName);
           if (savedSession.currentJobId) setCurrentJobId(savedSession.currentJobId);
           if (savedSession.realScale) setRealScale(savedSession.realScale);
@@ -908,7 +909,7 @@ export default function App() {
     };
 
     restoreWorkspace();
-  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setAnnotationsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
+  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setAnnotationsByPage, setPdfOffsetsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
 
   // 2. Tự động lưu Workspace vào IndexedDB khi có thay đổi (debounce 400ms)
   useEffect(() => {
@@ -926,6 +927,7 @@ export default function App() {
         roofsByPage,
         lintelsByPage,
         annotationsByPage,
+        pdfOffsetsByPage,
         currentPage,
         currentProjectName,
         currentJobId,
@@ -939,7 +941,7 @@ export default function App() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, defaultScale, roofsByPage, lintelsByPage, annotationsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
+  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, defaultScale, roofsByPage, lintelsByPage, annotationsByPage, pdfOffsetsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
 
   // 2.5. Tự động lưu định kỳ theo thiết lập Cài đặt (Configurable Periodic Auto-Save)
   useEffect(() => {
@@ -975,6 +977,7 @@ export default function App() {
             roofsByPage,
             lintelsByPage,
             annotationsByPage,
+            pdfOffsetsByPage,
             currentPage,
             currentProjectName,
             currentJobId,
@@ -1005,6 +1008,7 @@ export default function App() {
     roofsByPage,
     lintelsByPage,
     annotationsByPage,
+    pdfOffsetsByPage,
     currentPage,
     currentProjectName,
     currentJobId,
@@ -1270,6 +1274,10 @@ export default function App() {
 
   function goPage(index) {
     if (!pages[index]) return;
+    if (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") {
+      if (setSnapAlignPoints) setSnapAlignPoints([]);
+      if (setInteractionMode) setInteractionMode("select");
+    }
     setCurrentPage(index);
     setImage(pages[index].image);
     setImgSize({ w: pages[index].w, h: pages[index].h });
@@ -1280,6 +1288,10 @@ export default function App() {
     if (!pages[pageIndex]) return;
 
     if (currentPage !== pageIndex) {
+      if (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") {
+        if (setSnapAlignPoints) setSnapAlignPoints([]);
+        if (setInteractionMode) setInteractionMode("select");
+      }
       setCurrentPage(pageIndex);
       setImage(pages[pageIndex].image);
       setImgSize({ w: pages[pageIndex].w, h: pages[pageIndex].h });

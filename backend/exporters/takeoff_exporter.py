@@ -875,25 +875,24 @@ class TakeoffExporter:
 
         first_lintel = row
         if request.lintels:
-            # Group lintels by catalog Size AND Description (Lintel, Beam, BH)
+            # Group lintels by Description (Lintel, Beam, BH) AND physical dimensions (Height x Width)
             by_group = defaultdict(list)
             for l in request.lintels:
                 desc_key = l.description if l.description else "Lintel"
-                by_group[(l.catalog_id, desc_key)].append(l)
+                h = int(round(l.height)) if getattr(l, "height", None) else 90
+                w = int(round(l.width)) if getattr(l, "width", None) else 35
+                by_group[(desc_key, h, w)].append(l)
 
-            def size_label(l):
-                return f"{int(l.height)}x{int(l.width)}"
-
-            # Sort groups by description first, then by size size_label
+            # Sort groups by description first, then by height and width
             sorted_groups = sorted(
                 by_group.keys(),
-                key=lambda gkey: (gkey[1], size_label(by_group[gkey][0]))
+                key=lambda gkey: (gkey[0], gkey[1], gkey[2])
             )
 
             for gkey in sorted_groups:
-                catalog_id, desc_label = gkey
+                desc_label, h, w = gkey
                 items = by_group[gkey]
-                size_str = size_label(items[0])
+                size_str = f"{h}x{w}"
 
                 length_qty = defaultdict(int)
                 for l in items:

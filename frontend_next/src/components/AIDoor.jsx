@@ -99,7 +99,17 @@ export default function AIDoor({
     }
   }
 
-  const widthLabel = displayWidthMm ? `${Math.round(displayWidthMm)}mm` : null;
+  const isGarage = d.class === "garage_door" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || d.type === "garage" || d.doorTypeId === "ext_garage";
+
+  // Dynamic architectural height (synced with d.height_mm / d.height when user edits)
+  const defaultAIHeight = isWindow ? 1200 : (isGarage ? 2200 : 2040);
+  const aiDoorHeight = Math.round(Number(d.height_mm || d.height || d.heightMm || defaultAIHeight));
+  const aiDoorLength = displayWidthMm ? Math.round(displayWidthMm) : (d.width_mm ? Math.round(d.width_mm) : null);
+
+  const dimensionLabel = (aiDoorHeight && aiDoorLength)
+    ? `${aiDoorHeight}x${aiDoorLength}`
+    : (aiDoorLength ? `${aiDoorLength}` : null);
+  const widthLabel = dimensionLabel;
   const widthSource = d.width_source || "geometry";
 
   // Sliding Door Box Calculations
@@ -168,7 +178,6 @@ export default function AIDoor({
     }
   }
 
-  const isGarage = d.class === "garage_door" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || d.type === "garage" || d.doorTypeId === "ext_garage";
 
   // Garage Door Calculations
   let garageWidth = 0;
@@ -1421,30 +1430,38 @@ export default function AIDoor({
                 }
               }}
             >
-              <rect
-                x={cxAvg - 42}
-                y={cyAvg - 13}
-                width={84}
-                height={26}
-                rx={6}
-                fill="rgba(15, 23, 42, 0.94)"
-                stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#64748b")}
-                strokeWidth={1.5}
-                style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
-              />
-              <text
-                x={cxAvg}
-                y={cyAvg + 1}
-                fontSize="14"
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#f1f5f9")}
-                fontWeight="700"
-                fontFamily="Inter, monospace"
-                style={{ pointerEvents: 'none', userSelect: 'none' }}
-              >
-                {widthLabel}
-              </text>
+              {(() => {
+                const labelText = String(dimensionLabel || widthLabel);
+                const badgeW = Math.max(88, labelText.length * 9.5 + 16);
+                return (
+                  <>
+                    <rect
+                      x={cxAvg - badgeW / 2}
+                      y={cyAvg - 13}
+                      width={badgeW}
+                      height={26}
+                      rx={6}
+                      fill="rgba(15, 23, 42, 0.94)"
+                      stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#64748b")}
+                      strokeWidth={1.5}
+                      style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+                    />
+                    <text
+                      x={cxAvg}
+                      y={cyAvg + 1}
+                      fontSize="14"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#f1f5f9")}
+                      fontWeight="700"
+                      fontFamily="Inter, monospace"
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                      {labelText}
+                    </text>
+                  </>
+                );
+              })()}
             </g>
           )}
 

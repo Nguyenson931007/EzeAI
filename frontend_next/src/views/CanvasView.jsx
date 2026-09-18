@@ -1862,7 +1862,25 @@ const DoorLayer = React.memo(({
           // ════════════════════════════════════════
           const angle = Math.atan2(dy, dx);
 
+          const isManualWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
+          const isManualGarage = type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage";
 
+          let manualDoorWidth = d.width_mm ? Math.round(d.width_mm) : null;
+          if (!manualDoorWidth) {
+            if (d.width && !isNaN(Number(d.width)) && Number(d.width) > 0) {
+              manualDoorWidth = Math.round(Number(d.width));
+            } else if (len > 0) {
+              manualDoorWidth = realScale ? Math.round(len * realScale) : Math.round(len * 20);
+            } else {
+              manualDoorWidth = isManualWindow ? 1200 : (isManualGarage ? 2400 : 820);
+            }
+          }
+
+          // Dynamic architectural height (synced with d.height_mm / d.height when user edits)
+          const defaultManualHeight = isManualWindow ? 1200 : (isManualGarage ? 2200 : 2040);
+          const manualDoorHeight = Math.round(Number(d.height_mm || d.height || d.heightMm || defaultManualHeight));
+
+          const manualDimensionText = `${manualDoorHeight}x${manualDoorWidth}`;
 
           const renderSingleDoor = () => {
             const geom = calculateDoorGeometry({
@@ -1879,6 +1897,8 @@ const DoorLayer = React.memo(({
             const isRightHinge = (d.hingeSide || d.hinge_side) === "right";
             const isInward = (d.swing || d.swing_direction || "inward") === "inward";
             const sweepFlag = (isRightHinge ? (isInward ? 0 : 1) : (isInward ? 1 : 0));
+
+            const arcLabelW = Math.max(56, manualDimensionText.length * 7 + 12);
 
             return (
               <g>
@@ -1900,7 +1920,7 @@ const DoorLayer = React.memo(({
                 {isSelected && (
                   <g transform={`translate(${geom.labelPos.x}, ${geom.labelPos.y}) rotate(${geom.labelRotation})`}>
                     <rect
-                      x={-24} y={-8} width={48} height={16} rx={2}
+                      x={-arcLabelW / 2} y={-8} width={arcLabelW} height={16} rx={2}
                       fill="rgba(255, 255, 255, 0.95)"
                       filter="url(#glow)"
                       stroke={color} strokeWidth={0.5}
@@ -1915,7 +1935,7 @@ const DoorLayer = React.memo(({
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                     >
-                      {d.width_mm ? Math.round(d.width_mm) : (realScale ? Math.round(geom.widthPx * realScale) : Math.round(geom.widthPx))}
+                      {manualDimensionText}
                     </text>
                   </g>
                 )}
@@ -2274,87 +2294,78 @@ const DoorLayer = React.memo(({
               {renderManualJambs()}
 
 
-              {type === "double" ? (
-                <>
-                  {renderDoubleDoor()}
-                  <text
-                    x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 13}
-                    fontSize="14"
-                    textAnchor="middle"
-                    fill={isSelected ? color : "#1e293b"}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                  >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
-                  </text>
-                </>
-              ) : (type === "sliding" ? (
-                <>
-                  {renderSlidingDoor()}
-                  <text
-                    x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 13}
-                    fontSize="14"
-                    textAnchor="middle"
-                    fill={isSelected ? color : "#1e293b"}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                  >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
-                  </text>
-                </>
-              ) : (type === "window" ? (
-                <>
-                  {renderWindow()}
-                  <text
-                    x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 13}
-                    fontSize="14"
-                    textAnchor="middle"
-                    fill={isSelected ? color : "#1e293b"}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                  >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
-                  </text>
-                </>
-              ) : (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage" ? (
-                <>
-                  {renderGarageDoor()}
-                  <text
-                    x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 13}
-                    fontSize="14"
-                    textAnchor="middle"
-                    fill={isSelected ? color : "#1e293b"}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                  >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
-                  </text>
-                </>
-              ) : (
-                <>
-                  {renderSingleDoor()}
-                  <text
-                    x={(p1.x + p2.x) / 2}
-                    y={(p1.y + p2.y) / 2 - 13}
-                    fontSize="14"
-                    textAnchor="middle"
-                    fill={isSelected ? color : "#1e293b"}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="bold"
-                    style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                  >
-                    {d.door_name || d.width || Math.round(len * (realScale || 20))}
-                  </text>
-                </>
-              ))))}
+              {(() => {
+                const hasCustomName = d.door_name && !/^\d+$/.test(d.door_name) && d.door_name !== manualDimensionText;
+                const renderLabelElements = () => (
+                  <>
+                    {hasCustomName && (
+                      <text
+                        x={(p1.x + p2.x) / 2}
+                        y={(p1.y + p2.y) / 2 - 28}
+                        fontSize="12"
+                        textAnchor="middle"
+                        fill={isSelected ? color : "#64748b"}
+                        fontFamily="Inter, sans-serif"
+                        fontWeight="bold"
+                        style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
+                      >
+                        {d.door_name}
+                      </text>
+                    )}
+                    <text
+                      x={(p1.x + p2.x) / 2}
+                      y={(p1.y + p2.y) / 2 - 13}
+                      fontSize="14"
+                      textAnchor="middle"
+                      fill={isSelected ? color : "#1e293b"}
+                      fontFamily="Inter, sans-serif"
+                      fontWeight="bold"
+                      style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
+                    >
+                      {manualDimensionText}
+                    </text>
+                  </>
+                );
+
+                if (type === "double") {
+                  return (
+                    <>
+                      {renderDoubleDoor()}
+                      {renderLabelElements()}
+                    </>
+                  );
+                }
+                if (type === "sliding") {
+                  return (
+                    <>
+                      {renderSlidingDoor()}
+                      {renderLabelElements()}
+                    </>
+                  );
+                }
+                if (type === "window") {
+                  return (
+                    <>
+                      {renderWindow()}
+                      {renderLabelElements()}
+                    </>
+                  );
+                }
+                if (type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage") {
+                  return (
+                    <>
+                      {renderGarageDoor()}
+                      {renderLabelElements()}
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {renderSingleDoor()}
+                    {renderLabelElements()}
+                  </>
+                );
+              })()}
 
               {/* Floating interactive flip control panel (manual doors only) */}
               {isSelected && type !== "window" && (() => {
@@ -4334,30 +4345,32 @@ export default function CanvasView({
             >
               {interactionMode === "align-pdf" ? "ALIGNING" : "ALIGN"}
             </button> */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (setSnapAlignPoints) setSnapAlignPoints([]);
-                if (setInteractionMode) {
-                  setInteractionMode(prev => prev === "snap-align-pdf" ? "select" : "snap-align-pdf");
-                }
-              }}
-              style={{
-                background: interactionMode === "snap-align-pdf" ? "#10b981" : "#f8fafc",
-                border: interactionMode === "snap-align-pdf" ? "1px solid #059669" : "1px solid var(--border)",
-                color: interactionMode === "snap-align-pdf" ? "#ffffff" : "var(--text)",
-                padding: "3px 8px",
-                borderRadius: "5px",
-                fontSize: "11px",
-                fontWeight: "700",
-                cursor: "pointer",
-                transition: "all 0.15s ease-in-out",
-                boxShadow: interactionMode === "snap-align-pdf" ? "0 1px 4px rgba(16, 185, 129, 0.3)" : "none"
-              }}
-              title="Snap align: Pick 1 point on lower floor (ghost) and 1 point on current floor to snap together"
-            >
-              {interactionMode === "snap-align-pdf" ? "ALIGNING" : "ALIGN"}
-            </button>
+            {currentPage > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (setSnapAlignPoints) setSnapAlignPoints([]);
+                  if (setInteractionMode) {
+                    setInteractionMode(prev => prev === "snap-align-pdf" ? "select" : "snap-align-pdf");
+                  }
+                }}
+                style={{
+                  background: interactionMode === "snap-align-pdf" ? "#10b981" : "#f8fafc",
+                  border: interactionMode === "snap-align-pdf" ? "1px solid #059669" : "1px solid var(--border)",
+                  color: interactionMode === "snap-align-pdf" ? "#ffffff" : "var(--text)",
+                  padding: "3px 8px",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease-in-out",
+                  boxShadow: interactionMode === "snap-align-pdf" ? "0 1px 4px rgba(16, 185, 129, 0.3)" : "none"
+                }}
+                title="Snap align: Pick 1 point on lower floor (ghost) and 1 point on current floor to snap together"
+              >
+                {interactionMode === "snap-align-pdf" ? "ALIGNING" : "ALIGN"}
+              </button>
+            )}
           </div>
         )}
 
@@ -4639,8 +4652,10 @@ export default function CanvasView({
             {/* Memoized Layer 1: Base Floor Image */}
             <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
 
-            {/* Underlay Ghost Walls of Previous Page */}
-            <UnderlayWallLayer walls={underlayWalls} />
+            {/* Underlay Ghost Walls of Previous Page (shown only during align mode or when PDF layer is hidden on Level 2+) */}
+            {currentPage > 0 && underlayWalls?.length > 0 && (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf" || !showPDF) && (
+              <UnderlayWallLayer walls={underlayWalls} />
+            )}
 
             {/* Snap Guides */}
             {((isShiftDown && drawing) || ((isShiftDown || isSnapMode) && !drawing)) && currentMouse && (() => {

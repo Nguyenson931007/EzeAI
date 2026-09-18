@@ -237,6 +237,7 @@ export default function DoorEditDialog({
       status: status,
       distance_from: { side: distanceSide, value: distanceValue },
       height_mm: parsedHeight,
+      height: parsedHeight,
       width_mm: parsedWidth,
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null
