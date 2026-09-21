@@ -31,7 +31,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
 
   const architecturalPages = (pages || [])
     .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => !p?.category && p?.source !== "pdf_tools");
+    .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
 
   const displayPages = architecturalPages;
 

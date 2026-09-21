@@ -35,10 +35,13 @@ export const RoofInteractionState = {
 };
 
 // Helper function to snap a coordinate to other walls (centerline projection or endpoint vertex)
-function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWallSnapEnabled = true) {
-  if (!isWallSnapEnabled) {
+function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWallSnapEnabled = true, isFloorCeilingPage = false) {
+  if (!isWallSnapEnabled || isFloorCeilingPage) {
     return { ...p };
   }
+
+  const currentWall = pageWalls?.find(w => w.id === currentWallId);
+  const curLvl = currentWall?.sourceLevelCode || (currentWall?.sourceLevelOrder !== undefined ? String(currentWall.sourceLevelOrder) : null);
 
   let bestP = { ...p };
   let bestDist = snapDistance;
@@ -46,6 +49,9 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
   // 1. Snap to endpoints of other walls
   for (const w of pageWalls) {
     if (w.id === currentWallId) continue;
+    const othLvl = w?.sourceLevelCode || (w?.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+    if (curLvl && othLvl && curLvl !== othLvl) continue; // RULE: never snap to walls of a different level!
+
     if (w.centerline && w.centerline.length === 2) {
       for (const pt of w.centerline) {
         const dist = Math.hypot(p.x - pt[0], p.y - pt[1]);
@@ -63,6 +69,9 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
     let bestSegDist = segmentSnapDistance;
     for (const w of pageWalls) {
       if (w.id === currentWallId) continue;
+      const othLvl = w?.sourceLevelCode || (w?.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+      if (curLvl && othLvl && curLvl !== othLvl) continue; // RULE: never snap to walls of a different level!
+
       if (w.centerline && w.centerline.length === 2) {
         const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
         const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
@@ -608,6 +617,22 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   const [isWallSnapEnabled, setIsWallSnapEnabled] = useState(true);
   const [isWallMergeDisabled, setIsWallMergeDisabled] = useState(false);
 
+  const curPage = pages?.[currentPage];
+  const isFloorCeilingWorkspace = Boolean(
+    curPage?.isFloorCeilingWorkspace ||
+    curPage?.source === "floor_ceiling_page" ||
+    curPage?.source === "floor_ceiling_workspace" ||
+    curPage?.code === "FC"
+  );
+
+  // Automatically disable wall snapping and wall merging when on Floor & Ceiling workspace page
+  useEffect(() => {
+    if (isFloorCeilingWorkspace) {
+      setIsWallSnapEnabled(false);
+      setIsWallMergeDisabled(true);
+    }
+  }, [isFloorCeilingWorkspace, currentPage]);
+
   // Vertex menu state (click on endpoint circle)
   const [vertexMenu, setVertexMenu] = useState({ visible: false, x: 0, y: 0, vertex: null });
   // Wall body menu state (click on wall body)
@@ -674,7 +699,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function mergeCollinearWalls(wallsList, perpDistThresh = 12, angleThresh = 0.98, gapThresh = 120, ignoreExemptions = false, onlySameBaseId = false) {
-    if (isWallMergeDisabled) return wallsList;
+    if (isWallMergeDisabled || isFloorCeilingWorkspace) return wallsList;
 
     // Identify exempt walls (currently selected or touching the selected vertex)
     const exemptIds = ignoreExemptions ? new Set() : new Set(selectedWallIds || []);
@@ -1769,7 +1794,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function autoMergeCollinearWalls(targetWallIds = null) {
-    if (isWallMergeDisabled) return; // Respect the user toggle
+    if (isWallMergeDisabled || isFloorCeilingWorkspace) return; // Respect the user toggle and disable on FC workspace
     const pageWalls = wallsByPage[currentPage] || [];
     if (pageWalls.length < 2) return;
 
@@ -3794,10 +3819,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const wallP1 = wall.centerline[0];
         const wallP2 = wall.centerline[1];
         const wallIsHoriz = Math.abs(wallP2[0] - wallP1[0]) > Math.abs(wallP2[1] - wallP1[1]);
+        const curLvl = wall.sourceLevelCode || (wall.sourceLevelOrder !== undefined ? String(wall.sourceLevelOrder) : null);
 
         for (const otherW of currentWalls) {
           if (dragWallIds.includes(otherW.id)) continue;
           if (!otherW.centerline || otherW.centerline.length !== 2) continue;
+
+          // RULE: NEVER connect or stretch walls from different levels!
+          const othLvl = otherW.sourceLevelCode || (otherW.sourceLevelOrder !== undefined ? String(otherW.sourceLevelOrder) : null);
+          if (curLvl && othLvl && curLvl !== othLvl) continue;
 
           const otherP1 = otherW.centerline[0];
           const otherP2 = otherW.centerline[1];
@@ -3865,10 +3895,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const currentWalls = wallsByPage[currentPage] || [];
       const wall = currentWalls.find(w => w.id === id);
       if (wall && wall.centerline && wall.centerline.length === 2) {
+        const curLvl = wall.sourceLevelCode || (wall.sourceLevelOrder !== undefined ? String(wall.sourceLevelOrder) : null);
         const dragPt = wall.centerline[index];
         for (const otherW of currentWalls) {
           if (otherW.id === id) continue;
           if (!otherW.centerline || otherW.centerline.length !== 2) continue;
+
+          // RULE: NEVER connect vertex with walls of a different level!
+          const othLvl = otherW.sourceLevelCode || (otherW.sourceLevelOrder !== undefined ? String(otherW.sourceLevelOrder) : null);
+          if (curLvl && othLvl && curLvl !== othLvl) continue;
 
           const otherP1 = otherW.centerline[0];
           const otherP2 = otherW.centerline[1];
@@ -4200,7 +4235,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
           const otherPtArr = draggedWall.centerline[1 - dragging.index];
           const otherPt = { x: otherPtArr[0], y: otherPtArr[1] };
-          let snapped = snapToOtherWalls(pRaw, dragging.id, pageWalls, 20, isWallSnapEnabled);
+          let snapped = snapToOtherWalls(pRaw, dragging.id, pageWalls, 20, isWallSnapEnabled, isFloorCeilingWorkspace);
           if (!isShiftDown) {
             snapped = snap(otherPt, snapped);
           }
@@ -5126,10 +5161,10 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             return true;
           });
 
-          // Automatically merge collinear/overlapping walls
-          const merged = mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
+          // Automatically merge collinear/overlapping walls (disabled on Floor & Ceiling page)
+          const merged = isFloorCeilingWorkspace ? updatedWalls : mergeCollinearWalls(updatedWalls, 8, 0.995, 5);
           // Cut the merged walls by the current doors list
-          const cutWalls = cutWallsByDoors(merged, updatedDoors, realScale);
+          const cutWalls = isFloorCeilingWorkspace ? merged : cutWallsByDoors(merged, updatedDoors, realScale);
           // Recalculate all wall junctions to cleanly snap and connect corners
           const junctionCleanedWalls = recalculateAllWallsPolygons(cutWalls);
           setWallsByPage(prev => ({

@@ -226,7 +226,7 @@ export default function ThreeDView({
   // Helper to distinguish architectural Level pages from PDF Tools pages
   const isLevelPage = (p) => {
     if (!p) return false;
-    if (p.source === "pdf_tools" || p.is_pdf_tool || p.isPdfTool) return false;
+    if (p.source === "pdf_tools" || p.is_pdf_tool || p.isPdfTool || p.source === "floor_ceiling_page" || p.source === "floor_ceiling_workspace" || p.isFloorCeilingWorkspace) return false;
     if (p.category && p.category !== "level") return false;
     return true;
   };

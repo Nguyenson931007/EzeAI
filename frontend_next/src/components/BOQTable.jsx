@@ -3976,11 +3976,14 @@ export default function BOQTable({
           }}
         >
           <option value="all">All Floors (Project)</option>
-          {pages.map((p, idx) => (
-            <option key={idx} value={idx}>
-              {mapFloorName(p.floor_name, idx)}
-            </option>
-          ))}
+          {pages
+            .map((p, idx) => ({ ...p, idx }))
+            .filter(p => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace)
+            .map(p => (
+              <option key={p.idx} value={p.idx}>
+                {mapFloorName(p.floor_name, p.idx)}
+              </option>
+            ))}
         </select>
       </div>
 

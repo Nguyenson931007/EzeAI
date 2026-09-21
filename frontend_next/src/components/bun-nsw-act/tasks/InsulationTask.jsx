@@ -384,6 +384,48 @@ export default function InsulationTask({
     }
   }, [areaProductOptions, areaProduct]);
 
+  // Pre-populate Area Input from synced or existing area entries when type changes or on sync
+  useEffect(() => {
+    if (!areaTotalInsulation) {
+      const matching = (areaEntries || []).find(a => String(a.type).toLowerCase() === String(areaInsType).toLowerCase());
+      if (matching) {
+        const val = matching.insulationArea || matching.area || matching.totalArea;
+        if (val) setAreaTotalInsulation(String(val));
+      }
+    }
+  }, [areaInsType, areaEntries]);
+
+  // Direct listener for Floor & Ceiling sync events
+  useEffect(() => {
+    const handleDirectSync = (e) => {
+      if (e.detail?.entries && Array.isArray(e.detail.entries)) {
+        if (onSetAreaEntries) {
+          onSetAreaEntries(prev => {
+            const existing = Array.isArray(prev) ? [...prev] : [];
+            const manualOnly = existing.filter(x => x.source !== "floor_ceiling_sync");
+            return [...manualOnly, ...e.detail.entries];
+          });
+        }
+      }
+    };
+    window.addEventListener("sync-floor-ceiling-insulation", handleDirectSync);
+    return () => window.removeEventListener("sync-floor-ceiling-insulation", handleDirectSync);
+  }, [onSetAreaEntries]);
+
+  const handleAreaTypeChange = (newType) => {
+    setAreaInsType(newType);
+    if (newType === "Ceiling") {
+      setAreaRValue("R3.5");
+    } else if (newType === "Floor") {
+      setAreaRValue("R2.0");
+    }
+    const matching = (areaEntries || []).find(a => String(a.type).toLowerCase() === String(newType).toLowerCase());
+    if (matching) {
+      const val = matching.insulationArea || matching.area || matching.totalArea;
+      if (val) setAreaTotalInsulation(String(val));
+    }
+  };
+
   const calcInsulationArea = (h, l, raked, door) => {
     const heightM = (parseFloat(h) || 2400) / 1000;
     const lenM = (parseFloat(l) || 0) / 1000;
@@ -1753,7 +1795,7 @@ export default function InsulationTask({
                 <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Insulation Type</span>
                 <select
                   value={areaInsType}
-                  onChange={(e) => setAreaInsType(e.target.value)}
+                  onChange={(e) => handleAreaTypeChange(e.target.value)}
                   style={{
                     width: "100%",
                     padding: "6px 8px",

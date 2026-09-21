@@ -72,8 +72,9 @@ export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
   walls.forEach(w => {
     const cls = getWallClass(w);
     if (cls === "exterior_wall" && w.centerline && w.centerline.length === 2) {
-      extEndpoints.push({ x: w.centerline[0][0], y: w.centerline[0][1], wallId: w.id });
-      extEndpoints.push({ x: w.centerline[1][0], y: w.centerline[1][1], wallId: w.id });
+      const lvl = w.sourceLevelCode || (w.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+      extEndpoints.push({ x: w.centerline[0][0], y: w.centerline[0][1], wallId: w.id, level: lvl });
+      extEndpoints.push({ x: w.centerline[1][0], y: w.centerline[1][1], wallId: w.id, level: lvl });
     }
   });
 
@@ -109,8 +110,10 @@ export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
 
     // Tìm tất cả các điểm tiếp xúc của tường ext lên centerline của tường này
     const touchPoints = [];
+    const curLvl = w.sourceLevelCode || (w.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
 
     extEndpoints.forEach(ep => {
+      if (curLvl && ep.level && curLvl !== ep.level) return;
       const t = ((ep.x - x1) * dx + (ep.y - y1) * dy) / (len * len);
       if (t >= -0.05 && t <= 1.05) {
         const projX = x1 + t * dx;
@@ -413,9 +416,15 @@ export function calculateWallPolygonWithJunctions(points, thicknessPx, currentWa
       if (!allWalls) return 0.0;
 
       let maxExtension = 0.0;
+      const currentW = allWalls.find(w => w.id === currentWallId);
+      const curLvl = currentW?.sourceLevelCode || (currentW?.sourceLevelOrder !== undefined ? String(currentW.sourceLevelOrder) : null);
 
       for (const otherW of allWalls) {
         if (otherW.id === currentWallId) continue;
+        // Never connect junctions between walls of different levels!
+        const othLvl = otherW?.sourceLevelCode || (otherW?.sourceLevelOrder !== undefined ? String(otherW.sourceLevelOrder) : null);
+        if (curLvl && othLvl && curLvl !== othLvl) continue;
+
         const otherC = otherW.centerline;
         if (!otherC || otherC.length !== 2) continue;
         const otherP1 = { x: otherC[0][0], y: otherC[0][1] };
@@ -1627,6 +1636,13 @@ export function mergeCollinearWalls(walls, perpDistThresh = 8, angleThresh = 0.9
 
         // 1. Must have same class_name
         if (w1.class_name !== w2.class_name) continue;
+
+        // CRITICAL RULE: NEVER merge walls from different levels!
+        const lvl1 = w1.sourceLevelCode || (w1.sourceLevelOrder !== undefined ? String(w1.sourceLevelOrder) : (w1.sourcePageIdx !== undefined ? String(w1.sourcePageIdx) : (w1.level || null)));
+        const lvl2 = w2.sourceLevelCode || (w2.sourceLevelOrder !== undefined ? String(w2.sourceLevelOrder) : (w2.sourcePageIdx !== undefined ? String(w2.sourcePageIdx) : (w2.level || null)));
+        if (lvl1 && lvl2 && lvl1 !== lvl2) {
+          continue; // Distinct levels must NEVER merge!
+        }
 
         if (onlySameBaseId) {
           const baseId1 = getBaseWallId(w1.id);

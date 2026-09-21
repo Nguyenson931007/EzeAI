@@ -10,6 +10,7 @@ import FrameworkJobsModal from "@/components/FrameworkJobsModal";
 import AreaSummaryJobsModal from "@/components/AreaSummaryJobsModal";
 import InsulationJobsModal from "@/components/InsulationJobsModal";
 import LockoutJobsModal from "@/components/LockoutJobsModal";
+import FloorCeilingPageSelectorModal from "@/features/floor-ceiling/components/FloorCeilingPageSelectorModal";
 import UserProfileModal from "@/components/UserProfileModal";
 import SettingsModal from "@/components/SettingsModal";
 import { createToolAiJwt } from "@/utils/toolAiSso";
@@ -405,7 +406,8 @@ export default function RibbonView({
   isAutoSaving,
   exportRoofInput,
   importTarget: propsImportTarget,
-  setImportTarget: propsSetImportTarget
+  setImportTarget: propsSetImportTarget,
+  onOpenFloorCeilingModal
 }) {
   const { showAlert, showConfirm } = useDialog();
   const {
@@ -436,6 +438,7 @@ export default function RibbonView({
     showAreaSummaryModal, setShowAreaSummaryModal,
     showInsulationModal, setShowInsulationModal,
     showLockoutModal, setShowLockoutModal,
+    showFloorCeilingModal, setShowFloorCeilingModal,
     importTarget: contextImportTarget,
     setImportTarget: contextSetImportTarget
   } = useAppModel();
@@ -1639,6 +1642,17 @@ export default function RibbonView({
                 >
                   <span className="icon"><CAD_ICONS.Roof /></span><span className="label">Wall → Roof</span>
                 </button>
+                {/* <button
+                  className="ribbon-btn accent"
+                  onClick={() => {
+                    if (onOpenFloorCeilingModal) onOpenFloorCeilingModal();
+                    else if (setShowFloorCeilingModal) setShowFloorCeilingModal(true);
+                  }}
+                  title="Multi-Level Floor & Ceiling Workspace - Overlay & snap levels to scan Floor, Overlap, and Cantilevers"
+                >
+                  <span className="icon" style={{ color: "#9333ea" }}>📐</span>
+                  <span className="label">Floor &amp; Ceiling</span>
+                </button> */}
               </div>
             </div>
             <div className="ribbon-divider" />
@@ -2395,6 +2409,31 @@ export default function RibbonView({
                     <button
                       type="button"
                       onClick={() => {
+                        setShowImportPageSelector(false);
+                        if (onOpenFloorCeilingModal) onOpenFloorCeilingModal();
+                        else if (setShowFloorCeilingModal) setShowFloorCeilingModal(true);
+                      }}
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.12) 0%, rgba(124, 58, 237, 0.2) 100%)',
+                        border: '1px solid #c084fc',
+                        color: '#7e22ce',
+                        borderRadius: 6,
+                        padding: '6px 14px',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        fontWeight: 800,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                      title="Create dedicated Floor & Ceiling Page from levels"
+                    >
+                      <span>📐</span>
+                      <span>Floor &amp; Ceiling Page</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
                         if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
                         else setImportSelectedPages(pendingPages.map((_, i) => i));
                       }}
@@ -2633,6 +2672,32 @@ export default function RibbonView({
                         <button
                           type="button"
                           onClick={() => {
+                            setShowImportPageSelector(false);
+                            if (onOpenFloorCeilingModal) onOpenFloorCeilingModal();
+                            else if (setShowFloorCeilingModal) setShowFloorCeilingModal(true);
+                          }}
+                          style={{
+                            background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.12) 0%, rgba(124, 58, 237, 0.2) 100%)',
+                            border: '1px solid #c084fc',
+                            color: '#7e22ce',
+                            borderRadius: 6,
+                            padding: '6px 14px',
+                            fontSize: 12,
+                            cursor: 'pointer',
+                            fontWeight: 800,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4
+                          }}
+                          title="Create dedicated Floor & Ceiling Page from levels"
+                        >
+                          <span>📐</span>
+                          <span>Floor &amp; Ceiling Page</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
                             if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
                             else setImportSelectedPages(pendingPages.map((_, i) => i));
                           }}
@@ -2867,6 +2932,10 @@ export default function RibbonView({
         user={user}
         doors={(doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : []}
         walls={(wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : walls}
+      />
+      <FloorCeilingPageSelectorModal
+        isOpen={showFloorCeilingModal}
+        onClose={() => setShowFloorCeilingModal && setShowFloorCeilingModal(false)}
       />
       <SettingsModal
         isOpen={showSettingsModal}

@@ -34,6 +34,7 @@ export default function LeftRailView({
   setLevels: propSetLevels,
   currentLevelIndex: propCurrentLevelIndex,
   setCurrentLevelIndex: propSetCurrentLevelIndex,
+  onOpenFloorCeilingModal,
 }) {
   const { showConfirm } = useDialog();
   const appModel = useAppModel() || {};
@@ -41,10 +42,10 @@ export default function LeftRailView({
   const activeCurrentPage = currentPage !== undefined ? currentPage : (appModel.currentPage || 0);
   const activeRoomsByPage = roomsByPage || appModel.roomsByPage || {};
 
-  // Lấy danh sách các tầng kiến trúc (Architectural floor levels - tách biệt hoàn toàn với PDF Tools / Add Pages)
+  // Lấy danh sách các tầng kiến trúc (Architectural floor levels - tách biệt hoàn toàn với PDF Tools / Add Pages và Floor & Ceiling Page)
   const architecturalPages = currentPages
     .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => !p?.category && p?.source !== "pdf_tools");
+    .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
 
   const displayLevels = architecturalPages;
 
@@ -136,7 +137,9 @@ export default function LeftRailView({
                 }}
                 title={`${name}${roomCount > 0 ? ` (${roomCount} rooms)` : ""}`}
               >
-                <span className="cad-rail-level-code">{code}</span>
+                <span className="cad-rail-level-code">
+                  {code}
+                </span>
                 {roomCount > 0 && (
                   <span className="cad-rail-level-badge">{roomCount}</span>
                 )}
@@ -147,7 +150,7 @@ export default function LeftRailView({
                   onClick={async (e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    const confirmed = await showConfirm(`Delete level ${name} (${code})?\nAll drawings and data on this level will be deleted.`);
+                    const confirmed = await showConfirm(`Delete level ${name} (${code})?\nAll drawings on this level will be deleted.`);
                     if (confirmed) {
                       if (onDeleteFloor) {
                         onDeleteFloor(originalIdx);
@@ -156,7 +159,7 @@ export default function LeftRailView({
                       }
                     }
                   }}
-                  title={`Delete level ${name} (${code})`}
+                  title={`Delete ${name} (${code})`}
                 >
                   ✕
                 </span>

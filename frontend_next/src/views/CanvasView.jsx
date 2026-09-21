@@ -21,6 +21,9 @@ import RoofContextMenu from "../components/RoofContextMenu";
 import { TrussEngine, TRUSS_COLORS } from "@/engines/Truss/TrussEngine";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
+import FloorCeilingWallRenderer from "@/features/floor-ceiling/components/FloorCeilingWallRenderer";
+import FloorCeilingLevelControlPanel from "@/features/floor-ceiling/components/FloorCeilingLevelControlPanel";
+import { shiftWallsByLevel } from "@/features/floor-ceiling/controllers/FloorCeilingEngine";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
 import { formatLintelCalloutText, syncLintelWithDoor } from "../controllers/lintel.controller";
 import { getWallConnectionPoints, findNearestWallJunctionOrVertex } from "../controllers/interaction.controller";
@@ -3269,7 +3272,8 @@ export default function CanvasView({
   startVertexMove,
   lintelController,
   isDrawingLintel,
-  lintelPreview
+  lintelPreview,
+  onDeletePage
 }) {
   const [editingRoomId, setEditingRoomId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -3292,8 +3296,51 @@ export default function CanvasView({
     setLintelsByPage,
     trussesByPage = {},
     setTrussesByPage,
-    setDoorsByPage
+    setDoorsByPage,
+    wallsByPage = {},
+    setWallsByPage,
+    scalesByPage = {},
+    setFloorCeilingTakeoffData
   } = useAppModel();
+
+  // Floor & Ceiling Workspace state
+  const [fcLevelConfigs, setFcLevelConfigs] = useState({});
+  const [fcActiveLevelFilter, setFcActiveLevelFilter] = useState("ALL");
+  const [fcOtherLevelsGhostOpacity, setFcOtherLevelsGhostOpacity] = useState(0.05);
+  const [fcDetectedZones, setFcDetectedZones] = useState([]);
+  const [fcSelectedZoneId, setFcSelectedZoneId] = useState(null);
+  const [fcAlignMode, setFcAlignMode] = useState(false);
+  const [fcAlignStep, setFcAlignStep] = useState(1);
+  const [fcAlignPoint1, setFcAlignPoint1] = useState(null);
+
+  const activePage = pages?.[currentPage];
+  const activePageId = activePage?.id || activePage?.name || currentPage;
+  const isFloorCeilingWorkspace = Boolean(
+    activePage?.isFloorCeilingWorkspace ||
+    activePage?.source === "floor_ceiling_page" ||
+    activePage?.source === "floor_ceiling_workspace" ||
+    activePage?.code === "FC"
+  );
+
+  // Clear detected zones and scan state on clear event
+  useEffect(() => {
+    const handleClearScan = () => {
+      setFcDetectedZones([]);
+      setFcSelectedZoneId(null);
+    };
+    window.addEventListener("ezefloor:clear_floor_ceiling_scan", handleClearScan);
+    return () => window.removeEventListener("ezefloor:clear_floor_ceiling_scan", handleClearScan);
+  }, []);
+
+  // When active page changes: reset detected zones and selected zone if switching between workspaces or pages
+  const prevPageIdRef = useRef(activePageId);
+  useEffect(() => {
+    if (prevPageIdRef.current !== activePageId) {
+      prevPageIdRef.current = activePageId;
+      setFcDetectedZones([]);
+      setFcSelectedZoneId(null);
+    }
+  }, [activePageId]);
 
   // Snap Align target walls: underlay walls (floor k-1) for Step 1, current walls (floor k) for Step 2
   const snapTargetWalls = useMemo(() => {
@@ -3315,6 +3362,17 @@ export default function CanvasView({
     if (interactionMode !== "snap-align-pdf" || !currentMouse) return null;
     return findNearestWallJunctionOrVertex(currentMouse, snapTargetWalls, 35);
   }, [interactionMode, currentMouse, snapTargetWalls]);
+
+  // Floor & Ceiling Workspace active snap point for point-to-point alignment
+  const fcActiveSnapPoint = useMemo(() => {
+    if (!isFloorCeilingWorkspace || !fcAlignMode || !currentMouse) return null;
+    const lvl1Walls = (walls || []).filter(w => w.sourceLevelOrder === 0 || w.sourceLevelCode === "GF");
+    const lvl2Walls = (walls || []).filter(w => w.sourceLevelOrder !== 0 && w.sourceLevelCode !== "GF");
+    const targetWalls = fcAlignStep === 1
+      ? (lvl1Walls.length > 0 ? lvl1Walls : walls)
+      : (lvl2Walls.length > 0 ? lvl2Walls : walls);
+    return findNearestWallJunctionOrVertex(currentMouse, targetWalls, 35);
+  }, [isFloorCeilingWorkspace, fcAlignMode, currentMouse, walls, fcAlignStep]);
 
   // Continuous base walls for 2D visual rendering (walls under door frames are kept intact)
   const displayWalls = useMemo(() => {
@@ -4581,6 +4639,46 @@ export default function CanvasView({
             // to avoid cancelling draw mode or deselecting the newly created lintel
             if (isDrawingLintel || lintelController?.isDrawingLintel || lintelController?.showCatalogPanel) return;
 
+            // Floor & Ceiling Workspace Point-to-Point Align Click Handling
+            if (isFloorCeilingWorkspace && fcAlignMode) {
+              e.stopPropagation();
+              e.preventDefault();
+              if (svgRef?.current) {
+                const rect = svgRef.current.getBoundingClientRect();
+                const p = {
+                  x: (e.clientX - rect.left - offset.x) / scale,
+                  y: (e.clientY - rect.top - offset.y) / scale
+                };
+
+                const lvl1Walls = (walls || []).filter(w => w.sourceLevelOrder === 0 || w.sourceLevelCode === "GF");
+                const lvl2Walls = (walls || []).filter(w => w.sourceLevelOrder !== 0 && w.sourceLevelCode !== "GF");
+
+                if (fcAlignStep === 1) {
+                  const targetWalls = lvl1Walls.length > 0 ? lvl1Walls : walls;
+                  const snapped = findNearestWallJunctionOrVertex ? findNearestWallJunctionOrVertex(p, targetWalls, 35) : p;
+                  setFcAlignPoint1(snapped);
+                  setFcAlignStep(2);
+                } else if (fcAlignStep === 2) {
+                  const targetWalls = lvl2Walls.length > 0 ? lvl2Walls : walls;
+                  const snapped = findNearestWallJunctionOrVertex ? findNearestWallJunctionOrVertex(p, targetWalls, 35) : p;
+                  if (fcAlignPoint1) {
+                    const deltaX = fcAlignPoint1.x - snapped.x;
+                    const deltaY = fcAlignPoint1.y - snapped.y;
+                    const targetCode = fcActiveLevelFilter !== "ALL" ? fcActiveLevelFilter : (lvl2Walls[0]?.sourceLevelCode || "FF");
+                    const updated = shiftWallsByLevel(walls, targetCode, deltaX, deltaY);
+                    if (setWallsByPage && currentPage != null) {
+                      setWallsByPage(prev => ({ ...prev, [currentPage]: updated }));
+                    }
+                    alert(`✓ Point-to-Point Align Complete: Shifted ${targetCode} walls by dx: ${Math.round(deltaX)}px, dy: ${Math.round(deltaY)}px`);
+                  }
+                  setFcAlignMode(false);
+                  setFcAlignStep(1);
+                  setFcAlignPoint1(null);
+                }
+              }
+              return;
+            }
+
             if (handleClick) handleClick(e);
             closeDoorContextMenu();
             closeWallContextMenu();
@@ -4649,11 +4747,13 @@ export default function CanvasView({
           {/* Main Transformation Matrix */}
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
 
-            {/* Memoized Layer 1: Base Floor Image */}
-            <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
+            {/* Memoized Layer 1: Base Floor Image (Suppressed in Floor & Ceiling Workspace) */}
+            {!isFloorCeilingWorkspace && (
+              <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
+            )}
 
             {/* Underlay Ghost Walls of Previous Page (shown only during align mode or when PDF layer is hidden on Level 2+) */}
-            {currentPage > 0 && underlayWalls?.length > 0 && (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf" || !showPDF) && (
+            {!isFloorCeilingWorkspace && currentPage > 0 && underlayWalls?.length > 0 && (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf" || !showPDF) && (
               <UnderlayWallLayer walls={underlayWalls} />
             )}
 
@@ -5438,38 +5538,64 @@ export default function CanvasView({
             )}
 
             {/* Memoized Layer 3: Wall Polygons */}
-            {layerVisibility?.wall && (
-              <WallLayer
+            {isFloorCeilingWorkspace ? (
+              <FloorCeilingWallRenderer
                 walls={displayWalls}
-                rooms={displayRooms}
-                layerVisibility={layerVisibility}
-                selectedId={selectedId}
-                selectedType={selectedType}
-                setSelectedId={setSelectedId}
-                setSelectedType={setSelectedType}
+                activeLevelFilter={fcActiveLevelFilter}
+                levelConfigs={fcLevelConfigs}
+                otherLevelsGhostOpacity={fcOtherLevelsGhostOpacity}
                 selectedWallIds={selectedWallIds}
                 setSelectedWallIds={setSelectedWallIds}
+                selectedId={selectedId}
+                setSelectedId={setSelectedId}
+                setSelectedType={setSelectedType}
                 selectWall={selectWall}
                 startDrag={startDrag}
                 dragging={dragging}
                 hoverId={hoverId}
                 setHoverId={setHoverId}
                 interactionMode={interactionMode}
-                selectedWallVertex={selectedWallVertex}
-                setSelectedWallVertex={setSelectedWallVertex}
-                onWallContextMenu={handleWallContextMenu}
-                onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
-                selectedVertices={selectedVertices}
-                setSelectedVertices={setSelectedVertices}
-                startVertexMove={startVertexMove}
                 handleWallDoubleClick={handleWallDoubleClick}
-                onMouseUp={onMouseUp}
-                drawing={drawing}
-                isDrawingDoor={isDrawingDoor}
-                isMeasuring={isMeasuring}
-                isDistancing={isDistancing}
-                isDrawingLintel={isDrawingLintel}
+                onWallContextMenu={handleWallContextMenu}
+                detectedZones={fcDetectedZones}
+                selectedZoneId={fcSelectedZoneId}
+                onSelectZone={setFcSelectedZoneId}
+                fcAlignMode={fcAlignMode}
               />
+            ) : (
+              layerVisibility?.wall && (
+                <WallLayer
+                  walls={displayWalls}
+                  rooms={displayRooms}
+                  layerVisibility={layerVisibility}
+                  selectedId={selectedId}
+                  selectedType={selectedType}
+                  setSelectedId={setSelectedId}
+                  setSelectedType={setSelectedType}
+                  selectedWallIds={selectedWallIds}
+                  setSelectedWallIds={setSelectedWallIds}
+                  selectWall={selectWall}
+                  startDrag={startDrag}
+                  dragging={dragging}
+                  hoverId={hoverId}
+                  setHoverId={setHoverId}
+                  interactionMode={interactionMode}
+                  selectedWallVertex={selectedWallVertex}
+                  setSelectedWallVertex={setSelectedWallVertex}
+                  onWallContextMenu={handleWallContextMenu}
+                  onVertexClick={(e, vertex) => setVertexMenu({ visible: true, x: e.clientX, y: e.clientY, vertex })}
+                  selectedVertices={selectedVertices}
+                  setSelectedVertices={setSelectedVertices}
+                  startVertexMove={startVertexMove}
+                  handleWallDoubleClick={handleWallDoubleClick}
+                  onMouseUp={onMouseUp}
+                  drawing={drawing}
+                  isDrawingDoor={isDrawingDoor}
+                  isMeasuring={isMeasuring}
+                  isDistancing={isDistancing}
+                  isDrawingLintel={isDrawingLintel}
+                />
+              )
             )}
 
             {/* Memoized Layer 4: Doors */}
@@ -5847,6 +5973,89 @@ export default function CanvasView({
                           fontFamily="Inter, sans-serif"
                         >
                           {subText}
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })()}
+              </g>
+            )}
+
+            {/* Floor & Ceiling Workspace Point-to-Point Align Overlay */}
+            {isFloorCeilingWorkspace && fcAlignMode && (
+              <g id="FCAlignOverlay" pointerEvents="none">
+                {/* Rubberband line from Point 1 to cursor / snap point in Step 2 */}
+                {fcAlignStep === 2 && fcAlignPoint1 && (() => {
+                  const targetPt = (fcActiveSnapPoint && fcActiveSnapPoint.snapped) ? fcActiveSnapPoint : currentMouse;
+                  if (!targetPt) return null;
+                  const distPx = Math.hypot(targetPt.x - fcAlignPoint1.x, targetPt.y - fcAlignPoint1.y);
+                  const distMm = scaleValue ? Math.round(distPx * scaleValue * 1000) : Math.round(distPx);
+                  return (
+                    <g>
+                      <line
+                        x1={fcAlignPoint1.x}
+                        y1={fcAlignPoint1.y}
+                        x2={targetPt.x}
+                        y2={targetPt.y}
+                        stroke="#06b6d4"
+                        strokeWidth={2.5}
+                        strokeDasharray="6,4"
+                      />
+                      <g transform={`translate(${(fcAlignPoint1.x + targetPt.x) / 2}, ${(fcAlignPoint1.y + targetPt.y) / 2 - 12})`}>
+                        <rect
+                          x={-55}
+                          y={-10}
+                          width={110}
+                          height={20}
+                          rx={4}
+                          fill="rgba(15, 23, 42, 0.9)"
+                          stroke="#06b6d4"
+                          strokeWidth={1}
+                        />
+                        <text
+                          x={0}
+                          y={4}
+                          fill="#22d3ee"
+                          fontSize={10}
+                          fontWeight="700"
+                          textAnchor="middle"
+                          fontFamily="Inter, sans-serif"
+                        >
+                          Δ: {distMm} mm
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })()}
+
+                {/* Point 1 Anchored Marker */}
+                {fcAlignPoint1 && (
+                  <g transform={`translate(${fcAlignPoint1.x}, ${fcAlignPoint1.y})`}>
+                    <circle r={18} fill="rgba(16, 185, 129, 0.25)" stroke="#10b981" strokeWidth={2} />
+                    <circle r={6.5} fill="#10b981" stroke="#ffffff" strokeWidth={2} />
+                    <g transform="translate(14, -14)">
+                      <rect x={0} y={-10} width={130} height={20} rx={4} fill="rgba(16, 185, 129, 0.95)" stroke="#ffffff" strokeWidth={1} />
+                      <text x={8} y={4} fill="#ffffff" fontSize={10} fontWeight="700" fontFamily="Inter, sans-serif">
+                        Point 1 (Level 1 Ref)
+                      </text>
+                    </g>
+                  </g>
+                )}
+
+                {/* Hover Reticle on Nearest Corner / Junction */}
+                {fcActiveSnapPoint && fcActiveSnapPoint.snapped && (() => {
+                  const sp = fcActiveSnapPoint;
+                  const isLvl1 = fcAlignStep === 1;
+                  const primaryColor = isLvl1 ? "#10b981" : "#06b6d4";
+                  const label = isLvl1 ? "Level 1 Corner (Click to pick Ref)" : "Level 2 Corner (Click to Align!)";
+                  return (
+                    <g transform={`translate(${sp.x}, ${sp.y})`}>
+                      <circle r={20} fill={isLvl1 ? "rgba(16, 185, 129, 0.25)" : "rgba(6, 182, 212, 0.25)"} stroke={primaryColor} strokeWidth={2} strokeDasharray="4,2" />
+                      <circle r={7} fill={primaryColor} stroke="#ffffff" strokeWidth={2} />
+                      <g transform="translate(0, -28)">
+                        <rect x={-80} y={-10} width={160} height={20} rx={4} fill="rgba(15, 23, 42, 0.95)" stroke={primaryColor} strokeWidth={1.2} />
+                        <text x={0} y={4} fill="#ffffff" fontSize={9.5} fontWeight="700" textAnchor="middle" fontFamily="Inter, sans-serif">
+                          {label}
                         </text>
                       </g>
                     </g>
@@ -6877,8 +7086,8 @@ export default function CanvasView({
           </g>
         </svg>
 
-        {/* ===== FLOATING INTERACTIVE MINIMAP WITH ZOOM SLIDER ===== */}
-        {image && (
+        {/* ===== FLOATING INTERACTIVE MINIMAP WITH ZOOM SLIDER (Suppressed in Floor & Ceiling Workspace) ===== */}
+        {image && !isFloorCeilingWorkspace && (
           <div className="cad-minimap" onClick={(e) => e.stopPropagation()}>
             <div
               className="minimap-canvas-wrapper"
@@ -7037,6 +7246,128 @@ export default function CanvasView({
               )}
             </div>
           </div>
+        )}
+
+        {/* Top Floating Alignment Banner in Floor & Ceiling Workspace */}
+        {isFloorCeilingWorkspace && fcAlignMode && (
+          <div
+            style={{
+              position: "absolute",
+              top: "16px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 995,
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              padding: "10px 18px",
+              borderRadius: "10px",
+              background: "rgba(15, 23, 42, 0.95)",
+              backdropFilter: "blur(8px)",
+              border: "1.5px solid #06b6d4",
+              boxShadow: "0 8px 30px rgba(6, 182, 212, 0.35)",
+              color: "#f8fafc",
+              fontSize: "13px",
+              fontFamily: "Inter, sans-serif"
+            }}
+          >
+            <span style={{ fontSize: "18px" }}>📐</span>
+            <div>
+              <div style={{ fontWeight: "700", color: "#38bdf8", display: "flex", alignItems: "center", gap: "8px" }}>
+                POINT-TO-POINT ALIGNMENT
+                <span style={{
+                  padding: "2px 8px",
+                  borderRadius: "9999px",
+                  background: "rgba(6, 182, 212, 0.2)",
+                  color: "#22d3ee",
+                  fontSize: "11px",
+                  fontWeight: "800"
+                }}>
+                  Step {fcAlignStep} of 2
+                </span>
+              </div>
+              <div style={{ color: "#cbd5e1", fontSize: "12px", marginTop: "2px" }}>
+                {fcAlignStep === 1
+                  ? "Click a reference corner or junction on Level 1 (Base Floor)"
+                  : "Click the matching corner or junction on Level 2 to snap & align"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setFcAlignMode(false);
+                setFcAlignStep(1);
+                setFcAlignPoint1(null);
+              }}
+              style={{
+                marginLeft: "12px",
+                padding: "5px 12px",
+                borderRadius: "6px",
+                background: "rgba(239, 68, 68, 0.25)",
+                border: "1px solid rgba(239, 68, 68, 0.5)",
+                color: "#fca5a5",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* ===== FLOATING FLOOR & CEILING WORKSPACE CONTROL PANEL ===== */}
+        {isFloorCeilingWorkspace && (
+          <FloorCeilingLevelControlPanel
+            activePage={activePage}
+            pageIndex={currentPage}
+            walls={walls}
+            setWalls={(newWalls) => {
+              if (setWallsByPage && currentPage != null) {
+                setWallsByPage(prev => ({ ...prev, [currentPage]: newWalls }));
+              }
+            }}
+            scalesByPage={scalesByPage}
+            realScale={realScale}
+            scaleValue={scaleValue}
+            rooms={rooms}
+            selectedWallIds={selectedWallIds}
+            deleteWalls={deleteWalls}
+            onSyncInsulation={(entries) => {
+              setTimeout(() => {
+                if (setFloorCeilingTakeoffData) {
+                  setFloorCeilingTakeoffData(prev => ({ ...prev, insulationEntries: entries }));
+                }
+                window.dispatchEvent(new CustomEvent("sync-floor-ceiling-insulation", { detail: { entries } }));
+              }, 0);
+            }}
+            onSyncFrame={(metrics) => {
+              setTimeout(() => {
+                if (setFloorCeilingTakeoffData) {
+                  setFloorCeilingTakeoffData(prev => ({ ...prev, frameMetrics: metrics }));
+                }
+                window.dispatchEvent(new CustomEvent("sync-floor-ceiling-frame", { detail: { metrics } }));
+              }, 0);
+            }}
+            detectedZones={fcDetectedZones}
+            setDetectedZones={setFcDetectedZones}
+            selectedZoneId={fcSelectedZoneId}
+            setSelectedZoneId={setFcSelectedZoneId}
+            levelConfigs={fcLevelConfigs}
+            setLevelConfigs={setFcLevelConfigs}
+            activeLevelFilter={fcActiveLevelFilter}
+            setActiveLevelFilter={setFcActiveLevelFilter}
+            otherLevelsGhostOpacity={fcOtherLevelsGhostOpacity}
+            setOtherLevelsGhostOpacity={setFcOtherLevelsGhostOpacity}
+            onDeletePage={onDeletePage}
+            fcAlignMode={fcAlignMode}
+            setFcAlignMode={setFcAlignMode}
+            fcAlignStep={fcAlignStep}
+            setFcAlignStep={setFcAlignStep}
+            fcAlignPoint1={fcAlignPoint1}
+            setFcAlignPoint1={setFcAlignPoint1}
+            setFloorCeilingTakeoffData={setFloorCeilingTakeoffData}
+          />
         )}
 
         {/* ===== STATUS BAR ===== */}

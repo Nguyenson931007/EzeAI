@@ -27,7 +27,7 @@ export default function FloorTabBarView({
   // Only display architectural Level pages (exclude PDF Tools / any task category pages)
   const architecturalPages = pages
     .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => !p?.category && p?.source !== "pdf_tools");
+    .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
 
   const displayPages = architecturalPages;
 

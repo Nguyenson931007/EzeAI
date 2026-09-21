@@ -884,11 +884,11 @@ export default function RightPropertyPaneView({
     if (moduleId === "frame_hardware") {
       const architecturalPages = (pages || [])
         .map((p, originalIndex) => ({ ...p, originalIndex }))
-        .filter((p) => !p?.category && p?.source !== "pdf_tools");
+        .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
       const architecturalIndices = architecturalPages.map(p => p.originalIndex);
       const validArchitecturalIndices = architecturalIndices.length > 0
         ? architecturalIndices
-        : ((pages || []).length > 0 && !pages[0]?.category && pages[0]?.source !== "pdf_tools" ? [0] : []);
+        : ((pages || []).length > 0 && !pages[0]?.category && pages[0]?.source !== "pdf_tools" && !pages[0]?.isFloorCeilingWorkspace && pages[0]?.source !== "floor_ceiling_page" ? [0] : []);
 
       const pageIndices = new Set([
         ...validArchitecturalIndices,
@@ -2410,6 +2410,40 @@ export default function RightPropertyPaneView({
     });
   }, [selectedRoomIds, selectedRoom]);
 
+  // Listen for sync events from Floor & Ceiling Workspace
+  React.useEffect(() => {
+    const handleSync = (e) => {
+      if (e.detail?.entries && Array.isArray(e.detail.entries)) {
+        handleSetInsulationAreaEntries(prev => {
+          const existing = Array.isArray(prev) ? [...prev] : [];
+          // Keep manual user entries, replace prior synced Floor & Ceiling entries
+          const manualOnly = existing.filter(x => x.source !== "floor_ceiling_sync");
+          return [...manualOnly, ...e.detail.entries];
+        });
+      }
+    };
+    window.addEventListener("sync-floor-ceiling-insulation", handleSync);
+    return () => window.removeEventListener("sync-floor-ceiling-insulation", handleSync);
+  }, [handleSetInsulationAreaEntries]);
+
+  // Listen for clear events from Floor & Ceiling Workspace to remove synced entries
+  React.useEffect(() => {
+    const handleClear = () => {
+      if (handleSetInsulationAreaEntries) {
+        handleSetInsulationAreaEntries(prev => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.filter(item => item.source !== "floor_ceiling_sync");
+        });
+      }
+    };
+    window.addEventListener("sync-floor-ceiling-insulation-clear", handleClear);
+    window.addEventListener("ezefloor:clear_floor_ceiling_scan", handleClear);
+    return () => {
+      window.removeEventListener("sync-floor-ceiling-insulation-clear", handleClear);
+      window.removeEventListener("ezefloor:clear_floor_ceiling_scan", handleClear);
+    };
+  }, [handleSetInsulationAreaEntries]);
+
   // When on Insulation task: dynamic wall & area calculations based on canvas selection
   // Skip auto-generation if insulationWallEntries already has entries (preserves AI-filled, entered, or calculated rows)
   React.useEffect(() => {
@@ -2534,7 +2568,7 @@ export default function RightPropertyPaneView({
         }
       });
 
-      if (ceilM2 > 0) {
+      if (ceilM2 > 0 && (!insulationAreaEntries || insulationAreaEntries.length === 0)) {
         const cVal = Number(ceilM2.toFixed(2));
         setInsulationAreaEntries([
           {

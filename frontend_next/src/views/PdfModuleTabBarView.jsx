@@ -45,9 +45,11 @@ export default function PdfModuleTabBarView({
   onAddPagesClick,
   onOpenImportSelector,
   onDeletePage,
+  onOpenFloorCeilingModal,
 }) {
   const { showConfirm } = useDialog();
-  const { setAnnotationsByPage } = useAppModel() || {};
+  const appModel = useAppModel() || {};
+  const { setAnnotationsByPage } = appModel;
   const [contextMenu, setContextMenu] = React.useState(null);
 
   React.useEffect(() => {
@@ -75,7 +77,7 @@ export default function PdfModuleTabBarView({
           return raw.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean);
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     return null;
   }, []);
 
@@ -89,11 +91,11 @@ export default function PdfModuleTabBarView({
     return DEFAULT_TASK_STEPS;
   }, [activeTaskListStepIds]);
 
-  // All pages added for PDF Tools / Takeoff tasks (distinct from architectural Level pages GF, FF...)
+  // All pages added for PDF Tools / Takeoff tasks and Floor & Ceiling Page
   const allPages = React.useMemo(() => {
     return pages
       .map((p, originalIndex) => ({ ...p, originalIndex }))
-      .filter((p) => p.category || p.source === "pdf_tools");
+      .filter((p) => p.category || p.source === "pdf_tools" || p.source === "floor_ceiling_workspace" || p.source === "floor_ceiling_page" || p.isFloorCeilingWorkspace);
   }, [pages]);
 
   // Move page between any of the steps
@@ -126,24 +128,10 @@ export default function PdfModuleTabBarView({
 
     if (setAnnotationsByPage) {
       setAnnotationsByPage((prev = {}) => {
-        const updated = {};
-        Object.keys(prev).forEach((k) => {
-          const numK = Number(k);
-          if (numK <= originalIndex) {
-            updated[numK] = prev[numK];
-          } else {
-            updated[numK + 1] = prev[numK];
-          }
-        });
-        if (prev[originalIndex]) {
-          updated[originalIndex + 1] = JSON.parse(JSON.stringify(prev[originalIndex]));
-        }
-        return updated;
+        const next = { ...prev };
+        next[originalIndex + 1] = prev[originalIndex] ? JSON.parse(JSON.stringify(prev[originalIndex])) : [];
+        return next;
       });
-    }
-
-    if (onPageClick) {
-      onPageClick(originalIndex + 1);
     }
   };
 
@@ -175,13 +163,20 @@ export default function PdfModuleTabBarView({
             const pageNum = p.pageNumber || (p.originalIndex !== undefined ? p.originalIndex + 1 : 1);
             const pageTitle = p.customName || (p.name && p.name !== p.fileName && !p.name.startsWith("architectural-drawing") ? p.name : `Page ${pageNum}`);
 
+            const isFC = Boolean(p.isFloorCeilingWorkspace || p.source === "floor_ceiling_workspace" || p.source === "floor_ceiling_page");
+
             return (
               <div
                 key={p.originalIndex}
                 className={`pdf-page-tab ${isActive ? "active" : ""}`}
+                style={isFC ? {
+                  border: isActive ? "1.5px solid #9333ea" : "1px dashed #c084fc",
+                  background: isActive ? "#9333ea" : "rgba(147, 51, 234, 0.08)",
+                  color: isActive ? "#ffffff" : "#7e22ce"
+                } : {}}
                 onClick={() => {
                   if (onPageClick) onPageClick(p.originalIndex);
-                  if (p.category && setActiveCategory && p.category !== activeCategory) {
+                  if (!isFC && p.category && setActiveCategory && p.category !== activeCategory) {
                     setActiveCategory(p.category);
                   }
                 }}
@@ -195,38 +190,53 @@ export default function PdfModuleTabBarView({
                     pageTitle
                   });
                 }}
-                title={`${p.fileName ? `${p.fileName} - ` : ""}${pageTitle} (${p.w || 0} × ${p.h || 0} px) • Right-click to duplicate/rename`}
+                title={`${p.fileName ? `${p.fileName} - ` : ""}${pageTitle} • Right-click to duplicate/rename`}
               >
-                <span style={{ fontSize: "12px", opacity: 0.85 }}>📄</span>
-                <span>{pageTitle}</span>
+                <span style={{ fontSize: "12px", opacity: 0.9 }}>{isFC ? "📐" : "📄"}</span>
+                <span style={{ fontWeight: isFC ? 700 : undefined }}>{pageTitle}</span>
 
-                {/* Move / assign to step dropdown */}
-                <select
-                  value={p.category || activeCategory || "frame_hardware"}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    handleMovePageCategory(p.originalIndex, e.target.value);
-                  }}
-                  style={{
-                    background: isActive ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.06)",
-                    color: isActive ? "#ffffff" : "#475569",
-                    border: "none",
-                    borderRadius: "4px",
-                    padding: "1px 4px",
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    outline: "none"
-                  }}
-                  title="Assign page to step"
-                >
-                  {availableTaskSteps.map(s => (
-                    <option key={s.id} value={s.id} style={{ color: '#1e293b', background: '#ffffff' }}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
+                {/* Move / assign to step dropdown (only for regular PDF tools pages) */}
+                {!isFC ? (
+                  <select
+                    value={p.category || activeCategory || "frame_hardware"}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      handleMovePageCategory(p.originalIndex, e.target.value);
+                    }}
+                    style={{
+                      background: isActive ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.06)",
+                      color: isActive ? "#ffffff" : "#475569",
+                      border: "none",
+                      borderRadius: "4px",
+                      padding: "1px 4px",
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      outline: "none"
+                    }}
+                    title="Assign page to step"
+                  >
+                    {availableTaskSteps.map(s => (
+                      <option key={s.id} value={s.id} style={{ color: '#1e293b', background: '#ffffff' }}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      padding: "1px 5px",
+                      borderRadius: "4px",
+                      background: isActive ? "rgba(255,255,255,0.25)" : "rgba(147, 51, 234, 0.15)",
+                      color: isActive ? "#ffffff" : "#9333ea"
+                    }}
+                  >
+                    FC Page
+                  </span>
+                )}
 
                 {/* Delete Page button */}
                 {onDeletePage && (
@@ -412,6 +422,36 @@ export default function PdfModuleTabBarView({
             <span>+ Add Page</span>
           </div>
         </label>
+
+        {/* Floor & Ceiling Workspace trigger button */}
+        <div
+          title="Create Floor & Ceiling Workspace (Multi-Level)"
+          onClick={() => {
+            if (onOpenFloorCeilingModal) {
+              onOpenFloorCeilingModal();
+            } else if (appModel.setShowFloorCeilingModal) {
+              appModel.setShowFloorCeilingModal(true);
+            }
+          }}
+          style={{
+            height: "26px",
+            padding: "0 9px",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            fontSize: "11px",
+            fontWeight: 700,
+            color: "#9333ea",
+            background: "rgba(147, 51, 234, 0.08)",
+            border: "1px dashed #c084fc",
+            borderRadius: "6px",
+            cursor: "pointer",
+            whiteSpace: "nowrap"
+          }}
+        >
+          <span>📐</span>
+          <span>+ Floor &amp; Ceiling</span>
+        </div>
       </div>
 
     </div>

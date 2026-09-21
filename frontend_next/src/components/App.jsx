@@ -201,7 +201,9 @@ export default function App() {
     lintelsByPage, setLintelsByPage,
     scalesByPage, setScalesByPage,
     defaultScale, setDefaultScale,
-    annotationsByPage, setAnnotationsByPage
+    annotationsByPage, setAnnotationsByPage,
+    showFloorCeilingModal, setShowFloorCeilingModal,
+    floorCeilingTakeoffData, setFloorCeilingTakeoffData
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
@@ -1453,9 +1455,9 @@ export default function App() {
       }
     } else {
       // PDF Tools Import: ALWAYS preserve architectural level pages!
-      const levelPages = pages.filter(p => !p.category && p.source !== "pdf_tools");
+      const levelPages = pages.filter(p => !p.category && p.source !== "pdf_tools" && !p.isFloorCeilingWorkspace && p.source !== "floor_ceiling_workspace" && p.source !== "floor_ceiling_page" && !p.isWorkspace);
       const otherPdfToolsPages = isAddingPagesMode
-        ? pages.filter(p => p.category || p.source === "pdf_tools")
+        ? pages.filter(p => p.category || p.source === "pdf_tools" || p.source === "floor_ceiling_page" || p.source === "floor_ceiling_workspace" || p.isFloorCeilingWorkspace)
         : [];
 
       // Allow 1 page to be added to multiple tasks, but avoid identical duplicate in the SAME task
@@ -1539,12 +1541,42 @@ export default function App() {
       setWasteByPage({});
       setPdfOffsetsByPage({});
       if (setAnnotationsByPage) setAnnotationsByPage({});
+      if (setFloorCeilingTakeoffData) setFloorCeilingTakeoffData(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ezefloor:clear_floor_ceiling_scan"));
+        window.dispatchEvent(new CustomEvent("sync-floor-ceiling-insulation-clear"));
+      }
       setPages([]);
       setCurrentPage(0);
       setImage(null);
       setImgSize({ w: 0, h: 0 });
       clearWorkspaceState("active_session");
       return;
+    }
+
+    const deletedPage = pages[pageIndexToDelete];
+    const isFCPage = Boolean(
+      deletedPage?.isFloorCeilingWorkspace ||
+      deletedPage?.source === "floor_ceiling_page" ||
+      deletedPage?.source === "floor_ceiling_workspace" ||
+      deletedPage?.code === "FC"
+    );
+
+    // If deleting the Floor & Ceiling page OR deleting any level in a project that has FC:
+    // clear the scan result and takeoff data completely so stale values are not retained
+    if (isFCPage || pages.some(p => p?.isFloorCeilingWorkspace || p?.source === "floor_ceiling_page")) {
+      if (setFloorCeilingTakeoffData) setFloorCeilingTakeoffData(null);
+      try {
+        sessionStorage.removeItem("floor_ceiling_workspace");
+        sessionStorage.removeItem("fc_workspace_state");
+        localStorage.removeItem("floor_ceiling_workspace");
+      } catch (_) {}
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ezefloor:clear_floor_ceiling_scan", {
+          detail: { pageIndex: pageIndexToDelete, pageId: deletedPage?.id }
+        }));
+        window.dispatchEvent(new CustomEvent("sync-floor-ceiling-insulation-clear"));
+      }
     }
 
     // Filter out the deleted page
@@ -1775,6 +1807,7 @@ export default function App() {
               setLevels={setLevels}
               currentLevelIndex={currentLevelIndex}
               setCurrentLevelIndex={setCurrentLevelIndex}
+              onOpenFloorCeilingModal={() => setShowFloorCeilingModal(true)}
             />
           )}
 
@@ -1851,6 +1884,7 @@ export default function App() {
                     activeCategory={activePdfCategory}
                     setActiveCategory={setActivePdfCategory}
                     onAddPagesClick={(file, cat) => openAddPagesSelector(file, cat, "pdf_tools")}
+                    onOpenFloorCeilingModal={() => setShowFloorCeilingModal(true)}
                     onOpenImportSelector={() => {
                       if (setImportTarget) setImportTarget("pdf_tools");
                       if (setIsAddingPagesMode) setIsAddingPagesMode(true);
@@ -2027,6 +2061,7 @@ export default function App() {
                     lintelController={lintelController}
                     isDrawingLintel={isDrawingLintel}
                     lintelPreview={lintelPreview}
+                    onDeletePage={handleDeletePage}
                   />
                 </div>
               </div>

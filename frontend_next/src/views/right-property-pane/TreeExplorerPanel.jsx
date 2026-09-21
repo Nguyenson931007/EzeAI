@@ -229,7 +229,7 @@ export default function TreeExplorerPanel({
         {(() => {
           const architecturalPages = (pages || [])
             .map((page, originalIndex) => ({ ...page, originalIndex }))
-            .filter(p => !p?.category && p?.source !== "pdf_tools");
+            .filter(p => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
 
           const displayPages = architecturalPages;
 

@@ -211,7 +211,7 @@ export function calculateEnteredWallsByLevel({
 } = {}) {
   const architecturalPages = (pages || [])
     .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => !p?.category && p?.source !== "pdf_tools");
+    .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
   const architecturalIndices = architecturalPages.map(p => p.originalIndex);
 
   // Helper: determine FloorLevel label from page index
