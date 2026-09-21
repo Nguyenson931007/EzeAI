@@ -4,15 +4,16 @@ import { getBaseWallId, getWallClass, centroid } from "@/utils/geometry";
 import {
   LEVEL_THEME_COLORS,
   ZONE_GEOMETRY_PALETTE,
-  ZONE_USER_TYPES
+  ZONE_USER_TYPES,
+  TAKEOFF_COLORS
 } from "../controllers/FloorCeilingEngine";
 
 /**
  * User-type display info for zone badge overlays
  */
 const USER_TYPE_BADGE = {
-  [ZONE_USER_TYPES.FLOOR]: { label: "Floor", color: "#7e22ce", bg: "rgba(147, 51, 234, 0.95)" },
-  [ZONE_USER_TYPES.CEILING]: { label: "Ceiling", color: "#1d4ed8", bg: "rgba(37, 99, 235, 0.95)" },
+  [ZONE_USER_TYPES.FLOOR]: { label: "Floor", color: "#7e22ce", bg: "rgba(124, 58, 237, 0.95)" },
+  [ZONE_USER_TYPES.CEILING]: { label: "Ceiling", color: "#0284c7", bg: "rgba(2, 132, 199, 0.95)" },
   [ZONE_USER_TYPES.BOTH]: { label: "Floor + Ceiling", color: "#a16207", bg: "rgba(161, 98, 7, 0.95)" }
 };
 
@@ -22,11 +23,11 @@ const USER_TYPE_BADGE = {
  * - Supports multi-level wall viewing with custom colors and opacities per level.
  * - When a single level is selected, other levels are rendered with ghost opacity
  *   and dashed underlay style (identical to the Align function).
- * - Renders detected floor, ceiling, cantilever soffit, and void polygon zones
- *   colored by geometry type (overlap=gold, lower-only=blue, upper-only=purple, void=red).
- * - Shows user-type badge (Floor/Ceiling/Both) on each zone.
+ * - Renders detected floor and ceiling zones with unified theme colors:
+ *   Floor = Purple (#7c3aed) across all levels.
+ *   Ceiling = Sky Blue (#0284c7) across all levels.
+ * - In "ALL" levels mode, cleanly shows either Floor OR Ceiling to prevent visual 2D polygon overlaps.
  * - Supports interactive selection of zones (click to highlight on canvas & sync with panel).
- * - Supports selecting and deleting walls cleanly without mutating source pages.
  */
 export default function FloorCeilingWallRenderer({
   walls = [],
@@ -49,7 +50,8 @@ export default function FloorCeilingWallRenderer({
   detectedZones = [],
   selectedZoneId = null,
   onSelectZone = null,
-  fcAlignMode = false
+  fcAlignMode = false,
+  fcViewMode = "floor"
 }) {
   // 1. Group walls by sourceLevelCode
   const wallsByLevel = useMemo(() => {
@@ -140,29 +142,99 @@ export default function FloorCeilingWallRenderer({
     return Object.entries(wallsByLevel);
   }, [wallsByLevel]);
 
+  // Determine active view mode: when in ALL levels mode, force either "floor" or "ceiling" (default: "floor")
+  const effectiveViewMode = (fcViewMode === "ceiling") ? "ceiling" : "floor";
+
+  // Filter and deduplicate visible zones for canvas
+  const visibleCanvasZones = useMemo(() => {
+    if (!detectedZones || detectedZones.length === 0) return [];
+
+    // Filter by activeLevelFilter
+    let zones = detectedZones;
+    if (activeLevelFilter !== "ALL") {
+      zones = zones.filter(z => {
+        const isDirect = (z.levelCode || z.floorLevel || "GF") === activeLevelFilter;
+        const isBalconyForLevel = (z.balconyLevel || "FF") === activeLevelFilter && z.isBalcony;
+        return isDirect || isBalconyForLevel;
+      });
+    }
+
+    // Filter by effectiveViewMode (Floor vs Ceiling)
+    if (effectiveViewMode === "floor") {
+      zones = zones.filter(z => z.floorEnabled !== false || z.isBalcony);
+    } else {
+      zones = zones.filter(z => z.ceilingEnabled === true);
+    }
+
+    // When showing ALL levels: deduplicate duplicate 2D polygons (e.g. GF Overlap and FF Overlap share identical geometry)
+    if (activeLevelFilter === "ALL") {
+      const seenGeom = new Set();
+      const deduped = [];
+      zones.forEach(z => {
+        const polyFirst = z.polygon?.[0];
+        const geomKey = polyFirst ? `${(polyFirst[0] || 0).toFixed(0)}_${(polyFirst[1] || 0).toFixed(0)}_${z.areaM2}` : z.id;
+        if (!seenGeom.has(geomKey)) {
+          seenGeom.add(geomKey);
+          deduped.push(z);
+        }
+      });
+      return deduped;
+    }
+
+    return zones;
+  }, [detectedZones, activeLevelFilter, effectiveViewMode]);
+
   return (
     <g id="FloorCeilingWorkspaceLayer">
-      {/* ===== LAYER 1: DETECTED ZONES (GEOMETRY-BASED COLORING + TYPE BADGE + SELECTION) ===== */}
-      {detectedZones && detectedZones.length > 0 && (
+      {/* ===== LAYER 1: DETECTED ZONES (UNIFIED FLOOR / CEILING COLORING) ===== */}
+      {!fcAlignMode && visibleCanvasZones && visibleCanvasZones.length > 0 && (
         <g id="FloorCeilingDetectedZones" pointerEvents="auto">
-          {detectedZones.map((zone, zIdx) => {
+          {visibleCanvasZones.map((zone, zIdx) => {
             if (!zone.polygon || zone.polygon.length < 3) return null;
+
             const isSelected = selectedZoneId === zone.id;
             const pointsStr = zone.polygon.map(p => `${p[0]},${p[1]}`).join(" ");
-
-            // Color by geometry type
-            const geoPalette = ZONE_GEOMETRY_PALETTE[zone.geometryType] || {};
-            let fill = geoPalette.fill || "rgba(168, 85, 247, 0.20)";
-            let stroke = geoPalette.stroke || "#9333ea";
             const isVoid = zone.geometryType === "void";
 
-            if (isSelected) {
-              fill = "rgba(59, 130, 246, 0.40)"; // highlighted fill
-              stroke = "#2563eb"; // bold highlight stroke
-            }
+            // Colors:
+            // 1. When in "ALL" levels mode: Overlap zones (intersection between lower and upper)
+            //    render with a distinctive amber/gold color to instantly distinguish the shared region.
+            // 2. Otherwise: render with unified Purple for Floor and Sky Blue for Ceiling.
+            let fill, stroke, mainLabel, subBadgeLabel, subBadgeBg;
 
-            // User type badge info
-            const typeBadge = USER_TYPE_BADGE[zone.userType] || USER_TYPE_BADGE[ZONE_USER_TYPES.FLOOR];
+            if (activeLevelFilter === "ALL" && zone.geometryType === "overlap") {
+              const pal = TAKEOFF_COLORS.overlapAll;
+              fill = isSelected ? pal.fillSelected : pal.fill;
+              stroke = isSelected ? "#b45309" : pal.stroke;
+              mainLabel = `Overlap: ${zone.areaM2} m²`;
+              const lowerTag = zone.pairLower || zone.levelCode || "GF";
+              const upperTag = zone.pairUpper || "FF";
+              subBadgeLabel = `⚡ ${lowerTag}↔${upperTag} Overlap`;
+              subBadgeBg = pal.badgeBg;
+            } else if (effectiveViewMode === "floor") {
+              const pal = TAKEOFF_COLORS.floor;
+              fill = isSelected ? pal.fillSelected : pal.fill;
+              stroke = isSelected ? "#6d28d9" : pal.stroke;
+              if (zone.isBalcony) {
+                const upperTag = zone.balconyLevel || "FF";
+                mainLabel = `${upperTag} Balcony: ${zone.areaM2} m²`;
+                subBadgeLabel = `🏢 ${upperTag} Balcony`;
+                subBadgeBg = "#059669";
+              } else {
+                mainLabel = `${zone.floorLabel || zone.label || "Floor"}: ${zone.areaM2} m²`;
+                const lvlTag = zone.levelCode || zone.floorLevel || "";
+                subBadgeLabel = lvlTag ? `🏢 ${lvlTag} Floor` : "🏢 Floor";
+                subBadgeBg = pal.badgeBg;
+              }
+            } else {
+              const pal = TAKEOFF_COLORS.ceiling;
+              fill = isSelected ? pal.fillSelected : pal.fill;
+              stroke = isSelected ? "#0369a1" : pal.stroke;
+              mainLabel = `${zone.ceilingLabel || zone.label || "Ceiling"}: ${zone.areaM2} m²`;
+              const lvlTag = zone.levelCode || zone.ceilingLevel || "";
+              subBadgeLabel = lvlTag ? `🪟 ${lvlTag} Ceiling` : "🪟 Ceiling";
+              subBadgeBg = pal.badgeBg;
+            }
 
             const polyObj = zone.polygon.map(p => ({ x: p[0], y: p[1] }));
             const c = centroid ? centroid(polyObj) : null;
@@ -211,7 +283,7 @@ export default function FloorCeilingWallRenderer({
                       stroke={isSelected ? "#60a5fa" : stroke}
                       strokeWidth={isSelected ? 2 : 1}
                     />
-                    {/* Zone geometry label + area */}
+                    {/* Zone main label + area */}
                     <text
                       x={0}
                       y={-12}
@@ -222,17 +294,17 @@ export default function FloorCeilingWallRenderer({
                       dominantBaseline="middle"
                       fontFamily="sans-serif"
                     >
-                      {zone.label}: {zone.areaM2} m²
+                      {mainLabel}
                     </text>
 
-                    {/* User type badge below */}
+                    {/* Sub badge below */}
                     <rect
-                      x={isSelected ? -46 : -38}
+                      x={isSelected ? -46 : -40}
                       y={2}
-                      width={isSelected ? 92 : 76}
+                      width={isSelected ? 92 : 80}
                       height={18}
                       rx={9}
-                      fill={isSelected ? "#2563eb" : typeBadge.bg}
+                      fill={isSelected ? "#2563eb" : subBadgeBg}
                       stroke={isSelected ? "#ffffff" : "none"}
                       strokeWidth={isSelected ? 1.5 : 0}
                     />
@@ -246,7 +318,7 @@ export default function FloorCeilingWallRenderer({
                       dominantBaseline="middle"
                       fontFamily="sans-serif"
                     >
-                      {isSelected ? `🎯 ${typeBadge.label}` : typeBadge.label}
+                      {subBadgeLabel}
                     </text>
                   </g>
                 )}

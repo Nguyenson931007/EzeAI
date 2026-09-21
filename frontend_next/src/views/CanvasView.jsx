@@ -3312,6 +3312,7 @@ export default function CanvasView({
   const [fcAlignMode, setFcAlignMode] = useState(false);
   const [fcAlignStep, setFcAlignStep] = useState(1);
   const [fcAlignPoint1, setFcAlignPoint1] = useState(null);
+  const [fcViewMode, setFcViewMode] = useState("floor"); // "floor" | "ceiling"
 
   const activePage = pages?.[currentPage];
   const activePageId = activePage?.id || activePage?.name || currentPage;
@@ -5561,6 +5562,7 @@ export default function CanvasView({
                 selectedZoneId={fcSelectedZoneId}
                 onSelectZone={setFcSelectedZoneId}
                 fcAlignMode={fcAlignMode}
+                fcViewMode={fcViewMode}
               />
             ) : (
               layerVisibility?.wall && (
@@ -7367,6 +7369,8 @@ export default function CanvasView({
             fcAlignPoint1={fcAlignPoint1}
             setFcAlignPoint1={setFcAlignPoint1}
             setFloorCeilingTakeoffData={setFloorCeilingTakeoffData}
+            fcViewMode={fcViewMode}
+            setFcViewMode={setFcViewMode}
           />
         )}
 

@@ -76,6 +76,31 @@ export const ZONE_GEOMETRY_PALETTE = {
   }
 };
 
+// Unified Takeoff Colors: Floor (Purple) and Ceiling (Sky Blue) across all levels
+export const TAKEOFF_COLORS = {
+  floor: {
+    stroke: "#7c3aed",
+    fill: "rgba(124, 58, 237, 0.22)",
+    fillSelected: "rgba(124, 58, 237, 0.45)",
+    textColor: "#6d28d9",
+    badgeBg: "#7c3aed"
+  },
+  ceiling: {
+    stroke: "#0284c7",
+    fill: "rgba(2, 132, 199, 0.22)",
+    fillSelected: "rgba(2, 132, 199, 0.45)",
+    textColor: "#0369a1",
+    badgeBg: "#0284c7"
+  },
+  overlapAll: {
+    stroke: "#d97706",
+    fill: "rgba(245, 158, 11, 0.28)",
+    fillSelected: "rgba(245, 158, 11, 0.50)",
+    textColor: "#b45309",
+    badgeBg: "#d97706"
+  }
+};
+
 // Keep legacy palette for backward compat
 export const ZONE_PALETTE = {
   upper_floor: {
@@ -1012,9 +1037,16 @@ function extractZonesFromMultiPoly({
   multiPoly,
   geometryType,
   defaultUserType,
+  defaultFloorEnabled = true,
+  defaultFloorLevel = "GF",
+  defaultFloorLabel = "Floor",
+  defaultCeilingEnabled = true,
+  defaultCeilingLevel = "GF",
+  defaultCeilingLabel = "Ceiling",
   labelPrefix,
   note,
   levelCodes,
+  levelCode,
   mmPerPx,
   minAreaPx = 100
 }) {
@@ -1042,14 +1074,22 @@ function extractZonesFromMultiPoly({
 
     const allRings = [outerRing, ...holeRings];
     const pathD = ringsToSvgPath(allRings);
+    const resolvedLevel = levelCode || defaultFloorLevel || "GF";
 
     resultZones.push({
-      id: `zone_${geometryType}_${pIdx}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `zone_${resolvedLevel}_${geometryType}_${pIdx}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       geometryType,
       userType: defaultUserType,
+      floorEnabled: defaultFloorEnabled,
+      floorLevel: defaultFloorLevel || resolvedLevel,
+      floorLabel: defaultFloorLabel,
+      ceilingEnabled: defaultCeilingEnabled,
+      ceilingLevel: defaultCeilingLevel || resolvedLevel,
+      ceilingLabel: defaultCeilingLabel,
       label: labelPrefix,
       note,
-      levelCodes,
+      levelCodes: levelCodes || [resolvedLevel],
+      levelCode: resolvedLevel,
       areaM2,
       polygon: outerRing, // primary outer boundary for centroid & labels
       pathD,              // exact SVG path data supporting holes
@@ -1102,16 +1142,23 @@ export function scanZonesToggle({
       zones: [{
         id: `zone_${lowerCode}_only_${Date.now()}`,
         geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
-        userType: ZONE_USER_TYPES.CEILING,
-        label: `${lowerCode} Ceiling`,
-        note: `Ceiling of ${lowerCode}`,
+        userType: ZONE_USER_TYPES.BOTH,
+        floorEnabled: true,
+        floorLevel: lowerCode,
+        floorLabel: `${lowerCode} Floor`,
+        ceilingEnabled: true,
+        ceilingLevel: lowerCode,
+        ceilingLabel: `${lowerCode} Ceiling`,
+        label: `${lowerCode} Floor & Ceiling`,
+        note: `Full level ${lowerCode}`,
         levelCodes: [lowerCode],
+        levelCode: lowerCode,
         areaM2,
         polygon: cleaned,
         pathD,
         palette: ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.LOWER_ONLY]
       }],
-      areas: { lowerOnlyM2: areaM2, overlapM2: 0, upperOnlyM2: 0, voidM2: 0, totalFloorM2: 0, totalCeilingM2: areaM2 }
+      areas: { lowerOnlyM2: areaM2, overlapM2: 0, upperOnlyM2: 0, voidM2: 0, totalFloorM2: areaM2, totalCeilingM2: areaM2, byLevel: { [lowerCode]: { code: lowerCode, floorM2: areaM2, ceilingM2: areaM2 } } }
     };
   }
 
@@ -1125,16 +1172,23 @@ export function scanZonesToggle({
       zones: [{
         id: `zone_${upperCode}_only_${Date.now()}`,
         geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
-        userType: ZONE_USER_TYPES.FLOOR,
-        label: `${upperCode} Floor`,
-        note: `Floor of ${upperCode}`,
+        userType: ZONE_USER_TYPES.BOTH,
+        floorEnabled: true,
+        floorLevel: upperCode,
+        floorLabel: `${upperCode} Floor`,
+        ceilingEnabled: true,
+        ceilingLevel: upperCode,
+        ceilingLabel: `${upperCode} Ceiling`,
+        label: `${upperCode} Floor & Ceiling`,
+        note: `Full level ${upperCode}`,
         levelCodes: [upperCode],
+        levelCode: upperCode,
         areaM2,
         polygon: cleaned,
         pathD,
         palette: ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.UPPER_ONLY]
       }],
-      areas: { lowerOnlyM2: 0, overlapM2: 0, upperOnlyM2: areaM2, voidM2: 0, totalFloorM2: areaM2, totalCeilingM2: 0 }
+      areas: { lowerOnlyM2: 0, overlapM2: 0, upperOnlyM2: areaM2, voidM2: 0, totalFloorM2: areaM2, totalCeilingM2: areaM2, byLevel: { [upperCode]: { code: upperCode, floorM2: areaM2, ceilingM2: areaM2 } } }
     };
   }
 
@@ -1183,38 +1237,78 @@ export function scanZonesToggle({
 
   const zones = [];
 
-  // Extract Overlap zones
-  const overlapZones = extractZonesFromMultiPoly({
+  // 1. Tầng 1 (Lower / GF): Vùng giao cắt Overlap (áp dụng cho cả Floor và Ceiling)
+  const overlapLowerZones = extractZonesFromMultiPoly({
     multiPoly: overlapMulti,
     geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
     defaultUserType: ZONE_USER_TYPES.BOTH,
-    labelPrefix: `${lowerCode}↔${upperCode} Floor Overlap`,
-    note: "Upper Floor + Lower Ceiling",
-    levelCodes: [lowerCode, upperCode],
+    defaultFloorEnabled: true,
+    defaultFloorLevel: lowerCode || "GF",
+    defaultFloorLabel: `${lowerCode || "GF"} Floor`,
+    defaultCeilingEnabled: true,
+    defaultCeilingLevel: lowerCode || "GF",
+    defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
+    labelPrefix: `${lowerCode} Overlap`,
+    note: `Floor & Ceiling (${lowerCode})`,
+    levelCodes: [lowerCode],
+    levelCode: lowerCode || "GF",
     mmPerPx
   });
-  zones.push(...overlapZones);
+  zones.push(...overlapLowerZones);
 
-  // Extract Lower Extension zones
+  // 2. Tầng 1 (Lower / GF): Phần thừa Lower Extension (Floor: ON, Ceiling: ON theo cơ chế đang làm)
   const lowerOnlyZones = extractZonesFromMultiPoly({
     multiPoly: lowerOnlyMulti,
     geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
-    defaultUserType: ZONE_USER_TYPES.CEILING,
-    labelPrefix: `${lowerCode} Outsole Floor`,
-    note: "Default is Ceiling, toggle to Floor if upper balcony/terrace",
+    defaultUserType: ZONE_USER_TYPES.BOTH,
+    defaultFloorEnabled: true,
+    defaultFloorLevel: lowerCode || "GF",
+    defaultFloorLabel: `${lowerCode || "GF"} Floor`,
+    defaultCeilingEnabled: true,
+    defaultCeilingLevel: lowerCode || "GF",
+    defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
+    labelPrefix: `${lowerCode} Extension`,
+    note: `Floor & Ceiling (${lowerCode})`,
     levelCodes: [lowerCode],
+    levelCode: lowerCode || "GF",
     mmPerPx
   });
   zones.push(...lowerOnlyZones);
 
-  // Extract Upper Cantilever zones
+  // 3. Tầng 2 (Upper / FF): Vùng giao cắt Overlap (áp dụng cho cả Floor và Ceiling)
+  const overlapUpperZones = extractZonesFromMultiPoly({
+    multiPoly: overlapMulti,
+    geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
+    defaultUserType: ZONE_USER_TYPES.BOTH,
+    defaultFloorEnabled: true,
+    defaultFloorLevel: upperCode || "FF",
+    defaultFloorLabel: `${upperCode || "FF"} Floor`,
+    defaultCeilingEnabled: true,
+    defaultCeilingLevel: upperCode || "FF",
+    defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
+    labelPrefix: `${upperCode} Overlap`,
+    note: `Floor & Ceiling (${upperCode})`,
+    levelCodes: [upperCode],
+    levelCode: upperCode || "FF",
+    mmPerPx
+  });
+  zones.push(...overlapUpperZones);
+
+  // 4. Tầng 2 (Upper / FF): Phần thừa Upper Cantilever (Floor: ON, Ceiling: OFF theo cơ chế đang làm)
   const upperOnlyZones = extractZonesFromMultiPoly({
     multiPoly: upperOnlyMulti,
     geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
     defaultUserType: ZONE_USER_TYPES.FLOOR,
-    labelPrefix: `${upperCode} Outsole Ceiling`,
-    note: "Upper cantilever floor / balcony",
+    defaultFloorEnabled: true,
+    defaultFloorLevel: upperCode || "FF",
+    defaultFloorLabel: `${upperCode || "FF"} Floor (Cantilever)`,
+    defaultCeilingEnabled: false,
+    defaultCeilingLevel: upperCode || "FF",
+    defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
+    labelPrefix: `${upperCode} Cantilever`,
+    note: `Floor (${upperCode})`,
     levelCodes: [upperCode],
+    levelCode: upperCode || "FF",
     mmPerPx
   });
   zones.push(...upperOnlyZones);
@@ -1222,29 +1316,7 @@ export function scanZonesToggle({
   // Sort zones: largest first
   zones.sort((a, b) => b.areaM2 - a.areaM2);
 
-  const areas = {
-    overlapM2: Number(overlapZones.reduce((sum, z) => sum + z.areaM2, 0).toFixed(2)),
-    lowerOnlyM2: Number(lowerOnlyZones.reduce((sum, z) => sum + z.areaM2, 0).toFixed(2)),
-    upperOnlyM2: Number(upperOnlyZones.reduce((sum, z) => sum + z.areaM2, 0).toFixed(2)),
-    voidM2: 0,
-    totalFloorM2: 0,
-    totalCeilingM2: 0,
-    byLevel: {}
-  };
-
-  zones.forEach(z => {
-    if (z.userType === ZONE_USER_TYPES.FLOOR) {
-      areas.totalFloorM2 += z.areaM2;
-    } else if (z.userType === ZONE_USER_TYPES.CEILING) {
-      areas.totalCeilingM2 += z.areaM2;
-    } else if (z.userType === ZONE_USER_TYPES.BOTH) {
-      areas.totalFloorM2 += z.areaM2;
-      areas.totalCeilingM2 += z.areaM2;
-    }
-  });
-  areas.totalFloorM2 = Number(areas.totalFloorM2.toFixed(2));
-  areas.totalCeilingM2 = Number(areas.totalCeilingM2.toFixed(2));
-
+  const areas = recalcZoneAreas(zones);
   return { zones, areas };
 }
 
@@ -1264,20 +1336,66 @@ export function recalcZoneAreas(zones = [], levelFootprints = null) {
   };
 
   (zones || []).forEach(z => {
-    // Aggregate by geometry type
-    if (z.geometryType === ZONE_GEOMETRY_TYPES.OVERLAP) areas.overlapM2 += z.areaM2;
-    else if (z.geometryType === ZONE_GEOMETRY_TYPES.LOWER_ONLY) areas.lowerOnlyM2 += z.areaM2;
-    else if (z.geometryType === ZONE_GEOMETRY_TYPES.UPPER_ONLY) areas.upperOnlyM2 += z.areaM2;
-    else if (z.geometryType === ZONE_GEOMETRY_TYPES.VOID) areas.voidM2 += z.areaM2;
+    // Decoupled Floor & Ceiling resolution
+    const isFloor = z.floorEnabled !== undefined
+      ? z.floorEnabled
+      : (z.userType === ZONE_USER_TYPES.FLOOR || z.userType === ZONE_USER_TYPES.BOTH);
 
-    // Aggregate by user type
-    if (z.userType === ZONE_USER_TYPES.FLOOR) {
+    const isCeiling = z.ceilingEnabled !== undefined
+      ? z.ceilingEnabled
+      : (z.userType === ZONE_USER_TYPES.CEILING || z.userType === ZONE_USER_TYPES.BOTH);
+
+    if (isFloor) {
       areas.totalFloorM2 += z.areaM2;
-    } else if (z.userType === ZONE_USER_TYPES.CEILING) {
+    }
+    if (isCeiling) {
       areas.totalCeilingM2 += z.areaM2;
-    } else if (z.userType === ZONE_USER_TYPES.BOTH) {
+    }
+
+    const lvl = z.levelCode || z.floorLevel || "GF";
+    if (!areas.byLevel[lvl]) {
+      areas.byLevel[lvl] = {
+        code: lvl,
+        name: `Level (${lvl})`,
+        floorM2: 0,
+        ceilingM2: 0
+      };
+    }
+    if (isFloor) {
+      areas.byLevel[lvl].floorM2 += z.areaM2;
+    }
+    if (isCeiling) {
+      areas.byLevel[lvl].ceilingM2 += z.areaM2;
+    }
+
+    // If GF Extension zone is marked as Balcony for the upper level
+    if (z.isBalcony) {
+      const upperLvl = z.balconyLevel || "FF";
+      if (!areas.byLevel[upperLvl]) {
+        areas.byLevel[upperLvl] = {
+          code: upperLvl,
+          name: `Level (${upperLvl})`,
+          floorM2: 0,
+          ceilingM2: 0
+        };
+      }
+      areas.byLevel[upperLvl].floorM2 += z.areaM2;
+      areas.byLevel[upperLvl].balconyM2 = Number(((areas.byLevel[upperLvl].balconyM2 || 0) + z.areaM2).toFixed(2));
       areas.totalFloorM2 += z.areaM2;
-      areas.totalCeilingM2 += z.areaM2;
+    }
+  });
+
+  // Calculate distinct geometry totals
+  const seenPolyIds = new Set();
+  (zones || []).forEach(z => {
+    // Track unique geometries to avoid double counting overlap
+    const geomKey = `${z.geometryType}_${(z.polygon?.[0]?.[0] || 0).toFixed(1)}_${(z.polygon?.[0]?.[1] || 0).toFixed(1)}`;
+    if (!seenPolyIds.has(geomKey)) {
+      seenPolyIds.add(geomKey);
+      if (z.geometryType === ZONE_GEOMETRY_TYPES.OVERLAP) areas.overlapM2 += z.areaM2;
+      else if (z.geometryType === ZONE_GEOMETRY_TYPES.LOWER_ONLY) areas.lowerOnlyM2 += z.areaM2;
+      else if (z.geometryType === ZONE_GEOMETRY_TYPES.UPPER_ONLY) areas.upperOnlyM2 += z.areaM2;
+      else if (z.geometryType === ZONE_GEOMETRY_TYPES.VOID) areas.voidM2 += z.areaM2;
     }
   });
 
@@ -1288,97 +1406,41 @@ export function recalcZoneAreas(zones = [], levelFootprints = null) {
   areas.upperOnlyM2 = Number(areas.upperOnlyM2.toFixed(2));
   areas.voidM2 = Number(areas.voidM2.toFixed(2));
 
-  // Compute breakdown by level if level footprints are available
+  // Merge levelFootprints metadata (order, name)
   if (levelFootprints) {
-    const orders = Object.keys(levelFootprints).map(Number).sort((a, b) => a - b);
-    if (orders.length === 1) {
-      const order = orders[0];
-      const fp = levelFootprints[order];
-      const code = fp.code || `L${order + 1}`;
-      areas.byLevel[code] = {
-        order,
-        code,
-        name: fp.name || `Level ${order + 1} (${code})`,
-        floorM2: fp.areaM2,
-        ceilingM2: fp.areaM2
-      };
-      areas.gfFloorAreaM2 = fp.areaM2;
-      areas.gfCeilingAreaM2 = fp.areaM2;
-    } else if (orders.length >= 2) {
-      const gfOrder = orders[0];
-      const ffOrder = orders[1];
-      const gfFp = levelFootprints[gfOrder]?.areaM2 || 0;
-      const ffFp = levelFootprints[ffOrder]?.areaM2 || 0;
-      const gfCode = levelFootprints[gfOrder]?.code || "GF";
-      const ffCode = levelFootprints[ffOrder]?.code || "FF";
-
-      // Lower extension zones (e.g. GF Extension)
-      const extZones = (zones || []).filter(z => z.geometryType === ZONE_GEOMETRY_TYPES.LOWER_ONLY);
-      const extFloorM2 = extZones
-        .filter(z => z.userType === ZONE_USER_TYPES.FLOOR || z.userType === ZONE_USER_TYPES.BOTH)
-        .reduce((sum, z) => sum + z.areaM2, 0);
-      const extCeilingM2 = extZones
-        .filter(z => z.userType === ZONE_USER_TYPES.CEILING || z.userType === ZONE_USER_TYPES.BOTH)
-        .reduce((sum, z) => sum + z.areaM2, 0);
-
-      // Overlap zones (between GF and FF)
-      const overlapZones = (zones || []).filter(z => z.geometryType === ZONE_GEOMETRY_TYPES.OVERLAP);
-      const overlapM2 = overlapZones.reduce((sum, z) => sum + z.areaM2, 0);
-
-      // Level 1 (GF):
-      const gfFloorM2 = gfFp;
-      const gfCeilingM2 = Number((overlapM2 + extCeilingM2).toFixed(2));
-
-      // Level 2 (FF):
-      const ffFloorM2 = Number((ffFp + extFloorM2).toFixed(2));
-      const ffCeilingM2 = ffFp;
-
-      areas.byLevel[gfCode] = {
-        order: gfOrder,
-        code: gfCode,
-        name: levelFootprints[gfOrder]?.name || `Level 1 (${gfCode})`,
-        floorM2: gfFloorM2,
-        ceilingM2: gfCeilingM2
-      };
-
-      areas.byLevel[ffCode] = {
-        order: ffOrder,
-        code: ffCode,
-        name: levelFootprints[ffOrder]?.name || `Level 2 (${ffCode})`,
-        floorM2: ffFloorM2,
-        ceilingM2: ffCeilingM2
-      };
-
-      // Also support any additional levels (3rd, 4th, etc.)
-      for (let i = 2; i < orders.length; i++) {
-        const ord = orders[i];
-        const fp = levelFootprints[ord];
-        const code = fp.code || `L${ord + 1}`;
+    Object.keys(levelFootprints).forEach(orderKey => {
+      const ord = Number(orderKey);
+      const fp = levelFootprints[ord];
+      const code = fp.code || `L${ord + 1}`;
+      if (!areas.byLevel[code]) {
         areas.byLevel[code] = {
           order: ord,
           code,
           name: fp.name || `Level ${ord + 1} (${code})`,
-          floorM2: fp.areaM2,
-          ceilingM2: fp.areaM2
+          floorM2: 0,
+          ceilingM2: 0
         };
+      } else {
+        areas.byLevel[code].order = ord;
+        areas.byLevel[code].name = fp.name || `Level ${ord + 1} (${code})`;
       }
+    });
+  }
 
-      // Sync specific fields for backward compatibility
-      areas.gfFloorAreaM2 = gfFloorM2;
-      areas.gfCeilingAreaM2 = gfCeilingM2;
-      areas.ffFloorAreaM2 = ffFloorM2;
-      areas.ffCeilingAreaM2 = ffCeilingM2;
+  // Format byLevel decimal values
+  Object.keys(areas.byLevel).forEach(code => {
+    areas.byLevel[code].floorM2 = Number((areas.byLevel[code].floorM2 || 0).toFixed(2));
+    areas.byLevel[code].ceilingM2 = Number((areas.byLevel[code].ceilingM2 || 0).toFixed(2));
+  });
 
-      // Ensure totalFloor and totalCeiling reflect the sum of all levels
-      let sumFloor = 0;
-      let sumCeiling = 0;
-      Object.values(areas.byLevel).forEach(lvl => {
-        sumFloor += lvl.floorM2 || 0;
-        sumCeiling += lvl.ceilingM2 || 0;
-      });
-      areas.totalFloorM2 = Number(sumFloor.toFixed(2));
-      areas.totalCeilingM2 = Number(sumCeiling.toFixed(2));
-    }
+  // Legacy compat aliases
+  if (areas.byLevel["GF"]) {
+    areas.gfFloorAreaM2 = areas.byLevel["GF"].floorM2;
+    areas.gfCeilingAreaM2 = areas.byLevel["GF"].ceilingM2;
+  }
+  if (areas.byLevel["FF"]) {
+    areas.ffFloorAreaM2 = areas.byLevel["FF"].floorM2;
+    areas.ffCeilingAreaM2 = areas.byLevel["FF"].ceilingM2;
   }
 
   return areas;
