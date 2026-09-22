@@ -1,11 +1,14 @@
 import sqlite3
 import hashlib
 
-DATABASE_PATH = "ezefloor.db"
-SALT = "ezefloor_salt_123"
+from app.config import SQLITE_PATH, PASSWORD_SALT
+
+DATABASE_PATH = SQLITE_PATH
 
 def get_password_hash(password: str) -> str:
-    return hashlib.sha256((password + SALT).encode()).hexdigest()
+    if not PASSWORD_SALT:
+        raise RuntimeError("PASSWORD_SALT is not configured in .env")
+    return hashlib.sha256((password + PASSWORD_SALT).encode()).hexdigest()
 
 def create_user(username, password, email, role="user", status="active"):
     conn = sqlite3.connect(DATABASE_PATH)

@@ -15,7 +15,7 @@ Features:
   - Automatically exports trained weights to backend/models/WallPrior/best.pt.
 
 Usage:
-  python backend/ai/wall_prior/train_wall_prior.py --data wall_prior_dataset/data.yaml --epochs 100
+  python backend/ai/wall_prior/train_wall_prior.py --data datasets/wall_prior/data.yaml --epochs 100
   python backend/ai/wall_prior/train_wall_prior.py --mode val --weights backend/models/WallPrior/best.pt
   python backend/ai/wall_prior/train_wall_prior.py --mode export --weights backend/models/WallPrior/best.pt --format onnx
 """
@@ -32,7 +32,7 @@ import torch
 # Default hyperparameters
 DEFAULT_TRAIN_CONFIG: Dict[str, Any] = {
     "model": "yolo11s-seg.pt",
-    "data": "wall_prior_dataset/data.yaml",
+    "data": "datasets/wall_prior/data.yaml",
     "epochs": 100,
     "batch": 4,
     "imgsz": 1280,

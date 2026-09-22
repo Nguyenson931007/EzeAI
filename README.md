@@ -4,10 +4,30 @@ EzeFloor là một nền tảng chuyên nghiệp hỗ trợ nhận diện mặt 
 
 ## 🛠 Tech Stack
 - **Backend:** FastAPI (Python 3.9+)
-- **Frontend:** React + Vite
+- **Frontend:** Next.js 16 + React 19
 - **Database:** SQLite (với logic Session quản lý qua HttpOnly Cookies)
 - **AI Models:** YOLO (v8/v11) cho nhận diện Phòng, Tường, Cửa + EasyOCR cho nhận diện tên phòng.
 - **3D Engine:** Three.js với vật liệu thực tế.
+
+
+## 📁 Cấu trúc repository
+
+```text
+EzeFloor/
+├─ backend/                 # FastAPI + AI/services/exporters
+├─ frontend_next/           # Next.js app chính
+├─ tools/
+│  ├─ door-annotation-tool/ # Vite/React annotation utility
+│  ├─ scripts/              # DB/dev/training utilities
+│  └─ cleanup-legacy-root.ps1
+├─ tests/                   # benchmark/validation
+├─ docs/                    # tài liệu + reference snapshots
+├─ package.json             # dependency cho utility Node ở root
+├─ package-lock.json
+└─ .gitignore
+```
+
+Root chỉ giữ source và cấu hình cần cho ứng dụng. Snapshot, dataset training và benchmark fixture không nằm trong runtime package.
 
 ## 🌟 Tính năng đã hoàn thiện
 
@@ -39,9 +59,27 @@ Hệ thống đã tích hợp sẵn cột `is_corrected` trong Database.
 ## 🚀 Cách tiếp tục nâng cấp
 Khi bắt đầu một phiên làm việc mới, hãy kiểm tra:
 1. `backend/api/auth.py`: Quản lý xác thực qua Cookie.
-2. `frontend/src/controllers/interaction.controller.js`: Logic vẽ và Snap.
+2. `frontend_next/src/controllers/interaction.controller.js`: Logic vẽ và Snap.
 3. `backend/services/floor_ai_detect.py`: Pipeline xử lý AI.
 4. `database.py`: Schema của toàn bộ hệ thống.
 
 ---
 *README này được tạo tự động để ghi nhớ quá trình phát triển giữa USER và AI Assistant (Antigravity).*
+## Environment
+
+The repository uses **one runtime environment file only**:
+
+```text
+EzeFloor/.env
+```
+
+Both the Python backend and Next.js frontend load this same file. Do not create `backend/.env` or `frontend_next/.env.local`.
+
+Important frontend values are kept in the same root file:
+
+```env
+BACKEND_URL=http://127.0.0.1:8090
+NEXT_PUBLIC_API_BASE_URL=
+```
+
+`BACKEND_URL` is server-side only. Only variables intentionally prefixed with `NEXT_PUBLIC_` are exposed to browser code. The root `.env` is ignored by Git.

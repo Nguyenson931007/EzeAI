@@ -1,85 +1,73 @@
 """
-app/config.py – Centralized Configuration
-==========================================
-All environment variable loading and application-level constants in one place.
-Imported by main.py, database.py, auth.py, and other modules as needed.
+Centralized application configuration.
+
+Runtime configuration is loaded from the single project-level ``.env`` file.
 """
 
+from pathlib import Path
 import os
+
 from dotenv import load_dotenv
 
-# Load .env before anything else
-load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_DIR.parent
+ENV_FILE = PROJECT_ROOT / ".env"
 
-# ── PaddlePaddle Flags (must be set before importing Paddle) ──
-os.environ.setdefault("FLAGS_enable_pir_api", "0")
-os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
-os.environ.setdefault("FLAGS_pir_apply_inplace_pass", "0")
-os.environ.setdefault("FLAGS_use_mkldnn", "0")
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+# Explicit path makes configuration independent of the current working directory.
+load_dotenv(dotenv_path=ENV_FILE, override=False)
 
-# ── Database Configuration ──
+# PaddlePaddle flags (must be set before importing Paddle).
+os.environ.setdefault("FLAGS_enable_pir_api", os.getenv("FLAGS_ENABLE_PIR_API", "0"))
+os.environ.setdefault("FLAGS_enable_pir_in_executor", os.getenv("FLAGS_ENABLE_PIR_IN_EXECUTOR", "0"))
+os.environ.setdefault("FLAGS_pir_apply_inplace_pass", os.getenv("FLAGS_PIR_APPLY_INPLACE_PASS", "0"))
+os.environ.setdefault("FLAGS_use_mkldnn", os.getenv("FLAGS_USE_MKLDNN", "0"))
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", os.getenv("KMP_DUPLICATE_LIB_OK", "TRUE"))
+
+# Database
 DB_TYPE = os.getenv("DB_TYPE", "sqlite").lower()
+_sqlite_path_raw = os.getenv("SQLITE_PATH", "storage/ezefloor.db")
+_sqlite_path = Path(_sqlite_path_raw).expanduser()
+if not _sqlite_path.is_absolute():
+    _sqlite_path = BACKEND_DIR / _sqlite_path
+SQLITE_PATH = str(_sqlite_path.resolve())
 
-# SQLite
-SQLITE_PATH = os.getenv("SQLITE_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "ezefloor.db"))
-
-# Ensure SQLite directory exists
 if DB_TYPE == "sqlite" and SQLITE_PATH:
-    _sqlite_dir = os.path.dirname(os.path.abspath(SQLITE_PATH))
-    os.makedirs(_sqlite_dir, exist_ok=True)
+    Path(SQLITE_PATH).parent.mkdir(parents=True, exist_ok=True)
 
-# MySQL
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 MYSQL_DB = os.getenv("MYSQL_DB", "ezefloor")
 
-# MSSQL (emsflow - FrameWork / Jobs)
-MSSQL_HOST = os.getenv("MSSQL_HOST", "103.77.167.69")
+MSSQL_HOST = os.getenv("MSSQL_HOST", "")
 MSSQL_PORT = int(os.getenv("MSSQL_PORT", "1433"))
-MSSQL_USER = os.getenv("MSSQL_USER", "ezequotedl2050")
-MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "!(EzequoteDL2050*^")
-MSSQL_DB = os.getenv("MSSQL_DB", "emsflow")
+MSSQL_USER = os.getenv("MSSQL_USER", "")
+MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "")
+MSSQL_DB = os.getenv("MSSQL_DB", "")
 
-# ── CORS Configuration ──
-_cors_env = os.getenv("CORS_ORIGINS")
-if _cors_env:
-    CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
-else:
-    CORS_ORIGINS = [
-        "http://localhost:3011",
-        "http://127.0.0.1:3011",
-        "http://localhost:8090",
-        "http://117.2.106.202:3011",
-        "http://117.2.106.202:8090",
-        "http://14.241.197.188:3011",
-        "http://14.241.197.188:7749",
-        "http://14.241.197.188",
-        "https://103.77.167.69:8081",
-    ]
+# CORS
+_cors_env = os.getenv("CORS_ORIGINS", "http://localhost:3011,http://127.0.0.1:3011")
+CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
 
-# ── Tasklist SSO Configuration ──
-TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "http://14.241.197.188:7749/api/auth/me")
+# External services
+TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "")
+_tasklist_urls_env = os.getenv("TASKLIST_AUTH_URLS", TASKLIST_AUTH_URL)
+TASKLIST_AUTH_URLS = [url.strip() for url in _tasklist_urls_env.split(",") if url.strip()]
 
-# ── Limit Configuration ──
-MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+# Upload limits
+MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(50 * 1024 * 1024)))
 
-
-# ── SMTP Configuration ──
+# SMTP
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "your-system-email@gmail.com")
-SMTP_PASS = os.getenv("SMTP_PASS", "your-app-password")
-SMTP_SENDER_NAME = "EzeFloor AI Support"
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_SENDER_NAME = os.getenv("SMTP_SENDER_NAME", "EzeFloor AI Support")
 
-# ── Session Configuration ──
-SESSION_TIMEOUT_MINUTES = 30
-SESSION_COOKIE_MAX_AGE = 1800  # 30 minutes in seconds
-
-# ── Security ──
-PASSWORD_SALT = "ezefloor_salt_123"
-MAX_FAILED_ATTEMPTS = 5
-TOOL_AI_SSO_SECRET = os.getenv("TOOL_AI_SSO_SECRET", "DM6qyxmexfqAbBM43rfhVjN8PmYxokVM/OsGtdFOY4hVn9gIp1aRvzfes/1CEtQ9")
-
+# Session / security
+SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
+SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", "1800"))
+PASSWORD_SALT = os.getenv("PASSWORD_SALT", "")
+MAX_FAILED_ATTEMPTS = int(os.getenv("MAX_FAILED_ATTEMPTS", "5"))
+TOOL_AI_SSO_SECRET = os.getenv("TOOL_AI_SSO_SECRET", "")

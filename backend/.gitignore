@@ -35,8 +35,6 @@ node_modules/
 package-lock.json
 
 # Environment variables
-.env
-.env.*
 
 # OS files
 .DS_Store

@@ -240,7 +240,7 @@ def convert_dataset(
 def main():
     parser = argparse.ArgumentParser(description="Convert multi-class Wall dataset into binary Wall Prior dataset.")
     parser.add_argument("--input", "-i", type=str, default="label_exports/wall", help="Input dataset directory")
-    parser.add_argument("--output", "-o", type=str, default="wall_prior_dataset", help="Output directory for binary dataset")
+    parser.add_argument("--output", "-o", type=str, default="datasets/wall_prior", help="Output directory for binary dataset")
     parser.add_argument("--classes", "-c", type=int, nargs="+", default=None, help="Class IDs to convert to wall (default: auto-detect)")
     parser.add_argument("--no-copy", action="store_true", help="Use symlinks instead of copying images")
 

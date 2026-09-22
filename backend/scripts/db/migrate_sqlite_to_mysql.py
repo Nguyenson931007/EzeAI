@@ -20,10 +20,17 @@ Usage:
 
 import os
 import sqlite3
+from pathlib import Path
+
 import pymysql
+from dotenv import load_dotenv
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_DIR.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
-SQLITE_PATH = "ezefloor.db"
+_sqlite_raw = Path(os.getenv("SQLITE_PATH", "storage/ezefloor.db"))
+SQLITE_PATH = str(_sqlite_raw if _sqlite_raw.is_absolute() else BACKEND_DIR / _sqlite_raw)
 
 # MySQL config (same as database.py)
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")

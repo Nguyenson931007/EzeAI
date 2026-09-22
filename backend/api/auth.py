@@ -15,6 +15,10 @@ import uuid
 from datetime import datetime, timedelta
 import logging
 from app.database import get_db_connection
+from app.config import (
+    PASSWORD_SALT, SMTP_SERVER, SMTP_PORT, SMTP_USER, SMTP_PASS,
+    SMTP_SENDER_NAME, TASKLIST_AUTH_URLS, TOOL_AI_SSO_SECRET,
+)
 
 # Khởi tạo APIRouter cho các API liên quan đến xác thực
 router = APIRouter()
@@ -71,8 +75,9 @@ def get_password_hash(password: str) -> str:
     Tạo mã băm SHA-256 từ mật khẩu thô và chuỗi muối (salt).
     Sử dụng giải pháp zero-dependency (không phụ thuộc thư viện ngoài) để tránh lỗi build môi trường.
     """
-    salt = "ezefloor_salt_123"
-    return hashlib.sha256((password + salt).encode()).hexdigest()
+    if not PASSWORD_SALT:
+        raise RuntimeError("PASSWORD_SALT is not configured in .env")
+    return hashlib.sha256((password + PASSWORD_SALT).encode()).hexdigest()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -105,15 +110,8 @@ def send_email_core(to_email: str, subject: str, body: str):
     import smtplib
     from email.mime.text import MIMEText
     
-    # Đọc cấu hình SMTP từ các biến môi trường
-    SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER = os.getenv("SMTP_USER", "your-system-email@gmail.com")
-    SMTP_PASS = os.getenv("SMTP_PASS", "your-app-password")
-    SENDER_NAME = "EzeFloor AI Support"
-
     # Chế độ giả lập khi chưa có thông tin SMTP thật
-    if SMTP_USER == "your-system-email@gmail.com":
+    if not SMTP_USER or SMTP_USER == "your-system-email@gmail.com":
         print(f"⚠️ [SIMULATED EMAIL to {to_email}] Subject: {subject}\nBody: {body}")
         return
 
@@ -121,7 +119,7 @@ def send_email_core(to_email: str, subject: str, body: str):
         # Khởi tạo nội dung email dạng text thuần
         msg = MIMEText(body)
         msg['Subject'] = subject
-        msg['From'] = f"{SENDER_NAME} <{SMTP_USER}>"
+        msg['From'] = f"{SMTP_SENDER_NAME} <{SMTP_USER}>"
         msg['To'] = to_email
         
         # Kết nối tới SMTP Server sử dụng mã hóa TLS
@@ -709,7 +707,6 @@ def _execute_tasklist_sso(token: Optional[str] = None, raw_username_param: Optio
     import httpx
     import json
     import base64
-    from app.config import TASKLIST_AUTH_URL
 
     user_data = None
 
@@ -729,15 +726,7 @@ def _execute_tasklist_sso(token: Optional[str] = None, raw_username_param: Optio
 
         # 2. Nếu chưa có user_data, thử xác thực qua các endpoint máy chủ Tasklist khả dụng
         if not user_data:
-            candidate_urls = [
-                TASKLIST_AUTH_URL,
-                "http://14.241.197.188:7749/api/auth/me",
-                "http://14.241.197.188:5000/api/auth/me",
-                "https://103.77.167.69:8081/api/auth/me",
-                "http://14.241.197.188:8081/api/auth/me",
-                "http://127.0.0.1:5000/api/auth/me",
-                "http://127.0.0.1:7749/api/auth/me",
-            ]
+            candidate_urls = TASKLIST_AUTH_URLS
             seen = set()
             urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
 
@@ -975,7 +964,8 @@ def generate_procurement_sso_token(ma_nv: str, expires_in_seconds: int = 300) ->
     import hashlib
     import json
     import time
-    from app.config import TOOL_AI_SSO_SECRET
+    if not TOOL_AI_SSO_SECRET:
+        raise RuntimeError("TOOL_AI_SSO_SECRET is not configured in .env")
 
     clean_ma_nv = str(ma_nv or "EZE0090").strip() or "EZE0090"
     now = int(time.time())

@@ -13,7 +13,6 @@ import LockoutJobsModal from "@/components/LockoutJobsModal";
 import FloorCeilingPageSelectorModal from "@/features/floor-ceiling/components/FloorCeilingPageSelectorModal";
 import UserProfileModal from "@/components/UserProfileModal";
 import SettingsModal from "@/components/SettingsModal";
-import { createToolAiJwt } from "@/utils/toolAiSso";
 import TrussEngine from "@/engines/Truss";
 import { isFullAdmin, hasHwAccess, getDisplayRoleName } from "@/utils/permissions";
 import { polygonAreaM2 } from "@/utils/geometry";
@@ -1031,10 +1030,6 @@ export default function RibbonView({
           toolAiJwt = ssoRes.token;
         }
       } catch (e) { }
-
-      if (!toolAiJwt) {
-        toolAiJwt = await createToolAiJwt(effectiveMaNv);
-      }
 
       console.log(
         "[Procurement SSO] Procurement is currently open for the AI ​​SSO Contract tool...",
