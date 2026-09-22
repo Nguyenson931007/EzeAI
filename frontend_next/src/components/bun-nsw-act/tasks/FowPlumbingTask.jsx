@@ -552,7 +552,7 @@ export default function FowPlumbingTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  activeJobNumber,,
+  activeJobNumber,
   onClearData
 }) {
   const activeCustomerShortName = getActiveClientShortName();
@@ -860,7 +860,7 @@ export default function FowPlumbingTask({
       <div style={S.card}>
         <div onClick={() => setIsSection1Open(!isSection1Open)} style={S.cardTitle}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>▶ 1. Plumbing fixtures</span>
+            <span>1. Plumbing fixtures</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {reloadMsg.text && (
@@ -1022,6 +1022,10 @@ export default function FowPlumbingTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
+          
+            onSave={handleSaveToDatabase}
+            saveDisabled={isSaving}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
         </div>
@@ -1250,28 +1254,7 @@ export default function FowPlumbingTask({
             <span style={{ fontSize: "12px", color: "#475569", fontWeight: 600 }}>
               {totalCount} {totalCount === 1 ? "plumbing fixture" : "plumbing fixtures"} calculated
             </span>
-            <button
-              type="button"
-              onClick={handleSaveToDatabase}
-              disabled={isSaving}
-              style={{
-                padding: "8px 20px",
-                background: saveSuccess ? "#059669" : (isSaving ? "#64748b" : "#0f2744"),
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: 700,
-                cursor: isSaving ? "not-allowed" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                transition: "background 0.2s ease",
-              }}
-            >
-              {isSaving ? "⏳ Saving..." : saveSuccess ? "✅ Saved to DB!" : "💾 Save"}
-            </button>
+            
           </div>
         )}
       </div>

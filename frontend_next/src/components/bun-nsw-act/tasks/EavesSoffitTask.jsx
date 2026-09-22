@@ -248,14 +248,28 @@ export default function EavesSoffitTask({
   }, [currentPage, pages]);
 
   const standardEavesWidths = useMemo(() => {
+    const values = catalogItems
+      .filter((item) => catalogRoleKey(item) === "standard_eaves")
+      .filter((item) => !sheetBrand || String(item.parameters?.brand || "").trim() === sheetBrand)
+      .filter((item) => !sheetThickness || String(item.parameters?.thickness || "").trim() === sheetThickness)
+      .map((item) => Number(item.parameters?.dimension_mm || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (values.length) return [...new Set(values)].sort((a, b) => a - b).map(String);
     if (sheetThickness === "6mm") return sheetBrand === "BGC" ? ["900"] : [];
     return ["450", "600", "750", "900"];
-  }, [sheetBrand, sheetThickness]);
+  }, [catalogItems, sheetBrand, sheetThickness]);
 
   const soffitLengths = useMemo(() => {
+    const values = catalogItems
+      .filter((item) => catalogRoleKey(item) === "soffit_sheet")
+      .filter((item) => !sheetBrand || String(item.parameters?.brand || "").trim() === sheetBrand)
+      .filter((item) => !sheetThickness || String(item.parameters?.thickness || "").trim() === sheetThickness)
+      .map((item) => Number(item.parameters?.dimension_mm || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (values.length) return [...new Set(values)].sort((a, b) => a - b).map(String);
     if (sheetBrand === "FC" && sheetThickness === "6mm") return ["2400", "2700", "3000"];
-    return ["1800", "2400", "2700", "3000"];
-  }, [sheetBrand, sheetThickness]);
+    return ["1800", "2100", "2400", "2700", "3000"];
+  }, [catalogItems, sheetBrand, sheetThickness]);
 
   const setInputNumber = (key, value) => {
     if (/^\d*(?:[.,]\d*)?$/.test(value)) {
@@ -453,7 +467,6 @@ export default function EavesSoffitTask({
   };
 
   const handleSaveToMSSQL = async () => {
-    if (!entries || entries.length === 0) return;
     setIsSaving(true);
     setSaveStatus(null);
     try {
@@ -497,21 +510,13 @@ export default function EavesSoffitTask({
         jobs: [
           {
             id_job_hw: String(savedJobId || appModel?.currentProjectName || "default"),
-            eaves: (entries && entries.length > 0) ? entries.map(e => ({
-              floor_level: e.floorLevel || e.floor_level || floorLevel || "GF",
-              sheet_brand: e.brand || e.sheetBrand || sheetBrand || "FC",
-              sheet_thickness: e.thickness || e.sheetThickness || sheetThickness || "4.5mm",
-              sofit_batten: e.batten || e.soffitBatten || soffitBatten || (SOFFIT_BATTEN_OPTIONS.length > 0 ? SOFFIT_BATTEN_OPTIONS[0] : "42x19 H3 Treated Pine Batten"),
-              sofit_bead: e.bead || e.soffitBead || soffitBead || (SOFFIT_BEAD_OPTIONS.length > 0 ? SOFFIT_BEAD_OPTIONS[0] : "4.5mm PVC Joint Mould"),
-              short_name: activeCustomerShortName || "BUN-NSW-ACT",
-              input_data: e.inputData || e.input_data || inputData || {}
-            })) : [
+            eaves: [
               {
                 floor_level: floorLevel || "GF",
-                sheet_brand: sheetBrand || "FC",
-                sheet_thickness: sheetThickness || "4.5mm",
-                sofit_batten: soffitBatten || (SOFFIT_BATTEN_OPTIONS.length > 0 ? SOFFIT_BATTEN_OPTIONS[0] : "42x19 H3 Treated Pine Batten"),
-                sofit_bead: soffitBead || (SOFFIT_BEAD_OPTIONS.length > 0 ? SOFFIT_BEAD_OPTIONS[0] : "4.5mm PVC Joint Mould"),
+                sheet_brand: sheetBrand,
+                sheet_thickness: sheetThickness,
+                sofit_batten: soffitBatten,
+                sofit_bead: soffitBead,
                 short_name: activeCustomerShortName || "BUN-NSW-ACT",
                 input_data: inputData || {}
               }
@@ -534,6 +539,99 @@ export default function EavesSoffitTask({
       setIsSaving(false);
     }
   };
+
+  const [scheduleState, setScheduleState] = useState({
+    status: "idle",
+    rows: [],
+    totalSheetRaw: 0,
+    joinerQty: 0,
+    error: ""
+  });
+  const [isMaterialOpen, setIsMaterialOpen] = useState(true);
+  const [isStandardOpen, setIsStandardOpen] = useState(true);
+  const [isSoffitOpen, setIsSoffitOpen] = useState(true);
+  const [isExtrasOpen, setIsExtrasOpen] = useState(true);
+  const [isScheduleOpen, setIsScheduleOpen] = useState(true);
+
+  const codeFromSelection = (value) => {
+    const text = String(value || "").trim();
+    const match = text.match(/^([A-Za-z0-9_-]+)(?=\s|·|$)/);
+    return match?.[1] || text;
+  };
+
+  const eavesCatalogPayload = useMemo(() => {
+    const products = {};
+    const sheetCodes = {};
+    const joinerCodes = {};
+    let nailsCode = "";
+    let metalBattenCode = "";
+
+    for (const item of catalogItems || []) {
+      const code = String(item.item_number || item.code || "").trim();
+      if (!code) continue;
+      products[code] = {
+        description: String(item.description || item.name || "").trim(),
+        unit: String(item.unit || "Each").trim()
+      };
+      const role = catalogRoleKey(item);
+      const brand = String(item.parameters?.brand || "").trim();
+      const thick = String(item.parameters?.thickness || "").trim();
+      const dimension = Number(item.parameters?.dimension_mm || 0);
+      if ((role === "standard_eaves" || role === "soffit_sheet") && brand && thick && dimension > 0) {
+        sheetCodes[`${brand}|${thick}|${dimension}`] = code;
+      } else if (role === "joiner" && thick) {
+        joinerCodes[thick] = code;
+      } else if (role === "nails") {
+        nailsCode = code;
+      } else if (role === "metal_batten") {
+        metalBattenCode = code;
+      }
+    }
+    return { products, sheetCodes, joinerCodes, nailsCode, metalBattenCode };
+  }, [catalogItems]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (!sheetBrand || !sheetThickness) {
+        setScheduleState({ status: "idle", rows: [], totalSheetRaw: 0, joinerQty: 0, error: "" });
+        return;
+      }
+      try {
+        setScheduleState((prev) => ({ ...prev, status: "loading", error: "" }));
+        const response = await ApiService.calculateEaves({
+          fields: inputData || {},
+          material: sheetBrand,
+          thickness: sheetThickness,
+          battenCode: codeFromSelection(soffitBatten),
+          beadCode: codeFromSelection(soffitBead),
+          catalog: eavesCatalogPayload
+        });
+        if (cancelled) return;
+        const result = response?.data || response || {};
+        setScheduleState({
+          status: "ok",
+          rows: Array.isArray(result.rows) ? result.rows.filter((row) => Number(row.qty || 0) > 0) : [],
+          totalSheetRaw: Number(result.totalSheetRaw || 0),
+          joinerQty: Number(result.joinerQty || 0),
+          error: ""
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setScheduleState({
+          status: "error",
+          rows: [],
+          totalSheetRaw: 0,
+          joinerQty: 0,
+          error: error?.message || "Eaves/Soffit calculation failed."
+        });
+      }
+    }, 220);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inputData, sheetBrand, sheetThickness, soffitBatten, soffitBead, eavesCatalogPayload]);
 
   const handleAddEave = () => {
     const newEntry = {
@@ -558,632 +656,285 @@ export default function EavesSoffitTask({
     if (selectedEntryId === id) setSelectedEntryId(null);
   };
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {/* ── CARD 1: MATERIAL SETUP ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div
-          onClick={() => setIsSection1Open(!isSection1Open)}
+  const sectionCard = {
+    background: "#ffffff",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    overflow: "hidden"
+  };
+  const sectionTitle = {
+    padding: "10px 12px",
+    background: "#f8fafc",
+    borderBottom: "1px solid #e2e8f0",
+    fontWeight: 800,
+    fontSize: "12px",
+    color: "#0f2744"
+  };
+  const fieldLabel = {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    minWidth: 0
+  };
+  const fieldName = { fontSize: "10.5px", color: "#475569", fontWeight: 700 };
+  const inputStyle = {
+    width: "100%",
+    minHeight: "34px",
+    padding: "6px 8px",
+    boxSizing: "border-box",
+    border: "1px solid #cbd5e1",
+    borderRadius: "6px",
+    background: "#ffffff",
+    fontSize: "11px"
+  };
+  const fmt = (value) => {
+    const n = Number(value || 0);
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
+  };
+
+  const collapsibleTitle = (label, isOpen, onToggle, actions = null) => (
+    <div
+      onClick={onToggle}
+      style={{
+        ...sectionTitle,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "8px",
+        borderBottom: isOpen ? "1px solid #e2e8f0" : "none",
+        cursor: "pointer",
+        userSelect: "none"
+      }}
+    >
+      <span>{label}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+        {actions}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-label={isOpen ? "Hide section" : "Show section"}
+          title={isOpen ? "Hide" : "Show"}
           style={{
-            padding: "10px 14px",
-            background: "#f8fafc",
-            borderBottom: isSection1Open ? "1px solid #e2e8f0" : "none",
-            fontWeight: "800",
-            fontSize: "13px",
-            color: "#0f2744",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
+            width: "28px",
+            height: "28px",
+            border: 0,
+            background: "transparent",
+            color: "#64748b",
+            borderRadius: "6px",
             cursor: "pointer",
-            userSelect: "none"
+            fontSize: "12px",
+            fontWeight: 800
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>1. Material setup</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {isOpen ? "▲" : "▼"}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {/* 1. Material setup — Procurement parity */}
+      <section style={sectionCard}>
+        {collapsibleTitle(
+          "1. Material setup",
+          isMaterialOpen,
+          () => setIsMaterialOpen((v) => !v),
+          <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
             {reloadMsg && (
-              <span style={{
-                fontSize: "11px",
-                fontWeight: 700,
-                color: reloadMsg.type === "success" ? "#16a34a" : (reloadMsg.type === "error" ? "#dc2626" : "#2563eb")
-              }}>
+              <span style={{ fontSize: "10px", fontWeight: 700, color: reloadMsg.type === "success" ? "#16a34a" : reloadMsg.type === "error" ? "#dc2626" : "#2563eb" }}>
                 {reloadMsg.text}
               </span>
             )}
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
+              onClick={() => handleReloadFromDb(true)}
               disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-              title="Reload Eaves & Soffit data from MSSQL"
+              style={{ height: "28px", padding: "0 9px", border: "1px solid #cbd5e1", borderRadius: "5px", background: "#fff", color: "#334155", fontSize: "10px", fontWeight: 700, cursor: isLoadingDb ? "not-allowed" : "pointer" }}
             >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
+              {isLoadingDb ? "Loading..." : "↻ Reload SQL"}
             </button>
-            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
-              {isSection1Open ? "▲" : "▼"}
-            </span>
-          </div>
-        </div>
-
-        {isSection1Open && (
-          <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-            {/* Subsection 1: Specification */}
-            <div>
-              <div
-                onClick={() => toggleSubSection("spec")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  cursor: "pointer",
-                  padding: "2px 0",
-                  marginBottom: openSections.spec ? "6px" : "0",
-                  userSelect: "none"
-                }}
-              >
-                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>1. Eaves specification</span>
-                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
-                  {openSections.spec ? "▲ Collapse" : "▼ Expand"}
-                </span>
-              </div>
-
-              {openSections.spec && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {/* Row 1: Floor Level, Brand & Thickness */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-                    <div>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Floor level</span>
-                      <select
-                        value={floorLevel}
-                        onChange={(e) => {
-                          setFloorLevel(e.target.value);
-                          if (onChange) onChange("eaves", "floor_level", e.target.value);
-                        }}
-                        className="task-field-select"
-                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", fontWeight: 700, background: "#f8fafc" }}
-                      >
-                        {FLOOR_LEVEL_OPTIONS.map(opt => <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>)}
-                      </select>
-                    </div>
-
-                    <div>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Sheet brand</span>
-                      <select
-                        value={sheetBrand}
-                        onChange={(e) => {
-                          setSheetBrand(e.target.value);
-                          if (onChange) onChange("eaves", "sheet_brand", e.target.value);
-                        }}
-                        className="task-field-select"
-                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-
-                    <div>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Sheet thickness</span>
-                      <select
-                        value={sheetThickness}
-                        onChange={(e) => {
-                          setSheetThickness(e.target.value);
-                          if (onChange) onChange("eaves", "sheet_thickness", e.target.value);
-                        }}
-                        className="task-field-select"
-                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Row 2: Soffit Batten & Soffit Bead */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                    <div>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Soffit batten</span>
-                      <select
-                        value={soffitBatten}
-                        onChange={(e) => {
-                          setSoffitBatten(e.target.value);
-                          if (onChange) onChange("eaves", "soffit_batten", e.target.value);
-                        }}
-                        className="task-field-select"
-                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-
-                    <div>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px" }}>Soffit bead</span>
-                      <select
-                        value={soffitBead}
-                        onChange={(e) => {
-                          setSoffitBead(e.target.value);
-                          if (onChange) onChange("eaves", "soffit_bead", e.target.value);
-                        }}
-                        className="task-field-select"
-                        style={{ width: "100%", height: "25px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Subsection 2: Standard eaves */}
-            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "6px" }}>
-              <div
-                onClick={() => toggleSubSection("standard")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  cursor: "pointer",
-                  padding: "2px 0",
-                  marginBottom: openSections.standard ? "6px" : "0",
-                  userSelect: "none"
-                }}
-              >
-                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>2. Standard eaves</span>
-                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
-                  {openSections.standard ? "▲ Collapse" : "▼ Expand"}
-                </span>
-              </div>
-
-              {openSections.standard && (
-                <div style={{ display: "grid", gridTemplateColumns: `repeat(${standardEavesWidths.length || 4}, minmax(0, 1fr))`, gap: "6px" }}>
-                  {standardEavesWidths.map(width => (
-                    <div key={`eaves-${width}`}>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {width}mm · Lm
-                      </span>
-                      <input
-                        inputMode="decimal"
-                        placeholder="0"
-                        value={inputData[`eaves_${width}`] ?? ""}
-                        onChange={(e) => setInputNumber(`eaves_${width}`, e.target.value)}
-                        style={{ width: "100%", height: "24px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Subsection 3: Soffit lengths */}
-            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "6px" }}>
-              <div
-                onClick={() => toggleSubSection("soffit")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  cursor: "pointer",
-                  padding: "2px 0",
-                  marginBottom: openSections.soffit ? "6px" : "0",
-                  userSelect: "none"
-                }}
-              >
-                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>3. Soffit lengths</span>
-                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
-                  {openSections.soffit ? "▲ Collapse" : "▼ Expand"}
-                </span>
-              </div>
-
-              {openSections.soffit && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {["single", "double", "multi"].map(kind => (
-                    <div key={kind} style={{ marginBottom: kind === "multi" ? "0" : "2px" }}>
-                      <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 600, display: "block", marginBottom: "2px", textTransform: "capitalize" }}>
-                        {kind} sheet
-                      </span>
-                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${soffitLengths.length || 4}, minmax(0, 1fr))`, gap: "6px" }}>
-                        {soffitLengths.map(length => (
-                          <div key={`${kind}-${length}`}>
-                            <span style={{ fontSize: "9px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {kind === "double" ? Number(length) * 2 : length}mm · Lm
-                            </span>
-                            <input
-                              inputMode="decimal"
-                              placeholder="0"
-                              value={inputData[`${kind}_${length}`] ?? ""}
-                              onChange={(e) => setInputNumber(`${kind}_${length}`, e.target.value)}
-                              style={{ width: "100%", height: "24px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Subsection 4: Extras */}
-            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "6px" }}>
-              <div
-                onClick={() => toggleSubSection("extras")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  cursor: "pointer",
-                  padding: "2px 0",
-                  marginBottom: openSections.extras ? "6px" : "0",
-                  userSelect: "none"
-                }}
-              >
-                <span style={{ fontSize: "10.5px", color: "#0f2744", fontWeight: 700 }}>4. Extras</span>
-                <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600 }}>
-                  {openSections.extras ? "▲ Collapse" : "▼ Expand"}
-                </span>
-              </div>
-
-              {openSections.extras && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px" }}>
-                  {[
-                    ["extra_batten", "Extra battens · Lm"],
-                    ["extra_bead", "Extra bead · Lm"],
-                    ["metal_batten_m2", "Metal battens @450c · m²"]
-                  ].map(([key, label]) => (
-                    <div key={key}>
-                      <span style={{ fontSize: "9.5px", color: "#64748b", fontWeight: 600, display: "block", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {label}
-                      </span>
-                      <input
-                        inputMode="decimal"
-                        placeholder="0"
-                        value={inputData[key] ?? ""}
-                        onChange={(e) => setInputNumber(key, e.target.value)}
-                        style={{ width: "100%", height: "24px", padding: "2px 6px", fontSize: "10px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Add Button */}
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "2px" }}>
-              <button
-                type="button"
-                onClick={handleAddEave}
-                style={{
-                  padding: "5px 14px",
-                  background: "#1e3a5f",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "4px",
-                  fontSize: "11px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px"
-                }}
-              >
-                + Add Eave
-              </button>
-            </div>
           </div>
         )}
-      </div>
+        {isMaterialOpen && (
+          <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "10px" }}>
+          <label style={fieldLabel}>
+            <span style={fieldName}>Sheet brand</span>
+            <select style={inputStyle} value={sheetBrand} onChange={(e) => {
+              const next = e.target.value;
+              setSheetBrand(next);
+              if (onChange) onChange("eaves", "sheet_brand", next);
+            }}>
+              {SHEET_BRAND_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label style={fieldLabel}>
+            <span style={fieldName}>Sheet thickness</span>
+            <select style={inputStyle} value={sheetThickness} onChange={(e) => {
+              const next = e.target.value;
+              setSheetThickness(next);
+              if (onChange) onChange("eaves", "sheet_thickness", next);
+            }}>
+              {SHEET_THICKNESS_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label style={{ ...fieldLabel, gridColumn: "span 2" }}>
+            <span style={fieldName}>Soffit batten</span>
+            <select style={inputStyle} value={soffitBatten} onChange={(e) => {
+              setSoffitBatten(e.target.value);
+              if (onChange) onChange("eaves", "soffit_batten", e.target.value);
+            }}>
+              {SOFFIT_BATTEN_OPTIONS.length ? SOFFIT_BATTEN_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>) : <option value="">No batten configured in DB</option>}
+            </select>
+          </label>
+          <label style={{ ...fieldLabel, gridColumn: "span 2" }}>
+            <span style={fieldName}>Soffit bead</span>
+            <select style={inputStyle} value={soffitBead} onChange={(e) => {
+              setSoffitBead(e.target.value);
+              if (onChange) onChange("eaves", "soffit_bead", e.target.value);
+            }}>
+              {SOFFIT_BEAD_OPTIONS.length ? SOFFIT_BEAD_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>) : <option value="">No bead configured in DB</option>}
+            </select>
+          </label>
+          </div>
+        )}
+      </section>
 
-      {/* ── CARD 2: ENTERED EAVES ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div
-          onClick={() => setIsSection2Open(!isSection2Open)}
-          style={{
-            padding: "10px 14px",
-            background: "#f8fafc",
-            borderBottom: isSection2Open ? "1px solid #e2e8f0" : "none",
-            fontWeight: "800",
-            fontSize: "13px",
-            color: "#0f2744",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            cursor: "pointer",
-            userSelect: "none"
-          }}
-        >
-          <span>2. Entered Eaves ({(entries || []).length})</span>
+      {/* 2. Standard eaves */}
+      <section style={sectionCard}>
+        {collapsibleTitle("2. Standard eaves", isStandardOpen, () => setIsStandardOpen((v) => !v))}
+        {isStandardOpen && (
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {standardEavesWidths.map((width) => (
+            <label key={width} style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) 64px minmax(90px, 120px) 28px", gap: "8px", alignItems: "center" }}>
+              <span style={{ fontSize: "11px", color: "#334155", fontWeight: 650 }}>{width}mm Eaves working out</span>
+              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 700, textAlign: "right" }}>Total Lm</span>
+              <input inputMode="decimal" placeholder="0" value={inputData[`eaves_${width}`] ?? ""} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setInputNumber(`eaves_${width}`, e.target.value)} style={inputStyle} />
+              <span style={{ fontSize: "10px", color: "#64748b" }}>Lm</span>
+            </label>
+          ))}
+          {!standardEavesWidths.length && <div style={{ color: "#94a3b8", fontSize: "11px" }}>No standard eaves products configured for this brand/thickness.</div>}
+          </div>
+        )}
+      </section>
+
+      {/* 3. Soffit lengths */}
+      <section style={sectionCard}>
+        {collapsibleTitle("3. Soffit lengths", isSoffitOpen, () => setIsSoffitOpen((v) => !v))}
+        {isSoffitOpen && (
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          {[
+            ["single", "Single sheet", "If use Single sheet, please type in here"],
+            ["double", "Double sheet", "If use Double sheet, please type in here"],
+            ["multi", "Multi sheet", "If use multi sheet, please type in here"]
+          ].map(([kind, label, hint]) => (
+            <div key={kind} style={{ border: "1px solid #e2e8f0", borderRadius: "7px", overflow: "hidden" }}>
+              <div style={{ padding: "8px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>{label}</div>
+              <div style={{ padding: "10px" }}>
+                <div style={{ fontSize: "10px", color: "#64748b", marginBottom: "7px" }}>{hint}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
+                  {soffitLengths.map((length) => (
+                    <label key={`${kind}-${length}`} style={{ display: "grid", gridTemplateColumns: "minmax(210px, 1fr) 64px minmax(90px, 120px) 28px", gap: "8px", alignItems: "center" }}>
+                      <span style={{ fontSize: "10.5px", color: "#334155", fontWeight: 650 }}>
+                        {kind === "double" ? Number(length) * 2 : length}x1200mm x {sheetThickness} {kind === "double" ? "Double " : ""}Soffit Sheets Working
+                      </span>
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 700, textAlign: "right" }}>Total Lm</span>
+                      <input inputMode="decimal" placeholder="0" value={inputData[`${kind}_${length}`] ?? ""} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setInputNumber(`${kind}_${length}`, e.target.value)} style={inputStyle} />
+                      <span style={{ fontSize: "10px", color: "#64748b" }}>Lm</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+          </div>
+        )}
+      </section>
+
+      {/* 4. Extras */}
+      <section style={sectionCard}>
+        {collapsibleTitle("4. Extras", isExtrasOpen, () => setIsExtrasOpen((v) => !v))}
+        {isExtrasOpen && (
+          <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "10px" }}>
+          {[
+            ["extra_batten", "Extra eaves battens", "lm"],
+            ["extra_bead", "Extra eaves bead", "lm"],
+            ["metal_batten_m2", "Metal ceiling battens @450c", "m²"]
+          ].map(([key, label, unit]) => (
+            <label key={key} style={fieldLabel}>
+              <span style={fieldName}>{label} <small style={{ color: "#94a3b8" }}>{unit}</small></span>
+              <input inputMode="decimal" placeholder="0" value={inputData[key] ?? ""} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setInputNumber(key, e.target.value)} style={inputStyle} />
+            </label>
+          ))}
+          </div>
+        )}
+      </section>
+
+      {/* 5. Automatic Eaves & Soffits schedule */}
+      <section style={sectionCard}>
+        {collapsibleTitle(
+          "5. Automatic Eaves & Soffits schedule",
+          isScheduleOpen,
+          () => setIsScheduleOpen((v) => !v),
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("eaves_soffit")}
             onClear={onClearData}
-            isOpen={isSection2Open}
-            onToggle={() => setIsSection2Open((v) => !v)}
+          
+            onSave={handleSaveToMSSQL}
+            saveDisabled={isSaving || !sheetBrand || !sheetThickness || !soffitBatten || !soffitBead}
+            saveStatus={isSaving ? "saving" : saveStatus === "success" ? "success" : saveStatus === "error" ? "error" : "idle"}
           />
+        )}
+
+        {isScheduleOpen && (
+          <>
+            <div style={{ padding: "10px 12px", display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "8px", borderBottom: "1px solid #e2e8f0" }}>
+          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "13px" }}>{fmt(scheduleState.totalSheetRaw)}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>raw sheet total</span></div>
+          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "13px" }}>{scheduleState.joinerQty}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>joiner lengths</span></div>
+          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "13px" }}>{scheduleState.rows.length}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>active items</span></div>
+          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "11px" }}>{sheetBrand || "—"} {sheetThickness || ""}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>selected sheet</span></div>
         </div>
 
-        {isSection2Open && (
-          <>
-            <div style={{ padding: "8px", overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
-              <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                <th style={{ padding: "5px 6px" }}>#</th>
-                <th style={{ padding: "5px 6px" }}>Brand</th>
-                <th style={{ padding: "5px 6px" }}>Thick</th>
-                <th style={{ padding: "5px 6px" }}>Soffit Batten</th>
-                <th style={{ padding: "5px 6px" }}>Soffit Bead</th>
-                <th style={{ padding: "5px 6px", textAlign: "right", width: "45px" }}></th>
+              <tr style={{ background: "#1e293b", color: "#fff", textAlign: "left" }}>
+                <th style={{ padding: "7px 8px" }}>Description</th>
+                <th style={{ padding: "7px 8px", width: "72px", textAlign: "right" }}>Quantity</th>
+                <th style={{ padding: "7px 8px", width: "70px" }}>Unit</th>
+                <th style={{ padding: "7px 8px", width: "90px" }}>Code</th>
               </tr>
             </thead>
             <tbody>
-              {groupedEavesByLevel.map(({ level, items }) => {
-                const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
-                return (
-                  <React.Fragment key={level}>
-                    <tr style={{
-                      background: isLower ? "#f0fdf4" : "#fefce8",
-                      borderTop: "2px solid #cbd5e1",
-                      borderBottom: "1px solid #e2e8f0"
-                    }}>
-                      <td colSpan={6} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                            <span style={{
-                              background: isLower ? "#dcfce7" : "#fef08a",
-                              color: isLower ? "#15803d" : "#854d0e",
-                              border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontWeight: 800,
-                              fontSize: "10.5px",
-                              letterSpacing: "0.5px"
-                            }}>
-                              {level}
-                            </span>
-                            <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
-                              {getFloorLevelDisplayName(level)}
-                            </span>
-                          </div>
-                          <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
-                            {items.length} {items.length === 1 ? "entry" : "entries"}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                    {items.map((item) => {
-                      const globalIdx = (entries || []).findIndex(e => e.id === item.id);
-                      const idx = globalIdx >= 0 ? globalIdx : 0;
-                      const isSelected = selectedEntryId === item.id;
-                      const isRowEditing = editingRowId === item.id;
-
-                      return (
-                        <tr
-                          key={item.id || idx}
-                          data-editing-row-id={isRowEditing ? item.id : undefined}
-                          onDoubleClick={(e) => {
-                            if (isRowEditing) return;
-                            if (e.target.closest && e.target.closest("button")) return;
-                            if (editingRowId && editingRowId !== item.id) {
-                              handleSaveInlineEdit(editingRowId);
-                            }
-                            setSelectedEntryId(item.id);
-                            if (onSelectEntry) onSelectEntry(item);
-                            handleStartEdit(item);
-                          }}
-                          onClick={() => {
-                            if (!isRowEditing) {
-                              if (editingRowId && editingRowId !== item.id) {
-                                handleSaveInlineEdit(editingRowId);
-                              }
-                              const nextSelected = isSelected ? null : item.id;
-                              setSelectedEntryId(nextSelected);
-                              if (!isSelected) {
-                                setFloorLevel(item.floorLevel || item.floor_level || "GF");
-                                setSheetBrand(item.brand || "FC");
-                                setSheetThickness(item.thickness || "4.5mm");
-                                setSoffitBatten(item.batten || "");
-                                setSoffitBead(item.bead || "");
-                                setInputData({ ...(item.inputData || item.input_data || {}) });
-                              }
-                              if (onSelectEntry) onSelectEntry(isSelected ? null : item);
-                            }
-                          }}
-                          style={{
-                            borderBottom: "1px solid #e2e8f0",
-                            background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
-                            cursor: isRowEditing ? "default" : "pointer",
-                            outline: isSelected ? "2px solid #3b82f6" : "none",
-                            outlineOffset: "-1px",
-                            transition: "background 0.15s ease"
-                          }}
-                        >
-                          <td style={{ padding: "5px 6px", fontWeight: 700 }}>{idx + 1}</td>
-
-                          {/* Brand */}
-                          <td style={{ padding: "5px 6px" }}>
-                            {isRowEditing ? (
-                              <select
-                                value={editRowData.brand || item.brand}
-                                onChange={(e) => setEditRowData({ ...editRowData, brand: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                              >
-                                {SHEET_BRAND_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                              </select>
-                            ) : (
-                              item.brand || "FC"
-                            )}
-                          </td>
-
-                          {/* Thickness */}
-                          <td style={{ padding: "5px 6px" }}>
-                            {isRowEditing ? (
-                              <select
-                                value={editRowData.thickness || item.thickness}
-                                onChange={(e) => setEditRowData({ ...editRowData, thickness: e.target.value })}
-                                style={{ padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                              >
-                                {SHEET_THICKNESS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                              </select>
-                            ) : (
-                              item.thickness || "4.5mm"
-                            )}
-                          </td>
-
-                          {/* Batten */}
-                          <td style={{ padding: "5px 6px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.batten}>
-                            {isRowEditing ? (
-                              <select
-                                value={editRowData.batten || item.batten}
-                                onChange={(e) => setEditRowData({ ...editRowData, batten: e.target.value })}
-                                style={{ maxWidth: "120px", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                              >
-                                {SOFFIT_BATTEN_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                              </select>
-                            ) : (
-                              item.batten
-                            )}
-                          </td>
-
-                          {/* Bead */}
-                          <td style={{ padding: "5px 6px", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.bead}>
-                            {isRowEditing ? (
-                              <select
-                                value={editRowData.bead || item.bead}
-                                onChange={(e) => setEditRowData({ ...editRowData, bead: e.target.value })}
-                                style={{ maxWidth: "120px", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                              >
-                                {SOFFIT_BEAD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                              </select>
-                            ) : (
-                              item.bead
-                            )}
-                          </td>
-
-                          {/* Actions: Edit & Remove */}
-                          <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap" }}>
-                            {isRowEditing ? (
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
-                                  style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
-                                  title="Save"
-                                >
-                                  ✓
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
-                                  style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                                  title="Cancel"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ) : (
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingRowId(item.id);
-                                    setEditRowData({ ...item });
-                                  }}
-                                  style={{ background: "none", border: "none", color: "#f97316", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                                  title="Edit"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
-                                  style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                                  title="Delete"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                );
-              })}
-              {(!entries || entries.length === 0) && (
-                <tr>
-                  <td colSpan={6} style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>
-                    No eaves entered. Select materials above and click <b>+ Add Eave</b>.
-                  </td>
+              {scheduleState.status === "loading" ? (
+                <tr><td colSpan={4} style={{ padding: "14px", textAlign: "center", color: "#64748b" }}>Calculating Eaves &amp; Soffits schedule...</td></tr>
+              ) : scheduleState.status === "error" ? (
+                <tr><td colSpan={4} style={{ padding: "14px", textAlign: "center", color: "#dc2626" }}>{scheduleState.error}</td></tr>
+              ) : scheduleState.rows.length ? scheduleState.rows.map((row, index) => (
+                <tr key={row.key || `${row.code}-${index}`} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                  <td style={{ padding: "7px 8px" }}>{row.description}</td>
+                  <td style={{ padding: "7px 8px", textAlign: "right", fontWeight: 700 }}>{fmt(row.qty)}</td>
+                  <td style={{ padding: "7px 8px" }}>{row.unit}</td>
+                  <td style={{ padding: "7px 8px", fontFamily: "monospace" }}>{row.code}</td>
                 </tr>
+              )) : (
+                <tr><td colSpan={4} style={{ padding: "14px", textAlign: "center", color: "#94a3b8" }}>Enter eaves / soffit quantities to generate the schedule.</td></tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Action button if results exist */}
-        {(entries || []).length > 0 && (
-          <div style={{
-            padding: "8px 12px",
-            background: "#f8fafc",
-            borderTop: "1px solid #e2e8f0",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center"
-          }}>
-            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {(entries || []).length} eave{(entries || []).length > 1 ? "s" : ""} configured
-            </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {saveStatus === "success" && (
-                <span style={{ color: "#16a34a", fontSize: "11px", fontWeight: 700 }}>
-                  ✓ Saved to MSSQL!
-                </span>
-              )}
-              {saveStatus === "error" && (
-                <span style={{ color: "#dc2626", fontSize: "11px", fontWeight: 700 }}>
-                  ✕ Save failed
-                </span>
-              )}
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={handleSaveToMSSQL}
-                style={{
-                  padding: "5px 12px",
-                  background: isSaving ? "#64748b" : "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  cursor: isSaving ? "not-allowed" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px"
-                }}
-              >
-                <span>💾</span>
-                <span>{isSaving ? "Saving..." : "Save"}</span>
-              </button>
+        <div style={{ padding: "9px 12px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px" }}>
+          {saveStatus === "success" && <span style={{ color: "#16a34a", fontSize: "10.5px", fontWeight: 700 }}>✓ Saved</span>}
+          {saveStatus === "error" && <span style={{ color: "#dc2626", fontSize: "10.5px", fontWeight: 700 }}>Save failed</span>}
+          
             </div>
-          </div>
-        )}
           </>
         )}
-      </div>
+      </section>
     </div>
   );
 }

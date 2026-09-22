@@ -277,7 +277,8 @@ export default function LockupTask({
   selectedType: selectedTypeProp,
   updateDoor,
   updateDoorsProperty,
-  onClearData
+  onClearData,
+  suppressAutoInit = false
 }) {
   const {
     user,
@@ -308,11 +309,8 @@ export default function LockupTask({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   
-  // Popup Modal Edit State
-  const [editModalOpen, setEditModalOpen] = useState(false);
+  // Procurement-style inline row editing.
   const [editingDoorData, setEditingDoorData] = useState(null);
-  const [isModalMinimized, setIsModalMinimized] = useState(false);
-  const [isModalMaximized, setIsModalMaximized] = useState(false);
 
   // Collapsible States
   const [isCard1Collapsed, setIsCard1Collapsed] = useState(false);
@@ -360,7 +358,7 @@ export default function LockupTask({
     return /^(single|sliding|window|double|bifold|pocket|cavity|door|hinged|french|timber)$/i.test(String(t).trim());
   };
 
-  const handleOpenEditModal = (row) => {
+  const beginInlineEdit = (row) => {
     if (!row) return;
     const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
     const effDoorIsExt = Boolean(
@@ -455,7 +453,6 @@ export default function LockupTask({
       default_qty: row.default_qty || row.qty || 1,
       qty: row.qty || row.default_qty || 1
     });
-    setEditModalOpen(true);
   };
 
   // ── Helper đồng bộ thay đổi từ bảng Lockup sang trực tiếp Door trên Canvas / Properties Panel ──
@@ -513,70 +510,17 @@ export default function LockupTask({
     }
   };
 
-  // ── Auto-save directly on change in floating popup ──
+  // ── Inline editor helpers ──
   const updateEditingDoorField = (patch) => {
-    let updatedSnapshot = null;
-    setEditingDoorData(prev => {
-      if (!prev) return prev;
-      const updated = { ...prev, ...patch };
-      updatedSnapshot = updated;
-      return updated;
-    });
-
-    if (onSetEntries) {
-      setTimeout(() => {
-        const target = updatedSnapshot || (editingDoorData ? { ...editingDoorData, ...patch } : null);
-        if (!target) return;
-        const isLoose = target.mode === "Loose" || target.category === "Loose Jamb";
-        const isPrehung = target.mode === "Prehung" || target.category === "Prehung";
-        const isExt = target.scope === "external" || target.location === "External";
-
-        onSetEntries(currentEntries => (currentEntries || []).map(item => {
-          if (item.id !== target.id) return item;
-          return {
-            ...item,
-            ...target,
-            scope: isExt ? "external" : "internal",
-            location: isExt ? "External" : "Internal",
-            door: target.door_type || item.door,
-            product: target.door_type || item.product,
-            category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
-            mode: isLoose ? "Loose" : (isPrehung ? "Prehung" : target.mode),
-            size: `${target.height || 2040} × ${target.width || 820}`,
-            thicks: `${target.thickness || (isExt ? 40 : 35)}mm`,
-            thickness: Number(target.thickness) || (isExt ? 40 : 35),
-            height: Number(target.height) || 2040,
-            width: Number(target.width) || 820,
-            jambWall: target.jamb_or_wall,
-            jamb_or_wall: target.jamb_or_wall,
-            jambSize: target.jamb_size || null,
-            jamb_size: target.jamb_size || null,
-            hung: target.hung,
-            type: isCadDoorType(target.type) ? (isExt ? "Type A" : "-") : (target.type || "-"),
-            weatherguard: isExt ? (target.weatherguard || "No") : "-",
-            dbl_rebated: isExt ? (target.dbl_rebated || "No") : "-",
-            hfHo: isExt ? "-" : (target.internal_type || "HF"),
-            internal_type: isExt ? "-" : (target.internal_type || "HF"),
-            color: isExt ? "-" : (target.color || "CHR"),
-            stop: target.door_stop,
-            door_stop: target.door_stop,
-            qty: Number(target.default_qty || target.qty) || 1,
-            default_qty: Number(target.default_qty || target.qty) || 1
-          };
-        }));
-
-        // Đồng bộ kích thước và thuộc tính của cửa ra Canvas và Properties Panel
-        syncCanvasDoor(target);
-      }, 0);
-    }
+    setEditingDoorData(prev => prev ? { ...prev, ...patch } : prev);
   };
 
-  const handleSaveModalData = (savedData) => {
+  const commitInlineEdit = (savedData = editingDoorData) => {
     if (!savedData || !savedData.id || !onSetEntries) {
-      setEditModalOpen(false);
       setEditingDoorData(null);
       return;
     }
+
     const isLoose = savedData.mode === "Loose" || savedData.category === "Loose Jamb";
     const isPrehung = savedData.mode === "Prehung" || savedData.category === "Prehung";
     const isExt = savedData.scope === "external" || savedData.location === "External";
@@ -615,14 +559,15 @@ export default function LockupTask({
       };
     }));
 
-    // Đồng bộ sang Canvas
     syncCanvasDoor(savedData);
-
-    setEditModalOpen(false);
     setEditingDoorData(null);
   };
 
-  // ── Auto-sync edit popup when selecting door on Canvas outside ──
+  const cancelInlineEdit = () => setEditingDoorData(null);
+
+  // Selecting a door from Canvas should highlight the table row only.
+  // Editing starts exclusively by double-clicking the table row.
+
   const lastTargetDoorIdRef = useRef(null);
   useEffect(() => {
     const effDoor = selectedDoorProp || selectedDoor;
@@ -668,7 +613,7 @@ export default function LockupTask({
 
       if (matchingRow) {
         setSelectedEntryId(matchingRow.id);
-        handleOpenEditModal(matchingRow);
+
       }
     }
   }, [
@@ -1205,6 +1150,7 @@ export default function LockupTask({
   // ── Đồng bộ từ sự kiện Modal LockOut ──
   useEffect(() => {
     const handleSyncFromModal = (e) => {
+      if (suppressAutoInit) return;
       if (e.detail?.lockoutRows && e.detail.lockoutRows.length > 0) {
         const mapped = e.detail.lockoutRows.map((r, idx) => ({
           id: `door-sync-${Date.now()}-${idx}`,
@@ -1236,7 +1182,7 @@ export default function LockupTask({
       window.addEventListener("ezefloor:apply_ai_doors_to_lockup", handleSyncFromModal);
       return () => window.removeEventListener("ezefloor:apply_ai_doors_to_lockup", handleSyncFromModal);
     }
-  }, [onSetEntries]);
+  }, [onSetEntries, suppressAutoInit]);
 
   // ── Lưu toàn bộ danh sách LockUp vào [ProcurementApp].[dbo].[LockUp] ──
   const handleSaveToDatabase = async () => {
@@ -1305,6 +1251,7 @@ export default function LockupTask({
     let isCancelled = false;
 
     async function initLockoutEntries() {
+      if (suppressAutoInit) return;
       if (entries && entries.length > 0) return;
 
       // 1. First priority: If canvas has doors for current plan/job, auto-fill from 2D canvas!
@@ -1377,7 +1324,7 @@ export default function LockupTask({
       isCancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeJobNumber, currentProjectName, currentJobId, doors, doorsByPage]);
+  }, [activeJobNumber, currentProjectName, currentJobId, doors, doorsByPage, suppressAutoInit]);
 
   // Render input matching Image 1
   const renderCellInput = (row, field, width = 80, isNumber = false, options = null) => {
@@ -1489,7 +1436,7 @@ export default function LockupTask({
                 userSelect: "none"
               }}
             >
-              <span>{isPrehungOpen ? "▼" : "▶"} Prehung</span>
+              <span>Prehung</span>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                 {isPrehungOpen ? "▲" : "▼"}
               </span>
@@ -1513,7 +1460,7 @@ export default function LockupTask({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isPreExtOpen ? "▼" : "▶"} External Door</span>
+                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>External Door</span>
                     <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
                       {preExtHeight} × {preExtWidth}
                     </span>
@@ -1682,7 +1629,7 @@ export default function LockupTask({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isPreIntOpen ? "▼" : "▶"} Internal Door</span>
+                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>Internal Door</span>
                     <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
                       {preIntHeight} × {preIntWidth}
                     </span>
@@ -1855,7 +1802,7 @@ export default function LockupTask({
                 userSelect: "none"
               }}
             >
-              <span>{isLooseOpen ? "▼" : "▶"} Loose Jamb</span>
+              <span>Loose Jamb</span>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                 {isLooseOpen ? "▲" : "▼"}
               </span>
@@ -1879,7 +1826,7 @@ export default function LockupTask({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isLooseExtOpen ? "▼" : "▶"} External Door</span>
+                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>External Door</span>
                     <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
                       {looseExtHeight} × {looseExtWidth}
                     </span>
@@ -2048,7 +1995,7 @@ export default function LockupTask({
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#334155" }}>{isLooseIntOpen ? "▼" : "▶"} Internal Door</span>
+                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>Internal Door</span>
                     <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
                       {looseIntHeight} × {looseIntWidth}
                     </span>
@@ -2226,7 +2173,6 @@ export default function LockupTask({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "10px", color: "#64748b" }}>{isCard2Collapsed ? "▶" : "▼"}</span>
             <span>2. Entered doors ({(entries || []).length})</span>
           </div>
           <EnteredTaskActions
@@ -2236,6 +2182,10 @@ export default function LockupTask({
             onToggle={() => setIsCard2Collapsed((v) => !v)}
             autoFillDisabled={isAutoFilling}
             autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
+          
+            onSave={handleSaveToDatabase}
+            saveDisabled={isSaving || !entries || entries.length === 0}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
         </div>
 
@@ -2380,6 +2330,43 @@ export default function LockupTask({
                     const stopDisplay = normalizeDoorStop(row.stop || row.door_stop);
                     const qtyDisplay = row.qty || row.default_qty || 1;
 
+                    const isEditing = editingDoorData?.id === row.id;
+                    const editRow = isEditing ? editingDoorData : null;
+                    const editIsExt = isEditing
+                      ? (editRow.scope === "external" || editRow.location === "External")
+                      : isExt;
+                    const editIsLoose = isEditing
+                      ? (editRow.mode === "Loose" || editRow.category === "Loose Jamb")
+                      : isLooseJamb;
+
+                    const mergeOptions = (options = [], current = "") => {
+                      const values = ["", ...(options || [])];
+                      if (current !== undefined && current !== null && String(current) && !values.includes(String(current))) {
+                        values.push(String(current));
+                      }
+                      return Array.from(new Set(values));
+                    };
+
+                    const inlineControlStyle = {
+                      minHeight: "28px",
+                      height: "28px",
+                      border: "1px solid #93c5fd",
+                      borderRadius: "4px",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      fontSize: "10.5px",
+                      padding: "2px 5px",
+                      boxSizing: "border-box",
+                      outline: "none"
+                    };
+
+                    const editDoorOptions = editIsExt
+                      ? externalDoorOptions
+                      : (editIsLoose ? looseIntDoorOptions : prehungIntDoorOptions);
+                    const editHungOptions = editIsExt ? externalHungOptions : internalHungOptions;
+                    const editTypeOptions = editIsExt ? externalTypeOptions : internalTypeOptions;
+                    const editJambOptions = editIsExt ? jambSizeExternalOptions : jambSizeInternalOptions;
+
                     return (
                       <tr
                         key={row.id || idx}
@@ -2389,145 +2376,339 @@ export default function LockupTask({
                           }
                         }}
                         onDoubleClick={(e) => {
+                          if (e.target.closest("button, input, select, textarea, a")) return;
                           e.stopPropagation();
+
+                          if (editingDoorData && editingDoorData.id !== row.id) {
+                            commitInlineEdit(editingDoorData);
+                          }
+
                           setSelectedEntryId(row.id);
                           if (onSelectEntry) onSelectEntry(row);
-                          handleOpenEditModal(row);
+                          beginInlineEdit(row);
                         }}
                         onClick={() => {
                           setSelectedEntryId(row.id);
                           if (onSelectEntry) onSelectEntry(row);
-                          handleOpenEditModal(row);
+                        }}
+                        onBlur={(e) => {
+                          if (!isEditing) return;
+                          const nextTarget = e.relatedTarget;
+                          if (!nextTarget || !e.currentTarget.contains(nextTarget)) {
+                            commitInlineEdit();
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (!isEditing) return;
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            commitInlineEdit();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            cancelInlineEdit();
+                          }
                         }}
                         style={{
-                          background: rowBg,
-                          cursor: "pointer",
-                          outline: isSelected ? "2px solid #2563eb" : "none",
+                          background: isEditing ? "#eff6ff" : rowBg,
+                          cursor: isEditing ? "default" : "pointer",
+                          outline: isEditing ? "2px solid #3b82f6" : (isSelected ? "2px solid #2563eb" : "none"),
                           outlineOffset: "-1px",
                           boxShadow: isSelected ? "inset 0 0 0 1px #3b82f6" : "none",
                           transition: "background 0.15s ease"
                         }}
                       >
-                        {/* Sticky # column */}
                         <td style={{
                           position: "sticky",
                           left: 0,
                           zIndex: 2,
-                          background: isSelected ? "#bfdbfe" : rowBg,
+                          background: isEditing ? "#dbeafe" : (isSelected ? "#bfdbfe" : rowBg),
                           padding: "6px 8px",
-                          fontWeight: isSelected ? 800 : 700,
+                          fontWeight: isSelected || isEditing ? 800 : 700,
                           textAlign: "center",
-                          color: isSelected ? "#1e40af" : "#64748b",
+                          color: isSelected || isEditing ? "#1e40af" : "#64748b",
                           width: "32px",
                           minWidth: "32px",
                           maxWidth: "32px",
-                          borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-                          borderLeft: isSelected ? "4px solid #2563eb" : "4px solid transparent"
+                          borderBottom: "1px solid #e2e8f0",
+                          borderLeft: isSelected || isEditing ? "4px solid #2563eb" : "4px solid transparent"
                         }}>{idx + 1}</td>
 
-                        {/* Sticky Label column (Primary Identifier) */}
                         <td style={{
                           position: "sticky",
                           left: "32px",
                           zIndex: 2,
-                          background: isSelected ? "#bfdbfe" : rowBg,
-                          padding: "6px 8px",
-                          fontWeight: 800,
-                          color: isSelected ? "#1e3a8a" : "#1e40af",
-                          width: "95px",
-                          minWidth: "95px",
-                          borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-                          borderRight: isSelected ? "2px solid #60a5fa" : "2px solid #cbd5e1",
-                          boxShadow: "3px 0 5px -2px rgba(0,0,0,0.12)"
+                          background: isEditing ? "#dbeafe" : (isSelected ? "#bfdbfe" : rowBg),
+                          padding: "5px 6px",
+                          width: "105px",
+                          minWidth: "105px",
+                          borderBottom: "1px solid #e2e8f0",
+                          borderRight: "2px solid #cbd5e1"
                         }}>
-                          <span style={{
-                            background: isSelected ? "#2563eb" : "#eff6ff",
-                            color: isSelected ? "#ffffff" : "#1d4ed8",
-                            padding: "2px 7px",
-                            borderRadius: "4px",
-                            border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
-                            display: "inline-block",
-                            fontWeight: 800,
-                            boxShadow: isSelected ? "0 1px 3px rgba(37,99,235,0.3)" : "none"
-                          }}>
-                            {labelDisplay}
-                          </span>
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              value={editRow.label || ""}
+                              onChange={(e) => updateEditingDoorField({ label: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "94px", fontWeight: 700 }}
+                            />
+                          ) : (
+                            <span style={{
+                              background: isSelected ? "#2563eb" : "#eff6ff",
+                              color: isSelected ? "#ffffff" : "#1d4ed8",
+                              padding: "2px 7px",
+                              borderRadius: "4px",
+                              border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
+                              display: "inline-block",
+                              fontWeight: 800
+                            }}>
+                              {labelDisplay}
+                            </span>
+                          )}
                         </td>
 
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{categoryDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{locationDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : "#0f172a", fontWeight: isSelected ? 600 : "normal" }}>
-                          {doorDisplay || "-"}
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <select
+                              value={editIsLoose ? "Loose Jamb" : "Prehung"}
+                              onChange={(e) => {
+                                const loose = e.target.value === "Loose Jamb";
+                                updateEditingDoorField({
+                                  category: loose ? "Loose Jamb" : "Prehung",
+                                  mode: loose ? "Loose" : "Prehung",
+                                  thickness: loose ? "38" : (editIsExt ? "40" : "35")
+                                });
+                              }}
+                              style={{ ...inlineControlStyle, width: "104px" }}
+                            >
+                              <option value="Prehung">Prehung</option>
+                              <option value="Loose Jamb">Loose Jamb</option>
+                            </select>
+                          ) : categoryDisplay}
                         </td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{sizeDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{thicksDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{jambWallDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>
-                          {row.jamb_size || row.jambSize || "-"}
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <select
+                              value={editIsExt ? "External" : "Internal"}
+                              onChange={(e) => {
+                                const ext = e.target.value === "External";
+                                updateEditingDoorField({
+                                  location: ext ? "External" : "Internal",
+                                  scope: ext ? "external" : "internal",
+                                  hung: ext ? "Hung A" : "RH",
+                                  type: ext ? "Type A" : "-",
+                                  weatherguard: ext ? "No" : "-",
+                                  dbl_rebated: ext ? "No" : "-",
+                                  internal_type: ext ? "-" : "HF",
+                                  color: ext ? "-" : "CHR",
+                                  door_stop: ext ? "DS2 with Riser" : "Cushion"
+                                });
+                              }}
+                              style={{ ...inlineControlStyle, width: "92px" }}
+                            >
+                              <option value="Internal">Internal</option>
+                              <option value="External">External</option>
+                            </select>
+                          ) : locationDisplay}
                         </td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hungDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{typeDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{weatherguardDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{dblRebatedDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>{hfHoDisplay}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 600 : "normal" }}>
-                          {colorDisplay}
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
+                          {isEditing ? (
+                            <select
+                              value={editRow.door_type || ""}
+                              onChange={(e) => updateEditingDoorField({ door_type: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "145px" }}
+                            >
+                              {mergeOptions(editDoorOptions, editRow.door_type).map((opt) => (
+                                <option key={opt || "__blank-door__"} value={opt}>{opt || "-"}</option>
+                              ))}
+                            </select>
+                          ) : (doorDisplay || "-")}
                         </td>
-                        <td style={{ padding: "4px 6px", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
-                          <select
-                            value={stopDisplay}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              const val = e.target.value;
-                              if (onSetEntries) {
-                                onSetEntries(prev => (prev || []).map(item => item.id === row.id ? { ...item, door_stop: val, stop: val } : item));
-                              }
-                            }}
-                            style={{
-                              padding: "2px 6px",
-                              fontSize: "11px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              background: "#ffffff",
-                              color: "#0f172a",
-                              fontWeight: 500,
-                              cursor: "pointer",
-                              outline: "none"
-                            }}
-                          >
-                            {doorStopOptions.map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+                              <select
+                                value={String(editRow.height || 2040)}
+                                onChange={(e) => updateEditingDoorField({ height: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "72px" }}
+                              >
+                                {mergeOptions(DOOR_HEIGHT_OPTIONS.filter((v) => v !== "Spec"), String(editRow.height || 2040)).map((opt) => (
+                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
+                                ))}
+                              </select>
+                              <span style={{ color: "#64748b" }}>×</span>
+                              <select
+                                value={String(editRow.width || 820)}
+                                onChange={(e) => updateEditingDoorField({ width: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "72px" }}
+                              >
+                                {mergeOptions(DOOR_WIDTH_OPTIONS.filter((v) => v !== "Spec"), String(editRow.width || 820)).map((opt) => (
+                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
+                                ))}
+                              </select>
+                            </div>
+                          ) : sizeDisplay}
                         </td>
-                        <td style={{ padding: "6px 8px", textAlign: "center", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined, color: isSelected ? "#1e3a8a" : undefined, fontWeight: isSelected ? 700 : "normal" }}>{qtyDisplay}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap", borderBottom: isSelected ? "1px solid #93c5fd" : "1px solid #e2e8f0", background: isSelected ? "#dbeafe" : undefined }}>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <select
+                              value={String(editRow.thickness || "").replace("mm", "")}
+                              onChange={(e) => updateEditingDoorField({ thickness: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "72px" }}
+                            >
+                              {mergeOptions(DOOR_THICK_OPTIONS.filter((v) => v !== "Spec"), String(editRow.thickness || "").replace("mm", "")).map((opt) => (
+                                opt ? <option key={opt} value={opt}>{opt}</option> : null
+                              ))}
+                            </select>
+                          ) : thicksDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
+                          {isEditing ? (
+                            <input
+                              value={editRow.jamb_or_wall || ""}
+                              onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "118px" }}
+                            />
+                          ) : jambWallDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
+                          {isEditing ? (
+                            <select
+                              value={editRow.jamb_size || ""}
+                              onChange={(e) => updateEditingDoorField({ jamb_size: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "118px" }}
+                            >
+                              {mergeOptions(editJambOptions, editRow.jamb_size).map((opt) => (
+                                <option key={opt || "__blank-jamb__"} value={opt}>{opt || "-"}</option>
+                              ))}
+                            </select>
+                          ) : (row.jamb_size || row.jambSize || "-")}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <select
+                              value={editRow.hung || ""}
+                              onChange={(e) => updateEditingDoorField({ hung: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "94px" }}
+                            >
+                              {mergeOptions(editHungOptions, editRow.hung).map((opt) => (
+                                <option key={opt || "__blank-hung__"} value={opt}>{opt || "-"}</option>
+                              ))}
+                            </select>
+                          ) : hungDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <select
+                              value={editRow.type || ""}
+                              onChange={(e) => updateEditingDoorField({ type: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "96px" }}
+                            >
+                              {mergeOptions(editTypeOptions, editRow.type).map((opt) => (
+                                <option key={opt || "__blank-type__"} value={opt}>{opt || "-"}</option>
+                              ))}
+                            </select>
+                          ) : typeDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing && editIsExt ? (
+                            <select
+                              value={editRow.weatherguard || "No"}
+                              onChange={(e) => updateEditingDoorField({ weatherguard: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "72px" }}
+                            >
+                              {WEATHERGUARD_OPTIONS.map((opt) => <option key={opt}>{opt}</option>)}
+                            </select>
+                          ) : weatherguardDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing && editIsExt ? (
+                            <select
+                              value={editRow.dbl_rebated || "No"}
+                              onChange={(e) => updateEditingDoorField({ dbl_rebated: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "72px" }}
+                            >
+                              {DBL_REBATED_OPTIONS.map((opt) => <option key={opt}>{opt}</option>)}
+                            </select>
+                          ) : dblRebatedDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing && !editIsExt ? (
+                            <select
+                              value={editRow.internal_type || "HF"}
+                              onChange={(e) => updateEditingDoorField({ internal_type: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "68px" }}
+                            >
+                              {mergeOptions(INTERNAL_HOLE_OPTIONS, editRow.internal_type).map((opt) => (
+                                <option key={opt || "__blank-hole__"} value={opt}>{opt || "-"}</option>
+                              ))}
+                            </select>
+                          ) : hfHoDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing && !editIsExt ? (
+                            <select
+                              value={editRow.color || "CHR"}
+                              onChange={(e) => updateEditingDoorField({ color: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "72px" }}
+                            >
+                              {mergeOptions(COLOR_OPTIONS, editRow.color).map((opt) => (
+                                <option key={opt || "__blank-color__"} value={opt}>{opt || "-"}</option>
+                              ))}
+                            </select>
+                          ) : colorDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <select
+                              value={normalizeDoorStop(editRow.door_stop || editRow.stop)}
+                              onChange={(e) => updateEditingDoorField({ door_stop: e.target.value, stop: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "105px" }}
+                            >
+                              {doorStopOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          ) : stopDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing ? (
+                            <input
+                              inputMode="numeric"
+                              value={editRow.default_qty || editRow.qty || 1}
+                              onChange={(e) => {
+                                const qty = Number(e.target.value) || 1;
+                                updateEditingDoorField({ default_qty: qty, qty });
+                              }}
+                              style={{ ...inlineControlStyle, width: "54px", textAlign: "center", fontWeight: 700 }}
+                            />
+                          ) : qtyDisplay}
+                        </td>
+
+                        <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
+                          {isEditing && (
+                            <span style={{ fontSize: "9px", color: "#2563eb", fontWeight: 700, marginRight: "4px" }} title="Enter or click outside to save">
+                              ↵
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedEntryId(row.id);
-                              if (onSelectEntry) onSelectEntry(row);
-                              handleOpenEditModal(row);
-                            }}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#ea580c",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              padding: "2px 4px",
-                              marginRight: "2px"
-                            }}
-                            title="Edit door specifications (Popup)"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                              if (isEditing) cancelInlineEdit();
                               handleRemoveEntry(row.id);
                             }}
                             style={{
@@ -2579,574 +2760,13 @@ export default function LockupTask({
                     ✓ Saved to ProcurementApp LockUp!
                   </span>
                 )}
-                <button
-                  type="button"
-                  onClick={handleSaveToDatabase}
-                  disabled={isSaving || !entries || entries.length === 0}
-                  style={{
-                    padding: "6px 18px",
-                    background: saveSuccess ? "#059669" : "#0f2744",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "5px",
-                    fontSize: "11.5px",
-                    fontWeight: "700",
-                    cursor: (isSaving || !entries || entries.length === 0) ? "not-allowed" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                    opacity: (!entries || entries.length === 0) ? 0.6 : 1,
-                    transition: "background 0.2s ease"
-                  }}
-                >
-                  <span>{isSaving ? "⏳" : "💾"}</span>
-                  <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
-                </button>
+                
               </div>
             </div>
           </>
         )}
       </div>
 
-      {/* ── COMPACT FLOATING PANEL (RIGHT CORNER) FOR EDITING DOOR WHILE VIEWING PDF ── */}
-      {editModalOpen && editingDoorData && (
-        <div
-          style={{
-            position: "fixed",
-            right: "20px",
-            bottom: "20px",
-            width: isModalMinimized ? "360px" : (isModalMaximized ? "680px" : "475px"),
-            maxWidth: "calc(100vw - 40px)",
-            maxHeight: isModalMinimized ? "46px" : (isModalMaximized ? "calc(100vh - 40px)" : "calc(100vh - 80px)"),
-            backgroundColor: "#ffffff",
-            borderRadius: "10px",
-            boxShadow: "0 16px 40px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0,0,0,0.12)",
-            zIndex: 99999,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            transition: "width 0.2s ease, max-height 0.2s ease",
-            animation: "fadeIn 0.15s ease"
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Panel Header */}
-          <div
-            style={{
-              background: "#0f2744",
-              color: "#ffffff",
-              padding: "9px 12px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              borderBottom: isModalMinimized ? "none" : "1px solid #1e3a5f",
-              cursor: isModalMinimized ? "pointer" : "default",
-              userSelect: "none"
-            }}
-            onClick={() => {
-              if (isModalMinimized) setIsModalMinimized(false);
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "15px" }}>🚪</span>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ fontSize: "12.5px", fontWeight: "800", letterSpacing: "0.2px" }}>
-                    Edit Door
-                  </span>
-                  <span style={{
-                    background: "#2563eb",
-                    color: "#ffffff",
-                    padding: "1px 7px",
-                    borderRadius: "4px",
-                    fontSize: "11px",
-                    fontWeight: "800"
-                  }}>
-                    {editingDoorData.label || "Door"}
-                  </span>
-                  <span style={{
-                    background: editingDoorData.location === "External" ? "#ea580c" : "#059669",
-                    color: "#ffffff",
-                    padding: "1px 6px",
-                    borderRadius: "4px",
-                    fontSize: "9.5px",
-                    fontWeight: "700"
-                  }}>
-                    {editingDoorData.location || "Internal"}
-                  </span>
-                  {isModalMinimized && (
-                    <span style={{ fontSize: "10.5px", color: "#38bdf8", fontWeight: 600, marginLeft: "4px" }}>
-                      (Click to expand)
-                    </span>
-                  )}
-                </div>
-                {!isModalMinimized && (
-                  <div style={{ fontSize: "10px", color: "#94a3b8", marginTop: "1px" }}>
-                    Modify specifications & check PDF simultaneously
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Header Controls: Minimize / Maximize / Close */}
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }} onClick={(e) => e.stopPropagation()}>
-              {/* Thu nhỏ / Mở rộng (Minimize / Restore) */}
-              <button
-                type="button"
-                onClick={() => setIsModalMinimized(!isModalMinimized)}
-                style={{
-                  background: isModalMinimized ? "rgba(59, 130, 246, 0.4)" : "rgba(255,255,255,0.12)",
-                  border: "none",
-                  color: "#ffffff",
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "background 0.15s ease"
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.25)"}
-                onMouseLeave={(e) => e.currentTarget.style.background = isModalMinimized ? "rgba(59, 130, 246, 0.4)" : "rgba(255,255,255,0.12)"}
-                title={isModalMinimized ? "Mở rộng panel (Expand)" : "Thu nhỏ panel xuống góc (Minimize)"}
-              >
-                {isModalMinimized ? "▲" : "▼"}
-              </button>
-
-              {/* Thu phóng kích thước: Tiêu chuẩn (475px) <-> Rộng (680px) */}
-              {!isModalMinimized && (
-                <button
-                  type="button"
-                  onClick={() => setIsModalMaximized(!isModalMaximized)}
-                  style={{
-                    background: isModalMaximized ? "rgba(59, 130, 246, 0.4)" : "rgba(255,255,255,0.12)",
-                    border: "none",
-                    color: "#ffffff",
-                    width: "24px",
-                    height: "24px",
-                    borderRadius: "4px",
-                    fontSize: "11px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "background 0.15s ease"
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.25)"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = isModalMaximized ? "rgba(59, 130, 246, 0.4)" : "rgba(255,255,255,0.12)"}
-                  title={isModalMaximized ? "Thu nhỏ kích thước về mặc định (Standard size)" : "Phóng to panel (Maximize width)"}
-                >
-                  {isModalMaximized ? "❐" : "⤢"}
-                </button>
-              )}
-
-              {/* Đóng panel (Close) */}
-              <button
-                type="button"
-                onClick={() => {
-                  setEditModalOpen(false);
-                  setEditingDoorData(null);
-                  setIsModalMinimized(false);
-                }}
-                style={{
-                  background: "rgba(255,255,255,0.12)",
-                  border: "none",
-                  color: "#ffffff",
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "background 0.15s ease"
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.85)"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
-                title="Đóng panel (Close)"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-
-          {!isModalMinimized && (
-            <>
-              {/* Panel Body */}
-              <div style={{
-                padding: "12px 14px",
-                overflowY: "auto",
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-                maxHeight: isModalMaximized ? "calc(100vh - 140px)" : "calc(100vh - 180px)",
-                background: "#f8fafc"
-              }}>
-                {/* Section 1: Classification & Identity */}
-                <div style={{
-                  background: "#ffffff",
-                  padding: "10px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #e2e8f0"
-                }}>
-                  <div style={{ fontSize: "11px", fontWeight: 800, color: "#0f2744", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
-                    <span style={{ color: "#3b82f6" }}>●</span> 1. General & Classification
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 0.8fr", gap: "8px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Label / Name</label>
-                      <input
-                        type="text"
-                        value={editingDoorData.label || ""}
-                        onChange={(e) => updateEditingDoorField({ label: e.target.value })}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", fontWeight: 700, borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Location</label>
-                      <select
-                        value={editingDoorData.location === "External" || editingDoorData.scope === "external" ? "External" : "Internal"}
-                        onChange={(e) => {
-                          const isNowExt = e.target.value === "External";
-                          updateEditingDoorField({
-                            location: isNowExt ? "External" : "Internal",
-                            scope: isNowExt ? "external" : "internal",
-                            hung: isNowExt ? "Hung A" : "RH",
-                            type: isNowExt ? "Type A" : "-",
-                            weatherguard: isNowExt ? "No" : "-",
-                            dbl_rebated: isNowExt ? "No" : "-",
-                            internal_type: isNowExt ? "-" : "HF",
-                            color: isNowExt ? "-" : "CHR",
-                            door_stop: isNowExt ? "DS2 with Riser" : "Cushion",
-                            jamb_size: isNowExt ? (jambSizeExternalOptions[0] || "Steel Frame") : (editingDoorData.mode === "Loose" ? "112×19mm 5.4m Loose Jamb" : "92x18mm"),
-                            thickness: isNowExt ? (editingDoorData.mode === "Loose" ? "38" : "40") : (editingDoorData.mode === "Loose" ? "38" : "35"),
-                            jamb_or_wall: editingDoorData.jamb_or_wall || (isNowExt ? "110mm Brick Veneer" : "90mm Timber Stud")
-                          });
-                        }}
-                        style={{ width: "100%", padding: "5px 4px", fontSize: "11px", fontWeight: 600, borderRadius: "4px", border: "1px solid #3b82f6", background: "#eff6ff", color: "#1d4ed8" }}
-                      >
-                        <option value="Internal">Internal</option>
-                        <option value="External">External</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Category</label>
-                      <select
-                        value={editingDoorData.category === "Loose Jamb" || editingDoorData.mode === "Loose" ? "Loose Jamb" : "Prehung"}
-                        onChange={(e) => {
-                          const isNowLoose = e.target.value === "Loose Jamb";
-                          const isExtLoc = editingDoorData.location === "External" || editingDoorData.scope === "external";
-                          updateEditingDoorField({
-                            category: isNowLoose ? "Loose Jamb" : "Prehung",
-                            mode: isNowLoose ? "Loose" : "Prehung",
-                            jamb_size: isNowLoose ? "112×19mm 5.4m Loose Jamb" : (isExtLoc ? "Steel Frame" : "112×19mm 5.4m"),
-                            thickness: isNowLoose ? "38" : (isExtLoc ? "40" : "35")
-                          });
-                        }}
-                        style={{ width: "100%", padding: "5px 4px", fontSize: "11px", fontWeight: 600, borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
-                      >
-                        <option value="Prehung">Prehung</option>
-                        <option value="Loose Jamb">Loose Jamb</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Qty</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={editingDoorData.default_qty || editingDoorData.qty || 1}
-                        onChange={(e) => updateEditingDoorField({ default_qty: Number(e.target.value) || 1, qty: Number(e.target.value) || 1 })}
-                        style={{ width: "100%", padding: "5px 4px", fontSize: "11px", fontWeight: 700, textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Section 2: Door Type & Dimensions */}
-                <div style={{
-                  background: "#ffffff",
-                  padding: "10px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #e2e8f0"
-                }}>
-                  <div style={{ fontSize: "11px", fontWeight: 800, color: "#0f2744", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
-                    <span style={{ color: "#f59e0b" }}>●</span> 2. Door Specifications & Sizing
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>
-                        Door Type {(editingDoorData.location === "External" || editingDoorData.scope === "external") ? "(External)" : `(Internal - ${editingDoorData.mode === "Loose" ? "Loose Jamb" : "Prehung"})`}
-                      </label>
-                      <SearchDropdown
-                        value={editingDoorData.door_type || ""}
-                        options={
-                          (editingDoorData.location === "External" || editingDoorData.scope === "external")
-                            ? externalDoorOptions
-                            : (editingDoorData.mode === "Loose" ? looseIntDoorOptions : prehungIntDoorOptions)
-                        }
-                        onChange={(val) => updateEditingDoorField({ door_type: val })}
-                        placeholder="Select or search door type..."
-                        isYellow={true}
-                        minWidth="100%"
-                      />
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-                      <div>
-                        <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Height (mm)</label>
-                        <select
-                          value={editingDoorData.height || "2040"}
-                          onChange={(e) => updateEditingDoorField({ height: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Width (mm)</label>
-                        <select
-                          value={editingDoorData.width || "820"}
-                          onChange={(e) => updateEditingDoorField({ width: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Thickness</label>
-                        <select
-                          value={String(editingDoorData.thickness || ((editingDoorData.location === "External" || editingDoorData.scope === "external") ? "40" : "35")).replace("mm", "")}
-                          onChange={(e) => updateEditingDoorField({ thickness: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}mm</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Section 3: Frame & Wall */}
-                <div style={{
-                  background: "#ffffff",
-                  padding: "10px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #e2e8f0"
-                }}>
-                  <div style={{ fontSize: "11px", fontWeight: 800, color: "#0f2744", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
-                    <span style={{ color: "#10b981" }}>●</span> 3. Frame & Jamb Details
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: "8px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Jamb / Wall Thickness</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 90mm Wall"
-                        value={editingDoorData.jamb_or_wall || ""}
-                        onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>
-                        Jamb Size {(editingDoorData.location === "External" || editingDoorData.scope === "external") ? "(External)" : "(Internal)"}
-                      </label>
-                      <select
-                        value={editingDoorData.jamb_size || ""}
-                        onChange={(e) => updateEditingDoorField({ jamb_size: e.target.value })}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
-                      >
-                        <option value="">-- Select --</option>
-                        {((editingDoorData.location === "External" || editingDoorData.scope === "external") ? jambSizeExternalOptions : jambSizeInternalOptions).map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Section 4: Hardware & Finishes */}
-                <div style={{
-                  background: "#ffffff",
-                  padding: "10px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #e2e8f0"
-                }}>
-                  <div style={{ fontSize: "11px", fontWeight: 800, color: "#0f2744", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
-                    <span style={{ color: "#8b5cf6" }}>●</span> 4. Hardware, Finish & Options
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Hung</label>
-                      <select
-                        value={editingDoorData.hung || ((editingDoorData.location === "External" || editingDoorData.scope === "external") ? "Hung A" : "RH")}
-                        onChange={(e) => updateEditingDoorField({ hung: e.target.value })}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {((editingDoorData.location === "External" || editingDoorData.scope === "external") ? externalHungOptions : internalHungOptions).map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Type</label>
-                      <select
-                        value={isCadDoorType(editingDoorData.type) ? ((editingDoorData.location === "External" || editingDoorData.scope === "external") ? "Type A" : "-") : (editingDoorData.type || ((editingDoorData.location === "External" || editingDoorData.scope === "external") ? "Type A" : "-"))}
-                        onChange={(e) => updateEditingDoorField({ type: e.target.value })}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {((editingDoorData.location === "External" || editingDoorData.scope === "external") ? externalTypeOptions : internalTypeOptions).map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: (editingDoorData.location === "External" || editingDoorData.scope === "external") ? "#475569" : "#94a3b8", marginBottom: "3px" }}>Weatherguard</label>
-                      {(editingDoorData.location === "External" || editingDoorData.scope === "external") ? (
-                        <select
-                          value={editingDoorData.weatherguard || "No"}
-                          onChange={(e) => updateEditingDoorField({ weatherguard: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {WEATHERGUARD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      ) : (
-                        <input type="text" disabled value="-" style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#94a3b8", textAlign: "center" }} />
-                      )}
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: (editingDoorData.location === "External" || editingDoorData.scope === "external") ? "#475569" : "#94a3b8", marginBottom: "3px" }}>DBL Rebated</label>
-                      {(editingDoorData.location === "External" || editingDoorData.scope === "external") ? (
-                        <select
-                          value={editingDoorData.dbl_rebated || "No"}
-                          onChange={(e) => updateEditingDoorField({ dbl_rebated: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {DBL_REBATED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      ) : (
-                        <input type="text" disabled value="-" style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#94a3b8", textAlign: "center" }} />
-                      )}
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: !(editingDoorData.location === "External" || editingDoorData.scope === "external") ? "#475569" : "#94a3b8", marginBottom: "3px" }}>HF / HO</label>
-                      {!(editingDoorData.location === "External" || editingDoorData.scope === "external") ? (
-                        <select
-                          value={editingDoorData.internal_type || "HF"}
-                          onChange={(e) => updateEditingDoorField({ internal_type: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {internalHoleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      ) : (
-                        <input type="text" disabled value="-" style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#94a3b8", textAlign: "center" }} />
-                      )}
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: !(editingDoorData.location === "External" || editingDoorData.scope === "external") ? "#475569" : "#94a3b8", marginBottom: "3px" }}>Color / Finish</label>
-                      {!(editingDoorData.location === "External" || editingDoorData.scope === "external") ? (
-                        <select
-                          value={editingDoorData.color && editingDoorData.color !== "Primed White" ? editingDoorData.color : "CHR"}
-                          onChange={(e) => updateEditingDoorField({ color: e.target.value })}
-                          style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                        >
-                          {internalFinishOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      ) : (
-                        <input type="text" disabled value="-" style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #e2e8f0", background: "#f1f5f9", color: "#94a3b8", textAlign: "center" }} />
-                      )}
-                    </div>
-
-                    <div style={{ gridColumn: "span 2" }}>
-                      <label style={{ display: "block", fontSize: "10px", fontWeight: 700, color: "#475569", marginBottom: "3px" }}>Door Stop</label>
-                      <select
-                        value={normalizeDoorStop(editingDoorData.door_stop || editingDoorData.stop)}
-                        onChange={(e) => updateEditingDoorField({ door_stop: e.target.value, stop: e.target.value })}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                      >
-                        {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Panel Footer */}
-              <div style={{
-                padding: "10px 14px",
-                background: "#ffffff",
-                borderTop: "1px solid #e2e8f0",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "8px"
-              }}>
-                <span style={{ fontSize: "10.5px", color: "#059669", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px" }}>
-                  <span>⚡</span> Auto-saved to table
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditModalOpen(false);
-                      setEditingDoorData(null);
-                      setIsModalMinimized(false);
-                    }}
-                    style={{
-                      padding: "6px 14px",
-                      background: "#ffffff",
-                      color: "#475569",
-                      border: "1px solid #cbd5e1",
-                      borderRadius: "5px",
-                      fontSize: "11.5px",
-                      fontWeight: 600,
-                      cursor: "pointer"
-                    }}
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveModalData(editingDoorData)}
-                    style={{
-                      padding: "6px 18px",
-                      background: "#0f2744",
-                      color: "#ffffff",
-                      border: "none",
-                      borderRadius: "5px",
-                      fontSize: "11.5px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px",
-                      boxShadow: "0 2px 4px rgba(15,39,68,0.2)"
-                    }}
-                  >
-                    <span>✓</span>
-                    <span>Done</span>
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -870,6 +870,16 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async calculateEaves(payload) {
+    const res = await fetch(`${BASE_URL}/api/eaves/calculate`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
   // ── Cladding Jobs (MSSQL ProcurementApp.dbo.Cladding) ──
   async fetchCladdingJobs(office = null) {
     const url = office ? `${BASE_URL}/api/cladding/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/cladding/jobs`;

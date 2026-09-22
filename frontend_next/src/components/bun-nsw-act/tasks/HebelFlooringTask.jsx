@@ -722,7 +722,7 @@ export default function HebelFlooringTask({
                 userSelect: "none"
               }}
             >
-              <span>{isDryOpen ? "▼" : "▶"} Dry</span>
+              <span>Dry</span>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                 {isDryOpen ? "▲" : "▼"}
               </span>
@@ -782,7 +782,7 @@ export default function HebelFlooringTask({
                 userSelect: "none"
               }}
             >
-              <span>{isWetOpen ? "▼" : "▶"} Wet</span>
+              <span>Wet</span>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                 {isWetOpen ? "▲" : "▼"}
               </span>
@@ -842,7 +842,7 @@ export default function HebelFlooringTask({
                 userSelect: "none"
               }}
             >
-              <span>{isBalconyOpen ? "▼" : "▶"} Balcony Tiles</span>
+              <span>Balcony Tiles</span>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                 {isBalconyOpen ? "▲" : "▼"}
               </span>
@@ -902,7 +902,7 @@ export default function HebelFlooringTask({
                 userSelect: "none"
               }}
             >
-              <span>{isOtherOpen ? "▼" : "▶"} Other area types</span>
+              <span>Other area types</span>
               <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                 {isOtherOpen ? "▲" : "▼"}
               </span>
@@ -992,6 +992,10 @@ export default function HebelFlooringTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
+          
+            onSave={handleSaveToDatabase}
+            saveDisabled={isSaving}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
         </div>
         <div style={{ padding: "0px", overflowX: "auto" }}>
@@ -1324,28 +1328,7 @@ export default function HebelFlooringTask({
               {enteredRows.length} flooring area{enteredRows.length > 1 ? "s" : ""} calculated
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={handleSaveToDatabase}
-                style={{
-                  padding: "4px 12px",
-                  background: saveSuccess ? "#16a34a" : "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  cursor: isSaving ? "not-allowed" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  transition: "all 0.2s ease"
-                }}
-              >
-                <span>{isSaving ? "⏳" : (saveSuccess ? "✓" : "💾")}</span>
-                <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
-              </button>
+              
             </div>
           </div>
         )}

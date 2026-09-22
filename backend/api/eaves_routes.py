@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from app.customer_modules.bun_nsw_act.calculators import calculate_eaves
+from app.customer_modules.base import CustomerCalculationError
 
 logger = logging.getLogger("ezefloor.eaves")
 
@@ -60,9 +62,9 @@ class SaveJobsPayloadSchema(BaseModel):
 
 EAVES_INPUT_KEYS = {
     "eaves_450", "eaves_600", "eaves_750", "eaves_900",
-    "single_1800", "single_2400", "single_2700", "single_3000",
-    "double_1800", "double_2400", "double_2700", "double_3000",
-    "multi_1800", "multi_2400", "multi_2700", "multi_3000",
+    "single_1800", "single_2100", "single_2400", "single_2700", "single_3000",
+    "double_1800", "double_2100", "double_2400", "double_2700", "double_3000",
+    "multi_1800", "multi_2100", "multi_2400", "multi_2700", "multi_3000",
     "extra_batten", "extra_bead", "metal_batten_m2",
 }
 
@@ -132,6 +134,28 @@ def _resolve_job(cursor: Any, input_job_id: str) -> tuple[str, str]:
         return job_hw_id, short_name
 
     raise HTTPException(status_code=404, detail=f"Job '{input_job_id}' was not found in MSSQL.")
+
+
+
+# ══════════════════════════════════════════════════════
+# PROCUREMENT-PARITY CALCULATION (READ ONLY)
+# ══════════════════════════════════════════════════════
+
+@router.post("/calculate")
+async def calculate_eaves_procurement(payload: dict[str, Any]):
+    """Calculate the BUN NSW/ACT Eaves & Soffits schedule.
+
+    This endpoint is read-only. It performs no database INSERT/UPDATE/DELETE.
+    The calculation function is the same Procurement-parity calculator used by
+    the BUN NSW/ACT customer module.
+    """
+    try:
+        return {"success": True, "data": calculate_eaves(payload or {})}
+    except CustomerCalculationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Eaves/Soffit calculation failed")
+        raise HTTPException(status_code=500, detail=f"Eaves/Soffit calculation failed: {exc}")
 
 
 # ══════════════════════════════════════════════════════

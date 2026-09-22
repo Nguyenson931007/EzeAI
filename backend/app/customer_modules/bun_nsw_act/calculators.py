@@ -21,7 +21,7 @@ from .normalization import non_negative_number as num
 from .final_fit import calculate_final_fit
 from .fixout import calculate_fixout
 from .fow_plumbing import calculate_fow_plumbing
-from .lockup import calculate_lockup
+from .lockup_calculator import calculate_lockup
 from .power_truss_braces import calculate_power_truss_braces
 from .shelving import calculate_shelving
 from .selector_catalog import load_selector_variants

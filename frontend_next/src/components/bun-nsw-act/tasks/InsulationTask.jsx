@@ -958,7 +958,6 @@ export default function InsulationTask({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "11px", color: "#64748b" }}>{isSection1Open ? "▼" : "▶"}</span>
             <span>1. INSULATION WALL</span>
           </div>
           <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>
@@ -1349,7 +1348,6 @@ export default function InsulationTask({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "11px", color: "#64748b" }}>{isSection3Open ? "▼" : "▶"}</span>
             <span>2. INSULATION FLOOR &amp; CEILING</span>
           </div>
           <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>
@@ -1693,6 +1691,10 @@ export default function InsulationTask({
             onToggle={() => setIsEnteredWallsOpen((v) => !v)}
             autoFillDisabled={isAutoFilling}
             autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
+          
+            onSave={handleSaveToDatabase}
+            saveDisabled={isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
         </div>
 
@@ -2106,28 +2108,7 @@ export default function InsulationTask({
           <span>Floor &amp; Ceiling Area: <b style={{ color: "#7e22ce" }}>{totalFloorCeilingAreaM2} m²</b></span>
           <span>Total Records: <b style={{ color: "#0f172a" }}>{(wallEntries || []).length + (areaEntries || []).length}</b></span>
         </div>
-        <button
-          type="button"
-          onClick={handleSaveToDatabase}
-          disabled={isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)}
-          style={{
-            background: saveSuccess ? "#16a34a" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "6px",
-            padding: "7px 16px",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: (isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)) ? "not-allowed" : "pointer",
-            opacity: (isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)) ? 0.6 : 1,
-            transition: "all 0.2s ease",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px"
-          }}
-        >
-          {isSaving ? "Saving..." : saveSuccess ? "✓ Saved to Database" : "Save All to Database"}
-        </button>
+        
       </div>
     </div>
   );

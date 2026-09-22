@@ -296,7 +296,7 @@ export default function PowerTrussBracesTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  activeJobNumber,,
+  activeJobNumber,
   onClearData
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
@@ -717,6 +717,10 @@ export default function PowerTrussBracesTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
+          
+            onSave={handleSaveToDatabase}
+            saveDisabled={isSaving}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
         </div>
 
@@ -958,30 +962,7 @@ export default function PowerTrussBracesTask({
                   ✓ Saved to SQL!
                 </span>
               )}
-              <button
-                type="button"
-                onClick={handleSaveToDatabase}
-                disabled={isSaving}
-                style={{
-                  padding: "5px 12px",
-                  background: saveSuccess ? "#16a34a" : "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "11px",
-                  fontWeight: "700",
-                  cursor: isSaving ? "not-allowed" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-                  opacity: isSaving ? 0.7 : 1,
-                  transition: "all 0.2s ease"
-                }}
-              >
-                <span>{isSaving ? "⏳" : "💾"}</span>
-                <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
-              </button>
+              
             </div>
           </div>
         )}

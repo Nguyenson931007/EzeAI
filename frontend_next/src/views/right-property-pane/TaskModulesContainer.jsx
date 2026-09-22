@@ -13,6 +13,7 @@ export default function TaskModulesContainer({
   handleModuleFormChange,
   handleAddDataAI,
   handleSelectEntry,
+  manuallyClearedTasks = {},
   moduleFormData = {},
   cadMetrics = {},
   currentProjectName,
@@ -407,7 +408,8 @@ export default function TaskModulesContainer({
           updateDoor={updateDoor}
           updateDoorsProperty={updateDoorsProperty}
         
-          onAddDataAI={handleAddDataAI}
+                    suppressAutoInit={Boolean(manuallyClearedTasks?.lock_up)}
+onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}

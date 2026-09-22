@@ -1,20 +1,23 @@
-# Entered-header task actions
+# Task UI consistency + Lockup inline editing
 
-Corrects the action placement.
+Compared with the uploaded ProcurementApp source.
 
-Final UI rule:
-- Auto Fill appears only once, inside the Entered/Calculated section header.
-- Clear data is beside Auto Fill in that same header.
-- Hide/show arrow remains at the far right.
-- No Auto Fill / Clear buttons remain in the top task header.
-- No separate bottom/footer action card.
+Changes:
+- Removes duplicated LEFT-side collapse arrows from task section headers.
+- Keeps a single ▲/▼ control on the RIGHT.
+- Standardizes section-title typography to 12px / 16px / 800.
+- Lockup popup editor is completely removed.
+- Lockup now edits directly inside the Entered doors table:
+  - double-click a row -> edit that row inline
+  - Enter -> save
+  - click/focus outside the edited row -> save
+  - Escape -> cancel
+- Single click only selects/highlights the row; it does not open editing.
+- Edit pencil is removed; delete remains.
+- Canvas selection highlights a row but no longer forces an editor popup.
 
-Reusable component:
-`frontend_next/src/components/bun-nsw-act/tasks/EnteredTaskActions.jsx`
+The inline fields mirror Procurement's row-edit pattern:
+category, location, door type, size, thickness, jamb/wall, jamb size,
+hung, type, weather guard, double rebated, HF/HO, color, stop and qty.
 
-Applied to result headers for:
-Frame Hardware, Flooring, Hebel Flooring, Insulation, Eaves, Cladding,
-Lockup, Shelving, Beams & Posts, Power Truss, FOW Plumbing, Fixout.
-
-Database safety:
-Clear data still clears only current in-memory/form state. It does not issue DB DELETE/UPDATE.
+No database schema or automatic DB write/delete changes.

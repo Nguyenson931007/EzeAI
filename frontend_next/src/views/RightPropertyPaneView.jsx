@@ -580,6 +580,8 @@ export default function RightPropertyPaneView({
   });
 
   const [aiGeneratedSuccess, setAiGeneratedSuccess] = React.useState(null);
+  const [manuallyClearedTasks, setManuallyClearedTasks] = React.useState({});
+  const manuallyClearedTasksRef = React.useRef({});
 
   const normalizeTaskStateKey = (moduleId) => ({
     eaves: "eaves_soffit",
@@ -601,6 +603,14 @@ export default function RightPropertyPaneView({
   const handleResetModuleData = (moduleId) => {
     const key = normalizeTaskStateKey(moduleId);
 
+    // Explicit user Clear must win over all background/auto-sync effects.
+    // The flag is removed only when the user explicitly asks to Auto Fill/apply data again.
+    manuallyClearedTasksRef.current = {
+      ...(manuallyClearedTasksRef.current || {}),
+      [key]: true
+    };
+    setManuallyClearedTasks(prev => ({ ...prev, [key]: true }));
+
     // Clear every entered / auto-filled row for the active task.
     // This is intentionally an explicit UI action only; it does not write/delete DB records.
     if (key === "frame_hardware") setFrameWallEntries([]);
@@ -609,6 +619,8 @@ export default function RightPropertyPaneView({
     if (key === "insulation") {
       setInsulationWallEntries([]);
       setInsulationAreaEntries([]);
+      setCustomInsWallOverrides({});
+      setCustomInsAreaOverrides({});
     }
     if (key === "eaves_soffit") setEavesEntries([]);
     if (key === "cladding") setCladdingWallEntries([]);
@@ -617,7 +629,10 @@ export default function RightPropertyPaneView({
     if (key === "timber_posts") setTimberPostEntries([]);
     if (key === "fixout") setFixoutDoorEntries([]);
     if (key === "power_truss_braces") setPowerTrussEntries([]);
-    if (key === "lock_up") setLockupEntries([]);
+    if (key === "lock_up") {
+      setLockupEntries([]);
+      setCustomLockupOverrides({});
+    }
     if (key === "hardies_fire_walls") setHardiesFireWallEntries([]);
 
     // Clear all values that were loaded / auto-filled into this task form.
@@ -889,6 +904,19 @@ export default function RightPropertyPaneView({
 
   const handleAddDataAI = (moduleId) => {
     const normalizedModuleId = moduleId === "lockup" ? "lock_up" : moduleId;
+
+    // Explicit Auto Fill re-enables generation after a manual Clear.
+    if (manuallyClearedTasksRef.current?.[normalizedModuleId]) {
+      const nextRef = { ...(manuallyClearedTasksRef.current || {}) };
+      delete nextRef[normalizedModuleId];
+      manuallyClearedTasksRef.current = nextRef;
+    }
+    setManuallyClearedTasks(prev => {
+      if (!prev?.[normalizedModuleId]) return prev;
+      const next = { ...prev };
+      delete next[normalizedModuleId];
+      return next;
+    });
     const fallbackScale = (realScale && realScale > 0) ? realScale : ((scaleValue && scaleValue > 0) ? scaleValue : 1);
 
     const currentWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
@@ -2208,6 +2236,8 @@ export default function RightPropertyPaneView({
   // Skip auto-generation if insulationWallEntries already has entries (preserves AI-filled, entered, or calculated rows)
   React.useEffect(() => {
     if (activePaneTab === "insulation") {
+      // Do not silently repopulate after the user explicitly pressed Clear data.
+      if (manuallyClearedTasks?.insulation) return;
       if (insulationWallEntries && insulationWallEntries.length > 0) return;
 
       const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
@@ -2346,7 +2376,7 @@ export default function RightPropertyPaneView({
         ]);
       }
     }
-  }, [activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides]);
+  }, [activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides, manuallyClearedTasks]);
 
   const [insWallType, setInsWallType] = React.useState("external");
   const [insWallHeight, setInsWallHeight] = React.useState("2700");
@@ -2571,6 +2601,12 @@ export default function RightPropertyPaneView({
     // ── 2. LOCKUP EVENT LISTENER ──
     const handleGlobalApplyLockup = (e) => {
       if (!e.detail) return;
+      setManuallyClearedTasks(prev => {
+        if (!prev?.lock_up) return prev;
+        const next = { ...prev };
+        delete next.lock_up;
+        return next;
+      });
       const { doors: rawDoors = [], lockoutRows = [] } = e.detail;
 
       const sourceList = lockoutRows.length > 0 ? lockoutRows : rawDoors;
@@ -2660,6 +2696,12 @@ export default function RightPropertyPaneView({
     // ── 4. INSULATION EVENT LISTENER ──
     const handleGlobalApplyInsulation = (e) => {
       if (!e.detail) return;
+      setManuallyClearedTasks(prev => {
+        if (!prev?.insulation) return prev;
+        const next = { ...prev };
+        delete next.insulation;
+        return next;
+      });
       const { insulationRows = [] } = e.detail;
       if (insulationRows.length > 0) {
         const wallRows = insulationRows.map((r, idx) => {
@@ -2790,6 +2832,9 @@ export default function RightPropertyPaneView({
   // When on Lockup task: dynamic door calculation and bidirectional synchronization with canvas selection
   React.useEffect(() => {
     if (activePaneTab === "lockup" || activePaneTab === "lock_up") {
+      // Do not silently rebuild rows immediately after an explicit Clear data.
+      if (manuallyClearedTasksRef.current?.lock_up || manuallyClearedTasks?.lock_up) return;
+
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
       const targetDoors = curDoors || [];
 
@@ -2903,7 +2948,7 @@ export default function RightPropertyPaneView({
         }
       }
     }
-  }, [activePaneTab, currentPage, doors, doorsByPageProp, customLockupOverrides]);
+  }, [activePaneTab, currentPage, doors, doorsByPageProp, customLockupOverrides, manuallyClearedTasks]);
 
   const [trussEntries, setTrussEntries] = React.useState([]);
   const [hardiesFireWallEntries, setHardiesFireWallEntries] = React.useState([]);
@@ -4252,6 +4297,7 @@ export default function RightPropertyPaneView({
           handleModuleFormChange={handleModuleFormChange}
           handleAddDataAI={handleAddDataAI}
           handleSelectEntry={handleSelectEntry}
+          manuallyClearedTasks={manuallyClearedTasks}
           moduleFormData={moduleFormData}
           cadMetrics={cadMetrics}
           currentProjectName={currentProjectName}

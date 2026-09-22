@@ -3553,3 +3553,348 @@ input[type=number]::-webkit-inner-spin-button {
 
 
 
+
+
+/* =========================================================
+   PROCUREMENT TASK CONTENT
+   Full width again; compact vertical rhythm across all tasks.
+   ========================================================= */
+.proc-task-content {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   PROCUREMENT TASK — COMPACT VERTICAL HEIGHT
+   Applies to all task section/card headers.
+   ========================================================= */
+
+/* Reduce overall vertical spacing between cards. */
+.proc-task-pane {
+  gap: 9px !important;
+}
+
+.proc-task-content {
+  gap: 9px !important;
+}
+
+/* Common card/section headers inside task pane.
+   Most task headers use these inline background/border patterns, so
+   the selector intentionally targets their immediate header rows. */
+.proc-task-pane > .proc-task-content > div,
+.proc-task-pane > .proc-task-content > section {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Header bars: slightly shorter but still comfortable to click. */
+.proc-task-pane .proc-task-content [style*="background: rgb(248, 250, 252)"],
+.proc-task-pane .proc-task-content [style*="background: #f8fafc"],
+.proc-task-pane .proc-task-content [style*='background:"#f8fafc"'] {
+  min-height: 34px !important;
+}
+
+/* Most section headers are divs directly inside bordered cards. */
+.proc-task-pane .proc-task-content > div > div:first-child,
+.proc-task-pane .proc-task-content > section > div:first-child {
+  padding-top: 7px !important;
+  padding-bottom: 7px !important;
+}
+
+/* Nested accordions inside task cards. */
+.proc-task-pane .proc-task-content section section > div:first-child,
+.proc-task-pane .proc-task-content div[style*="border"] > div[style*="cursor"] {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+/* Inputs remain readable but a bit less tall than the previous UX patch. */
+.proc-task-pane input:not([type="checkbox"]):not([type="radio"]),
+.proc-task-pane select,
+.proc-task-pane textarea {
+  min-height: 31px !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+/* Compact entered/calculated table rows. */
+.proc-task-pane th {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+.proc-task-pane td {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+/* Shared Entered header actions remain easy to click while compact. */
+.entered-task-action {
+  min-height: 26px !important;
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+}
+
+.entered-task-toggle {
+  width: 26px !important;
+  height: 26px !important;
+}
+
+
+/* =========================================================
+   TASK SECTION HEADER — ONE SIZE FOR EVERY TASK
+   Reference size: Cladding "2. Cladding materials"
+   12px text / 9px 12px padding / ~34px total height.
+   This final override intentionally normalizes older inline styles.
+   ========================================================= */
+
+/* Main cards/sections used by every Procurement task. */
+.proc-task-pane .proc-task-content > div > div:first-child,
+.proc-task-pane .proc-task-content > section > div:first-child {
+  box-sizing: border-box !important;
+  min-height: 34px !important;
+  padding: 9px 12px !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+
+/* Nested task accordions/cards (Lockup/Fixout/Insulation/etc.). */
+.proc-task-pane .proc-task-content > div > div > div[style*="cursor"],
+.proc-task-pane .proc-task-content > section > div > div[style*="cursor"],
+.proc-task-pane .proc-task-content div[style*="border"] > div[style*="cursor: pointer"],
+.proc-task-pane .proc-task-content div[style*="border"] > div[style*="cursor"] {
+  box-sizing: border-box !important;
+  min-height: 34px !important;
+  padding: 9px 12px !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+
+/* Keep titles themselves visually consistent. */
+.proc-task-pane .proc-task-content > div > div:first-child > span:first-child,
+.proc-task-pane .proc-task-content > section > div:first-child > span:first-child {
+  font-size: 12px !important;
+  line-height: 16px !important;
+  font-weight: 800 !important;
+}
+
+/* Shared controls must fit inside the same 34px title bar. */
+.proc-task-pane .entered-task-actions {
+  height: 26px !important;
+  align-items: center !important;
+}
+
+.proc-task-pane .entered-task-action,
+.proc-task-pane .entered-task-toggle {
+  min-height: 26px !important;
+  height: 26px !important;
+  box-sizing: border-box !important;
+}
+
+/* Remove earlier compact rules from making a few nested titles shorter. */
+.proc-task-pane .proc-task-content section section > div:first-child {
+  min-height: 34px !important;
+  padding: 9px 12px !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+
+
+/* =========================================================
+   TASK RESULT HEADER — FINAL UNIFIED ACTION BAR
+   auto fill + clear data + save + one right-side toggle
+   ========================================================= */
+.entered-task-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  white-space: nowrap;
+}
+
+.entered-task-action {
+  height: 26px !important;
+  min-height: 26px !important;
+  padding: 3px 8px !important;
+  border-radius: 5px !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  font-weight: 700 !important;
+  box-sizing: border-box !important;
+  cursor: pointer;
+}
+
+.entered-task-action--autofill {
+  background: #eff6ff !important;
+  border: 1px solid #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+.entered-task-action--clear {
+  background: #fff !important;
+  border: 1px solid #fecaca !important;
+  color: #b91c1c !important;
+}
+
+.entered-task-action--save {
+  background: #1e293b !important;
+  border: 1px solid #1e293b !important;
+  color: #fff !important;
+}
+
+.entered-task-action--save.is-saved {
+  background: #15803d !important;
+  border-color: #15803d !important;
+}
+
+.entered-task-action--save.is-error {
+  background: #b91c1c !important;
+  border-color: #b91c1c !important;
+}
+
+.entered-task-action:disabled {
+  opacity: .55 !important;
+  cursor: not-allowed !important;
+}
+
+.entered-task-toggle {
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #64748b !important;
+  border-radius: 5px !important;
+  cursor: pointer !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+/* Section headings use one casing style across task panes.
+   User requested lower-case because the panel is narrow. */
+.proc-task-pane .proc-task-content > div > div:first-child,
+.proc-task-pane .proc-task-content > section > div:first-child,
+.proc-task-pane .proc-task-content div[style*="cursor"] {
+  text-transform: lowercase;
+}
+
+/* Inputs/table contents keep their original case. */
+.proc-task-pane input,
+.proc-task-pane select,
+.proc-task-pane textarea,
+.proc-task-pane table {
+  text-transform: none;
+}
+
+
+/* =========================================================
+   ENTERED TASK ACTIONS — RESTORE ORIGINAL BUTTON LOOK
+   Keep the new shared layout/location but restore the former
+   visual treatment and comfortable button size.
+   ========================================================= */
+.proc-task-pane .entered-task-actions {
+  gap: 7px !important;
+  height: auto !important;
+}
+
+.proc-task-pane .entered-task-action {
+  height: auto !important;
+  min-height: 28px !important;
+  padding: 3px 10px !important;
+  font-size: 10.5px !important;
+  line-height: 1.2 !important;
+  border-radius: 5px !important;
+  text-transform: none !important;
+}
+
+.proc-task-pane .entered-task-toggle {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  text-transform: none !important;
+}
+
+
+/* =========================================================
+   SAVE BUTTON — VISUAL PARITY WITH AUTO FILL / CLEAR
+   ========================================================= */
+.proc-task-pane .entered-task-action--save {
+  background: #f0fdf4 !important;
+  border: 1px solid #86efac !important;
+  color: #15803d !important;
+}
+
+.proc-task-pane .entered-task-action--save:hover:not(:disabled) {
+  background: #dcfce7 !important;
+  border-color: #4ade80 !important;
+}
+
+.proc-task-pane .entered-task-action--save.is-saved {
+  background: #dcfce7 !important;
+  border-color: #4ade80 !important;
+  color: #166534 !important;
+}
+
+.proc-task-pane .entered-task-action--save.is-error {
+  background: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+
+/* Save button hard fix: new class avoids legacy dark --save rules. */
+.proc-task-pane .entered-task-action--confirm {
+  background: #f0fdf4 !important;
+  border: 1px solid #86efac !important;
+  color: #15803d !important;
+}
+
+.proc-task-pane .entered-task-action--confirm:hover:not(:disabled) {
+  background: #dcfce7 !important;
+  border-color: #4ade80 !important;
+  color: #166534 !important;
+}
+
+.proc-task-pane .entered-task-action--confirm.is-saved {
+  background: #dcfce7 !important;
+  border-color: #4ade80 !important;
+  color: #166534 !important;
+}
+
+.proc-task-pane .entered-task-action--confirm.is-error {
+  background: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+
+/* =========================================================
+   TASK SECTION TITLE CONSISTENCY
+   One right-side collapse arrow only; title typography is uniform.
+   ========================================================= */
+.proc-task-pane .proc-task-content [style*="cursor: pointer"] > span:first-child,
+.proc-task-pane .proc-task-content [style*="cursor: pointer"] > div:first-child > span:first-child,
+.proc-task-pane .proc-task-content > div > div:first-child > span:first-child,
+.proc-task-pane .proc-task-content > section > div:first-child > span:first-child {
+  font-size: 12px !important;
+  line-height: 16px !important;
+  font-weight: 800 !important;
+}
+
+/* Procurement-style inline row editing for Lockup. */
+.proc-task-pane table tbody tr input,
+.proc-task-pane table tbody tr select {
+  font-size: 10.5px !important;
+}
+
+.proc-task-pane table tbody tr:focus-within td {
+  background-color: #eff6ff;
+}

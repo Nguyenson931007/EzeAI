@@ -698,7 +698,7 @@ function CategorySection({
     <div style={{ marginBottom: "12px" }}>
       {/* Subgroup Header */}
       <div onClick={() => setIsOpen(!isOpen)} style={S.sectionHeader(isOpen)}>
-        <span>{isOpen ? "▼" : "▶"} {title}</span>
+        <span>{title}</span>
         <span style={{ fontSize: "11px", color: "#64748b" }}>{isOpen ? "▲" : "▼"}</span>
       </div>
 
@@ -1029,7 +1029,7 @@ export default function FixoutTask({
   onSetEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber,,
+  activeJobNumber,
   onClearData
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
@@ -1348,7 +1348,7 @@ export default function FixoutTask({
       <div style={S.card}>
         <div onClick={() => setIsSection1Open(!isSection1Open)} style={S.cardTitle}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>▼ 1. DOOR INFORMATION</span>
+            <span>1. Door information</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {reloadMsg && (
@@ -1467,6 +1467,10 @@ export default function FixoutTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
+          
+            onSave={handleSave}
+            saveDisabled={isSaving}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
         </div>
 
@@ -1957,30 +1961,7 @@ export default function FixoutTask({
                   ✓ Saved to SQL!
                 </span>
               )}
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving}
-                style={{
-                  padding: "5px 14px",
-                  background: saveSuccess ? "#16a34a" : "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "11px",
-                  fontWeight: "700",
-                  cursor: isSaving ? "not-allowed" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-                  opacity: isSaving ? 0.7 : 1,
-                  transition: "all 0.2s ease"
-                }}
-              >
-                <span>{isSaving ? "⏳" : "💾"}</span>
-                <span>{isSaving ? "Saving..." : (saveSuccess ? "Saved!" : "Save")}</span>
-              </button>
+              
             </div>
           </div>
         )}

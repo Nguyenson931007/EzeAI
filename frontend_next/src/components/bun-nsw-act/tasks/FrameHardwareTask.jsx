@@ -1182,7 +1182,7 @@ export default function FrameHardwareTask({
                   userSelect: "none"
                 }}
               >
-                <span>{isSlabOpen ? "▼" : "▶"} ON CONCRETE SLAB FLOOR</span>
+                <span>ON CONCRETE SLAB FLOOR</span>
                 <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                   {isSlabOpen ? "▲" : "▼"}
                 </span>
@@ -1333,7 +1333,7 @@ export default function FrameHardwareTask({
                   userSelect: "none"
                 }}
               >
-                <span>{isTimberOpen ? "▼" : "▶"} ON TIMBER FLOOR</span>
+                <span>ON TIMBER FLOOR</span>
                 <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
                   {isTimberOpen ? "▲" : "▼"}
                 </span>
@@ -1527,6 +1527,10 @@ export default function FrameHardwareTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
+          
+            onSave={handleSaveToDatabase}
+            saveDisabled={isSaving}
+            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
           />
         </div>
 
@@ -1614,29 +1618,7 @@ export default function FrameHardwareTask({
                   {qualifiedWalls.length} {qualifiedWalls.length === 1 ? "wall" : "walls"} calculated
                 </span>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button
-                    type="button"
-                    onClick={handleSaveToDatabase}
-                    disabled={isSaving}
-                    style={{
-                      padding: "4px 12px",
-                      background: saveSuccess ? "#16a34a" : "#1e293b",
-                      color: "#ffffff",
-                      border: "none",
-                      borderRadius: "5px",
-                      fontSize: "10.5px",
-                      fontWeight: "700",
-                      cursor: isSaving ? "wait" : "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-                      opacity: isSaving ? 0.7 : 1,
-                      transition: "background 0.2s ease"
-                    }}
-                  >
-                    {isSaving ? "⏳ Saving..." : saveSuccess ? "✅ Saved!" : "💾 Save"}
-                  </button>
+                  
                 </div>
               </div>
             )}
