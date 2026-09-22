@@ -1,63 +1,198 @@
-# ========================
-# Root .gitignore
-# ========================
+# ============================================================
+# EzeFloor - Root .gitignore
+# ============================================================
 
-# OS files
+
+# ------------------------------------------------------------
+# Environment / Secrets
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# Local credentials / secrets
+*.pem
+*.key
+*.p12
+*.pfx
+
+
+# ------------------------------------------------------------
+# OS / Editor
+# ------------------------------------------------------------
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# IDE / Editor
 .vscode/
 .idea/
+
 *.swp
 *.swo
 *~
+.history/
 
-# Large files & AI models
-*.pt
-*.onnx
-*.db
-*.sqlite3
 
-# Project-specific large directories
-backend/runs/
-backend/dataset/
-backend/dataset_6class/
-backend/dataset_walls/
-backend/Tesst/
-backend/scratch/
-backend/exports/
-frontend/dist/
-frontend/.next/
-node_modules/
-backend/venv/
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python virtual environments
+.venv/
 venv/
-backend/__pycache__/
-__pycache__/
-*.pyc
+env/
+backend/.venv/
+backend/venv/
+
+
+# ------------------------------------------------------------
+# Node / Next.js
+# ------------------------------------------------------------
+node_modules/
+**/node_modules/
+
+frontend_next/.next/
 .next/
+
+frontend_next/out/
+out/
+
+frontend_next/dist/
 dist/
+
+frontend_next/build/
 build/
-runs/
-cache/
-temp/
-logs/
+
+*.tsbuildinfo
+next-env.d.ts
+
+
+# ------------------------------------------------------------
+# AI / ML models
+# ------------------------------------------------------------
+# Model weights are kept locally, not in normal Git
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.tflite
+
+# Ultralytics / training caches
 *.pt.cache
 *.pth.cache
-backend.zip
-.archive_cleanup/
-frontend/venv/
 
-# Temp files
-cookies.txt
-image-removebg-preview.png
-*.xlsm
+# Training runs / generated datasets
+backend/runs/
+runs/
 
-# Debug outputs
-debug_outputs/
-label_exports/
+backend/dataset/
+backend/datasets/
+backend/dataset_6class/
+backend/dataset_walls/
+
 datasets/wall_prior/
 
-# Local environment configuration
-.env
+# Training / inference generated outputs
+backend/exports/
+backend/scratch/
+backend/Tesst/
+
+debug_outputs/
+label_exports/
+
+
+# ------------------------------------------------------------
+# Local databases
+# ------------------------------------------------------------
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+
+backend/storage/*.db
+backend/storage/*.sqlite
+backend/storage/*.sqlite3
+
+
+# ------------------------------------------------------------
+# Runtime / Cache / Temporary
+# ------------------------------------------------------------
+cache/
+.cache/
+temp/
+tmp/
+logs/
+
+backend/cache/
+backend/temp/
+backend/logs/
+
+*.log
+*.tmp
+*.temp
+
+cookies.txt
+
+
+# ------------------------------------------------------------
+# Generated / uploaded files
+# ------------------------------------------------------------
+uploads/
+backend/uploads/
+
+exports/
+output/
+outputs/
+
+archive/
+.archive_cleanup/
+
+
+# ------------------------------------------------------------
+# Large archives / local packages
+# ------------------------------------------------------------
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+
+# Keep source archives only if intentionally force-added
+backend.zip
+
+
+# ------------------------------------------------------------
+# Spreadsheet temporary / local reference files
+# ------------------------------------------------------------
+~$*.xlsx
+~$*.xls
+~$*.xlsm
+
+*.xlsm
+
+
+# ------------------------------------------------------------
+# Misc generated assets
+# ------------------------------------------------------------
+image-removebg-preview.png
+
+
+# ------------------------------------------------------------
+# Test generated artifacts
+# ------------------------------------------------------------
+.coverage
+coverage/
+test-results/
+playwright-report/
