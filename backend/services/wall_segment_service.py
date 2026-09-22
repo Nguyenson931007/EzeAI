@@ -37,9 +37,9 @@ def _get_model() -> YOLO:
                 from services.model_paths import resolve_model_path
                 model_path, source_name = resolve_model_path("wall_seg")
                 if not model_path or not Path(model_path).exists():
-                    model_path = BASE_DIR / "backend" / "models" / "Walls" / "best.pt"
-                if not Path(model_path).exists():
-                    raise FileNotFoundError(f"Wall model not found at {model_path}")
+                    raise FileNotFoundError(
+                        "Wall model not found. Check YOLO_MODELS_DIR in the root .env file."
+                    )
                 logger.info(f"[wall_segment_service] Loading YOLO Wall model from {model_path} (source: {source_name})")
                 _wall_model = YOLO(str(model_path))
     return _wall_model
@@ -51,7 +51,8 @@ def _get_last_model():
     if _wall_model_last is None:
         with _model_last_lock:
             if _wall_model_last is None:
-                last_path = BASE_DIR / "backend" / "models" / "Walls" / "last.pt"
+                from services.model_paths import YOLO_MODELS_DIR
+                last_path = YOLO_MODELS_DIR / "walls" / "last.pt"
                 if last_path.exists():
                     logger.info(f"[wall_segment_service] Loading secondary YOLO Wall model (last.pt) from {last_path}")
                     _wall_model_last = YOLO(str(last_path))

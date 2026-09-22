@@ -4962,7 +4962,7 @@ def predict_rooms_stream(image_bytes: bytes,
 
 def predict_roofs_from_bytes(image_bytes: bytes, confidence: float = 0.15) -> dict:
     """
-    Chạy mô hình YOLO Roof Segmentation (backend/models/Roof/best.pt) trên ảnh bản vẽ.
+    Chạy mô hình YOLO Roof Segmentation (models/roof/best.pt) trên ảnh bản vẽ.
     Trả về danh sách các đa giác mái (roof polygons) chuẩn định dạng EzeFloor.
     """
     model = _get_model("roof")

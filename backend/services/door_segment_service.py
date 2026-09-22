@@ -46,31 +46,30 @@ _window_model: YOLO = None
 _model_lock = threading.Lock()
 
 def _get_models() -> Tuple[YOLO, YOLO]:
-    """Gets or loads the door model (best.pt) and window model (best_1.pt)."""
+    """Gets or loads the configured door model and optional window model."""
     global _door_model, _window_model
     if _door_model is None or _window_model is None:
         with _model_lock:
+            from services.model_paths import resolve_model_path
+
             if _door_model is None:
-                candidates_door = [
-                    BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best.pt",
-                    BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
-                    BASE_DIR / "backend" / "models" / "Doors" / "best_backup.pt",
-                    BASE_DIR / "models" / "Doors" / "final_one" / "best.pt",
-                    BASE_DIR / "models" / "Doors" / "best.pt",
-                ]
-                p_door = next((p for p in candidates_door if p.exists()), candidates_door[1])
+                p_door, _ = resolve_model_path("door_seg")
+                if p_door is None:
+                    raise FileNotFoundError(
+                        "Door model not found. Check YOLO_MODELS_DIR in the root .env file."
+                    )
                 logger.info(f"[door_segment_service] Loading Door model: {p_door}")
                 _door_model = YOLO(str(p_door))
+
             if _window_model is None:
-                candidates_win = [
-                    BASE_DIR / "backend" / "models" / "Doors" / "final_one" / "best_1.pt",
-                    BASE_DIR / "backend" / "models" / "Doors" / "best.pt",
-                    BASE_DIR / "models" / "Doors" / "final_one" / "best_1.pt",
-                    BASE_DIR / "models" / "Doors" / "best.pt",
-                ]
-                p_win = next((p for p in candidates_win if p.exists()), candidates_win[1])
+                p_win, _ = resolve_model_path("window_seg")
+                if p_win is None:
+                    raise FileNotFoundError(
+                        "Window model not found. Add models/windows/best.pt or configure YOLO_MODELS_DIR."
+                    )
                 logger.info(f"[door_segment_service] Loading Window model: {p_win}")
                 _window_model = YOLO(str(p_win))
+
     return _door_model, _window_model
 
 class DoorSegmentService:

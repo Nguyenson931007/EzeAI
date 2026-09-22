@@ -588,7 +588,7 @@ async def predict_roof(
     username: str = Depends(validate_session)
 ):
     """
-    Nhận diện hệ thống Mái (Roof) bằng mô hình YOLO Roof Segmentation (backend/models/Roof/best.pt).
+    Nhận diện hệ thống Mái (Roof) bằng mô hình YOLO Roof Segmentation (models/roof/best.pt).
     """
     from services.floor_ai_detect import predict_roofs_from_bytes
     

@@ -68,20 +68,13 @@ class WallPriorService:
             if cls._model is not None:
                 return cls._model
 
-            candidate_paths = [
-                BASE_DIR / "backend" / "models" / "WallPrior" / "best.pt",
-                BASE_DIR / "models" / "WallPrior" / "best.pt",
-                BASE_DIR / "backend" / "runs" / "segment" / "WallPrior" / "weights" / "best.pt",
-                BASE_DIR / "runs" / "segment" / "WallPrior" / "weights" / "best.pt",
-                # Secondary fallback to existing wall model if dedicated prior is not yet trained
-                BASE_DIR / "backend" / "models" / "Walls" / "best.pt"
-            ]
+            from services.model_paths import resolve_model_path
 
-            found_path = None
-            for p in candidate_paths:
-                if p.exists():
-                    found_path = p
-                    break
+            found_path, _ = resolve_model_path("wall_prior")
+            if found_path is None:
+                # Secondary fallback to the main wall model when a dedicated
+                # wall-prior model has not been provided.
+                found_path, _ = resolve_model_path("wall_seg")
 
             if found_path is None:
                 logger.info("[WallPriorService] Wall Prior model not found on disk. Operating in fallback mode.")
