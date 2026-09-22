@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
-import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
+import { useCatalog, catalogByArea, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function FlooringDeckingTask({
   formData = {},
@@ -498,12 +499,24 @@ export default function FlooringDeckingTask({
   }, [currentProjectName, currentJobId, activeJobNumber, onSetEntries]);
 
   const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "flooring");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
 
-  const dryCatalogItems = useMemo(() => catalogByGroup(catalogItems, "dry_flooring"), [catalogItems]);
-  const wetCatalogItems = useMemo(() => catalogByGroup(catalogItems, "wet_flooring"), [catalogItems]);
-  const deckingCatalogItems = useMemo(() => catalogByGroup(catalogItems, "decking"), [catalogItems]);
-  const tgCatalogItems = useMemo(() => catalogByGroup(catalogItems, "tg_flooring"), [catalogItems]);
+  // ProcurementApp's Flooring tree is keyed by typed application_type/area_key.
+  // Keep every dropdown scoped to its exact area so products cannot leak between
+  // Dry/Wet/Balcony/T+G/Decking/accessory groups.
+  const dryCatalogItems = useMemo(() => catalogByArea(catalogItems, "dry"), [catalogItems]);
+  const wetCatalogItems = useMemo(() => catalogByArea(catalogItems, "wet"), [catalogItems]);
+  const balconyCatalogItems = useMemo(() => catalogByArea(catalogItems, "balcony_tiles"), [catalogItems]);
+  const tgCatalogItems = useMemo(() => catalogByArea(catalogItems, "tg_flooring"), [catalogItems]);
+  const deckingCatalogItems = useMemo(() => catalogByArea(catalogItems, "decking"), [catalogItems]);
+  const tileUnderlayCatalogItems = useMemo(() => catalogByArea(catalogItems, "tile_underlay_area"), [catalogItems]);
+  const battensSlabCatalogItems = useMemo(() => catalogByArea(catalogItems, "battens_slab"), [catalogItems]);
+  const joistPackersCatalogItems = useMemo(() => catalogByArea(catalogItems, "joist_packers"), [catalogItems]);
+  const hasProcurementFlooringCatalog = catalogItems.length > 0;
+
+  const flooringValues = (items) => items
+    .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
+    .filter(Boolean);
 
   // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {
@@ -562,33 +575,33 @@ export default function FlooringDeckingTask({
   }, [formData]);
 
   const DRY_OPTIONS = useMemo(() => {
-    const list = dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
-    return ["Select...", ...(list.length > 0 ? list : [
+    const list = flooringValues(dryCatalogItems);
+    return ["Select...", ...(list.length > 0 ? list : (hasProcurementFlooringCatalog ? [] : [
       "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
       "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
       "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
       "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
       "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
-    ])];
-  }, [dryCatalogItems]);
+    ]))];
+  }, [dryCatalogItems, hasProcurementFlooringCatalog]);
 
   const WET_OPTIONS = useMemo(() => {
-    const list = wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
-    return ["Select...", ...(list.length > 0 ? list : [
+    const list = flooringValues(wetCatalogItems);
+    return ["Select...", ...(list.length > 0 ? list : (hasProcurementFlooringCatalog ? [] : [
       "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
       "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
       "FC FLOORING SECURA JH++2400X600X22MM INTERNAL 405593"
-    ])];
-  }, [wetCatalogItems]);
+    ]))];
+  }, [wetCatalogItems, hasProcurementFlooringCatalog]);
 
   const BALCONY_OPTIONS = useMemo(() => {
-    const list = [...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean);
-    return ["Select...", ...(list.length > 0 ? list : [
+    const list = flooringValues(balconyCatalogItems);
+    return ["Select...", ...(list.length > 0 ? list : (hasProcurementFlooringCatalog ? [] : [
       "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
       "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
       "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276"
-    ])];
-  }, [deckingCatalogItems, wetCatalogItems]);
+    ]))];
+  }, [balconyCatalogItems, hasProcurementFlooringCatalog]);
 
   const OTHER_TYPE_OPTIONS = [
     "T+G Flooring Area",
@@ -598,49 +611,32 @@ export default function FlooringDeckingTask({
     "Floor Joist Packers"
   ];
 
-  // Dynamic other products based on Type Area
+  const OTHER_CATALOG_BY_TYPE = {
+    "T+G Flooring Area": tgCatalogItems,
+    "Decking Input": deckingCatalogItems,
+    "Tile Underlay": tileUnderlayCatalogItems,
+    "Battens Over Slab Area": battensSlabCatalogItems,
+    "Floor Joist Packers": joistPackersCatalogItems,
+  };
+
+  const LEGACY_OTHER_FALLBACKS = {
+    "T+G Flooring Area": [
+      "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM",
+      "FLOORING BLACKBUTT++85X19MM L/M PREM S&B T&G EM",
+      "FLOORING SPOTTED GUM++130X19MM L/M PREM S&B T&G EM",
+      "FLOORING BLACKBUTT++130X19MM L/M PREM S&B T&G EM"
+    ],
+    "Decking Input": ["HARDWOOD DECKING 90X19MM MERBAU", "HARDWOOD DECKING 86X19MM SPOTTED GUM", "TREATED PINE DECKING 90X22MM"],
+    "Tile Underlay": ["HARDIE TILE UNDERLAY 1800X900X6MM", "BGC CERAMIC TILE UNDERLAY 1800X900X6MM"],
+    "Battens Over Slab Area": ["PINE BATTEN 70X35MM 4.8M T2", "PINE BATTEN 42X35MM 4.8M T2"],
+    "Floor Joist Packers": ["PLASTIC JOIST PACKERS ASSORTED", "MASONITE FLOOR PACKERS 3.2MM"],
+  };
+
   const getOtherProductOptions = (type) => {
-    switch (type) {
-      case "T+G Flooring Area":
-        return [
-          "Select...",
-          "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM",
-          "FLOORING BLACKBUTT++85X19MM L/M PREM S&B T&G EM",
-          "FLOORING SPOTTED GUM++130X19MM L/M PREM S&B T&G EM",
-          "FLOORING BLACKBUTT++130X19MM L/M PREM S&B T&G EM"
-        ];
-      case "Decking Input":
-        return [
-          "Select...",
-          "HARDWOOD DECKING 90X19MM MERBAU",
-          "HARDWOOD DECKING 86X19MM SPOTTED GUM",
-          "TREATED PINE DECKING 90X22MM"
-        ];
-      case "Tile Underlay":
-        return [
-          "Select...",
-          "HARDIE TILE UNDERLAY 1800X900X6MM",
-          "BGC CERAMIC TILE UNDERLAY 1800X900X6MM"
-        ];
-      case "Battens Over Slab Area":
-        return [
-          "Select...",
-          "PINE BATTEN 70X35MM 4.8M T2",
-          "PINE BATTEN 42X35MM 4.8M T2"
-        ];
-      case "Floor Joist Packers":
-        return [
-          "Select...",
-          "PLASTIC JOIST PACKERS ASSORTED",
-          "MASONITE FLOOR PACKERS 3.2MM"
-        ];
-      default:
-        return [
-          "Select...",
-          "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM",
-          "FLOORING BLACKBUTT++85X19MM L/M PREM S&B T&G EM"
-        ];
-    }
+    const list = flooringValues(OTHER_CATALOG_BY_TYPE[type] || []);
+    if (list.length > 0) return ["Select...", ...list];
+    if (hasProcurementFlooringCatalog) return ["Select..."];
+    return ["Select...", ...(LEGACY_OTHER_FALLBACKS[type] || LEGACY_OTHER_FALLBACKS["T+G Flooring Area"] || [])];
   };
 
   const getProductOptionsForType = (typeArea) => {
@@ -651,7 +647,7 @@ export default function FlooringDeckingTask({
     if (t.includes("wet")) {
       return WET_OPTIONS.filter(x => x !== "Select...");
     }
-    if (t.includes("balcony") || t.includes("tile")) {
+    if (t.includes("balcony") || t === "tile deck") {
       return BALCONY_OPTIONS.filter(x => x !== "Select...");
     }
     const otherOpts = getOtherProductOptions(typeArea).filter(x => x !== "Select...");

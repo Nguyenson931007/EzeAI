@@ -1,25 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+import { SHELVING_TYPES, SHELVING_SIZES } from "@/constants/procurementFormParity";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS (aligned with Bunnings workbook)
 // ══════════════════════════════════════════════════════
 
-const SHELVING_TYPES = ["Robe", "Linen"];
-
-const SHELVING_SIZES = [
-  "1500x450",
-  "1800x450",
-  "2400x450",
-  "3000x450",
-  "3600x450",
-  "1500x600",
-  "1800x600",
-  "2400x600",
-  "3000x600",
-  "3600x600",
-];
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
 

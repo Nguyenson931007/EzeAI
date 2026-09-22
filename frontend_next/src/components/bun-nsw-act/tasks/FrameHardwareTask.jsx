@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
+import { FRAME_WALL_HEIGHTS } from "@/constants/procurementFormParity";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
@@ -571,20 +572,7 @@ export default function FrameHardwareTask({
     };
   }, []);
 
-  const WALL_HEIGHT_OPTIONS = [
-    "Select...",
-    "2440",
-    "2740",
-    "3000",
-    "3300",
-    "3400",
-    "3600",
-    "5200",
-    "5800",
-    "6400",
-    "7000",
-    "8800"
-  ];
+  const WALL_HEIGHT_OPTIONS = ["Select...", ...FRAME_WALL_HEIGHTS.map(String)];
 
   const ROD_SIZE_OPTIONS = ["M12", "M16"];
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 
 export default function HebelFlooringTask({
@@ -320,7 +321,7 @@ export default function HebelFlooringTask({
   }, [currentProjectName, currentJobId, activeJobNumber, onSetEntries]);
 
   const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "flooring");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
 
   const dryCatalogItems = useMemo(() => catalogByGroup(catalogItems, "dry_flooring"), [catalogItems]);
   const wetCatalogItems = useMemo(() => catalogByGroup(catalogItems, "wet_flooring"), [catalogItems]);

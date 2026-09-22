@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
@@ -191,7 +192,7 @@ export default function TimberPostsTask({
   } = useAppModel ? useAppModel() : {};
 
   const activeCustomerShortName = getActiveClientShortName();
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "beams-posts");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.beams);
 
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
 
@@ -216,11 +217,8 @@ export default function TimberPostsTask({
           usageKey: item.usageKey || item.key
         };
       });
-      const hasSpecial = mapped.some(i => i.special);
-      if (!hasSpecial) {
-        const specials = RAW_POST_CATALOG.filter(i => i.special);
-        return [...mapped, ...specials];
-      }
+      // Procurement DB is authoritative when rows exist; never merge local
+      // workbook snapshots into a configured customer catalogue.
       return mapped;
     }
     return RAW_POST_CATALOG;

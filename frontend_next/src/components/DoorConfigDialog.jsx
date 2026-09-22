@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ApiService } from '@/models/api.service';
+import { getActiveClientShortName } from '@/constants/clients';
 import SearchableSelect from '@/components/SearchableSelect';
 
 const STORAGE_KEY = 'ezefloor_door_config';
@@ -183,18 +184,18 @@ export default function DoorConfigDialog({ visible, onConfirm, onClose }) {
       try {
         let data = null;
         if (ApiService.getLockoutOptions) {
-          const res = await ApiService.getLockoutOptions();
+          const res = await ApiService.getLockoutOptions(getActiveClientShortName());
           data = res?.data || res;
         } else if (ApiService.getLockoutDoorTypes) {
-          const res = await ApiService.getLockoutDoorTypes();
+          const res = await ApiService.getLockoutDoorTypes(getActiveClientShortName());
           data = res?.data || res;
         } else {
-          const res = await fetch("/api/lockout/options");
+          const res = await fetch(`/api/lockout/options?customer_id=${encodeURIComponent(getActiveClientShortName())}`);
           if (res.ok) {
             const json = await res.json();
             data = json?.data || json;
           } else {
-            const altRes = await fetch("/api/lockout/door-types");
+            const altRes = await fetch(`/api/lockout/door-types?customer_id=${encodeURIComponent(getActiveClientShortName())}`);
             if (altRes.ok) {
               const altJson = await altRes.json();
               data = altJson?.data || altJson;
@@ -203,23 +204,22 @@ export default function DoorConfigDialog({ visible, onConfirm, onClose }) {
         }
 
         if (isMounted && data) {
-          // Merge external options ensuring 'SCX1 D/C' is included
+          // ProcurementApp is authoritative. Fall back only when the database
+          // has no configured options; do not mix legacy constants into a
+          // valid customer-specific dropdown.
           const rawExt = Array.isArray(data.external) && data.external.length > 0
             ? data.external
-            : FALLBACK_EXTERNAL_DOOR_TYPES;
-          const extSet = new Set([...rawExt, ...FALLBACK_EXTERNAL_DOOR_TYPES]);
-          extSet.add("SCX1 D/C");
-          setExtOptions(Array.from(extSet));
+            : [];
+          setExtOptions(rawExt.length > 0
+            ? Array.from(new Set(rawExt.map((value) => String(value).trim()).filter(Boolean)))
+            : FALLBACK_EXTERNAL_DOOR_TYPES);
 
-          // Merge internal options ensuring 'H1 PCM' is included
-          const rawInt = Array.isArray(data.internal) && data.internal.length > 0
-            ? data.internal
-            : (Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0
-                ? data.prehung_internal
-                : FALLBACK_INTERNAL_DOOR_TYPES);
-          const intSet = new Set([...rawInt, ...FALLBACK_INTERNAL_DOOR_TYPES]);
-          intSet.add("H1 PCM");
-          setIntOptions(Array.from(intSet));
+          const rawInt = Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0
+            ? data.prehung_internal
+            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : []);
+          setIntOptions(rawInt.length > 0
+            ? Array.from(new Set(rawInt.map((value) => String(value).trim()).filter(Boolean)))
+            : FALLBACK_INTERNAL_DOOR_TYPES);
         }
       } catch (err) {
         console.warn("[DoorConfigDialog] Could not fetch door types from backend, using fallbacks:", err);

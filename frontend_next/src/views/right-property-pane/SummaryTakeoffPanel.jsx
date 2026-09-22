@@ -232,10 +232,10 @@ export default function SummaryTakeoffPanel({
                 <KPIRow>
                   <KPICard value={wallData.interior_wall.walls.length} label="Walls" />
                   <KPICard value={scaleValue ? sumOf(wallData.interior_wall, "lengthM").toFixed(1) : "—"} label="Length" unit={scaleValue ? " m" : ""} />
-                  <KPICard value={scaleValue ? sumOf(wallData.interior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#2563eb" />
+                  <KPICard value={scaleValue ? sumOf(wallData.interior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#ca8a04" />
                 </KPIRow>
                 {scaleValue && sumOf(wallData.interior_wall, "areaM2") > 0 && (
-                  <MiniBar ratio={sumOf(wallData.interior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#2563eb" />
+                  <MiniBar ratio={sumOf(wallData.interior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#ca8a04" />
                 )}
               </div>
             )}
@@ -247,10 +247,10 @@ export default function SummaryTakeoffPanel({
                 <KPIRow>
                   <KPICard value={wallData.exterior_wall.walls.length} label="Walls" />
                   <KPICard value={scaleValue ? sumOf(wallData.exterior_wall, "lengthM").toFixed(1) : "—"} label="Length" unit={scaleValue ? " m" : ""} />
-                  <KPICard value={scaleValue ? sumOf(wallData.exterior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#d97706" />
+                  <KPICard value={scaleValue ? sumOf(wallData.exterior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#db2777" />
                 </KPIRow>
                 {scaleValue && sumOf(wallData.exterior_wall, "areaM2") > 0 && (
-                  <MiniBar ratio={sumOf(wallData.exterior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#d97706" />
+                  <MiniBar ratio={sumOf(wallData.exterior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#db2777" />
                 )}
               </div>
             )}

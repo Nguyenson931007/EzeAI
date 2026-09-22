@@ -3,6 +3,23 @@ import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
+import {
+  FIXOUT_HEIGHTS,
+  FIXOUT_WIDTHS,
+  FIXOUT_CAVITY_HEIGHTS,
+  FIXOUT_CAVITY_WIDTHS,
+  FIXOUT_WALL_WIDTHS,
+  FIXOUT_THICKNESSES,
+  FIXOUT_FRAME_TYPES,
+  FIXOUT_LIFT_OFF,
+  FIXOUT_HANDING,
+  FIXOUT_HOLES,
+  FIXOUT_FINISHES,
+  FIXOUT_DOOR_STOPS,
+  FIXOUT_FURNITURE,
+  PREHUNG_DOOR_NAMES,
+  LOOSE_JAMB_DOOR_NAMES,
+} from "@/constants/procurementFormParity";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS (aligned with FixoutForm.tsx & dropdown_api.py)
@@ -47,117 +64,28 @@ const ROOM_LABELS = [
   "Living", "Dining", "Kitchen", "Office", "Meeting", "Kid one", "MPR", "WIP", "WIL", "CPD",
 ];
 
-const FALLBACK_PREHUNG_INTERNAL_DOORS = [
-  "H1 PCM",
-  "SCX1 PCM",
-  "HAG9",
-  "HAG11",
-  "LIN1 CLR",
-  "HLR240",
-  "H1 PCLC 4.75mm",
-  "H1 SPM",
-  "HA10",
-  "HA15",
-  "HA4",
-  "HA40",
-  "HA45",
-  "HA5",
-  "HAG12",
-  "HAG14",
-  "HAG18",
-  "HAG6",
-  "HAM1",
-  "HAM1 CLEAR",
-  "HAM1 MDF INFILL",
-  "HAM1 TRANS",
-  "HAM1 TRANS LAM",
-  "HAM10 CLEAR",
-  "HAM10 MDF INFILL",
-  "HAM10 TRANS LAM",
-  "HAM12 CLEAR",
-  "HAM12 MDF INFILL",
-  "HAM12 TRANS",
-  "HAM12 TRANS LAM",
-  "FLUSH PANEL HONEYCOMB",
-  "REDICOTE FLUSH INTERNAL",
-  "DECO 1S",
-  "DECO 2S",
-  "DECO 3S",
-  "DECO 4S",
-  "MOTIVE MOT1",
-  "MOTIVE MOT2",
-  "ACCENT LINEAR HAG11",
-  "ACCENT LINEAR HAG12",
-  "REGENCY 4-PANEL",
-  "OAKFIELD 2-PANEL",
-  "COLONIAL 4-PANEL",
-  "CORINTHIAN INTERNAL FLUSH",
-  "HUME INTERNAL FLUSH"
-];
+const FALLBACK_PREHUNG_INTERNAL_DOORS = PREHUNG_DOOR_NAMES;
 
-const FALLBACK_LOOSE_JAMB_INTERNAL_DOORS = [
-  "H1 PCM",
-  "SCX1 PCM",
-  "HAG9",
-  "HAG11",
-  "LIN1 CLR",
-  "HLR240",
-  "FLUSH PANEL HONEYCOMB",
-  "REDICOTE FLUSH INTERNAL",
-  "DECO 1S",
-  "DECO 2S",
-  "DECO 3S",
-  "DECO 4S",
-  "MOTIVE MOT1",
-  "MOTIVE MOT2",
-  "ACCENT LINEAR HAG11",
-  "ACCENT LINEAR HAG12",
-  "REGENCY 4-PANEL",
-  "OAKFIELD 2-PANEL",
-  "COLONIAL 4-PANEL",
-  "CORINTHIAN INTERNAL FLUSH",
-  "HUME INTERNAL FLUSH"
-];
+const FALLBACK_LOOSE_JAMB_INTERNAL_DOORS = LOOSE_JAMB_DOOR_NAMES;
 
 const OPT = {
-  height:      ["2040", "2340", "2150", "2450"],
-  width:       ["320", "370", "420", "460", "520", "570", "620", "720", "770", "820", "870", "920", "970", "1020", "1200"],
-  cavityWidth: ["620", "720", "770", "820", "870", "920", "970", "1020", "1200", "1000"],
-  wallWidth:   ["90", "70"],
-  thicks:      ["35", "38", "40"],
-  frame:       ["None", "Steel Frame", "Ezy Jamb"],
-  liftOff:     ["None", "LH LO", "RH LO", "PIVOT DOOR"],
-  handing:     ["None", "RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"],
-  hole:        ["None", "HF", "HO"],
-  finish:      ["None", "CHR", "SCH"],
-  stop:        ["None", "Cushion", "DS2 with Riser"],
+  // ProcurementApp FixoutForm.tsx is authoritative. Cavity and internal-door
+  // heights intentionally use different validation lists.
+  height: FIXOUT_HEIGHTS,
+  width: FIXOUT_WIDTHS,
+  cavityHeight: FIXOUT_CAVITY_HEIGHTS,
+  cavityWidth: FIXOUT_CAVITY_WIDTHS,
+  wallWidth: FIXOUT_WALL_WIDTHS,
+  thicks: FIXOUT_THICKNESSES,
+  frame: ["None", ...FIXOUT_FRAME_TYPES],
+  liftOff: FIXOUT_LIFT_OFF.map((value) => value || "None"),
+  handing: FIXOUT_HANDING.map((value) => value || "None"),
+  hole: FIXOUT_HOLES.map((value) => value || "None"),
+  finish: FIXOUT_FINISHES.map((value) => value || "None"),
+  stop: FIXOUT_DOOR_STOPS,
 };
 
-const FURNITURE_OPTIONS_BY_MODE = {
-  cavity: [
-    "CSD Passage Set",
-    "CSD Privacy Set",
-    "Face Door Passage Set",
-    "Face Door Privacy Set",
-    "None"
-  ],
-  prehung: [
-    "None",
-    "Passage Set",
-    "Privacy Set",
-    "Dummy Set",
-    "Privacy Dummy",
-    "Passage Dummy"
-  ],
-  "loose-jamb": [
-    "None",
-    "Passage Set",
-    "Privacy Set",
-    "Dummy Set",
-    "Privacy Dummy",
-    "Passage Dummy"
-  ],
-};
+const FURNITURE_OPTIONS_BY_MODE = FIXOUT_FURNITURE;
 
 const FURNITURE_CODE_MAP = {
   "CSD Passage Set": "cavity-passage",
@@ -794,7 +722,7 @@ function CategorySection({
             <SearchDropdown
               label="Height"
               value={draft.height}
-              options={OPT.height}
+              options={isCavity ? OPT.cavityHeight : OPT.height}
               width="70px"
               numeric={true}
               onChange={(v) => updateDraft({ height: v })}
@@ -989,6 +917,7 @@ export default function FixoutTask({
   activeJobNumber,
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
+  const activeCustomerShortName = getActiveClientShortName();
 
   const [floorLevel, setFloorLevel] = useState("GF");
   const [isSection1Open, setIsSection1Open] = useState(true);
@@ -1030,13 +959,13 @@ export default function FixoutTask({
       try {
         let data = null;
         if (ApiService.getLockoutOptions) {
-          const res = await ApiService.getLockoutOptions();
+          const res = await ApiService.getLockoutOptions(activeCustomerShortName);
           data = res?.data || res;
         } else if (ApiService.getLockoutDoorTypes) {
-          const res = await ApiService.getLockoutDoorTypes();
+          const res = await ApiService.getLockoutDoorTypes(activeCustomerShortName);
           data = res?.data || res;
         } else {
-          const res = await fetch(`/api/lockout/options?customer_id=${encodeURIComponent(getActiveClientShortName())}`);
+          const res = await fetch(`/api/lockout/options?customer_id=${encodeURIComponent(activeCustomerShortName)}`);
           if (res.ok) {
             const json = await res.json();
             data = json?.data || json;
@@ -1044,17 +973,22 @@ export default function FixoutTask({
         }
 
         if (isMounted && data) {
+          // ProcurementApp is authoritative. Use local fallback only when the DB
+          // returns no options at all; never merge stale hard-coded values into
+          // a valid Procurement dropdown.
           const rawPrehung = Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0
             ? data.prehung_internal
-            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : FALLBACK_PREHUNG_INTERNAL_DOORS);
-          const preSet = new Set([...rawPrehung, ...FALLBACK_PREHUNG_INTERNAL_DOORS]);
-          setPrehungDoors(Array.from(preSet));
+            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : []);
+          setPrehungDoors(rawPrehung.length > 0
+            ? Array.from(new Set(rawPrehung.map((value) => String(value).trim()).filter(Boolean)))
+            : FALLBACK_PREHUNG_INTERNAL_DOORS);
 
           const rawLoose = Array.isArray(data.loose_jamb_internal) && data.loose_jamb_internal.length > 0
             ? data.loose_jamb_internal
-            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
-          const looseSet = new Set([...rawLoose, ...FALLBACK_LOOSE_JAMB_INTERNAL_DOORS]);
-          setLooseJambDoors(Array.from(looseSet));
+            : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : []);
+          setLooseJambDoors(rawLoose.length > 0
+            ? Array.from(new Set(rawLoose.map((value) => String(value).trim()).filter(Boolean)))
+            : FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
         }
       } catch (err) {
         console.warn("[FixoutTask] Could not fetch options from backend, using fallbacks:", err);
@@ -1063,7 +997,7 @@ export default function FixoutTask({
 
     loadOptions();
     return () => { isMounted = false; };
-  }, []);
+  }, [activeCustomerShortName]);
 
   // Group entries by FloorLevel
   const groupedDoorsByLevel = useMemo(() => {

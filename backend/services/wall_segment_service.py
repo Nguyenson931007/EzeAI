@@ -169,24 +169,16 @@ def _run_yolo_inference(
                     p1, p2 = centerline[0], centerline[1]
                     length = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
 
-                    # Aspect Ratio and Length Filtering
-                    if real_scale and real_scale != 1.0:
-                        min_len_mm = 120.0 if confidence < 0.01 else 350.0
-                        min_len_thresh = float(min_len_mm) / real_scale
-                    else:
-                        min_len_thresh = 12.0 if confidence < 0.01 else 35.0
-
-                    if length < min_len_thresh:
-                        continue
-
-                    ratio_thresh = 1.0 if confidence < 0.01 else 2.0
-                    if raw_thickness_px > 0 and (length / raw_thickness_px) < ratio_thresh:
-                        continue
-
-                    # OpenCV parallel edge validation (filters out furniture, text, etc.)
-                    if not _validate_wall_by_edges(img_np, p1, p2, raw_thickness_px, confidence):
-                        continue
-
+                    # Preserve YOLO wall detections as-is.
+                    #
+                    # The trained segmentation model already separates:
+                    #   0 = exterior_wall
+                    #   1 = interior_wall
+                    #
+                    # Do not run generic length/aspect/edge rejection here. Those
+                    # filters removed valid thin/short interior walls after YOLO had
+                    # already detected them successfully. Geometry cleanup/merging
+                    # can happen later without dropping the raw detection.
                     wall_obj = {
                         "class_name": class_name,
                         "confidence": round(conf, 3),
@@ -357,6 +349,13 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0,
             
             for j in range(i + 1, n):
                 w2 = current_walls[j]
+
+                # Never merge walls across semantic classes.
+                # Otherwise a longer exterior segment can overwrite an overlapping
+                # or nearby interior segment and make interior walls disappear.
+                if w1.get("class_name") != w2.get("class_name"):
+                    continue
+
                 c2 = w2.get("centerline")
                 if not c2 or len(c2) != 2:
                     continue
@@ -399,13 +398,8 @@ def _merge_collinear_walls(walls: List[dict], perp_dist_threshold: float = 15.0,
                 if not is_close:
                     continue
                 
-                # Determine merged class based on which segment is longer
-                class_w1 = w1.get("class_name", "interior_wall")
-                class_w2 = w2.get("class_name", "interior_wall")
-                if len1 >= len2:
-                    merged_class = class_w1
-                else:
-                    merged_class = class_w2
+                # Same-class guard above guarantees semantic class is preserved.
+                merged_class = w1.get("class_name", "interior_wall")
 
                 # Merge! Project all to L1
                 t_coords = [0.0, len1, t_p2, t_q2]
@@ -901,132 +895,247 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
     return keep_walls
 
 
-def _classify_walls_touching_ext_endpoints(walls: List[dict], snap_thresh: float = 30.0) -> List[dict]:
-    """
-    Kiểm tra và chuẩn hóa phân loại tường:
-    Khi một tường tiếp xúc với các tường ext (ở điểm cuối hoặc cắt qua điểm cuối của tường ext),
-    đoạn tường nằm giữa 2 điểm tiếp xúc của 2 tường ext sẽ được tách ra và thuộc external wall.
+
+def _split_mixed_walls_at_exterior_crossings(
+    walls: List[dict],
+    min_tail_px: float = 4.0,
+    max_tail_fraction: float = 0.49,
+    max_tail_px: float = 1000.0,
+    perpendicular_dot_max: float = 0.60,
+) -> List[dict]:
+    """Split a mixed wall when it crosses the exterior envelope near an endpoint.
+
+    Architectural plans often contain a wall run that is mostly internal but has a
+    short overrun beyond the external envelope.  YOLO can classify the whole run as
+    exterior because that small tail touches/extends outside.  Treating the entire
+    run as one class makes take-off length/thickness and canvas colour wrong.
+
+    The splitter is deliberately geometry-first:
+      * exterior reference walls come from the YOLO exterior class;
+      * near-perpendicular crossings are considered (not collinear overlaps);
+      * a proper crossing anywhere inside the run may split the run;
+      * for a single crossing, the shorter side is treated as the exterior tail
+        and the longer side remains interior;
+      * for two crossings, both end pieces are exterior and the middle remains
+        interior.
+
+    A normal T-junction that terminates exactly on the external wall is left
+    untouched. This prevents a small exterior overrun from contaminating the
+    class of the whole wall run.
     """
     if not walls:
         return walls
 
-    # 1. Thu thập tất cả các điểm cuối của tường exterior_wall
-    ext_endpoints = []
-    for w in walls:
-        cls_name = (w.get("class_name") or w.get("wall_type") or "").lower()
-        if cls_name in ["exterior_wall", "ext_wall", "ext"] or "exterior" in cls_name or "ext" in cls_name:
-            c = w.get("centerline")
-            if c and len(c) == 2:
-                ext_endpoints.append((float(c[0][0]), float(c[0][1]), w.get("id")))
-                ext_endpoints.append((float(c[1][0]), float(c[1][1]), w.get("id")))
+    def _centerline(w):
+        c = w.get("centerline")
+        if not c or len(c) != 2:
+            return None
+        try:
+            return (
+                (float(c[0][0]), float(c[0][1])),
+                (float(c[1][0]), float(c[1][1])),
+            )
+        except Exception:
+            return None
 
-    if not ext_endpoints:
+    def _is_ext(w):
+        cls = str(w.get("class_name") or w.get("wall_type") or "").lower()
+        return cls == "exterior_wall" or cls == "ext" or cls == "ext_wall"
+
+    def _cross(ax, ay, bx, by):
+        return ax * by - ay * bx
+
+    def _intersection_t(a1, a2, b1, b2):
+        """Return t on segment A for a proper A/B intersection, else None."""
+        rx, ry = a2[0] - a1[0], a2[1] - a1[1]
+        sx, sy = b2[0] - b1[0], b2[1] - b1[1]
+        r_len = math.hypot(rx, ry)
+        s_len = math.hypot(sx, sy)
+        if r_len < 1e-6 or s_len < 1e-6:
+            return None
+
+        # Mixed-class splitting is for a wall crossing the envelope, not for
+        # parallel/collinear wall detections that happen to overlap each other.
+        dot = abs((rx * sx + ry * sy) / (r_len * s_len))
+        if dot > perpendicular_dot_max:
+            return None
+
+        denom = _cross(rx, ry, sx, sy)
+        if abs(denom) < 1e-8:
+            return None
+
+        qpx, qpy = b1[0] - a1[0], b1[1] - a1[1]
+        t = _cross(qpx, qpy, sx, sy) / denom
+        u = _cross(qpx, qpy, rx, ry) / denom
+        if -1e-6 <= t <= 1.0 + 1e-6 and -1e-6 <= u <= 1.0 + 1e-6:
+            return max(0.0, min(1.0, t))
+        return None
+
+    ext_refs = []
+    for ref_idx, ref in enumerate(walls):
+        if not _is_ext(ref):
+            continue
+        cl = _centerline(ref)
+        if cl:
+            ext_refs.append((ref_idx, cl[0], cl[1]))
+
+    if not ext_refs:
         return walls
 
-    result_walls = []
+    split_result: List[dict] = []
+    split_count = 0
 
-    for w in walls:
-        cls_name = (w.get("class_name") or w.get("wall_type") or "").lower()
-        if cls_name in ["exterior_wall", "ext_wall", "ext"] or "exterior" in cls_name or not w.get("centerline") or len(w.get("centerline")) != 2:
-            result_walls.append(w)
+    for idx, wall in enumerate(walls):
+        cl = _centerline(wall)
+        if not cl:
+            split_result.append(wall)
             continue
 
-        c = w.get("centerline")
-        x1, y1 = float(c[0][0]), float(c[0][1])
-        x2, y2 = float(c[1][0]), float(c[1][1])
-
-        dx = x2 - x1
-        dy = y2 - y1
+        p1, p2 = cl
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
         length = math.hypot(dx, dy)
-        if length < 5.0:
-            result_walls.append(w)
+        if length < max(2.0 * min_tail_px, 20.0):
+            split_result.append(wall)
             continue
 
-        # Tìm tất cả các điểm tiếp xúc từ các đầu mút tường ext lên đoạn thẳng này
-        touch_points = []
-        for ep_x, ep_y, _ in ext_endpoints:
-            t = ((ep_x - x1) * dx + (ep_y - y1) * dy) / (length * length)
-            if -0.05 <= t <= 1.05:
-                proj_x = x1 + t * dx
-                proj_y = y1 + t * dy
-                dist = math.hypot(ep_x - proj_x, ep_y - proj_y)
-                if dist <= snap_thresh:
-                    clamped_t = max(0.0, min(1.0, t))
-                    touch_points.append(clamped_t)
+        # Find crossings with OTHER exterior wall runs.
+        crossings = []
+        for ref_idx, q1, q2 in ext_refs:
+            if ref_idx == idx:
+                continue
+            t = _intersection_t(p1, p2, q1, q2)
+            if t is not None:
+                crossings.append(t)
 
-        if len(touch_points) < 2:
-            result_walls.append(w)
+        if not crossings:
+            split_result.append(wall)
             continue
 
-        touch_points.sort()
+        # Deduplicate essentially identical junctions.
+        crossings.sort()
         unique_t = []
-        for t in touch_points:
-            if not unique_t or (t - unique_t[-1]) * length > 15.0:
+        for t in crossings:
+            if not unique_t or abs(t - unique_t[-1]) * length > 4.0:
                 unique_t.append(t)
 
-        if len(unique_t) < 2:
-            result_walls.append(w)
+        # Ignore exact endpoint contacts: those are ordinary T-junctions.
+        proper_t = [
+            t for t in unique_t
+            if (t * length) >= min_tail_px and ((1.0 - t) * length) >= min_tail_px
+        ]
+        if not proper_t:
+            split_result.append(wall)
             continue
 
-        t_min = unique_t[0]
-        t_max = unique_t[-1]
+        max_tail_len = min(max_tail_px, length * max_tail_fraction)
+        start_t = None
+        end_t = None
 
-        thick_px = w.get("thickness_px", 20.0)
-        thick_mm = w.get("thickness", 90.0)
+        # Crossing nearest each endpoint.
+        first_t = proper_t[0]
+        last_t = proper_t[-1]
+        first_start_len = first_t * length
+        first_end_len = (1.0 - first_t) * length
+        last_start_len = last_t * length
+        last_end_len = (1.0 - last_t) * length
 
-        def make_poly(p_start, p_end):
-            seg_dx = p_end[0] - p_start[0]
-            seg_dy = p_end[1] - p_start[1]
-            seg_len = math.hypot(seg_dx, seg_dy) or 1.0
-            nx = -seg_dy / seg_len
-            ny = seg_dx / seg_len
-            half = thick_px / 2.0
-            return [
-                [p_start[0] + nx * half, p_start[1] + ny * half],
-                [p_end[0] + nx * half, p_end[1] + ny * half],
-                [p_end[0] - nx * half, p_end[1] - ny * half],
-                [p_start[0] - nx * half, p_start[1] - ny * half]
-            ]
+        if len(proper_t) == 1:
+            # One crossing: whichever side is shorter is the outside/exterior tail.
+            t = proper_t[0]
+            start_len = t * length
+            end_len = (1.0 - t) * length
+            shorter = min(start_len, end_len)
+            if shorter > max_tail_len:
+                split_result.append(wall)
+                continue
+            if start_len <= end_len:
+                start_t = t
+            else:
+                end_t = t
+        else:
+            # Multiple crossings: allow an exterior tail at either/both ends.
+            if first_start_len <= max_tail_len:
+                start_t = first_t
+            if last_end_len <= max_tail_len:
+                end_t = last_t
 
-        # Đoạn 1: từ đầu tường tới t_min
-        if t_min * length >= 15.0:
-            p_s = [x1, y1]
-            p_e = [x1 + t_min * dx, y1 + t_min * dy]
-            w_int1 = dict(w)
-            w_int1["id"] = f"{w.get('id')}_int1"
-            w_int1["centerline"] = [p_s, p_e]
-            w_int1["polygon"] = make_poly(p_s, p_e)
-            result_walls.append(w_int1)
+            if start_t is None and end_t is None:
+                split_result.append(wall)
+                continue
 
-        # Đoạn 2: Nối giữa 2 điểm tiếp xúc ext (ĐOẠN EXTERNAL MỚI)
-        if (t_max - t_min) * length >= 15.0:
-            p_s = [x1 + t_min * dx, y1 + t_min * dy]
-            p_e = [x1 + t_max * dx, y1 + t_max * dy]
-            w_ext = dict(w)
-            w_ext["id"] = w.get("id") if (t_min * length < 15.0 and (1.0 - t_max) * length < 15.0) else f"{w.get('id')}_ext"
-            w_ext["class_name"] = "exterior_wall"
-            w_ext["wall_type"] = "ext"
-            w_ext["is_ext"] = True
-            w_ext["is_exterior"] = True
-            w_ext["centerline"] = [p_s, p_e]
-            w_ext["polygon"] = make_poly(p_s, p_e)
-            result_walls.append(w_ext)
+        if start_t is not None and end_t is not None and start_t >= end_t:
+            split_result.append(wall)
+            continue
+
+        # For a crossing near an endpoint, the short protruding tail is external;
+        # the main run is internal. This is exactly the case where a small outside
+        # attachment previously contaminated the class of the whole wall.
+        cuts = [0.0]
+        if start_t is not None:
+            cuts.append(start_t)
+        if end_t is not None:
+            cuts.append(end_t)
+        cuts.append(1.0)
+        cuts = sorted(set(round(v, 8) for v in cuts))
+
+        def _pt(t):
+            return [p1[0] + t * dx, p1[1] + t * dy]
+
+        pieces = []
+        for seg_i in range(len(cuts) - 1):
+            ta, tb = cuts[seg_i], cuts[seg_i + 1]
+            seg_len = (tb - ta) * length
+            if seg_len < 4.0:
+                continue
+
+            is_start_tail = start_t is not None and tb <= start_t + 1e-7
+            is_end_tail = end_t is not None and ta >= end_t - 1e-7
+            piece_cls = "exterior_wall" if (is_start_tail or is_end_tail) else "interior_wall"
+
+            piece = dict(wall)
+            piece["class_name"] = piece_cls
+            piece["wall_type"] = "ext" if piece_cls == "exterior_wall" else "int"
+            piece["is_ext"] = piece_cls == "exterior_wall"
+            piece["is_exterior"] = piece_cls == "exterior_wall"
+            piece["centerline"] = [_pt(ta), _pt(tb)]
+            piece["mixed_split"] = True
+            piece["source_class_name"] = wall.get("class_name")
+            piece["mixed_split_range"] = [round(ta, 4), round(tb, 4)]
+            pieces.append(piece)
+
+        if len(pieces) >= 2:
+            split_result.extend(pieces)
+            split_count += 1
             logger.info(
-                f"[wall_segment_service] Tách đoạn tường {w.get('id')} ({p_s} -> {p_e}) chuyển thành 'exterior_wall'"
+                "[wall_segment_service] Mixed wall split: %s -> %s",
+                wall.get("id") or f"raw_{idx}",
+                [(p.get("class_name"), p.get("mixed_split_range")) for p in pieces],
             )
+        else:
+            split_result.append(wall)
 
-        # Đoạn 3: từ t_max tới cuối tường
-        if (1.0 - t_max) * length >= 15.0:
-            p_s = [x1 + t_max * dx, y1 + t_max * dy]
-            p_e = [x2, y2]
-            w_int2 = dict(w)
-            w_int2["id"] = f"{w.get('id')}_int2"
-            w_int2["centerline"] = [p_s, p_e]
-            w_int2["polygon"] = make_poly(p_s, p_e)
-            result_walls.append(w_int2)
+    if split_count:
+        logger.info(
+            "[wall_segment_service] Mixed exterior/interior split: %d wall run(s), %d -> %d segments",
+            split_count, len(walls), len(split_result),
+        )
+    return split_result
 
-    return result_walls
 
+def _classify_walls_touching_ext_endpoints(walls: List[dict], snap_thresh: float = 30.0) -> List[dict]:
+    """Preserve the YOLO semantic class for every wall.
+
+    Previous behavior promoted any non-exterior wall segment that happened to
+    touch two exterior-wall endpoints into ``exterior_wall``.  That is not a
+    reliable architectural rule: an interior wall can terminate at, cross, or
+    run into the external envelope.  Promoting it caused an entire interior
+    run to become exterior (pink) merely because it touched the perimeter.
+
+    Keep the function as a compatibility no-op because older call sites still
+    invoke it.  Exterior/interior classification now comes from the model (and
+    any explicit user edit), not endpoint adjacency.
+    """
+    return walls
 
 def _save_wall_prior_debug_artifacts(
     img_np: np.ndarray,
@@ -1406,7 +1515,10 @@ class WallSegmentService:
             if not overlap:
                 filtered_walls.append(w)
 
-        # Step 5.5: Automatically classify walls touching 2 ext endpoints as exterior_wall
+        # Step 5.5: DO NOT promote walls to exterior merely because they touch
+        # exterior endpoints. Interior walls commonly terminate at the building
+        # envelope, and endpoint adjacency alone is not a semantic classifier.
+        # Keep model/user-assigned classes intact.
         snap_thresh = (250.0 / real_scale) if (real_scale and real_scale != 1.0) else 25.0
         filtered_walls = _classify_walls_touching_ext_endpoints(filtered_walls, snap_thresh=snap_thresh)
 
@@ -1531,6 +1643,12 @@ class WallSegmentService:
                 confidence, imgsz, device, real_scale, model_label="last"
             )
             detected_walls = _merge_ensemble_walls(detected_walls, detected_walls_last)
+
+        # Split mixed wall runs at actual crossings with the exterior envelope.
+        # A short protruding tail becomes exterior while the long remainder stays
+        # interior. This prevents one small outside attachment from turning the
+        # entire wall run into an exterior wall.
+        detected_walls = _split_mixed_walls_at_exterior_crossings(detected_walls)
 
         # Build initial raw walls to yield immediately so the user doesn't wait
         raw_yield_walls = []

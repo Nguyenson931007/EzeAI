@@ -367,241 +367,164 @@ def get_job_history():
 
 
 # ══════════════════════════════════════════════════════
-# TASK GROUPS HW (LOCAL CACHE TABLE READ - SUPER FAST)
+# EMS JOBS / TASK HW PANEL (DIRECT EMS READ)
 # ══════════════════════════════════════════════════════
-
-import threading
-_is_syncing_hw = False
-_last_hw_sync_time = 0
-
-def sync_task_groups_hw_to_local_db(limit_val: Optional[int] = None):
-    """
-    Hàm chạy ngầm đồng bộ TOÀN BỘ danh sách Task Groups HW từ TaskList Web3 (MSSQL)
-    về bảng cục bộ `task_group_hw_cache` (MySQL / SQLite).
-    """
-    global _is_syncing_hw, _last_hw_sync_time
-    if _is_syncing_hw:
-        return
-    _is_syncing_hw = True
-
-    try:
-        import time
-        from app.mssql_db import get_mssql_connection
-        from app.database import DB_TYPE
-
-        limit_desc = f"{limit_val} Task" if limit_val else "TOÀN BỘ Task"
-        logger.info(f"[task-sync] Bắt đầu đồng bộ ngầm {limit_desc} HW từ MSSQL sang Local DB...")
-        t0 = time.time()
-
-        mconn = get_mssql_connection()
-        mcursor = mconn.cursor(as_dict=True)
-
-        top_clause = f"TOP {limit_val}" if limit_val and limit_val > 0 else ""
-
-        sql = f"""
-            SELECT {top_clause}
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-                tghw.id_assign_ems,
-                tghw.created_at,
-                tghw.progress,
-                tghw.is_done,
-                lj.JobNumber AS job_number,
-                lj.Client AS client,
-                lj.Builder AS builder,
-                aj.MaNV AS ma_nv
-            FROM [emsflow].[dbo].[task_group_hw] tghw WITH (NOLOCK)
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj WITH (NOLOCK)
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj WITH (NOLOCK)
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-            WHERE ISNULL(tghw.is_delete, 0) = 0 AND lj.JobNumber IS NOT NULL
-            ORDER BY tghw.created_at DESC
-        """
-
-        mcursor.execute(sql)
-        rows = mcursor.fetchall()
-        mconn.close()
-
-        if not rows:
-            logger.warning("[task-sync] Không tìm thấy bản ghi Task HW từ MSSQL.")
-            return
-
-        lconn = get_db_connection()
-        lcursor = lconn.cursor()
-
-        if DB_TYPE == "mysql":
-            insert_sql = """
-                INSERT INTO task_group_hw_cache (
-                    hw_id, id_job_ems, id_assign_ems, job_number, client, builder, ma_nv, progress, is_done, created_at, synced_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON DUPLICATE KEY UPDATE
-                    id_job_ems = VALUES(id_job_ems),
-                    id_assign_ems = VALUES(id_assign_ems),
-                    job_number = VALUES(job_number),
-                    client = VALUES(client),
-                    builder = VALUES(builder),
-                    ma_nv = VALUES(ma_nv),
-                    progress = VALUES(progress),
-                    is_done = VALUES(is_done),
-                    created_at = VALUES(created_at),
-                    synced_at = NOW()
-            """
-            batch_data = []
-            for r in rows:
-                batch_data.append((
-                    r['hw_id'], r['id_job_ems'], r['id_assign_ems'], r['job_number'],
-                    r['client'], r['builder'], r['ma_nv'], float(r['progress'] or 0),
-                    1 if r['is_done'] else 0, r['created_at']
-                ))
-            # Thực thi batch
-            for item in batch_data:
-                lcursor.execute(insert_sql, item)
-        else:
-            insert_sql = """
-                INSERT OR REPLACE INTO task_group_hw_cache (
-                    hw_id, id_job_ems, id_assign_ems, job_number, client, builder, ma_nv, progress, is_done, created_at, synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """
-            for r in rows:
-                lcursor.execute(insert_sql, (
-                    r['hw_id'], r['id_job_ems'], r['id_assign_ems'], r['job_number'],
-                    r['client'], r['builder'], r['ma_nv'], float(r['progress'] or 0),
-                    1 if r['is_done'] else 0, str(r['created_at'])
-                ))
-
-        lconn.commit()
-        lconn.close()
-
-        _last_hw_sync_time = time.time()
-        logger.info(f"[task-sync] Đồng bộ thành công {len(rows)} Task HW vào Local DB trong {round((time.time()-t0)*1000)}ms")
-
-    except Exception as sync_err:
-        logger.error(f"[task-sync] Lỗi đồng bộ ngầm Task HW: {sync_err}")
-    finally:
-        _is_syncing_hw = False
-
 
 @router.get("/jobs/tasklist-jobs")
 async def get_tasklist_jobs(
     ma_nv: Optional[str] = Query(None, description="Lọc theo mã nhân viên e.g. EZE0098"),
-    search: Optional[str] = Query(None, description="Tìm kiếm mã Job, Client, Builder"),
-    limit: int = Query(2000, ge=1, le=20000, description="Số lượng job tối đa"),
-    force_refresh: bool = Query(False, description="Đồng bộ lại từ MSSQL")
+    search: Optional[str] = Query(None, description="Tìm kiếm mã Job, Client, Builder, Address"),
+    limit: int = Query(20000, ge=1, le=20000, description="Số lượng job tối đa"),
+    force_refresh: bool = Query(False, description="Giữ tương thích UI; dữ liệu luôn đọc trực tiếp từ EMS")
 ):
+    """Read EMS jobs directly from ``ListJobs`` using the same source as ProcurementApp.
+
+    This endpoint deliberately does *not* sync into ``task_group_hw_cache``.  The
+    job list is read-only and always comes from EMS, while the latest Task HW
+    group is attached when one exists so the existing EzeFloor UI can keep using
+    ``hw_id``, ``ma_nv`` and TaskList module visibility.
     """
-    Lấy danh sách Task Groups HW trực tiếp từ CSDL Cục Bộ (MySQL / SQLite),
-    kết hợp đối chiếu tức thì với bảng `jobs` để gắn tích xanh ✅ (< 5ms).
-    """
-    import time
-    from app.database import DB_TYPE
+    from app.mssql_db import get_mssql_connection
 
-    global _last_hw_sync_time
-
-    # Nếu yêu cầu force_refresh, kích hoạt đồng bộ ngầm toàn bộ
-    if force_refresh:
-        threading.Thread(target=sync_task_groups_hw_to_local_db, daemon=True).start()
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Kiểm tra nếu bảng cache chưa có dữ liệu hoặc đã quá 10 phút chưa đồng bộ
-    cursor.execute("SELECT COUNT(*) AS cnt FROM task_group_hw_cache")
-    cnt_row = cursor.fetchone()
-    cache_count = cnt_row["cnt"] if isinstance(cnt_row, dict) else (cnt_row[0] if cnt_row else 0)
-
-    if cache_count == 0 or (time.time() - _last_hw_sync_time > 600):
-        # Đồng bộ đồng bộ lần đầu nếu cache rỗng
-        if cache_count == 0:
-            sync_task_groups_hw_to_local_db()
-        else:
-            threading.Thread(target=sync_task_groups_hw_to_local_db, daemon=True).start()
-
-    # Xây dựng câu truy vấn đọc siêu tốc từ Local DB
-    where_clauses = []
-    params = []
-
+    limit_val = max(1, min(int(limit or 20000), 20000))
     clean_manv = ma_nv.strip() if isinstance(ma_nv, str) and ma_nv.strip() else None
-    if clean_manv:
-        where_clauses.append("t.ma_nv = ?")
-        params.append(clean_manv)
-
     clean_search = search.strip() if isinstance(search, str) and search.strip() else None
+
+    where = ["ISNULL(lj.IsDelete, 0) = 0"]
+    params = []
+    if clean_manv:
+        where.append("UPPER(LTRIM(RTRIM(COALESCE(aj.MaNV, '')))) = UPPER(%s)")
+        params.append(clean_manv)
     if clean_search:
-        where_clauses.append("(t.job_number LIKE ? OR t.client LIKE ? OR t.builder LIKE ? OR t.ma_nv LIKE ?)")
-        sp = f"%{clean_search}%"
-        params.extend([sp, sp, sp, sp])
-
-    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-    limit_val = int(limit) if isinstance(limit, (int, str)) and str(limit).isdigit() else 2000
-
-    if DB_TYPE == "mysql":
-        where_sql = where_sql.replace("?", "%s")
+        where.append("""(
+            lj.JobNumber LIKE %s
+            OR lj.ClientJobNumber LIKE %s
+            OR lj.Client LIKE %s
+            OR lc.ShortName LIKE %s
+            OR lj.Builder LIKE %s
+            OR lj.Address LIKE %s
+            OR aj.MaNV LIKE %s
+        )""")
+        pattern = f"%{clean_search}%"
+        params.extend([pattern] * 7)
 
     sql = f"""
-        SELECT 
-            t.hw_id,
-            t.id_job_ems,
-            t.id_assign_ems,
-            t.created_at,
-            t.progress,
-            t.is_done,
-            t.job_number,
-            t.client,
-            t.builder,
-            t.ma_nv,
-            j.id AS local_job_id,
-            j.project_name AS local_project_name,
-            j.room_count,
-            j.total_area
-        FROM task_group_hw_cache t
-        LEFT JOIN jobs j ON LOWER(TRIM(t.job_number)) = LOWER(TRIM(j.project_name))
-        {where_sql}
-        ORDER BY t.created_at DESC
-        LIMIT {limit_val}
+        SELECT TOP {limit_val}
+            CAST(lj.IDJob AS NVARCHAR(100)) AS id_job_ems,
+            tghw.hw_id,
+            tghw.id_assign_ems,
+            tghw.created_at,
+            tghw.progress,
+            tghw.is_done,
+            lj.JobNumber AS job_number,
+            COALESCE(NULLIF(lc.ShortName, ''), lj.Client) AS client,
+            COALESCE(lc.ClientName, lj.Client) AS client_name,
+            lj.ClientJobNumber AS customer_reference_number,
+            lj.Builder AS builder,
+            lj.Address AS address,
+            lj.Suburb AS suburb,
+            lj.TrangThai AS status,
+            lj.NgayCapNhat AS updated_at,
+            aj.MaNV AS ma_nv
+        FROM [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj WITH (NOLOCK)
+        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] AS lc WITH (NOLOCK)
+            ON lc.ClientName = lj.Client
+            AND ISNULL(lc.IsDelete, 0) = 0
+        OUTER APPLY (
+            SELECT TOP 1
+                t.id AS hw_id,
+                t.id_assign_ems,
+                t.created_at,
+                t.progress,
+                t.is_done
+            FROM [emsflow].[dbo].[task_group_hw] AS t WITH (NOLOCK)
+            WHERE t.id_job_ems = lj.IDJob
+              AND ISNULL(t.is_delete, 0) = 0
+            ORDER BY t.created_at DESC
+        ) AS tghw
+        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] AS aj WITH (NOLOCK)
+            ON aj.ID = tghw.id_assign_ems
+            AND ISNULL(aj.IsDelete, 0) = 0
+        WHERE {' AND '.join(where)}
+        ORDER BY lj.NgayCapNhat DESC, lj.JobNumber DESC
     """
 
-    cursor.execute(sql, tuple(params) if params else None)
-    rows = cursor.fetchall()
-    conn.close()
+    mconn = None
+    try:
+        mconn = get_mssql_connection()
+        mcursor = mconn.cursor(as_dict=True)
+        if params:
+            mcursor.execute(sql, tuple(params))
+        else:
+            mcursor.execute(sql)
+        ems_rows = mcursor.fetchall() or []
+    except Exception as exc:
+        logger.exception("[ems-jobs] Không thể đọc ListJobs trực tiếp từ EMS")
+        raise HTTPException(status_code=502, detail=f"Không thể đọc danh sách EMS jobs: {exc}")
+    finally:
+        if mconn is not None:
+            try:
+                mconn.close()
+            except Exception:
+                pass
+
+    # Attach EzeFloor local drawing state without changing EMS/Procurement data.
+    local_by_project = {}
+    local_conn = None
+    try:
+        local_conn = get_db_connection()
+        local_cursor = local_conn.cursor()
+        local_cursor.execute("SELECT id, project_name, room_count, total_area FROM jobs")
+        for row in local_cursor.fetchall() or []:
+            item = dict(row) if isinstance(row, dict) or hasattr(row, "keys") else {
+                "id": row[0], "project_name": row[1], "room_count": row[2], "total_area": row[3]
+            }
+            key = str(item.get("project_name") or "").strip().lower()
+            if key:
+                local_by_project[key] = item
+    except Exception as exc:
+        logger.warning(f"[ems-jobs] Không thể đối chiếu local jobs (non-fatal): {exc}")
+    finally:
+        if local_conn is not None:
+            try:
+                local_conn.close()
+            except Exception:
+                pass
 
     results = []
-    for r in rows:
-        item = dict(r) if isinstance(r, dict) or hasattr(r, "keys") else {
-            "hw_id": r[0], "id_job_ems": r[1], "id_assign_ems": r[2], "created_at": str(r[3]),
-            "progress": float(r[4] or 0), "is_done": bool(r[5]), "job_number": r[6], "client": r[7],
-            "builder": r[8], "ma_nv": r[9], "local_job_id": r[10], "local_project_name": r[11],
-            "room_count": r[12], "total_area": r[13]
-        }
-
-        has_local = bool(item.get("local_job_id"))
+    for row in ems_rows:
+        job_number = str(row.get("job_number") or "").strip()
+        local_job = local_by_project.get(job_number.lower()) if job_number else None
+        has_local = bool(local_job and local_job.get("id") is not None)
         results.append({
-            "hw_id": item.get("hw_id"),
-            "id_job_ems": item.get("id_job_ems"),
-            "id_assign_ems": item.get("id_assign_ems"),
-            "created_at": str(item.get("created_at") or ""),
-            "progress": item.get("progress"),
-            "is_done": item.get("is_done"),
-            "job_number": item.get("job_number"),
-            "client": item.get("client"),
-            "builder": item.get("builder"),
-            "ma_nv": item.get("ma_nv"),
+            "id": str(row.get("id_job_ems") or ""),
+            "hw_id": str(row.get("hw_id")) if row.get("hw_id") is not None else None,
+            "id_job_ems": str(row.get("id_job_ems") or ""),
+            "id_assign_ems": str(row.get("id_assign_ems")) if row.get("id_assign_ems") is not None else None,
+            "created_at": str(row.get("created_at") or row.get("updated_at") or ""),
+            "updated_at": str(row.get("updated_at") or ""),
+            "progress": float(row.get("progress") or 0),
+            "is_done": bool(row.get("is_done")),
+            "job_number": job_number,
+            "customer_reference_number": row.get("customer_reference_number"),
+            "client": row.get("client"),
+            "client_name": row.get("client_name"),
+            "builder": row.get("builder"),
+            "address": row.get("address"),
+            "suburb": row.get("suburb"),
+            "status": row.get("status"),
+            "ma_nv": row.get("ma_nv"),
             "has_local_job": has_local,
             "local_job": {
-                "id": item.get("local_job_id"),
-                "project_name": item.get("local_project_name") or item.get("job_number"),
-                "room_count": item.get("room_count"),
-                "total_area": item.get("total_area")
-            } if has_local else None
+                "id": local_job.get("id"),
+                "project_name": local_job.get("project_name") or job_number,
+                "room_count": local_job.get("room_count"),
+                "total_area": local_job.get("total_area"),
+            } if has_local else None,
         })
 
-    # Read current TaskList visibility directly so selection outside remains
-    # in sync when the same job is opened in EzeFloor.
-    module_selections = _load_tasklist_module_selections(
-        [item.get("hw_id") for item in results]
-    )
+    hw_ids = [item.get("hw_id") for item in results if item.get("hw_id")]
+    module_selections = _load_tasklist_module_selections(hw_ids) if hw_ids else {}
     for item in results:
         selection = module_selections.get(str(item.get("hw_id") or ""))
         configured = bool(selection and selection.get("configured"))
@@ -614,9 +537,9 @@ async def get_tasklist_jobs(
     return {
         "status": "success",
         "total": len(results),
-        "completed_count": sum(1 for r in results if r["has_local_job"]),
+        "completed_count": sum(1 for item in results if item["has_local_job"]),
         "data": results,
-        "source": "local_database"
+        "source": "ems_listjobs_direct",
     }
 
 
@@ -1133,28 +1056,37 @@ async def get_job_by_ems_id(ems_id: str):
         cursor = conn.cursor(as_dict=True)
 
         sql = """
-            SELECT
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
+            SELECT TOP 1
+                tghw.hw_id,
+                CAST(lj.IDJob AS NVARCHAR(100)) AS id_job_ems,
                 tghw.id_assign_ems,
                 lj.JobNumber AS job_number,
                 lj.Client AS client,
                 UPPER(LTRIM(RTRIM(COALESCE(NULLIF(lc.ShortName, ''), lj.Client)))) AS customer_short_name,
                 lj.Builder AS builder,
                 aj.MaNV AS ma_nv
-            FROM [emsflow].[dbo].[task_group_hw] tghw
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] lc
+            FROM [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj WITH (NOLOCK)
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] AS lc WITH (NOLOCK)
                 ON lc.ClientName = lj.Client
                 AND ISNULL(lc.IsDelete, 0) = 0
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
+            OUTER APPLY (
+                SELECT TOP 1
+                    t.id AS hw_id,
+                    t.id_assign_ems,
+                    t.created_at
+                FROM [emsflow].[dbo].[task_group_hw] AS t WITH (NOLOCK)
+                WHERE t.id_job_ems = lj.IDJob
+                  AND ISNULL(t.is_delete, 0) = 0
+                ORDER BY t.created_at DESC
+            ) AS tghw
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] AS aj WITH (NOLOCK)
+                ON aj.ID = tghw.id_assign_ems
                 AND ISNULL(aj.IsDelete, 0) = 0
-            WHERE
-                (tghw.id_job_ems = %s OR tghw.id = %s)
-                AND ISNULL(tghw.is_delete, 0) = 0
+            WHERE ISNULL(lj.IsDelete, 0) = 0
+              AND (
+                CAST(lj.IDJob AS NVARCHAR(100)) = %s
+                OR CAST(tghw.hw_id AS NVARCHAR(100)) = %s
+              )
             ORDER BY tghw.created_at DESC
         """
 

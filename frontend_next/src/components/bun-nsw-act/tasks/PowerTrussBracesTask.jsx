@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
 // ══════════════════════════════════════════════════════
-
-const POWER_TRUSS_TYPES = ["Column", "Brace"];
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
 

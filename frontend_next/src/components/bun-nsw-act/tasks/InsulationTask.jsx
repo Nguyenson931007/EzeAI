@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
-import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
+import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
 
 export const DEFAULT_WALL_PRODUCTS = {
   "R2.0": [
@@ -88,7 +89,7 @@ export default function InsulationTask({
   } = useAppModel();
 
   const activeCustomerShortName = getActiveClientShortName();
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "insulation");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.insulation);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingRowId, setEditingRowId] = useState(null);
@@ -216,32 +217,14 @@ export default function InsulationTask({
     return Number.isFinite(parsed) ? `R${parsed.toFixed(1)}` : "";
   };
 
-  const parseCatalogParameters = (item) => {
-    const raw = item?.parametersJson ?? item?.parameters_json ?? {};
-    if (!raw) return {};
-    if (typeof raw === "object") return raw;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return {};
-    }
-  };
+  const getCatalogRValue = (item) => normalizeRValue(catalogRValue(item));
 
-  const getCatalogRValue = (item) => {
-    const params = parseCatalogParameters(item);
-    return normalizeRValue(params.r_value ?? params.rValue);
-  };
-
-  const uniqueCanonicalProducts = (items) => {
+  const procurementProductOptions = (items) => {
     const seen = new Set();
-    const result = [];
-    for (const item of items || []) {
-      const value = canonicalProductValue(item);
-      if (!value || seen.has(value)) continue;
-      seen.add(value);
-      result.push(value);
-    }
-    return result;
+    return [...(items || [])]
+      .sort((a, b) => Number(Boolean(b.is_suggested)) - Number(Boolean(a.is_suggested)) || Number(a.sortOrder || a.sort_order || 0) - Number(b.sortOrder || b.sort_order || 0))
+      .map((item) => procurementProductLabel(item, { coverage: true }))
+      .filter((value) => value && !seen.has(value) && seen.add(value));
   };
 
   const filterCatalogByRValue = (items, rValue) => {
@@ -262,32 +245,26 @@ export default function InsulationTask({
     });
   };
 
-  const extCatalogItems = useMemo(
-    () => catalogByGroup(catalogItems, "external"),
-    [catalogItems]
-  );
-  const intCatalogItems = useMemo(
-    () => catalogByGroup(catalogItems, "internal"),
-    [catalogItems]
-  );
-  const partyCatalogItems = useMemo(
-    () => catalogByGroup(catalogItems, "partiwall"),
-    [catalogItems]
-  );
+  const extCatalogItems = useMemo(() => catalogByInsulationArea(catalogItems, "external"), [catalogItems]);
+  const intCatalogItems = useMemo(() => catalogByInsulationArea(catalogItems, "internal"), [catalogItems]);
+  const partyCatalogItems = useMemo(() => catalogByInsulationArea(catalogItems, "partiwall"), [catalogItems]);
+  const ceilingCatalogItems = useMemo(() => catalogByInsulationArea(catalogItems, "ceiling"), [catalogItems]);
+  const floorCatalogItems = useMemo(() => catalogByInsulationArea(catalogItems, "floor"), [catalogItems]);
+  const hasProcurementInsulationCatalog = catalogItems.length > 0;
 
   const extRValueOptions = useMemo(() => {
     const fromCat = getRValueOptions(extCatalogItems);
-    return fromCat.length > 0 ? fromCat : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"];
+    return fromCat.length > 0 ? fromCat : (hasProcurementInsulationCatalog ? [] : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"]);
   }, [extCatalogItems]);
 
   const intRValueOptions = useMemo(() => {
     const fromCat = getRValueOptions(intCatalogItems);
-    return fromCat.length > 0 ? fromCat : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"];
+    return fromCat.length > 0 ? fromCat : (hasProcurementInsulationCatalog ? [] : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"]);
   }, [intCatalogItems]);
 
   const partyRValueOptions = useMemo(() => {
     const fromCat = getRValueOptions(partyCatalogItems);
-    return fromCat.length > 0 ? fromCat : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"];
+    return fromCat.length > 0 ? fromCat : (hasProcurementInsulationCatalog ? [] : ["R1.5", "R2.0", "R2.5", "R2.7", "R4.0"]);
   }, [partyCatalogItems]);
 
   // Section 1: Ext Wall State
@@ -320,43 +297,66 @@ export default function InsulationTask({
   const [areaProduct, setAreaProduct] = useState("");
   const [areaTotalInsulation, setAreaTotalInsulation] = useState("");
 
-  const areaRValueOptions = useMemo(() => ["R3.5", "R4.0", "R5.0", "R6.0"], []);
+  const areaCatalogItems = useMemo(
+    () => String(areaInsType || "").toLowerCase() === "floor" ? floorCatalogItems : ceilingCatalogItems,
+    [areaInsType, floorCatalogItems, ceilingCatalogItems]
+  );
+  const areaRValueOptions = useMemo(() => {
+    const fromCat = getRValueOptions(areaCatalogItems);
+    return fromCat.length > 0 ? fromCat : (hasProcurementInsulationCatalog ? [] : ["R3.5", "R4.0", "R5.0", "R6.0"]);
+  }, [areaCatalogItems, hasProcurementInsulationCatalog]);
 
   const getProductOptionsForWallTypeAndR = (type, rValue) => {
     const normR = normalizeRValue(rValue);
     const catItems = String(type || "").toLowerCase().includes("ext") ? extCatalogItems : (String(type || "").toLowerCase().includes("party") ? partyCatalogItems : intCatalogItems);
-    const fromCat = uniqueCanonicalProducts(filterCatalogByRValue(catItems, normR));
+    const fromCat = procurementProductOptions(filterCatalogByRValue(catItems, normR));
     if (fromCat.length > 0) return fromCat;
+    if (hasProcurementInsulationCatalog) return [];
     return DEFAULT_WALL_PRODUCTS[normR] || DEFAULT_WALL_PRODUCTS["R2.0"] || [];
   };
 
   const getProductOptionsForAreaAndR = (type, rValue) => {
     const normR = normalizeRValue(rValue);
-    const areaCatalog = catalogByGroup(catalogItems, [String(type).toLowerCase(), "ceiling", "floor"]);
-    const fromCat = uniqueCanonicalProducts(filterCatalogByRValue(areaCatalog, normR));
+    const areaCatalog = String(type || "").toLowerCase() === "floor" ? floorCatalogItems : ceilingCatalogItems;
+    const fromCat = procurementProductOptions(filterCatalogByRValue(areaCatalog, normR));
     if (fromCat.length > 0) return fromCat;
+    if (hasProcurementInsulationCatalog) return [];
     return DEFAULT_AREA_PRODUCTS[normR] || DEFAULT_AREA_PRODUCTS["R3.5"] || [];
   };
 
   const extProductOptions = useMemo(
     () => getProductOptionsForWallTypeAndR("Ext wall", extRValue),
-    [extCatalogItems, extRValue]
+    [extCatalogItems, extRValue, hasProcurementInsulationCatalog]
   );
 
   const intProductOptions = useMemo(
     () => getProductOptionsForWallTypeAndR("Int Wall", intRValue),
-    [intCatalogItems, intRValue]
+    [intCatalogItems, intRValue, hasProcurementInsulationCatalog]
   );
 
   const partyProductOptions = useMemo(
     () => getProductOptionsForWallTypeAndR("Partywall", partyRValue),
-    [partyCatalogItems, partyRValue]
+    [partyCatalogItems, partyRValue, hasProcurementInsulationCatalog]
   );
 
   const areaProductOptions = useMemo(
     () => getProductOptionsForAreaAndR(areaInsType, areaRValue),
-    [catalogItems, areaInsType, areaRValue]
+    [floorCatalogItems, ceilingCatalogItems, areaInsType, areaRValue, hasProcurementInsulationCatalog]
   );
+
+
+  useEffect(() => {
+    if (extRValueOptions.length && !extRValueOptions.includes(extRValue)) setExtRValue(extRValueOptions[0]);
+  }, [extRValueOptions, extRValue]);
+  useEffect(() => {
+    if (intRValueOptions.length && !intRValueOptions.includes(intRValue)) setIntRValue(intRValueOptions[0]);
+  }, [intRValueOptions, intRValue]);
+  useEffect(() => {
+    if (partyRValueOptions.length && !partyRValueOptions.includes(partyRValue)) setPartyRValue(partyRValueOptions[0]);
+  }, [partyRValueOptions, partyRValue]);
+  useEffect(() => {
+    if (areaRValueOptions.length && !areaRValueOptions.includes(areaRValue)) setAreaRValue(areaRValueOptions[0]);
+  }, [areaRValueOptions, areaRValue]);
 
   // Sync Wall Default Products
   useEffect(() => {

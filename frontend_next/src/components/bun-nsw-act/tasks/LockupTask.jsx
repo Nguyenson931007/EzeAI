@@ -3,6 +3,21 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 import { getActiveClientShortName } from "@/constants/clients";
+import {
+  LOCKUP_HEIGHTS,
+  LOCKUP_WIDTHS,
+  LOCKUP_THICKNESSES,
+  LOCKUP_HUNG,
+  LOCKUP_TYPES,
+  LOCKUP_DOOR_STOPS,
+  LOCKUP_INTERNAL_HUNG,
+  LOCKUP_INTERNAL_TYPES,
+  LOCKUP_INTERNAL_HOLES,
+  LOCKUP_INTERNAL_FINISHES,
+  LOCKUP_LOOSE_JAMBS,
+  PREHUNG_DOOR_NAMES,
+  LOOSE_JAMB_DOOR_NAMES,
+} from "@/constants/procurementFormParity";
 
 // ══════════════════════════════════════════════════════
 // SEARCHABLE DROPDOWN COMPONENT (Select or search...)
@@ -283,6 +298,8 @@ export default function LockupTask({
     hoveredDoorId
   } = useAppModel();
 
+  const activeCustomerShortName = getActiveClientShortName();
+
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const loadedJobRef = useRef(null);
@@ -305,61 +322,26 @@ export default function LockupTask({
   const [isLooseIntCollapsed, setIsLooseIntCollapsed] = useState(false);
   const [isCard2Collapsed, setIsCard2Collapsed] = useState(false);
 
-  // Constants matching LockupForm.tsx & dropdown_api.py
-  const DOOR_HEIGHT_OPTIONS = ["2040", "2340", "2600", "2650", "Spec"];
-  const DOOR_WIDTH_OPTIONS = [
-    "320",
-    "370",
-    "420",
-    "460",
-    "520",
-    "570",
-    "620",
-    "720",
-    "770",
-    "804",
-    "810",
-    "820",
-    "870",
-    "920",
-    "970",
-    "1020",
-    "1200",
-    "1640",
-    "Spec"
-  ];
-  const DOOR_THICK_OPTIONS = ["35", "38", "40"];
+  // Exact static validations from ProcurementApp LockupForm.tsx / lockupOptions.ts.
+  const DOOR_HEIGHT_OPTIONS = LOCKUP_HEIGHTS;
+  const DOOR_WIDTH_OPTIONS = LOCKUP_WIDTHS;
+  const DOOR_THICK_OPTIONS = LOCKUP_THICKNESSES;
   const DOOR_MODE_OPTIONS = ["Prehung", "Loose"];
   const WEATHERGUARD_OPTIONS = ["No", "Yes"];
   const DBL_REBATED_OPTIONS = ["No", "Yes"];
-  const DOOR_STOP_OPTIONS = ["Cushion", "DS2 with Riser"];
+  const DOOR_STOP_OPTIONS = LOCKUP_DOOR_STOPS;
 
-  const EXTERNAL_HUNG_OPTIONS = ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door"];
-  const INTERNAL_HUNG_OPTIONS = ["RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"];
+  const EXTERNAL_HUNG_OPTIONS = LOCKUP_HUNG;
+  const INTERNAL_HUNG_OPTIONS = LOCKUP_INTERNAL_HUNG;
+  const EXTERNAL_TYPE_OPTIONS = LOCKUP_TYPES;
+  const INTERNAL_TYPE_OPTIONS = ["-", ...LOCKUP_INTERNAL_TYPES];
+  const INTERNAL_HOLE_OPTIONS = LOCKUP_INTERNAL_HOLES;
+  const COLOR_OPTIONS = LOCKUP_INTERNAL_FINISHES;
 
-  const EXTERNAL_TYPE_OPTIONS = ["Type A", "Type B", "Type CG", "Type DG", "Type G", "Pivot Frame A", "Pivot Frame B", "Steel Frame"];
-  const INTERNAL_TYPE_OPTIONS = ["-", "Steel Frame", "Ezy Jamb"];
-
-  const INTERNAL_HOLE_OPTIONS = ["HF", "HO"];
-  const COLOR_OPTIONS = ["CHR", "SCH"];
-
-  const JAMB_SIZE_EXTERNAL_OPTIONS = [
-    "Steel Frame",
-    "112×19mm 5.4m",
-    "112×19mm 5.4m Loose Jamb",
-    "112x19mm",
-    "92x18mm",
-    "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
-  ];
-
-  const JAMB_SIZE_INTERNAL_OPTIONS = [
-    "Steel Frame",
-    "112×19mm 5.4m",
-    "112×19mm 5.4m Loose Jamb",
-    "112x19mm",
-    "92x18mm",
-    "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"
-  ];
+  // Procurement's loose-jamb list is the authoritative local fallback. The DB
+  // endpoint can still override these per customer when catalog_options exists.
+  const JAMB_SIZE_EXTERNAL_OPTIONS = LOCKUP_LOOSE_JAMBS;
+  const JAMB_SIZE_INTERNAL_OPTIONS = LOCKUP_LOOSE_JAMBS;
 
   const normalizeDoorStop = (val) => {
     if (!val) return "Cushion";
@@ -771,41 +753,9 @@ export default function LockupTask({
     "HUME XS45"
   ];
 
-  const FALLBACK_PREHUNG_INTERNAL_DOOR_TYPES = [
-    "FLUSH PANEL HONEYCOMB",
-    "REDICOTE FLUSH INTERNAL",
-    "DECO 1S",
-    "DECO 2S",
-    "DECO 3S",
-    "DECO 4S",
-    "MOTIVE MOT1",
-    "MOTIVE MOT2",
-    "ACCENT LINEAR HAG11",
-    "ACCENT LINEAR HAG12",
-    "REGENCY 4-PANEL",
-    "OAKFIELD 2-PANEL",
-    "COLONIAL 4-PANEL",
-    "CORINTHIAN INTERNAL FLUSH",
-    "HUME INTERNAL FLUSH"
-  ];
+  const FALLBACK_PREHUNG_INTERNAL_DOOR_TYPES = PREHUNG_DOOR_NAMES;
 
-  const FALLBACK_LOOSE_JAMB_INTERNAL_DOOR_TYPES = [
-    "FLUSH PANEL HONEYCOMB",
-    "REDICOTE FLUSH INTERNAL",
-    "DECO 1S",
-    "DECO 2S",
-    "DECO 3S",
-    "DECO 4S",
-    "MOTIVE MOT1",
-    "MOTIVE MOT2",
-    "ACCENT LINEAR HAG11",
-    "ACCENT LINEAR HAG12",
-    "REGENCY 4-PANEL",
-    "OAKFIELD 2-PANEL",
-    "COLONIAL 4-PANEL",
-    "CORINTHIAN INTERNAL FLUSH",
-    "HUME INTERNAL FLUSH"
-  ];
+  const FALLBACK_LOOSE_JAMB_INTERNAL_DOOR_TYPES = LOOSE_JAMB_DOOR_NAMES;
 
   const [lockupOptions, setLockupOptions] = useState({
     external: [],
@@ -827,10 +777,10 @@ export default function LockupTask({
   useEffect(() => {
     let cancelled = false;
 
-    fetch(`/api/lockout/options?customer_id=${encodeURIComponent(getActiveClientShortName())}`)
+    fetch(`/api/lockout/options?customer_id=${encodeURIComponent(activeCustomerShortName)}`)
       .then(async response => {
         if (!response.ok) {
-          const altResp = await fetch("/api/lockout/door-types");
+          const altResp = await fetch(`/api/lockout/door-types?customer_id=${encodeURIComponent(activeCustomerShortName)}`);
           if (!altResp.ok) throw new Error("Could not load LockUp options.");
           return altResp.json();
         }
@@ -866,7 +816,7 @@ export default function LockupTask({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeCustomerShortName]);
 
   const externalDoorOptions = useMemo(() => {
     return (lockupOptions.external && lockupOptions.external.length > 0) ? lockupOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES;

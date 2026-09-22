@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
-import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
+import { useCatalog, catalogRoleKey, procurementProductLabel } from "@/utils/catalogHelpers";
 
 export default function EavesSoffitTask({
   formData = {},
@@ -23,15 +24,13 @@ export default function EavesSoffitTask({
     goPage
   } = appModel;
   const activeCustomerShortName = getActiveClientShortName();
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "eaves-soffits");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.eaves);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
 
   const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
-  const SHEET_BRAND_OPTIONS = ["FC", "BGC"];
-  const SHEET_THICKNESS_OPTIONS = ["4.5mm", "6mm"];
 
   // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
   const getLevelCode = (idx) => {
@@ -183,29 +182,60 @@ export default function EavesSoffitTask({
     }));
   }, [entries]);
 
-  const battenCatalogItems = useMemo(() => catalogByGroup(catalogItems, "soffit_batten"), [catalogItems]);
-  const beadCatalogItems = useMemo(() => catalogByGroup(catalogItems, "soffit_bead"), [catalogItems]);
+  const battenCatalogItems = useMemo(() => catalogItems.filter((item) => catalogRoleKey(item) === "batten"), [catalogItems]);
+  const beadCatalogItems = useMemo(() => catalogItems.filter((item) => catalogRoleKey(item) === "bead"), [catalogItems]);
 
   const SOFFIT_BATTEN_OPTIONS = useMemo(() => {
     if (battenCatalogItems.length > 0) {
-      return battenCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+      return battenCatalogItems.map((i) => procurementProductLabel(i)).filter(Boolean);
     }
     return [];
   }, [battenCatalogItems]);
 
   const SOFFIT_BEAD_OPTIONS = useMemo(() => {
     if (beadCatalogItems.length > 0) {
-      return beadCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+      return beadCatalogItems.map((i) => procurementProductLabel(i)).filter(Boolean);
     }
     return [];
   }, [beadCatalogItems]);
 
   // Material Setup State
   const [floorLevel, setFloorLevel] = useState("GF");
-  const [sheetBrand, setSheetBrand] = useState("FC");
-  const [sheetThickness, setSheetThickness] = useState("4.5mm");
+  const [sheetBrand, setSheetBrand] = useState("");
+  const [sheetThickness, setSheetThickness] = useState("");
   const [soffitBatten, setSoffitBatten] = useState("");
   const [soffitBead, setSoffitBead] = useState("");
+
+  // ProcurementApp derives sheet brands/thicknesses from typed UsingFindItems
+  // (role=standard_eaves/soffit_sheet), rather than a hard-coded list.
+  const SHEET_BRAND_OPTIONS = useMemo(() => {
+    const values = catalogItems
+      .filter((item) => ["standard_eaves", "soffit_sheet"].includes(catalogRoleKey(item)))
+      .map((item) => String(item.parameters?.brand || "").trim())
+      .filter(Boolean);
+    return [...new Set(values)];
+  }, [catalogItems]);
+
+  const SHEET_THICKNESS_OPTIONS = useMemo(() => {
+    const values = catalogItems
+      .filter((item) => ["standard_eaves", "soffit_sheet"].includes(catalogRoleKey(item)))
+      .filter((item) => !sheetBrand || String(item.parameters?.brand || "").trim() === sheetBrand)
+      .map((item) => String(item.parameters?.thickness || "").trim())
+      .filter(Boolean);
+    return [...new Set(values)];
+  }, [catalogItems, sheetBrand]);
+
+  useEffect(() => {
+    if (SHEET_BRAND_OPTIONS.length && !SHEET_BRAND_OPTIONS.includes(sheetBrand)) {
+      setSheetBrand(SHEET_BRAND_OPTIONS[0]);
+    }
+  }, [SHEET_BRAND_OPTIONS, sheetBrand]);
+
+  useEffect(() => {
+    if (SHEET_THICKNESS_OPTIONS.length && !SHEET_THICKNESS_OPTIONS.includes(sheetThickness)) {
+      setSheetThickness(SHEET_THICKNESS_OPTIONS[0]);
+    }
+  }, [SHEET_THICKNESS_OPTIONS, sheetThickness]);
 
   // Keep the same raw inputs Procurement manual mode uses.
   const [inputData, setInputData] = useState({});

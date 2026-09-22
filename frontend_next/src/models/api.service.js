@@ -177,7 +177,7 @@ export const ApiService = {
     }
   },
 
-  async getTaskListJobs(maNv = null, search = null, limit = 2000, forceRefresh = false) {
+  async getTaskListJobs(maNv = null, search = null, limit = 20000, forceRefresh = false) {
     const params = new URLSearchParams();
     if (maNv) params.append("ma_nv", maNv);
     if (search) params.append("search", search);
@@ -191,7 +191,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async fetchTaskListJobs(limit = 2000, forceRefresh = false) {
+  async fetchTaskListJobs(limit = 20000, forceRefresh = false) {
     return this.getTaskListJobs(null, null, limit, forceRefresh);
   },
 

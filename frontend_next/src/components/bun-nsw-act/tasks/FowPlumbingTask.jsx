@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 
 // ══════════════════════════════════════════════════════
@@ -553,7 +554,7 @@ export default function FowPlumbingTask({
   activeJobNumber,
 }) {
   const activeCustomerShortName = getActiveClientShortName();
-  const { items: procurementCatalog } = useCatalog(activeCustomerShortName, "fow-plumbing");
+  const { items: procurementCatalog } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.plumbing);
   const plumbingItemNameOptions = useMemo(() => {
     const values = procurementCatalog
       .map((row) => String(row.usage_label || row.display_name || row.parameters?.dropdown_key || "").trim())

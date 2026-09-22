@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { getActiveClientShortName } from "@/constants/clients";
+import { PROCUREMENT_TASK_KEYS, FINAL_FIT_ENABLED_OPTIONS } from "@/constants/procurementFormParity";
 import { canonicalProductValue, useCatalog } from "@/utils/catalogHelpers";
 
 export default function FinalFitTask({
@@ -10,7 +11,7 @@ export default function FinalFitTask({
 }) {
   const [isSection1Open, setIsSection1Open] = useState(false);
   const activeCustomerShortName = getActiveClientShortName();
-  const { items: procurementCatalog } = useCatalog(activeCustomerShortName, "final-fit");
+  const { items: procurementCatalog } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.final);
   const entryLockOptions = useMemo(() => {
     const matching = procurementCatalog.filter((row) => {
       const values = [row.groupKey, row.subgroupKey, row.parameters?.category, row.parameters?.role, row.parameters?.dropdown_key]
@@ -84,16 +85,30 @@ export default function FinalFitTask({
           <>
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
               <div className="task-field-group">
-                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>External Entry Lock Type</span>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Include Final Fit</span>
                 <select
-                  value={formData.entry_lock || entryLockOptions[0] || ""}
-                  onChange={(e) => onChange && onChange("final_fit", "entry_lock", e.target.value)}
+                  value={formData.final_fit_enabled || "Yes"}
+                  onChange={(e) => onChange && onChange("final_fit", "final_fit_enabled", e.target.value)}
                   className="task-field-select"
                 >
-                  {entryLockOptions.map((option) => (
+                  {FINAL_FIT_ENABLED_OPTIONS.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="task-field-group">
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>External Entry Lock Type</span>
+                <input
+                  list="final-fit-entry-lock-options"
+                  value={formData.entry_lock || ""}
+                  onChange={(e) => onChange && onChange("final_fit", "entry_lock", e.target.value)}
+                  className="task-field-input"
+                  placeholder={entryLockOptions[0] || "Optional"}
+                />
+                <datalist id="final-fit-entry-lock-options">
+                  {entryLockOptions.map((option) => <option key={option} value={option} />)}
+                </datalist>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>

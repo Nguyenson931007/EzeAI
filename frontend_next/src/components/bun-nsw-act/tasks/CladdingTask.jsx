@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 
 export default function CladdingTask({
@@ -16,7 +17,7 @@ export default function CladdingTask({
 }) {
   const appModel = useAppModel ? useAppModel() : {};
   const activeCustomerShortName = getActiveClientShortName();
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "cladding");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.cladding);
 
   const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
 

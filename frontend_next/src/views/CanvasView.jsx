@@ -1065,15 +1065,15 @@ const WallLayer = React.memo(({
         if (isClosed) pathData += " Z";
 
         const cls = getWallClass(chain.className);
-        let strokeColor = "#a855f7"; // purple default
+        let strokeColor = "#ec4899"; // pink default
         if (cls === "block_wall") {
           strokeColor = "#64748b";
         } else if (cls === "exterior_wall") {
-          strokeColor = "#a855f7";
+          strokeColor = "#ec4899";
         } else if (cls === "interior_wall") {
-          strokeColor = "#f97316";
+          strokeColor = "#facc15";
         } else if (cls === "partition_wall") {
-          strokeColor = "#eab308";
+          strokeColor = "#f97316";
         }
 
         return (
@@ -1117,15 +1117,15 @@ const WallLayer = React.memo(({
         if (isClosed) pathData += " Z";
 
         const cls = getWallClass(chain.className);
-        let fillColor = "rgba(168, 85, 247, 0.15)";
+        let fillColor = "rgba(236, 72, 153, 0.18)";
         if (cls === "block_wall") {
           fillColor = "rgba(100, 116, 139, 0.55)";
         } else if (cls === "exterior_wall") {
-          fillColor = "rgba(168, 85, 247, 0.15)";
+          fillColor = "rgba(236, 72, 153, 0.18)";
         } else if (cls === "interior_wall") {
-          fillColor = "rgba(249, 115, 22, 0.25)";
+          fillColor = "rgba(250, 204, 21, 0.28)";
         } else if (cls === "partition_wall") {
-          fillColor = "rgba(234, 179, 8, 0.15)";
+          fillColor = "rgba(249, 115, 22, 0.18)";
         }
 
         return (

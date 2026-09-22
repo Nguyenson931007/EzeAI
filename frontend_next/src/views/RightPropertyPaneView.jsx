@@ -3180,9 +3180,9 @@ export default function RightPropertyPaneView({
   // 1. Calculations for Walls
   const wallData = React.useMemo(() => {
     const groups = {
-      interior_wall: { label: "Interior", color: "#3b82f6", walls: [] },
-      exterior_wall: { label: "Exterior", color: "#f59e0b", walls: [] },
-      partition_wall: { label: "Partition", color: "#8b5cf6", walls: [] },
+      interior_wall: { label: "Interior", color: "#facc15", walls: [] },
+      exterior_wall: { label: "Exterior", color: "#ec4899", walls: [] },
+      partition_wall: { label: "Partition", color: "#f97316", walls: [] },
       block_wall: { label: "Block", color: "#78716c", walls: [] },
     };
 

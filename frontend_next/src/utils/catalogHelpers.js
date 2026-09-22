@@ -199,3 +199,101 @@ export function useCatalog(customerId, taskKey) {
 
   return { items, loading, error };
 }
+
+// ProcurementApp parity helpers -------------------------------------------------
+// The current Procurement forms classify rows from typed using_find_items fields.
+// These helpers deliberately prefer those typed fields / canonical usage keys over
+// broad group-name guessing, so one task cannot leak products into another dropdown.
+export function catalogUsagePrefix(item) {
+  const usage = String(item?.usageKey ?? item?.usage_key ?? "").trim().toLowerCase();
+  return usage.split(".", 1)[0].split("_", 1)[0];
+}
+
+export function catalogAreaKey(item) {
+  const parameters = item?.parameters || {};
+  const explicit = parameters.area_key ?? parameters.application_type ?? item?.applicationType ?? item?.application_type;
+  if (explicit !== undefined && explicit !== null && String(explicit).trim()) {
+    return String(explicit).trim().toLowerCase();
+  }
+  const prefix = catalogUsagePrefix(item);
+  if (prefix) return prefix;
+  return String(item?.groupKey ?? item?.group_key ?? "").trim().toLowerCase();
+}
+
+
+export function catalogInsulationAreaKey(item) {
+  const prefix = catalogUsagePrefix(item);
+  if (["external", "internal", "partiwall", "ceiling", "floor"].includes(prefix)) return prefix;
+  const parameters = item?.parameters || {};
+  for (const key of ["area_key", "application_type", "group", "wall_type", "type"]) {
+    const value = String(parameters?.[key] ?? "").trim().toLowerCase();
+    if (["external", "internal", "partiwall", "ceiling", "floor"].includes(value)) return value;
+  }
+  const direct = String(item?.groupKey ?? item?.group_key ?? "").trim().toLowerCase();
+  return ["external", "internal", "partiwall", "ceiling", "floor"].includes(direct) ? direct : "";
+}
+
+export function catalogByInsulationArea(items, areaKey) {
+  const wanted = String(areaKey || "").trim().toLowerCase();
+  return (Array.isArray(items) ? items : []).filter((item) => catalogInsulationAreaKey(item) === wanted);
+}
+
+export function catalogRoleKey(item) {
+  return String(item?.parameters?.role ?? item?.parameters?.role_key ?? "").trim().toLowerCase();
+}
+
+export function catalogRValue(item) {
+  const explicit = String(item?.parameters?.r_value ?? "").trim();
+  if (explicit) return explicit.toUpperCase().startsWith("R") ? explicit.toUpperCase() : `R${explicit}`;
+  const usage = String(item?.usageKey ?? item?.usage_key ?? "");
+  const match = usage.match(/(?:^|[._-])r([0-9]+(?:[._][0-9]+)?)(?:[._-]|$)/i);
+  if (!match) return "";
+  return `R${match[1].replace("_", ".")}`;
+}
+
+export function catalogByArea(items, areaKey) {
+  const wanted = String(areaKey || "").trim().toLowerCase();
+  if (!wanted) return Array.isArray(items) ? items : [];
+  const fallbackGroups = {
+    dry: "dry_flooring",
+    wet: "wet_flooring",
+    balcony_tiles: "wet_flooring",
+    tg_flooring: "tg_flooring",
+    decking: "decking",
+    tile_underlay_area: "accessory",
+    battens_slab: "accessory",
+    joist_packers: "accessory",
+  };
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const parameters = item?.parameters || {};
+    const explicit = String(parameters.area_key ?? parameters.application_type ?? "").trim().toLowerCase();
+    if (explicit) return explicit === wanted;
+    const group = String(item?.groupKey ?? item?.group_key ?? "").trim().toLowerCase();
+    if (group !== (fallbackGroups[wanted] || wanted)) return false;
+    // Accessory groups need a typed area key to distinguish their three rows.
+    return group !== "accessory";
+  });
+}
+
+export function catalogUnique(items, getValue) {
+  const values = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const raw = typeof getValue === "function" ? getValue(item) : item?.[getValue];
+    const value = String(raw ?? "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    values.push(value);
+  }
+  return values;
+}
+
+export function procurementProductLabel(item, { coverage = false } = {}) {
+  if (!item) return "";
+  const code = String(item.itemNumber ?? item.item_number ?? "").trim();
+  const name = String(item.description ?? item.display_name ?? item.label ?? item.usage_label ?? "").trim();
+  const coverageValue = Number(item.parameters?.coverage ?? item.parameters?.value ?? 0);
+  const base = code && name ? `${code} · ${name}` : (name || code);
+  if (coverage && coverageValue > 0) return `${base} · ${coverageValue} m²/pack`;
+  return base;
+}

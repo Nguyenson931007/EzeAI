@@ -166,36 +166,10 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
             except Exception:
                 pass
 
-    # Fallback to local selector_variants.json or static fallback if empty
-    if customer_id == "BUN-NSW-ACT" and (not external_types or not prehung_int):
-        try:
-            from pathlib import Path
-            import json
-            catalog_file = Path(__file__).resolve().parent.parent / "app" / "customer_modules" / "bun_nsw_act" / "selector_variants.json"
-            if catalog_file.exists():
-                variants = json.loads(catalog_file.read_text(encoding="utf-8"))
-                ext_set = set(external_types)
-                int_set = set(prehung_int)
-                for item in variants:
-                    if item.get("task_key") == "lock-up" and item.get("formula_key") == "door-selection":
-                        params = item.get("parameters") or {}
-                        cat = str(params.get("category") or "").strip().lower()
-                        d_name = str(params.get("door_name") or params.get("door_type") or "").strip()
-                        if cat == "external" and d_name:
-                            ext_set.add(d_name)
-                        elif cat == "internal" and d_name:
-                            int_set.add(d_name)
-                if not external_types:
-                    external_types = sorted(list(ext_set))
-                if not prehung_int:
-                    prehung_int = sorted(list(int_set))
-        except Exception as json_err:
-            logger.error(f"Error fallback reading selector_variants.json: {json_err}")
-
-    if not jamb_ext:
-        jamb_ext = ["Steel Frame", "112×19mm 5.4m", "112×19mm 5.4m Loose Jamb", "112x19mm", "92x18mm", "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"]
-    if not jamb_int:
-        jamb_int = ["Steel Frame", "112×19mm 5.4m", "112×19mm 5.4m Loose Jamb", "112x19mm", "92x18mm", "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE"]
+    # ProcurementApp is the source of truth for option data.  Do not merge
+    # deleted selector snapshots or stale local jamb lists into a valid DB
+    # response.  The frontend owns the same static workbook fallbacks used by
+    # ProcurementApp when a configured option group is genuinely empty.
 
     res_data = {
         "internal": prehung_int,
