@@ -124,23 +124,6 @@ export default function TaskModulesContainer({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <button
-              onClick={() => handleResetModuleData && handleResetModuleData(activeModuleTab.id)}
-              title="Reset data"
-              style={{
-                background: "#ffffff",
-                color: "#b91c1c",
-                border: "1px solid #fecaca",
-                borderRadius: "6px",
-                padding: "4px 8px",
-                fontSize: "11px",
-                fontWeight: "700",
-                cursor: "pointer",
-                transition: "all 0.15s ease"
-              }}
-            >
-              Reset data
-            </button>
-            <button
               onClick={() => setActivePaneTab && setActivePaneTab("collapsed")}
               title="Close task pane"
               style={{
@@ -260,7 +243,6 @@ export default function TaskModulesContainer({
           cadMetrics={{ grandTotalLength: cadMetrics.grandTotalLength }}
           entries={frameWallEntries}
           onSetEntries={handleSetFrameWallEntries}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
           selectedWall={selectedWall}
@@ -275,6 +257,9 @@ export default function TaskModulesContainer({
           walls={walls}
           updateWallsProperty={updateWallsProperty}
           goPage={goPage}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -286,8 +271,10 @@ export default function TaskModulesContainer({
           cadMetrics={{ perimeterM: cadMetrics.perimeterM }}
           entries={eavesEntries}
           onSetEntries={setEavesEntries}
-          onAddDataAI={handleAddDataAI}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -299,8 +286,10 @@ export default function TaskModulesContainer({
           cadMetrics={{ externalWallLength: cadMetrics.externalWallLength }}
           entries={claddingWallEntries}
           onSetEntries={setCladdingWallEntries}
-          onAddDataAI={handleAddDataAI}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -314,13 +303,15 @@ export default function TaskModulesContainer({
           onSetWallEntries={handleSetInsulationWallEntries}
           areaEntries={insulationAreaEntries}
           onSetAreaEntries={handleSetInsulationAreaEntries}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
           selectedWall={selectedWall}
           selectedWallIds={selectedWallIds}
           selectedId={selectedId}
           selectedType={selectedType}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -332,7 +323,6 @@ export default function TaskModulesContainer({
           cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
           entries={flooringEntries}
           onSetEntries={handleSetFlooringEntries}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
           goPage={goPage}
@@ -340,6 +330,9 @@ export default function TaskModulesContainer({
           selectedRoomIds={selectedRoomIds}
           selectedId={selectedId}
           selectedType={selectedType}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -352,7 +345,6 @@ export default function TaskModulesContainer({
             cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
             entries={hebelFlooringEntries}
             onSetEntries={handleSetHebelFlooringEntries}
-            onAddDataAI={handleAddDataAI}
             onSelectEntry={handleSelectEntry}
             activeJobNumber={currentProjectName || currentJobId}
             goPage={goPage}
@@ -360,7 +352,10 @@ export default function TaskModulesContainer({
             selectedRoomIds={selectedRoomIds}
             selectedId={selectedId}
             selectedType={selectedType}
-          />
+          
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+        />
         ) : null)
       )}
 
@@ -372,8 +367,10 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={timberPostEntries}
           onSetEntries={setTimberPostEntries}
-          onAddDataAI={handleAddDataAI}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -385,9 +382,11 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={fixoutDoorEntries}
           onSetEntries={setFixoutDoorEntries}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -399,7 +398,6 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={lockupEntries}
           onSetEntries={handleSetLockupEntries}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
           selectedDoor={selectedDoor}
@@ -408,6 +406,9 @@ export default function TaskModulesContainer({
           selectedType={selectedType}
           updateDoor={updateDoor}
           updateDoorsProperty={updateDoorsProperty}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -419,8 +420,10 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={shelvingEntries}
           onSetEntries={setShelvingEntries}
-          onAddDataAI={handleAddDataAI}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -430,7 +433,6 @@ export default function TaskModulesContainer({
           formData={moduleFormData.doors_furniture || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
         />
       )}
@@ -443,8 +445,10 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={fowPlumbingEntries}
           onSetEntries={setFowPlumbingEntries}
-          onAddDataAI={handleAddDataAI}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -456,8 +460,10 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={powerTrussEntries}
           onSetEntries={setPowerTrussEntries}
-          onAddDataAI={handleAddDataAI}
           activeJobNumber={currentProjectName || currentJobId}
+        
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -467,7 +473,6 @@ export default function TaskModulesContainer({
           formData={moduleFormData.final_fit || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
-          onAddDataAI={handleAddDataAI}
         />
       )}
 
@@ -477,7 +482,6 @@ export default function TaskModulesContainer({
           formData={moduleFormData.sheet_schedule || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
-          onAddDataAI={handleAddDataAI}
         />
       )}
 
@@ -489,7 +493,6 @@ export default function TaskModulesContainer({
           cadMetrics={cadMetrics}
           entries={hardiesFireWallEntries}
           onSetEntries={handleSetHardiesFireWallEntries}
-          onAddDataAI={handleAddDataAI}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
           selectedWall={selectedWall}
@@ -498,6 +501,7 @@ export default function TaskModulesContainer({
           selectedType={selectedType}
         />
       )}
+
     </div>
   );
 }

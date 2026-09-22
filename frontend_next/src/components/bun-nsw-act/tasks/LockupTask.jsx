@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
@@ -275,7 +276,8 @@ export default function LockupTask({
   selectedId: selectedIdProp,
   selectedType: selectedTypeProp,
   updateDoor,
-  updateDoorsProperty
+  updateDoorsProperty,
+  onClearData
 }) {
   const {
     user,
@@ -2227,35 +2229,14 @@ export default function LockupTask({
             <span style={{ fontSize: "10px", color: "#64748b" }}>{isCard2Collapsed ? "▶" : "▼"}</span>
             <span>2. Entered doors ({(entries || []).length})</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            {onAddDataAI && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleAutoCalculateLockout();
-                }}
-                disabled={isAutoFilling}
-                style={{
-                  background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                  border: "1px solid #93c5fd",
-                  color: "#1d4ed8",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  padding: "3px 10px",
-                  borderRadius: "5px",
-                  cursor: isAutoFilling ? "not-allowed" : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
-                }}
-              >
-                <span>⚡</span>
-                <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
-              </button>
-            )}
-          </div>
+          <EnteredTaskActions
+            onAutoFill={handleAutoCalculateLockout}
+            onClear={onClearData}
+            isOpen={!isCard2Collapsed}
+            onToggle={() => setIsCard2Collapsed((v) => !v)}
+            autoFillDisabled={isAutoFilling}
+            autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
+          />
         </div>
 
         {!isCard2Collapsed && (

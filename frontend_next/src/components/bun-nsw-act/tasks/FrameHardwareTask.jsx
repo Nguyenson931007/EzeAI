@@ -1,10 +1,18 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { ApiService } from "@/models/api.service";
-import { FRAME_WALL_HEIGHTS } from "@/constants/procurementFormParity";
+import { FRAME_WALL_HEIGHTS, FRAME_HARDWARE_EXTRA_FIELDS } from "@/constants/procurementFormParity";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
+
+const parseFrameExtras = (value) => {
+  try {
+    if (value && typeof value === "object") return value;
+    return value ? JSON.parse(value) : {};
+  } catch { return {}; }
+};
 
 export default function FrameHardwareTask({
   formData = {},
@@ -26,7 +34,8 @@ export default function FrameHardwareTask({
   scaleValue: scaleValueProp,
   walls: wallsProp,
   updateWallsProperty,
-  goPage
+  goPage,
+  onClearData
 }) {
   const tableRef = useRef(null);
   const {
@@ -60,6 +69,7 @@ export default function FrameHardwareTask({
   const [isSlabOpen, setIsSlabOpen] = useState(true);
   const [isTimberOpen, setIsTimberOpen] = useState(true);
   const [isSection2Open, setIsSection2Open] = useState(true);
+  const [isExtrasOpen, setIsExtrasOpen] = useState(true);
 
   // Slab Floor State
   const [slabWallHeight, setSlabWallHeight] = useState("Select...");
@@ -1460,50 +1470,64 @@ export default function FrameHardwareTask({
         )}
       </div>
 
-      {/* ── CARD 2: ENTERED WALLS (GROUPED BY LEVEL: GF vs FF+) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div
+          onClick={() => setIsExtrasOpen((v) => !v)}
+          style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: isExtrasOpen ? "1px solid #e2e8f0" : "none", fontWeight: 800, fontSize: "12px", color: "#0f2744", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
+        >
+          <span>2. Additional hardware - enter only when required</span>
+          <span style={{ fontSize: "11px", color: "#64748b" }}>{isExtrasOpen ? "▲" : "▼"}</span>
+        </div>
+        {isExtrasOpen && (
+          <div style={{ padding: "10px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "8px" }}>
+            {FRAME_HARDWARE_EXTRA_FIELDS.map(([key, label]) => {
+              const extras = parseFrameExtras(formData?.frame_hardware_extras);
+              return <label key={key} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>{label}</span>
+                <input
+                  inputMode="decimal"
+                  value={extras[key] ?? "0"}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => {
+                    if (!/^\d*(?:[.,]\d*)?$/.test(e.target.value)) return;
+                    const next = { ...extras, [key]: e.target.value };
+                    if (onChange) onChange("frame_hardware", "frame_hardware_extras", JSON.stringify(next));
+                  }}
+                  style={{ height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px", boxSizing: "border-box" }}
+                />
+              </label>;
+            })}
+          </div>
+        )}
+      </div>
+
+
+      {/* ── CARD 3: ENTERED WALLS (GROUPED BY LEVEL: GF vs FF+) ── */}
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+        <div
+          onClick={() => setIsSection2Open((v) => !v)}
           style={{
             padding: "9px 12px",
             background: "#f8fafc",
-            borderBottom: "1px solid #e2e8f0",
+            borderBottom: isSection2Open ? "1px solid #e2e8f0" : "none",
             fontWeight: "800",
             fontSize: "12px",
             color: "#0f2744",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "6px"
+            gap: "6px",
+            cursor: "pointer",
+            userSelect: "none"
           }}
         >
-          <span>2. Entered walls ({qualifiedWalls.length})</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            {onAddDataAI && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddDataAI("frame_hardware");
-                }}
-                style={{
-                  background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                  border: "1px solid #93c5fd",
-                  color: "#1d4ed8",
-                  fontSize: "10.5px",
-                  fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "3px"
-                }}
-              >
-                <span>⚡</span>
-                <span>Auto Fill (AI)</span>
-              </button>
-            )}
-          </div>
+          <span>3. Entered walls ({qualifiedWalls.length})</span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("frame_hardware")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (
@@ -1619,6 +1643,7 @@ export default function FrameHardwareTask({
           </>
         )}
       </div>
+
     </div>
   );
 }

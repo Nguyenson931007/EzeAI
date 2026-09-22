@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -551,7 +552,8 @@ export default function FowPlumbingTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  activeJobNumber,
+  activeJobNumber,,
+  onClearData
 }) {
   const activeCustomerShortName = getActiveClientShortName();
   const { items: procurementCatalog } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.plumbing);
@@ -1014,7 +1016,13 @@ export default function FowPlumbingTask({
       {/* ═══ CARD 2: ENTERED PLUMBING TABLE ═══ */}
       <div style={S.card}>
         <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
-          <span>▼ 2. Entered plumbing fixtures {totalCount > 0 ? `(${totalCount})` : ""}</span>
+          <span>2. Entered plumbing fixtures {totalCount > 0 ? `(${totalCount})` : ""}</span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("fow_plumbing")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
         </div>
 

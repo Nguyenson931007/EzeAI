@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -183,7 +184,8 @@ export default function TimberPostsTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  activeJobNumber
+  activeJobNumber,
+  onClearData
 }) {
   const {
     user,
@@ -873,9 +875,12 @@ export default function TimberPostsTask({
           }}
         >
           <span>2. Entered timber posts ({(entries || []).length})</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
-            {isSection2Open ? "▲" : "▼"}
-          </span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("timber_posts")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (

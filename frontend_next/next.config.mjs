@@ -78,6 +78,10 @@ const nextConfig = {
       { source: "/jobs/:path*", destination: `${backendUrl}/jobs/:path*` },
       { source: "/all-jobs", destination: `${backendUrl}/all-jobs` },
 
+      // Procurement-compatible catalog / workflow endpoints
+      { source: "/data-find/:path*", destination: `${backendUrl}/data-find/:path*` },
+      { source: "/workflow/:path*", destination: `${backendUrl}/workflow/:path*` },
+
       // AI inference endpoints
       { source: "/predict_seg", destination: `${backendUrl}/predict_seg` },
       { source: "/predict_seg_stream", destination: `${backendUrl}/predict_seg_stream` },

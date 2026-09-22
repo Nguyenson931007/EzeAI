@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -13,7 +14,8 @@ export default function CladdingTask({
   onSetEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber
+  activeJobNumber,
+  onClearData
 }) {
   const appModel = useAppModel ? useAppModel() : {};
   const activeCustomerShortName = getActiveClientShortName();
@@ -148,6 +150,9 @@ export default function CladdingTask({
   const [wallLength, setWallLength] = useState("");
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingRowId, setEditingRowId] = useState(null);
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualCode, setManualCode] = useState("");
+  const [manualQty, setManualQty] = useState("1");
   const [editRowData, setEditRowData] = useState({});
   const editingRowIdRef = useRef(null);
   const editRowDataRef = useRef({});
@@ -227,6 +232,7 @@ export default function CladdingTask({
   const [saveStatus, setSaveStatus] = useState(null);
   const [isSection1Open, setIsSection1Open] = useState(true);
   const [isSection2Open, setIsSection2Open] = useState(true);
+  const [isMaterialsOpen, setIsMaterialsOpen] = useState(true);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
 
@@ -411,6 +417,34 @@ export default function CladdingTask({
     if (selectedEntryId === id) setSelectedEntryId(null);
   };
 
+const claddingManualRows = (() => {
+    try {
+      const raw = formData?.cladding_manual_rows;
+      if (Array.isArray(raw)) return raw;
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  })();
+
+  const persistCladdingManualRows = (rows) => {
+    if (onChange) onChange("cladding", "cladding_manual_rows", JSON.stringify(rows));
+  };
+
+  const manualCatalogOptions = useMemo(() => (catalogItems || []).map((item) => ({
+    code: String(item.itemNumber || item.item_number || "").trim(),
+    description: String(item.description || item.label || "").trim(),
+    unit: String(item.unit || "Each").trim() || "Each",
+  })).filter((item) => item.code || item.description), [catalogItems]);
+
+  const addManualMaterial = () => {
+    const qty = Math.max(1, Math.ceil(Number(manualQty) || 1));
+    const match = manualCatalogOptions.find((item) => item.code === manualCode || item.description === manualDescription);
+    const code = manualCode || match?.code || "";
+    const description = manualDescription || match?.description || "";
+    if (!code && !description) return;
+    persistCladdingManualRows([...claddingManualRows, { id: `clad-mat-${Date.now()}`, code, description, qty, unit: match?.unit || "Each" }]);
+    setManualCode(""); setManualDescription(""); setManualQty("1");
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* ── CARD 1: EXTERNAL WALL MEASUREMENTS (MATCHING BUN-NSW-ACT) ── */}
@@ -566,6 +600,29 @@ export default function CladdingTask({
         )}
       </div>
 
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+        <div
+          onClick={() => setIsMaterialsOpen((v) => !v)}
+          style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: isMaterialsOpen ? "1px solid #e2e8f0" : "none", fontWeight: 800, fontSize: "12px", color: "#0f2744", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
+        >
+          <span>2. Cladding materials</span>
+          <span style={{ fontSize: "11px", color: "#64748b" }}>{isMaterialsOpen ? "▲" : "▼"}</span>
+        </div>
+        {isMaterialsOpen && (
+          <>
+            <div style={{ padding: "10px", display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label style={{ flex: "2 1 190px", display: "flex", flexDirection: "column", gap: "3px" }}><span style={{ fontSize: "10px", fontWeight: 700, color: "#475569" }}>Description</span><input list="cladding-description-options" value={manualDescription} onChange={(e) => { setManualDescription(e.target.value); const m = manualCatalogOptions.find((x) => x.description === e.target.value); if (m) setManualCode(m.code); }} placeholder="Select or type a description" style={{ height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px" }}/></label>
+          <label style={{ flex: "1 1 110px", display: "flex", flexDirection: "column", gap: "3px" }}><span style={{ fontSize: "10px", fontWeight: 700, color: "#475569" }}>FindCode</span><input list="cladding-code-options" value={manualCode} onChange={(e) => { setManualCode(e.target.value); const m = manualCatalogOptions.find((x) => x.code === e.target.value); if (m) setManualDescription(m.description); }} placeholder="FindCode" style={{ height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px" }}/></label>
+          <label style={{ width: "70px", display: "flex", flexDirection: "column", gap: "3px" }}><span style={{ fontSize: "10px", fontWeight: 700, color: "#475569" }}>Qty</span><input inputMode="numeric" value={manualQty} onChange={(e) => /^\d*$/.test(e.target.value) && setManualQty(e.target.value)} style={{ height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px" }}/></label>
+          <button type="button" onClick={addManualMaterial} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add material</button>
+          <datalist id="cladding-description-options">{manualCatalogOptions.map((x, i) => <option key={`${x.code}-${i}`} value={x.description}>{x.code}</option>)}</datalist>
+          <datalist id="cladding-code-options">{manualCatalogOptions.map((x, i) => <option key={`${x.code}-${i}`} value={x.code}>{x.description}</option>)}</datalist>
+        </div>
+        {claddingManualRows.length > 0 && <div style={{ padding: "0 10px 10px", overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}><thead><tr style={{ background: "#f8fafc" }}><th style={{ textAlign: "left", padding: "5px" }}>Description</th><th style={{ textAlign: "left", padding: "5px" }}>Qty</th><th style={{ textAlign: "left", padding: "5px" }}>Unit</th><th style={{ textAlign: "left", padding: "5px" }}>FindCode</th><th/></tr></thead><tbody>{claddingManualRows.map((row, i) => <tr key={row.id || i} style={{ borderTop: "1px solid #e2e8f0" }}><td style={{ padding: "5px" }}>{row.description}</td><td style={{ padding: "5px" }}>{row.qty}</td><td style={{ padding: "5px" }}>{row.unit || "Each"}</td><td style={{ padding: "5px" }}>{row.code}</td><td><button type="button" onClick={() => persistCladdingManualRows(claddingManualRows.filter((_, idx) => idx !== i))} style={{ border: 0, background: "transparent", color: "#dc2626", cursor: "pointer" }}>×</button></td></tr>)}</tbody></table></div>}
+          </>
+        )}
+      </div>
+
       {/* ── CARD 2: ENTERED WALL MEASUREMENTS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div
@@ -585,9 +642,12 @@ export default function CladdingTask({
           }}
         >
           <span>2. Entered Cladding Walls ({(entries || []).length})</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
-            {isSection2Open ? "▲" : "▼"}
-          </span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("cladding")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (
@@ -643,7 +703,7 @@ export default function CladdingTask({
                           const isSelected = selectedEntryId === w.id;
                           const isRowEditing = editingRowId === w.id;
 
-                          return (
+  return (
                             <tr
                               key={w.id || idx}
                               data-editing-row-id={isRowEditing ? w.id : undefined}

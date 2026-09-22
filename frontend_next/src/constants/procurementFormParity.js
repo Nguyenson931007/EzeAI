@@ -22,7 +22,7 @@ export const FRAME_WALL_HEIGHTS = [2440, 2740, 3400, 5200, 5800, 6400, 7000, 880
 export const LOCKUP_HEIGHTS = ["2040", "2340", "Spec"];
 export const LOCKUP_WIDTHS = ["520", "620", "720", "770", "820", "870", "920", "970", "1020", "1200", "Spec"];
 export const LOCKUP_THICKNESSES = ["35", "40", "38"];
-export const LOCKUP_HUNG = ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door"];
+export const LOCKUP_HUNG = ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door", "Double Door Set", "RH Pre Hung"];
 export const LOCKUP_TYPES = ["Type A", "Type B", "Type CG", "Type DG", "Type G", "Pivot Frame A", "Pivot Frame B", "Steel Frame"];
 export const LOCKUP_DOOR_STOPS = ["Cushion", "DS2 with Riser"];
 export const LOCKUP_INTERNAL_HUNG = ["RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"];
@@ -312,3 +312,77 @@ export const LOOSE_JAMB_DOOR_NAMES = [
   "PRE4",
   "(TBA)",
 ];
+
+
+// Canonical manual-input contract mirrored from ProcurementApp BUN NSW/ACT.
+// This is intentionally UI/data-contract metadata only. It does not write to DB.
+export const FIXOUT_SMART_ROBE_HEIGHTS = ["2340", "2040"];
+export const FIXOUT_SMART_ROBE_WALLS = ["90", "70"];
+export const FIXOUT_FINGER_GRIPS = ["No", "Yes"];
+export const FIXOUT_REVEAL_TYPES = ["window", "door"];
+export const FIXOUT_BLOCK_WORK = ["No", "Yes"];
+export const FIXOUT_ROBE_JAMB_SIZES = ["112x19", "92x19"];
+export const FIXOUT_TRIM_DESCRIPTIONS = [
+  "To Match Existing 5.4M",
+  "MDF DAR PRIMED++42X18MM 5.4M",
+  "MDF DAR PRIMED++67X18MM 5.4M",
+  "MDF DAR PRIMED++92X18MM 5.4M",
+  "PINE PRIMED DAR FJ++42X18MM 5.4M",
+  "PINE PRIMED DAR FJ++66X18MM 5.4M",
+  "PINE PRIMED DAR FJ++92X18MM 5.4M",
+  "MDF MOULDING BEVEL++42X18MM 5.4M PRIMED",
+  "MDF MOULDING BEVEL++67X18MM 5.4M PRIMED",
+  "MDF MOULDING BEVEL++92X18MM 5.4M PRIMED",
+  "MDF MOULDING COLONIAL++42X18MM 5.4M PRIMED",
+  "MDF MOULDING COLONIAL++67X18MM 5.4M PRIMED",
+  "MDF MOULDING COLONIAL++92X18MM 5.4M PRIMED",
+  "MDF MOULDING BULLNOSE++42X18MM 5.4M PRIMED",
+  "MDF MOULDING BULLNOSE++67X18MM 5.4M PRIMED",
+  "MDF MOULDING BULLNOSE++92X18MM 5.4M PRIMED",
+  "MDF MOULDING HALF SPLAYED++67X18MM 5.4M PRIMED",
+  "MDF MOULDING HALF SPLAYED++92X18MM 5.4M PRIMED",
+  "MDF MOULDING LAMBS TONGUE++67X18MM 5.4M PRIMED",
+  "MDF MOULDING LAMBS TONGUE++92X18MM 5.4M PRIMED",
+  "spec",
+];
+
+export const FRAME_HARDWARE_EXTRA_FIELDS = Object.freeze([
+  ["extra2700", "Extra 2700 Rod"],
+  ["extra3000", "Extra 3000 Rod"],
+  ["extra3600", "Extra 3600 Rod"],
+  ["extraNW", "Extra nuts & washers"],
+  ["braceBoard", "Brace boards"],
+  ["jamb140", "140x30 Garage jamb"],
+  ["jamb160", "160x30 Garage jamb"],
+]);
+
+export const SHELVING_EXTRA_FIELDS = Object.freeze([
+  ["2400x450", "Extra 2400x450mm melamine boards"],
+  ["3600x450", "Extra 3600x450mm melamine boards"],
+  ["2400x600", "Extra 2400x600mm melamine boards"],
+  ["3600x600", "Extra 3600x600mm melamine boards"],
+  ["42x18", "Extra 42x18 backs/sides"],
+  ["68x18", "Extra 68x18 front lip"],
+  ["mullion", "Extra 42x42 centre mullions"],
+]);
+
+export const PROCUREMENT_FORM_CONTRACT = Object.freeze({
+  fixout: {
+    persistedFields: [
+      "fixout_doors", "fixout_smart_robe_rows", "fixout_smart_robe_finger_grips",
+      "fixout_reveal_openings", "fixout_arch_extra_lengths", "fixout_skirting_lm",
+      "fixout_robe_count", "fixout_robe_jamb_size", "fixout_wet_arch_lengths",
+      "fixout_wet_skirting_lm", "fixout_arch_description", "fixout_arch_code",
+      "fixout_skirting_description", "fixout_skirting_code", "fixout_arch-wet_description",
+      "fixout_arch-wet_code", "fixout_skirting-wet_description", "fixout_skirting-wet_code",
+    ],
+  },
+  lockup: { persistedFields: ["lockup_doors"] },
+  frame: { persistedFields: ["frame_hardware_walls", "frame_hardware_extras", "frame_hardware_rod_size"] },
+  insulation: { persistedFields: ["insulation_wall_entries", "insulation_floor_ceiling_entries"] },
+  shelving: { persistedFields: ["shelving_entries", "shelving_extras", "shelving_robe", "shelving_linen"] },
+  truss: { persistedFields: ["power_truss_braces_rows"] },
+  plumbing: { persistedFields: ["fow_plumbing_rows", "fow_plumbing_quantities", "fow_plumbing_notes"] },
+  final: { persistedFields: ["final_fit_enabled"] },
+  beams: { persistedFields: ["beams_posts_entries", "beams_posts_post_type", "beams_posts_post_size", "beams_posts_post_key", "beams_posts_post_code", "beams_posts_post_height", "beams_posts_qty"] },
+});

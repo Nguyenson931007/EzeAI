@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -13,7 +14,8 @@ export default function EavesSoffitTask({
   onSetEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber
+  activeJobNumber,
+  onClearData
 }) {
   const appModel = useAppModel ? useAppModel() : {};
   const {
@@ -902,9 +904,12 @@ export default function EavesSoffitTask({
           }}
         >
           <span>2. Entered Eaves ({(entries || []).length})</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
-            {isSection2Open ? "▲" : "▼"}
-          </span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("eaves_soffit")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (

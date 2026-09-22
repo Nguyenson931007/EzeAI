@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
@@ -295,7 +296,8 @@ export default function PowerTrussBracesTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  activeJobNumber,
+  activeJobNumber,,
+  onClearData
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
 
@@ -710,7 +712,12 @@ export default function PowerTrussBracesTask({
       <div style={S.card}>
         <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
           <span>2. Entered power truss braces {totalCount > 0 ? `(${totalCount})` : ""}</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("power_truss_braces")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (

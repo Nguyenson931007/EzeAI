@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -65,7 +66,8 @@ export default function InsulationTask({
   selectedWall: selectedWallProp,
   selectedWallIds: selectedWallIdsProp,
   selectedId: selectedIdProp,
-  selectedType: selectedTypeProp
+  selectedType: selectedTypeProp,
+  onClearData
 }) {
   const {
     user,
@@ -120,6 +122,7 @@ export default function InsulationTask({
   const [isIntOpen, setIsIntOpen] = useState(true);
   const [isPartyOpen, setIsPartyOpen] = useState(true);
   const [isSection3Open, setIsSection3Open] = useState(true);
+  const [isEnteredWallsOpen, setIsEnteredWallsOpen] = useState(true);
 
   // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
   const getLevelCode = (idx) => {
@@ -1327,50 +1330,374 @@ export default function InsulationTask({
         )}
       </div>
 
-      {/* ── CARD 2: ENTERED INSULATION WALLS ── */}
+      {/* ── CARD 2: INSULATION FLOOR & CEILING (MATCHING IMAGES 1, 2, 3) ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
         <div
+          onClick={() => setIsSection3Open(!isSection3Open)}
+          style={{
+            padding: "10px 14px",
+            background: "#f8fafc",
+            borderBottom: isSection3Open ? "1px solid #e2e8f0" : "none",
+            fontWeight: "800",
+            fontSize: "13px",
+            color: "#0f2744",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "11px", color: "#64748b" }}>{isSection3Open ? "▼" : "▶"}</span>
+            <span>2. INSULATION FLOOR &amp; CEILING</span>
+          </div>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>
+            {isSection3Open ? "▲" : "▼"}
+          </span>
+        </div>
+
+        {isSection3Open && (
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+            {/* Form Inputs matching Image 1, 2, 3 */}
+            <div style={{ padding: "10px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+              {/* Insulation Type Dropdown (Image 1) */}
+              <div style={{ flex: "1 1 110px" }}>
+                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Insulation Type</span>
+                <select
+                  value={areaInsType}
+                  onChange={(e) => handleAreaTypeChange(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    borderRadius: "5px",
+                    border: "1px solid #3b82f6",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    outline: "none"
+                  }}
+                >
+                  <option value="Ceiling">Ceiling</option>
+                  <option value="Floor">Floor</option>
+                </select>
+              </div>
+
+              {/* R Value Dropdown (Image 2) */}
+              <div style={{ flex: "0.9 1 90px" }}>
+                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>R Value</span>
+                <select
+                  value={areaRValue}
+                  onChange={(e) => setAreaRValue(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    borderRadius: "5px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    outline: "none"
+                  }}
+                >
+                  {areaRValueOptions.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Product Dropdown (Image 3) */}
+              <div style={{ flex: "2.8 1 240px" }}>
+                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
+                <select
+                  value={areaProduct}
+                  onChange={(e) => setAreaProduct(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    borderRadius: "5px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    outline: "none"
+                  }}
+                >
+                  {areaProductOptions.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Total Area Insulation Input (Image 3) */}
+              <div style={{ flex: "1.2 1 120px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700 }}>Total Area Insulation</span>
+                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>m²</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Area m²"
+                  value={areaTotalInsulation}
+                  onChange={(e) => setAreaTotalInsulation(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: "11px",
+                    borderRadius: "5px",
+                    border: "1px solid #fde047",
+                    background: "#fffbeb",
+                    boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              {/* Add Button */}
+              <button
+                type="button"
+                onClick={handleAddAreaEntry}
+                style={{
+                  padding: "6px 14px",
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "5px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                + Add
+              </button>
+            </div>
+
+            {/* Table of Entered Floor & Ceiling Entries */}
+            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
+              <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
+                ENTERED INSULATION FLOOR &amp; CEILING ({(areaEntries || []).length})
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ background: "#334155", color: "#ffffff", textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px", width: "26px" }}>#</th>
+                      <th style={{ padding: "6px 8px", width: "90px" }}>Type</th>
+                      <th style={{ padding: "6px 8px", width: "80px" }}>R-Value</th>
+                      <th style={{ padding: "6px 8px", minWidth: "240px" }}>Product</th>
+                      <th style={{ padding: "6px 8px", width: "130px" }}>Total Area (m²)</th>
+                      <th style={{ padding: "6px 8px", width: "80px" }}>Level</th>
+                      <th style={{ padding: "6px 8px", width: "55px", textAlign: "right" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedAreasByLevel.map(({ level, items }) => (
+                      <React.Fragment key={`area-lvl-${level}`}>
+                        <tr style={{ background: "#f8fafc", borderTop: "1px solid #cbd5e1", borderBottom: "1px solid #e2e8f0" }}>
+                          <td colSpan={7} style={{ padding: "4px 8px", fontWeight: 800, fontSize: "10.5px", color: "#475569" }}>
+                            Level: <span style={{ color: "#2563eb" }}>{level}</span> ({getFloorLevelDisplayName(level)})
+                          </td>
+                        </tr>
+                        {items.map((a, idx) => {
+                          const isAreaRowEditing = editingAreaRowId === a.id;
+                          const isCeiling = String(a.type).toLowerCase() === "ceiling";
+                          const currentR = normalizeRValue(a.rValue) || "R3.5";
+                          const editRVal = isAreaRowEditing ? (editAreaRowData.rValue || currentR) : currentR;
+                          const editProds = isAreaRowEditing ? getProductOptionsForAreaAndR(editAreaRowData.type || a.type, editRVal) : getProductOptionsForAreaAndR(a.type, currentR);
+                          const currentEditingProd = isAreaRowEditing
+                            ? (editAreaRowData.product !== undefined ? editAreaRowData.product : (a.product || editProds[0] || ""))
+                            : (a.product || editProds[0] || "");
+
+                          return (
+                            <tr
+                              key={a.id || idx}
+                              data-editing-area-row-id={isAreaRowEditing ? a.id : undefined}
+                              onDoubleClick={(e) => {
+                                if (isAreaRowEditing) return;
+                                if (e.target.closest && e.target.closest("button")) return;
+                                if (editingAreaRowId && editingAreaRowId !== a.id) {
+                                  handleSaveAreaInlineEdit(editingAreaRowId);
+                                }
+                                handleStartAreaEdit(a);
+                              }}
+                              style={{
+                                borderBottom: "1px solid #e2e8f0",
+                                background: isAreaRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")
+                              }}
+                            >
+                              <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                              <td style={{ padding: "4px 8px" }}>
+                                <span style={{
+                                  background: isCeiling ? "#f3e8ff" : "#ffedd5",
+                                  color: isCeiling ? "#7e22ce" : "#c2410c",
+                                  border: `1px solid ${isCeiling ? "#d8b4fe" : "#fed7aa"}`,
+                                  padding: "2px 7px",
+                                  borderRadius: "4px",
+                                  fontWeight: 700,
+                                  fontSize: "10.5px",
+                                  display: "inline-block"
+                                }}>
+                                  {a.type || "Ceiling"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                {isAreaRowEditing ? (
+                                  <select
+                                    value={editAreaRowData.rValue || currentR}
+                                    onChange={(e) => handleEditAreaFieldChange("rValue", e.target.value)}
+                                    style={{ width: "100%", padding: "3px 4px", fontSize: "10.5px", fontWeight: 700, borderRadius: "4px", border: "1px solid #3b82f6" }}
+                                  >
+                                    {areaRValueOptions.map(r => (
+                                      <option key={r} value={r}>{r}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span style={{ fontWeight: 600, color: "#334155" }}>{a.rValue || currentR}</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                {isAreaRowEditing ? (
+                                  <select
+                                    value={currentEditingProd}
+                                    onChange={(e) => handleEditAreaFieldChange("product", e.target.value)}
+                                    style={{ width: "100%", minWidth: "220px", padding: "3px 6px", fontSize: "10.5px", borderRadius: "4px", border: "1px solid #3b82f6" }}
+                                  >
+                                    {editProds.map(p => (
+                                      <option key={p} value={p}>{p}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span style={{ color: "#1e293b", fontSize: "10.5px" }}>{a.product || editProds[0] || "-"}</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                {isAreaRowEditing ? (
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editAreaRowData.insulationArea !== undefined ? editAreaRowData.insulationArea : (a.insulationArea || a.area || 0)}
+                                    onChange={(e) => handleEditAreaFieldChange("insulationArea", e.target.value)}
+                                    style={{ width: "80px", padding: "3px 5px", fontSize: "10.5px", borderRadius: "4px", border: "1px solid #3b82f6", fontWeight: 700 }}
+                                  />
+                                ) : (
+                                  <span style={{ fontWeight: 700, color: "#059669" }}>{a.insulationArea || a.area || 0} m²</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 8px" }}>
+                                <span style={{ background: "#f1f5f9", padding: "1px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                                  {a.floorLevel || "GF"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                                {isAreaRowEditing ? (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveAreaInlineEdit(a.id)}
+                                      style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px" }}
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingAreaRowId(null)}
+                                      style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px" }}
+                                    >
+                                      ✕
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveArea(a.id)}
+                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "11px" }}
+                                    >
+                                      🗑
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (editingAreaRowId && editingAreaRowId !== a.id) {
+                                          handleSaveAreaInlineEdit(editingAreaRowId);
+                                        }
+                                        handleStartAreaEdit(a);
+                                      }}
+                                      style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "11px" }}
+                                      title="Edit row"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveArea(a.id)}
+                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
+                                      title="Delete row"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+
+                    {(!areaEntries || areaEntries.length === 0) && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
+                          No floor &amp; ceiling insulation entered yet. Enter above and click &quot;+ Add&quot;.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+      </div>
+
+
+
+      {/* ── CARD 3: ENTERED INSULATION WALLS ── */}
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+        <div
+          onClick={() => setIsEnteredWallsOpen((v) => !v)}
           style={{
             padding: "9px 12px",
             background: "#f8fafc",
-            borderBottom: "1px solid #e2e8f0",
+            borderBottom: isEnteredWallsOpen ? "1px solid #e2e8f0" : "none",
             fontWeight: "800",
             fontSize: "12px",
             color: "#0f2744",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: "6px"
+            gap: "6px",
+            cursor: "pointer",
+            userSelect: "none"
           }}
         >
-          <span>2. ENTERED INSULATION WALLS ({(wallEntries || []).length})</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={handleAutoFillAI}
-              disabled={isAutoFilling}
-              style={{
-                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                border: "1px solid #93c5fd",
-                color: "#1d4ed8",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 10px",
-                borderRadius: "5px",
-                cursor: isAutoFilling ? "not-allowed" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                opacity: isAutoFilling ? 0.7 : 1
-              }}
-            >
-              <span>⚡</span>
-              <span>{isAutoFilling ? "Calculating..." : "Auto Fill (AI)"}</span>
-            </button>
-          </div>
+          <span>3. ENTERED INSULATION WALLS ({(wallEntries || []).length})</span>
+          <EnteredTaskActions
+            onAutoFill={handleAutoFillAI}
+            onClear={onClearData}
+            isOpen={isEnteredWallsOpen}
+            onToggle={() => setIsEnteredWallsOpen((v) => !v)}
+            autoFillDisabled={isAutoFilling}
+            autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
+          />
         </div>
 
-        <div style={{ padding: "0px", overflowX: "auto" }}>
+        {isEnteredWallsOpen && (
+          <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "720px", borderCollapse: "collapse", fontSize: "11px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -1756,339 +2083,6 @@ export default function InsulationTask({
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* ── CARD 3: INSULATION FLOOR & CEILING (MATCHING IMAGES 1, 2, 3) ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-        <div
-          onClick={() => setIsSection3Open(!isSection3Open)}
-          style={{
-            padding: "10px 14px",
-            background: "#f8fafc",
-            borderBottom: isSection3Open ? "1px solid #e2e8f0" : "none",
-            fontWeight: "800",
-            fontSize: "13px",
-            color: "#0f2744",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            cursor: "pointer",
-            userSelect: "none"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "11px", color: "#64748b" }}>{isSection3Open ? "▼" : "▶"}</span>
-            <span>3. INSULATION FLOOR &amp; CEILING</span>
-          </div>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 700 }}>
-            {isSection3Open ? "▲" : "▼"}
-          </span>
-        </div>
-
-        {isSection3Open && (
-          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
-            {/* Form Inputs matching Image 1, 2, 3 */}
-            <div style={{ padding: "10px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-              {/* Insulation Type Dropdown (Image 1) */}
-              <div style={{ flex: "1 1 110px" }}>
-                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Insulation Type</span>
-                <select
-                  value={areaInsType}
-                  onChange={(e) => handleAreaTypeChange(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    borderRadius: "5px",
-                    border: "1px solid #3b82f6",
-                    background: "#ffffff",
-                    color: "#1e293b",
-                    outline: "none"
-                  }}
-                >
-                  <option value="Ceiling">Ceiling</option>
-                  <option value="Floor">Floor</option>
-                </select>
-              </div>
-
-              {/* R Value Dropdown (Image 2) */}
-              <div style={{ flex: "0.9 1 90px" }}>
-                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>R Value</span>
-                <select
-                  value={areaRValue}
-                  onChange={(e) => setAreaRValue(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    color: "#1e293b",
-                    outline: "none"
-                  }}
-                >
-                  {areaRValueOptions.map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Product Dropdown (Image 3) */}
-              <div style={{ flex: "2.8 1 240px" }}>
-                <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
-                <select
-                  value={areaProduct}
-                  onChange={(e) => setAreaProduct(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "11px",
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    color: "#1e293b",
-                    outline: "none"
-                  }}
-                >
-                  {areaProductOptions.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Total Area Insulation Input (Image 3) */}
-              <div style={{ flex: "1.2 1 120px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontSize: "11px", color: "#475569", fontWeight: 700 }}>Total Area Insulation</span>
-                  <span style={{ fontSize: "10px", color: "#94a3b8" }}>m²</span>
-                </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Area m²"
-                  value={areaTotalInsulation}
-                  onChange={(e) => setAreaTotalInsulation(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "11px",
-                    borderRadius: "5px",
-                    border: "1px solid #fde047",
-                    background: "#fffbeb",
-                    boxSizing: "border-box"
-                  }}
-                />
-              </div>
-
-              {/* Add Button */}
-              <button
-                type="button"
-                onClick={handleAddAreaEntry}
-                style={{
-                  padding: "6px 14px",
-                  background: "#1e293b",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap"
-                }}
-              >
-                + Add
-              </button>
-            </div>
-
-            {/* Table of Entered Floor & Ceiling Entries */}
-            <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
-              <div style={{ padding: "6px 10px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", fontSize: "11px", fontWeight: 800, color: "#334155" }}>
-                ENTERED INSULATION FLOOR &amp; CEILING ({(areaEntries || []).length})
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-                  <thead>
-                    <tr style={{ background: "#334155", color: "#ffffff", textAlign: "left" }}>
-                      <th style={{ padding: "6px 8px", width: "26px" }}>#</th>
-                      <th style={{ padding: "6px 8px", width: "90px" }}>Type</th>
-                      <th style={{ padding: "6px 8px", width: "80px" }}>R-Value</th>
-                      <th style={{ padding: "6px 8px", minWidth: "240px" }}>Product</th>
-                      <th style={{ padding: "6px 8px", width: "130px" }}>Total Area (m²)</th>
-                      <th style={{ padding: "6px 8px", width: "80px" }}>Level</th>
-                      <th style={{ padding: "6px 8px", width: "55px", textAlign: "right" }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupedAreasByLevel.map(({ level, items }) => (
-                      <React.Fragment key={`area-lvl-${level}`}>
-                        <tr style={{ background: "#f8fafc", borderTop: "1px solid #cbd5e1", borderBottom: "1px solid #e2e8f0" }}>
-                          <td colSpan={7} style={{ padding: "4px 8px", fontWeight: 800, fontSize: "10.5px", color: "#475569" }}>
-                            Level: <span style={{ color: "#2563eb" }}>{level}</span> ({getFloorLevelDisplayName(level)})
-                          </td>
-                        </tr>
-                        {items.map((a, idx) => {
-                          const isAreaRowEditing = editingAreaRowId === a.id;
-                          const isCeiling = String(a.type).toLowerCase() === "ceiling";
-                          const currentR = normalizeRValue(a.rValue) || "R3.5";
-                          const editRVal = isAreaRowEditing ? (editAreaRowData.rValue || currentR) : currentR;
-                          const editProds = isAreaRowEditing ? getProductOptionsForAreaAndR(editAreaRowData.type || a.type, editRVal) : getProductOptionsForAreaAndR(a.type, currentR);
-                          const currentEditingProd = isAreaRowEditing
-                            ? (editAreaRowData.product !== undefined ? editAreaRowData.product : (a.product || editProds[0] || ""))
-                            : (a.product || editProds[0] || "");
-
-                          return (
-                            <tr
-                              key={a.id || idx}
-                              data-editing-area-row-id={isAreaRowEditing ? a.id : undefined}
-                              onDoubleClick={(e) => {
-                                if (isAreaRowEditing) return;
-                                if (e.target.closest && e.target.closest("button")) return;
-                                if (editingAreaRowId && editingAreaRowId !== a.id) {
-                                  handleSaveAreaInlineEdit(editingAreaRowId);
-                                }
-                                handleStartAreaEdit(a);
-                              }}
-                              style={{
-                                borderBottom: "1px solid #e2e8f0",
-                                background: isAreaRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")
-                              }}
-                            >
-                              <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
-                              <td style={{ padding: "4px 8px" }}>
-                                <span style={{
-                                  background: isCeiling ? "#f3e8ff" : "#ffedd5",
-                                  color: isCeiling ? "#7e22ce" : "#c2410c",
-                                  border: `1px solid ${isCeiling ? "#d8b4fe" : "#fed7aa"}`,
-                                  padding: "2px 7px",
-                                  borderRadius: "4px",
-                                  fontWeight: 700,
-                                  fontSize: "10.5px",
-                                  display: "inline-block"
-                                }}>
-                                  {a.type || "Ceiling"}
-                                </span>
-                              </td>
-                              <td style={{ padding: "4px 8px" }}>
-                                {isAreaRowEditing ? (
-                                  <select
-                                    value={editAreaRowData.rValue || currentR}
-                                    onChange={(e) => handleEditAreaFieldChange("rValue", e.target.value)}
-                                    style={{ width: "100%", padding: "3px 4px", fontSize: "10.5px", fontWeight: 700, borderRadius: "4px", border: "1px solid #3b82f6" }}
-                                  >
-                                    {areaRValueOptions.map(r => (
-                                      <option key={r} value={r}>{r}</option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <span style={{ fontWeight: 600, color: "#334155" }}>{a.rValue || currentR}</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "4px 8px" }}>
-                                {isAreaRowEditing ? (
-                                  <select
-                                    value={currentEditingProd}
-                                    onChange={(e) => handleEditAreaFieldChange("product", e.target.value)}
-                                    style={{ width: "100%", minWidth: "220px", padding: "3px 6px", fontSize: "10.5px", borderRadius: "4px", border: "1px solid #3b82f6" }}
-                                  >
-                                    {editProds.map(p => (
-                                      <option key={p} value={p}>{p}</option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <span style={{ color: "#1e293b", fontSize: "10.5px" }}>{a.product || editProds[0] || "-"}</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "4px 8px" }}>
-                                {isAreaRowEditing ? (
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={editAreaRowData.insulationArea !== undefined ? editAreaRowData.insulationArea : (a.insulationArea || a.area || 0)}
-                                    onChange={(e) => handleEditAreaFieldChange("insulationArea", e.target.value)}
-                                    style={{ width: "80px", padding: "3px 5px", fontSize: "10.5px", borderRadius: "4px", border: "1px solid #3b82f6", fontWeight: 700 }}
-                                  />
-                                ) : (
-                                  <span style={{ fontWeight: 700, color: "#059669" }}>{a.insulationArea || a.area || 0} m²</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "4px 8px" }}>
-                                <span style={{ background: "#f1f5f9", padding: "1px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                                  {a.floorLevel || "GF"}
-                                </span>
-                              </td>
-                              <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                                {isAreaRowEditing ? (
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveAreaInlineEdit(a.id)}
-                                      style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px" }}
-                                    >
-                                      ✓
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingAreaRowId(null)}
-                                      style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px" }}
-                                    >
-                                      ✕
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveArea(a.id)}
-                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "11px" }}
-                                    >
-                                      🗑
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (editingAreaRowId && editingAreaRowId !== a.id) {
-                                          handleSaveAreaInlineEdit(editingAreaRowId);
-                                        }
-                                        handleStartAreaEdit(a);
-                                      }}
-                                      style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: "11px" }}
-                                      title="Edit row"
-                                    >
-                                      ✏️
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveArea(a.id)}
-                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                                      title="Delete row"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    ))}
-
-                    {(!areaEntries || areaEntries.length === 0) && (
-                      <tr>
-                        <td colSpan={7} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                          No floor &amp; ceiling insulation entered yet. Enter above and click &quot;+ Add&quot;.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
           </div>
         )}
       </div>

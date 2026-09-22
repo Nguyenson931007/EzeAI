@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
@@ -19,6 +20,13 @@ import {
   FIXOUT_FURNITURE,
   PREHUNG_DOOR_NAMES,
   LOOSE_JAMB_DOOR_NAMES,
+  FIXOUT_SMART_ROBE_HEIGHTS,
+  FIXOUT_SMART_ROBE_WALLS,
+  FIXOUT_FINGER_GRIPS,
+  FIXOUT_REVEAL_TYPES,
+  FIXOUT_BLOCK_WORK,
+  FIXOUT_ROBE_JAMB_SIZES,
+  FIXOUT_TRIM_DESCRIPTIONS,
 } from "@/constants/procurementFormParity";
 
 // ══════════════════════════════════════════════════════
@@ -902,6 +910,113 @@ function CategorySection({
   );
 }
 
+
+const safeParseJson = (value, fallback) => {
+  try {
+    if (Array.isArray(value) || (value && typeof value === "object")) return value;
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+function ProcurementFixoutSupplement({ formData = {}, onChange, doorNames = [] }) {
+  const read = (key, fallback = "") => formData?.[key] ?? fallback;
+  const write = (key, value) => { if (onChange) onChange("fixout", key, value); };
+
+  const [robeDraft, setRobeDraft] = useState({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
+  const [revealDraft, setRevealDraft] = useState({ type: "window", height: "", width: "", blockWork: "No" });
+  const [isRobeOpen, setIsRobeOpen] = useState(true);
+  const [isTrimOpen, setIsTrimOpen] = useState(true);
+  const robeRows = safeParseJson(read("fixout_smart_robe_rows", "[]"), []);
+  const revealRows = safeParseJson(read("fixout_reveal_openings", "[]"), []);
+
+  const persistRows = (key, rows) => write(key, JSON.stringify(rows));
+  const addRobe = () => {
+    if (!robeDraft.label.trim() || !robeDraft.unitSize.trim() || !robeDraft.type.trim()) return;
+    const next = [...robeRows, { ...robeDraft, id: `robe-${Date.now()}` }];
+    persistRows("fixout_smart_robe_rows", next);
+    setRobeDraft({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
+  };
+  const addReveal = () => {
+    if (!String(revealDraft.height).trim() || !String(revealDraft.width).trim()) return;
+    const next = [...revealRows, { ...revealDraft, id: `reveal-${Date.now()}` }];
+    persistRows("fixout_reveal_openings", next);
+    setRevealDraft({ type: "window", height: "", width: "", blockWork: "No" });
+  };
+
+  const fieldStyle = { display: "flex", flexDirection: "column", gap: "3px", minWidth: "90px", flex: "1 1 110px" };
+  const labelStyle = { fontSize: "10px", color: "#475569", fontWeight: 700 };
+  const inputStyle = { width: "100%", boxSizing: "border-box", height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px", background: "#fff" };
+  const cardStyle = { border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", background: "#fff" };
+  const titleStyle = { padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: 800, fontSize: "12px", color: "#0f2744" };
+
+  const trimSelect = (label, key, defaultValue) => (
+    <label style={fieldStyle}><span style={labelStyle}>{label}</span><select style={inputStyle} value={read(key, defaultValue)} onChange={(e) => write(key, e.target.value)}>{FIXOUT_TRIM_DESCRIPTIONS.map((v) => <option key={v} value={v === "spec" ? "" : v}>{v}</option>)}</select></label>
+  );
+
+  return (
+    <>
+      <div style={cardStyle}>
+        <div style={{ ...titleStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", borderBottom: isRobeOpen ? "1px solid #e2e8f0" : "none" }}>
+          <div onClick={() => setIsRobeOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: "7px", cursor: "pointer", userSelect: "none", flex: 1 }}>
+            <span>3. Smart Robe Door</span>
+            <span style={{ fontSize: "11px", color: "#64748b" }}>{isRobeOpen ? "▲" : "▼"}</span>
+          </div>
+          <label onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px" }}><span>Finger Grips</span><select style={{ ...inputStyle, width: "70px" }} value={read("fixout_smart_robe_finger_grips", "No")} onChange={(e) => write("fixout_smart_robe_finger_grips", e.target.value)}>{FIXOUT_FINGER_GRIPS.map((v) => <option key={v}>{v}</option>)}</select></label>
+        </div>
+        {isRobeOpen && (
+          <>
+            <div style={{ padding: "10px", display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label style={fieldStyle}><span style={labelStyle}>Label</span><input list="fixout-room-labels-parity" style={inputStyle} value={robeDraft.label} onChange={(e) => setRobeDraft({ ...robeDraft, label: e.target.value })}/></label>
+          <label style={fieldStyle}><span style={labelStyle}>Unit Height</span><select style={inputStyle} value={robeDraft.unitHeight} onChange={(e) => setRobeDraft({ ...robeDraft, unitHeight: e.target.value })}>{FIXOUT_SMART_ROBE_HEIGHTS.map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label style={fieldStyle}><span style={labelStyle}>Unit Size</span><input style={inputStyle} inputMode="numeric" value={robeDraft.unitSize} onChange={(e) => setRobeDraft({ ...robeDraft, unitSize: e.target.value })}/></label>
+          <label style={fieldStyle}><span style={labelStyle}>Wall</span><select style={inputStyle} value={robeDraft.wall} onChange={(e) => setRobeDraft({ ...robeDraft, wall: e.target.value })}>{FIXOUT_SMART_ROBE_WALLS.map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label style={{ ...fieldStyle, flex: "2 1 150px" }}><span style={labelStyle}>Type</span><input list="fixout-door-types-parity" style={inputStyle} value={robeDraft.type} onChange={(e) => setRobeDraft({ ...robeDraft, type: e.target.value })}/></label>
+          <label style={fieldStyle}><span style={labelStyle}>Thicks</span><input style={inputStyle} inputMode="numeric" value={robeDraft.thicks} onChange={(e) => setRobeDraft({ ...robeDraft, thicks: e.target.value })}/></label>
+          <button type="button" onClick={addRobe} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add robe door</button>
+          <datalist id="fixout-room-labels-parity">{ROOM_LABELS.map((v) => <option key={v} value={v}/>)}</datalist>
+          <datalist id="fixout-door-types-parity">{doorNames.map((v) => <option key={v} value={v}/>)}</datalist>
+        </div>
+        {robeRows.length > 0 && <div style={{ padding: "0 10px 10px", fontSize: "10px", color: "#475569" }}>Entered robe door: {robeRows.map((r, i) => <span key={r.id || i} style={{ display: "inline-flex", gap: "4px", margin: "2px 5px 2px 0", padding: "3px 6px", border: "1px solid #e2e8f0", borderRadius: "4px" }}>{r.label} · {r.unitHeight} · {r.unitSize}<button type="button" onClick={() => persistRows("fixout_smart_robe_rows", robeRows.filter((_, idx) => idx !== i))} style={{ border: 0, background: "transparent", color: "#dc2626", cursor: "pointer" }}>×</button></span>)}</div>}
+          </>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <div onClick={() => setIsTrimOpen((v) => !v)} style={{ ...titleStyle, borderBottom: isTrimOpen ? "1px solid #e2e8f0" : "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}>
+          <span>4. Additional trim measurements</span>
+          <span style={{ fontSize: "11px", color: "#64748b" }}>{isTrimOpen ? "▲" : "▼"}</span>
+        </div>
+        {isTrimOpen && (
+          <>
+        <div style={{ padding: "10px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label style={fieldStyle}><span style={labelStyle}>Type</span><select style={inputStyle} value={revealDraft.type} onChange={(e) => setRevealDraft({ ...revealDraft, type: e.target.value })}>{FIXOUT_REVEAL_TYPES.map((v) => <option key={v} value={v}>{v === "window" ? "Window" : "Door"}</option>)}</select></label>
+          <label style={fieldStyle}><span style={labelStyle}>Height</span><input style={inputStyle} inputMode="numeric" value={revealDraft.height} onChange={(e) => setRevealDraft({ ...revealDraft, height: e.target.value })}/></label>
+          <label style={fieldStyle}><span style={labelStyle}>Width</span><input style={inputStyle} inputMode="numeric" value={revealDraft.width} onChange={(e) => setRevealDraft({ ...revealDraft, width: e.target.value })}/></label>
+          <label style={fieldStyle}><span style={labelStyle}>Block Work</span><select style={inputStyle} value={revealDraft.blockWork} onChange={(e) => setRevealDraft({ ...revealDraft, blockWork: e.target.value })}>{FIXOUT_BLOCK_WORK.map((v) => <option key={v}>{v}</option>)}</select></label>
+          <button type="button" onClick={addReveal} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add opening</button>
+        </div>
+        {revealRows.length > 0 && <div style={{ padding: "0 10px 8px", fontSize: "10px", color: "#475569" }}>{revealRows.map((r, i) => <span key={r.id || i} style={{ display: "inline-flex", gap: "4px", margin: "2px 5px 2px 0", padding: "3px 6px", border: "1px solid #e2e8f0", borderRadius: "4px" }}>{r.type} {r.height}×{r.width} · Block {r.blockWork}<button type="button" onClick={() => persistRows("fixout_reveal_openings", revealRows.filter((_, idx) => idx !== i))} style={{ border: 0, background: "transparent", color: "#dc2626", cursor: "pointer" }}>×</button></span>)}</div>}
+        <div style={{ padding: "8px 10px 12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "8px", borderTop: "1px solid #f1f5f9" }}>
+          <label style={fieldStyle}><span style={labelStyle}>Extras architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_arch_extra_lengths", "0")} onChange={(e) => write("fixout_arch_extra_lengths", e.target.value)}/></label>
+          {trimSelect("Architrave Type", "fixout_arch_description", "MDF DAR PRIMED++42X18MM 5.4M")}
+          <label style={fieldStyle}><span style={labelStyle}>Skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_skirting_lm", "0")} onChange={(e) => write("fixout_skirting_lm", e.target.value)}/></label>
+          {trimSelect("Skirting Type", "fixout_skirting_description", "MDF DAR PRIMED++67X18MM 5.4M")}
+          <label style={fieldStyle}><span style={labelStyle}>Robe Count</span><input style={inputStyle} inputMode="numeric" value={read("fixout_robe_count", "0")} onChange={(e) => write("fixout_robe_count", e.target.value)}/></label>
+          <label style={fieldStyle}><span style={labelStyle}>Robe/Linen jamb size</span><select style={inputStyle} value={read("fixout_robe_jamb_size", "112x19")} onChange={(e) => write("fixout_robe_jamb_size", e.target.value)}>{FIXOUT_ROBE_JAMB_SIZES.map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label style={fieldStyle}><span style={labelStyle}>Wet-area architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_arch_lengths", "0")} onChange={(e) => write("fixout_wet_arch_lengths", e.target.value)}/></label>
+          {trimSelect("Wet-area Architrave Type", "fixout_arch-wet_description", "MDF DAR PRIMED++42X18MM 5.4M")}
+          <label style={fieldStyle}><span style={labelStyle}>Wet-area skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_skirting_lm", "0")} onChange={(e) => write("fixout_wet_skirting_lm", e.target.value)}/></label>
+          {trimSelect("Wet-area Skirting Type", "fixout_skirting-wet_description", "MDF DAR PRIMED++67X18MM 5.4M")}
+        </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ══════════════════════════════════════════════════════
 // MAIN FIXOUT TASK COMPONENT
 // ══════════════════════════════════════════════════════
@@ -914,7 +1029,8 @@ export default function FixoutTask({
   onSetEntries,
   onAddDataAI,
   onSelectEntry,
-  activeJobNumber,
+  activeJobNumber,,
+  onClearData
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
   const activeCustomerShortName = getActiveClientShortName();
@@ -1340,11 +1456,18 @@ export default function FixoutTask({
         )}
       </div>
 
+      <ProcurementFixoutSupplement formData={formData} onChange={onChange} doorNames={prehungDoors} />
+
       {/* ═══ CARD 2: ENTERED DOORS (GROUPED BY FLOOR LEVEL) ═══ */}
       <div style={S.card}>
         <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
           <span>2. Entered doors {totalCount > 0 ? `(${totalCount})` : ""}</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("fixout")}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (

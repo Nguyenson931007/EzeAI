@@ -84,6 +84,17 @@ import RoofPropertyPanel from "./right-property-pane/property-panels/RoofPropert
 import LintelPropertyPanel from "./right-property-pane/property-panels/LintelPropertyPanel";
 import AnnotationPropertyPanel from "./right-property-pane/property-panels/AnnotationPropertyPanel";
 import { formatLintelCalloutText } from "../controllers/lintel.controller";
+import {
+  buildFixoutRows,
+  buildLockupRows,
+  buildFlooringRows,
+  buildInsulationRows,
+  buildFrameRows,
+  buildShelvingRows,
+  buildFinalFitPatch,
+  normalizeFloorLevel,
+  roomAreaM2,
+} from "@/utils/procurementAutoFill";
 
 /* ================================================================
    MAIN PANEL
@@ -570,33 +581,59 @@ export default function RightPropertyPaneView({
 
   const [aiGeneratedSuccess, setAiGeneratedSuccess] = React.useState(null);
 
+  const normalizeTaskStateKey = (moduleId) => ({
+    eaves: "eaves_soffit",
+    power_truss: "power_truss_braces",
+    lockup: "lock_up",
+  }[moduleId] || moduleId);
+
   const handleModuleFormChange = (moduleId, field, value) => {
+    const key = normalizeTaskStateKey(moduleId);
     setModuleFormData(prev => ({
       ...prev,
-      [moduleId]: {
-        ...(prev[moduleId] || {}),
+      [key]: {
+        ...(prev[key] || {}),
         [field]: value
       }
     }));
   };
 
   const handleResetModuleData = (moduleId) => {
-    if (moduleId === "shelving") setShelvingEntries([]);
-    if (moduleId === "fow_plumbing") setFowPlumbingEntries([]);
-    if (moduleId === "timber_posts") setTimberPostEntries([]);
-    if (moduleId === "fixout") setFixoutDoorEntries([]);
-    if (moduleId === "power_truss_braces") setPowerTrussEntries([]);
-    if (moduleId === "lockup" || moduleId === "lock_up") setLockupEntries([]);
+    const key = normalizeTaskStateKey(moduleId);
+
+    // Clear every entered / auto-filled row for the active task.
+    // This is intentionally an explicit UI action only; it does not write/delete DB records.
+    if (key === "frame_hardware") setFrameWallEntries([]);
+    if (key === "flooring_decking") setFlooringEntries([]);
+    if (key === "hebel_flooring") setHebelFlooringEntries([]);
+    if (key === "insulation") {
+      setInsulationWallEntries([]);
+      setInsulationAreaEntries([]);
+    }
+    if (key === "eaves_soffit") setEavesEntries([]);
+    if (key === "cladding") setCladdingWallEntries([]);
+    if (key === "shelving") setShelvingEntries([]);
+    if (key === "fow_plumbing") setFowPlumbingEntries([]);
+    if (key === "timber_posts") setTimberPostEntries([]);
+    if (key === "fixout") setFixoutDoorEntries([]);
+    if (key === "power_truss_braces") setPowerTrussEntries([]);
+    if (key === "lock_up") setLockupEntries([]);
+    if (key === "hardies_fire_walls") setHardiesFireWallEntries([]);
+
+    // Clear all values that were loaded / auto-filled into this task form.
+    // Keep only the small UI defaults required by the form after a clear.
     setModuleFormData(prev => ({
       ...prev,
-      [moduleId]: {
-        ...(moduleId === "cladding" || moduleId === "flooring_decking" ? { waste_allowance: "10" } : {}),
-        ...(moduleId === "insulation" ? { stud_centres: "450" } : {}),
-        ...(moduleId === "timber_posts" ? { height: "2700", quantity: "1" } : {}),
-        ...(moduleId === "power_truss_braces" ? { wall_height: "2700", length: "4500", type: "Column", qty: "1" } : {}),
-        ...(moduleId === "doors_furniture" || moduleId === "fow_plumbing" ? { quantity: "1", count: "1" } : {})
+      [key]: {
+        ...(key === "cladding" || key === "flooring_decking" ? { waste_allowance: "10" } : {}),
+        ...(key === "insulation" ? { stud_centres: "450" } : {}),
+        ...(key === "timber_posts" ? { height: "2700", quantity: "1" } : {}),
+        ...(key === "power_truss_braces" ? { wall_height: "2700", length: "4500", type: "Column", qty: "1" } : {}),
+        ...(key === "doors_furniture" || key === "fow_plumbing" ? { quantity: "1", count: "1" } : {})
       }
     }));
+
+    setAiGeneratedSuccess(null);
   };
 
   // Handler for selecting an entry in task tables — highlights matching objects on canvas
@@ -851,518 +888,241 @@ export default function RightPropertyPaneView({
   };
 
   const handleAddDataAI = (moduleId) => {
-    let aiValues = {};
-    const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
-    const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
-    const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-    const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
+    const normalizedModuleId = moduleId === "lockup" ? "lock_up" : moduleId;
+    const fallbackScale = (realScale && realScale > 0) ? realScale : ((scaleValue && scaleValue > 0) ? scaleValue : 1);
 
-    let extWallLenM = 0;
-    let intWallLenM = 0;
-    let grandTotLenM = 0;
-    curWalls.forEach(w => {
-      let lM = 0;
-      if (w.length_m) lM = w.length_m;
-      else if (w.centerline && w.centerline.length === 2) {
-        const dx = w.centerline[1][0] - w.centerline[0][0];
-        const dy = w.centerline[1][1] - w.centerline[0][1];
-        const px = Math.hypot(dx, dy);
-        lM = (effScale < 0.5 ? px * effScale * 1000 : px * effScale) / 1000;
-      }
-      grandTotLenM += lM;
-      const wCls = typeof getWallClass === "function" ? getWallClass(w) : (w.class_name || w.wall_type || "interior_wall");
-      if (wCls === "exterior_wall") extWallLenM += lM;
-      else intWallLenM += lM;
-    });
+    const currentWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
+    const currentDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
+    const currentRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
 
-    const externalWallLength = cadMetrics?.externalWallLength || (extWallLenM > 0 ? extWallLenM : 0);
-    const internalWallLength = cadMetrics?.internalWallLength || (intWallLenM > 0 ? intWallLenM : 0);
-    const grandTotalLength = cadMetrics?.grandTotalLength || (grandTotLenM > 0 ? grandTotLenM : 0);
-    const totalRoofArea = cadMetrics?.totalRoofArea || 0;
-    const totalRoomArea = cadMetrics?.totalRoomArea || 0;
+    const allDoors = doorsByPageProp && Object.keys(doorsByPageProp).length
+      ? Object.entries(doorsByPageProp).flatMap(([pageKey, pageDoors]) => {
+          const pIdx = Number(pageKey);
+          const floorLevel = normalizeFloorLevel(pages?.[pIdx], pIdx);
+          return (pageDoors || []).map((door) => ({ ...door, __floorLevel: door.floorLevel || door.floor_level || floorLevel }));
+        })
+      : (currentDoors || []).map((door) => ({ ...door, __floorLevel: door.floorLevel || door.floor_level || normalizeFloorLevel(pages?.[currentPage], currentPage) }));
 
-    if (moduleId === "frame_hardware") {
-      const architecturalPages = (pages || [])
-        .map((p, originalIndex) => ({ ...p, originalIndex }))
-        .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
-      const architecturalIndices = architecturalPages.map(p => p.originalIndex);
-      const validArchitecturalIndices = architecturalIndices.length > 0
-        ? architecturalIndices
-        : ((pages || []).length > 0 && !pages[0]?.category && pages[0]?.source !== "pdf_tools" && !pages[0]?.isFloorCeilingWorkspace && pages[0]?.source !== "floor_ceiling_page" ? [0] : []);
+    let formPatch = {};
+    let generatedCount = 0;
 
-      const pageIndices = new Set([
-        ...validArchitecturalIndices,
-        ...Object.keys(effectiveWallsByPage || {}).map(Number).filter(idx => validArchitecturalIndices.includes(idx))
-      ]);
-      if (pageIndices.size === 0 && validArchitecturalIndices.length > 0) pageIndices.add(validArchitecturalIndices[0]);
-
-      const _getFloorLevelByPage = (idx) => {
-        const archOrderIdx = architecturalIndices.indexOf(idx);
-        const effectiveOrderIdx = archOrderIdx >= 0 ? archOrderIdx : idx;
-
-        if (pages && pages[idx]) {
-          const page = pages[idx];
-          const name = (page.floor_name || page.name || "").trim();
-          if (name && !name.toLowerCase().startsWith("page ") && !name.toLowerCase().startsWith("cladding") && !name.toLowerCase().startsWith("image")) {
-            const upper = name.toUpperCase();
-            if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
-            if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
-            if (upper === "LEVEL 3" || upper === "SECOND FLOOR" || upper === "SECOND" || upper === "SF" || upper === "TẦNG 2" || upper === "2F") return "SF";
-            if (upper === "LEVEL 4" || upper === "THIRD FLOOR" || upper === "THIRD" || upper === "TF" || upper === "TẦNG 3" || upper === "3F") return "TF";
-            if (upper.startsWith("LEVEL ")) {
-              const num = parseInt(upper.replace("LEVEL ", "").trim(), 10);
-              if (num === 1) return "GF";
-              if (num === 2) return "FF";
-              if (num === 3) return "SF";
-              if (num === 4) return "TF";
-              return `${num - 1}F`;
-            }
-            return name;
-          }
-        }
-        const labels = ["GF", "FF", "SF", "TF"];
-        return effectiveOrderIdx < labels.length ? labels[effectiveOrderIdx] : `${effectiveOrderIdx}F`;
-      };
-
-      const _getQualifiedWallInfo = (w) => {
-        const rawClass = String(w.class_name || w.wall_type || "").toLowerCase().trim();
-        const isExt = rawClass === "exterior_wall" || rawClass === "ext" || Boolean(w.is_ext || w.is_exterior);
-        const isLbw = Boolean(w.is_lbw === true || w.is_load_bearing === true || w.lbw === true);
-        const isInt = rawClass === "interior_wall" || rawClass === "int";
-
-        if (isExt) {
-          return { qualified: true, wallClass: "exterior_wall" };
-        }
-        if ((isInt || !rawClass || rawClass === "wall") && isLbw) {
-          return { qualified: true, wallClass: "interior_wall" };
-        }
-        if (isLbw && !isExt) {
-          return { qualified: true, wallClass: "interior_wall" };
-        }
-        return { qualified: false };
-      };
-
-      const groupsMap = {};
-
-      Array.from(pageIndices).forEach(pIdx => {
-        const pageWalls = (effectiveWallsByPage && effectiveWallsByPage[pIdx]) ? effectiveWallsByPage[pIdx] : [];
-        const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] !== undefined) ? effectiveScalesByPage[pIdx] : null;
-        const floorLevel = _getFloorLevelByPage(pIdx);
-
-        pageWalls.forEach(w => {
-          const qInfo = _getQualifiedWallInfo(w);
-          if (!qInfo.qualified) return;
-
-          let lenMm = 0;
-          if (w.length_m) {
-            lenMm = Math.round(w.length_m * 1000);
-          } else if (w.centerline && Array.isArray(w.centerline) && w.centerline.length === 2) {
-            const dx = w.centerline[1][0] - w.centerline[0][0];
-            const dy = w.centerline[1][1] - w.centerline[0][1];
-            const px = Math.hypot(dx, dy);
-            const s = (pageScale !== undefined && pageScale !== null && pageScale > 0) ? pageScale : (realScale && realScale > 0 ? realScale : effScale);
-            lenMm = s < 0.5 ? Math.round(px * s * 1000) : Math.round(px * s);
-          }
-          if (lenMm <= 0) return;
-
-          const rawFloor = String(w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
-          const isSlab = rawFloor.includes("slab") || rawFloor.includes("concrete");
-          const floorType = isSlab ? "Slab" : "Timber";
-          const hMm = Number(w.height_mm || w.height || 2400);
-          const wallClass = qInfo.wallClass;
-
-          const key = `${floorLevel}_${floorType}_${wallClass}_${hMm}`;
-          if (!groupsMap[key]) {
-            groupsMap[key] = {
-              floorLevel,
-              floorType,
-              baseType: isSlab ? "Concrete Slab" : "Timber Floor",
-              theWallAbove: isSlab ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
-              wallClass,
-              heightMm: hMm,
-              totalMm: 0,
-              wallIds: []
-            };
-          }
-          groupsMap[key].totalMm += lenMm;
-          groupsMap[key].wallIds.push(w.id);
-        });
-      });
-
-      const sortedGroups = Object.values(groupsMap).sort((a, b) => {
-        if (a.floorLevel !== b.floorLevel) {
-          if (a.floorLevel === "GF") return -1;
-          if (b.floorLevel === "GF") return 1;
-          return a.floorLevel.localeCompare(b.floorLevel);
-        }
-        if (a.floorType !== b.floorType) return a.floorType === "Slab" ? -1 : 1;
-        if (a.wallClass !== b.wallClass) return a.wallClass === "exterior_wall" ? -1 : 1;
-        return a.heightMm - b.heightMm;
-      });
-
-      const newEntries = sortedGroups.map((g) => {
-        const spacingNum = 900;
-        const rodCount = Math.ceil(g.totalMm / spacingNum) || 1;
-        const rodLen = g.heightMm <= 2440 ? 2700 : (g.heightMm <= 2740 ? 3000 : 3600);
-        return {
-          id: `canvas-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`,
-          baseType: g.baseType,
-          theWallAbove: g.theWallAbove,
-          height: `${g.heightMm} mm`,
-          length: `${Math.round(g.totalMm)} mm`,
-          spacing: `${spacingNum} mm`,
-          rodSize: "M12",
-          rodDemand: (g.totalMm / spacingNum).toFixed(2),
-          rodMapping: `${rodCount} x M12 Rod ${rodLen}`,
-          rodsQty: `${rodCount} pcs`,
-          floorLevel: g.floorLevel || "GF",
-          wallClass: g.wallClass,
-          isCanvasWall: true,
-          wallIds: g.wallIds
+    // IMPORTANT: Auto Fill only writes values that can be derived from the
+    // drawing/model or an existing explicit object property. Product/spec
+    // choices that belong to Procurement catalog are intentionally left blank.
+    // This avoids silently inventing material selections that Procurement will
+    // later calculate from.
+    if (normalizedModuleId === "frame_hardware") {
+      const frameRows = buildFrameRows(
+        (effectiveWallsByPage && Object.keys(effectiveWallsByPage).length) ? effectiveWallsByPage : { [currentPage]: currentWalls },
+        pages || [],
+        effectiveScalesByPage || {},
+        fallbackScale,
+      );
+      setFrameWallEntries(frameRows);
+      generatedCount = frameRows.length;
+      if (frameRows[0]) {
+        formPatch = {
+          wall_height: frameRows[0].height,
+          wall_length: String(frameRows.reduce((sum, row) => sum + (parseFloat(row.length) || 0), 0)),
+          base_construction: frameRows[0].baseType || "",
         };
+      }
+    } else if (normalizedModuleId === "flooring_decking" || normalizedModuleId === "hebel_flooring") {
+      const perPage = [];
+      const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? roomsByPageProp : { [currentPage]: currentRooms };
+      Object.entries(roomPages).forEach(([pageKey, pageRooms]) => {
+        const pIdx = Number(pageKey);
+        const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
+        perPage.push(...buildFlooringRows(pageRooms || [], pageScale, normalizeFloorLevel(pages?.[pIdx], pIdx)));
       });
 
-      setFrameWallEntries(newEntries);
-      aiValues = {
-        wall_height: newEntries[0]?.height || "2400 mm",
-        wall_length: grandTotalLength ? grandTotalLength.toFixed(2) : "0",
-        wind_class: "N2",
-        base_construction: newEntries[0]?.baseType || "Concrete Slab"
-      };
-    } else if (moduleId === "flooring_decking" || moduleId === "hebel_flooring") {
-      const groupsMap = {};
+      const dry = perPage.filter((r) => r.typeArea === "Dry").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
+      const wet = perPage.filter((r) => r.typeArea === "Wet").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
+      const balcony = perPage.filter((r) => r.typeArea === "Balcony Tiles").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
+      const decking = perPage.filter((r) => r.typeArea === "Decking Input").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
 
-      curRooms.forEach(r => {
-        const override = customRoomOverrides[r.id] || {};
-        let areaM2 = 0;
-        if (override.totalM2) {
-          areaM2 = override.totalM2;
-        } else if (r.areaM2 && !isNaN(r.areaM2)) {
-          areaM2 = parseFloat(r.areaM2);
-        } else if (r.area && !isNaN(r.area)) {
-          areaM2 = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
-        } else if (r.area_m2 && !isNaN(r.area_m2)) {
-          areaM2 = parseFloat(r.area_m2);
-        } else {
-          const pts = r.polygon || r.poly;
-          if (pts && pts.length >= 3) {
-            let pxArea = 0;
-            for (let j = 0; j < pts.length; j++) {
-              const p1 = pts[j];
-              const p2 = pts[(j + 1) % pts.length];
-              const x1 = typeof p1.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
-              const y1 = typeof p1.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
-              const x2 = typeof p2.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
-              const y2 = typeof p2.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
-              pxArea += (x1 * y2 - x2 * y1);
-            }
-            pxArea = Math.abs(pxArea) / 2;
-            const effectiveScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
-            const areaMm2 = pxArea * Math.pow(effectiveScale, 2);
-            areaM2 = areaMm2 / 1000000;
-          }
+      if (normalizedModuleId === "flooring_decking") {
+        setFlooringEntries(perPage);
+        formPatch = {
+          dryArea: dry ? dry.toFixed(2) : "",
+          wetArea: wet ? wet.toFixed(2) : "",
+          balconyArea: balcony ? balcony.toFixed(2) : "",
+          otherArea: decking ? decking.toFixed(2) : "",
+          otherTypeArea: decking ? "Decking Input" : "",
+        };
+      } else {
+        // Hebel rows reuse detected room areas but do not invent a Hebel product.
+        setHebelFlooringEntries(perPage.map((row) => ({ ...row, id: String(row.id).replace("floor-ai-", "hebel-ai-"), product: "" })));
+      }
+      generatedCount = perPage.length;
+    } else if (normalizedModuleId === "insulation") {
+      const allRows = [];
+      const wallPages = (effectiveWallsByPage && Object.keys(effectiveWallsByPage).length) ? effectiveWallsByPage : { [currentPage]: currentWalls };
+      Object.entries(wallPages).forEach(([pageKey, pageWalls]) => {
+        const pIdx = Number(pageKey);
+        const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
+        allRows.push(...buildInsulationRows(pageWalls || [], pageScale, normalizeFloorLevel(pages?.[pIdx], pIdx)));
+      });
+      setInsulationWallEntries(allRows);
+
+      const areaPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? roomsByPageProp : { [currentPage]: currentRooms };
+      const ceilEntries = [];
+      Object.entries(areaPages).forEach(([pageKey, pageRooms]) => {
+        const pIdx = Number(pageKey);
+        const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
+        const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
+        if (area > 0) ceilEntries.push({
+          id: `ins-ai-ceil-${pIdx}`,
+          floorLevel: normalizeFloorLevel(pages?.[pIdx], pIdx),
+          location: "Ceiling / Roof Space",
+          areaType: "Ceiling",
+          rValue: "",
+          product: "",
+          areaM2: Number(area.toFixed(2)),
+          totalArea: Number(area.toFixed(2)),
+          autofill_source: "drawing",
+        });
+      });
+      setInsulationAreaEntries(ceilEntries);
+      generatedCount = allRows.length + ceilEntries.length;
+      formPatch = {
+        ext_wall_area: String(allRows.filter((x) => x.type === "Ext wall").reduce((s, x) => s + Number(x.insulationArea || 0), 0).toFixed(2)),
+        int_wall_area: String(allRows.filter((x) => x.type === "Int wall").reduce((s, x) => s + Number(x.insulationArea || 0), 0).toFixed(2)),
+        ceiling_area: String(ceilEntries.reduce((s, x) => s + Number(x.areaM2 || 0), 0).toFixed(2)),
+      };
+    } else if (normalizedModuleId === "fixout") {
+      const rows = buildFixoutRows(allDoors);
+      setFixoutDoorEntries(rows);
+      generatedCount = rows.length;
+    } else if (normalizedModuleId === "lock_up") {
+      const rows = buildLockupRows(allDoors);
+      setLockupEntries(rows);
+      generatedCount = rows.length;
+    } else if (normalizedModuleId === "shelving") {
+      const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
+      const rows = buildShelvingRows(roomPages || []);
+      setShelvingEntries(rows);
+      generatedCount = rows.length;
+    } else if (normalizedModuleId === "eaves_soffit") {
+      // Geometry can fill measured length; brand/thickness/batten/bead stay catalog-driven.
+      const length = Number(cadMetrics?.perimeterM || 0);
+      setEavesEntries(length > 0 ? [{
+        id: "eaves-ai-measured",
+        floorLevel: normalizeFloorLevel(pages?.[currentPage], currentPage),
+        level: normalizeFloorLevel(pages?.[currentPage], currentPage),
+        width: "",
+        length: Number(length.toFixed(2)),
+        area: 0,
+        autofill_source: "drawing",
+      }] : []);
+      generatedCount = length > 0 ? 1 : 0;
+      formPatch = { floor_level: normalizeFloorLevel(pages?.[currentPage], currentPage), total_eave_length: length ? String(length.toFixed(2)) : "" };
+    } else if (normalizedModuleId === "cladding") {
+      // Build one measured row per explicit exterior wall. No fake opening deduction or product.
+      const extWalls = currentWalls.filter((w) => {
+        const cls = String(getWallClass(w) || w?.class_name || w?.wall_type || "").toLowerCase();
+        return cls === "exterior_wall" || cls === "ext";
+      });
+      const rows = extWalls.map((w, idx) => {
+        const c = w.centerline;
+        let lenMm = 0;
+        if (w.length_m) lenMm = Math.round(Number(w.length_m) * 1000);
+        else if (Array.isArray(c) && c.length === 2) {
+          const x1 = Array.isArray(c[0]) ? c[0][0] : c[0]?.x;
+          const y1 = Array.isArray(c[0]) ? c[0][1] : c[0]?.y;
+          const x2 = Array.isArray(c[1]) ? c[1][0] : c[1]?.x;
+          const y2 = Array.isArray(c[1]) ? c[1][1] : c[1]?.y;
+          const px = Math.hypot(Number(x2 || 0) - Number(x1 || 0), Number(y2 || 0) - Number(y1 || 0));
+          lenMm = Math.round((fallbackScale < 0.5 ? px * fallbackScale * 1000 : px * fallbackScale));
         }
-        if (!areaM2 || areaM2 <= 0) return;
-
-        const rawType = String(r.type || r.wetness || r.classification || r.room_class || r.room_type || "").toLowerCase();
-        const rName = String(r.name || r.room_name || r.label || r.text || "").toLowerCase();
-
-        const isWet = rawType === "wet" || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rName) || /bath|ens|ensuite|wc|powder|laundry|shower|toilet/i.test(rawType);
-        const isBalcony = rawType === "tile_deck" || /balcony|porch|alfresco|patio|terrace|verand/i.test(rName) || /balcony|porch|alfresco|patio|terrace/i.test(rawType);
-        const isDeck = rawType === "timber_deck" || (!isBalcony && /deck|timber/i.test(rName)) || /deck|timber/i.test(rawType);
-
-        const defaultType = isWet ? "Wet" : (isBalcony ? "Balcony Tiles" : (isDeck ? "Decking Input" : "Dry"));
-        const typeArea = override.typeArea || defaultType;
-
-        let defaultProd = "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
-        if (typeArea === "Wet") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
-        else if (typeArea === "Balcony Tiles") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
-        else if (typeArea === "Decking Input") defaultProd = "HARDWOOD DECKING 90X19MM MERBAU";
-        else if (typeArea === "T+G Flooring Area") defaultProd = "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM";
-
-        const product = override.product || r.product || defaultProd;
-        const groupKey = `${typeArea}___${product}`;
-
-        if (!groupsMap[groupKey]) {
-          groupsMap[groupKey] = {
-            typeArea,
-            product,
-            areaM2: 0,
-            count: 0,
-            roomIds: []
-          };
-        }
-        groupsMap[groupKey].areaM2 += areaM2;
-        groupsMap[groupKey].count += 1;
-        groupsMap[groupKey].roomIds.push(r.id);
-      });
-
-      const newFlrEntries = [];
-      Object.entries(groupsMap).forEach(([key, g]) => {
-        newFlrEntries.push({
-          id: g.count === 1 && g.roomIds.length === 1 ? `flr-single-${g.roomIds[0]}` : `flr-grp-${key}`,
-          roomId: g.count === 1 && g.roomIds.length === 1 ? g.roomIds[0] : undefined,
-          roomIds: g.roomIds,
-          typeArea: g.typeArea,
-          location: g.typeArea,
-          product: g.product,
-          areaM2: Number(g.areaM2.toFixed(2)),
-          wastePercent: 10,
-          totalM2: Number(g.areaM2.toFixed(1)),
-          glueType: "FLOORING ADHESIVE 600ML SAUSAGE",
-          glueQty: Math.ceil((g.areaM2 * 1.1) / 12)
-        });
-      });
-
-      setFlooringEntries(newFlrEntries);
-      setHebelFlooringEntries(newFlrEntries.map(e => ({
-        ...e,
-        id: e.id.replace("flr-", "hebel-"),
-        product: "HEBEL POWERFLOOR PANEL 1800X600X75MM",
-        hebelQty: Math.ceil((e.totalM2 || e.areaM2) / 1.08)
-      })));
-
-      aiValues = {
-        dryArea: dry > 0 ? dry.toFixed(2) : "",
-        wetArea: wet > 0 ? wet.toFixed(2) : "",
-        balconyArea: tile > 0 ? tile.toFixed(2) : "",
-        otherArea: timber > 0 ? timber.toFixed(2) : "",
-        totalFloorArea: totalRaw > 0 ? totalRaw.toFixed(2) : (totalRoomArea > 0 ? String(totalRoomArea) : "0"),
-        location: "Ground Floor",
-        flooring_type: "Hybrid / Vinyl Plank",
-        floor_area: totalRaw > 0 ? totalRaw.toFixed(2) : (totalRoomArea > 0 ? String(totalRoomArea) : "0"),
-        waste_allowance: "10"
-      };
-    } else if (moduleId === "insulation") {
-      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? grandTotalLength * 0.6 : 0);
-      const intLen = internalWallLength > 0 ? internalWallLength : (grandTotalLength ? grandTotalLength * 0.4 : 0);
-      const extArea = Number((extLen * 2.4).toFixed(2));
-      const intArea = Number((intLen * 2.4).toFixed(2));
-      const ceilArea = Number((totalRoomArea > 0 ? totalRoomArea : (totalRaw > 0 ? totalRaw : 0)).toFixed(2));
-
-      const newInsWalls = [];
-      if (extLen > 0) {
-        newInsWalls.push({ id: "ins-ai-ext-" + Date.now(), type: "Ext wall", height: 2400, length: Math.round(extLen * 1000), rValue: "R2.5", product: "0810602 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12", raked: 0, door: 0, insulationArea: extArea });
-      }
-      if (intLen > 0) {
-        newInsWalls.push({ id: "ins-ai-int-" + Date.now(), type: "Int wall", height: 2400, length: Math.round(intLen * 1000), rValue: "R2.0", product: "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20", raked: 0, door: 0, insulationArea: intArea });
-      }
-      setInsulationWallEntries(newInsWalls);
-
-      if (ceilArea > 0) {
-        setInsulationAreaEntries([
-          { id: "ins-ai-ceil-" + Date.now(), location: "Ceiling / Roof Space", areaType: "Ceiling", rValue: "R4.0", areaM2: ceilArea, totalArea: Number((ceilArea * 1.05).toFixed(2)) }
-        ]);
-      } else {
-        setInsulationAreaEntries([]);
-      }
-      aiValues = {
-        ext_wall_area: String(extArea),
-        int_wall_area: String(intArea),
-        ceiling_area: String(ceilArea)
-      };
-    } else if (moduleId === "eaves_soffit") {
-      const len = totalRoofArea > 0 ? Number((Math.sqrt(totalRoofArea) * 4).toFixed(2)) : (cadMetrics?.perimeterM || (grandTotalLength ? Number((grandTotalLength * 0.55).toFixed(2)) : 0));
-      if (len > 0) {
-        setEavesEntries([
-          { id: "eave-ai-1-" + Date.now(), level: "Ground Floor Perimeter", width: 450, length: len, area: Number((len * 0.45).toFixed(2)) }
-        ]);
-      } else {
-        setEavesEntries([]);
-      }
-      aiValues = { building_level: "Level 1 (Ground)", eave_width: "450", total_eave_length: String(len), soffit_material: "4.5mm HardieFlex / FC Sheet" };
-    } else if (moduleId === "cladding") {
-      const extLen = externalWallLength > 0 ? externalWallLength : 0;
-      if (extLen > 0) {
-        setCladdingWallEntries([
-          { id: "clad-ai-1-" + Date.now(), elevation: "Front & Side A Elevation", height: 2700, length: Math.round(extLen * 600), openings: 4.2, waste: 10, grossArea: Number((extLen * 0.6 * 2.7).toFixed(2)), netArea: Number((extLen * 0.6 * 2.7 - 4.2).toFixed(2)), totalArea: Number(((extLen * 0.6 * 2.7 - 4.2) * 1.1).toFixed(2)) },
-          { id: "clad-ai-2-" + Date.now(), elevation: "Rear & Side B Elevation", height: 2700, length: Math.round(extLen * 400), openings: 3.1, waste: 10, grossArea: Number((extLen * 0.4 * 2.7).toFixed(2)), netArea: Number((extLen * 0.4 * 2.7 - 3.1).toFixed(2)), totalArea: Number(((extLen * 0.4 * 2.7 - 3.1) * 1.1).toFixed(2)) }
-        ]);
-      } else {
-        setCladdingWallEntries([]);
-      }
-      aiValues = { elevation: "External Walls", cladding_type: "HardiePlank Weatherboard", cladding_area: (extLen * 2.7 * 0.9).toFixed(2), waste_allowance: "10" };
-    } else if (moduleId === "timber_posts") {
-      if (grandTotalLength > 0 || (curWalls && curWalls.length > 0)) {
-        setTimberPostEntries([
-          { id: "pst-ai-1-" + Date.now(), location: "Alfresco & Porch Support", spec: "90x90mm F7 / H3 Treated Pine", height: 2700, qty: 4, supportType: "Hot-Dip Galvanized Stirrup" }
-        ]);
-        aiValues = { location: "Alfresco & Porch", timber_size: "90x90mm F7 / H3 Treated Pine", height: "2700", quantity: "4" };
-      } else {
-        setTimberPostEntries([]);
-      }
-    } else if (moduleId === "fixout") {
-      const skirtLm = skirtingSummaryMetrics?.totalSkirtingLm ? Number(skirtingSummaryMetrics.totalSkirtingLm.toFixed(2)) : (internalWallLength ? Number((internalWallLength * 2).toFixed(2)) : 0);
-      if (curDoors && curDoors.length > 0) {
-        const generated = curDoors.map((d, idx) => {
-          const dLabel = d.label || d.name || d.door_name || `D-${idx + 1}`;
-          const rawType = String(d.door_type || d.type || "").toLowerCase();
-          const isCavity = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
-          const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
-          const dHeight = getDoorHeightInMm(d);
-          return {
-            id: `fix-ai-${d.id || idx}-${Date.now()}`,
-            category: isCavity ? "cavity" : "prehung",
-            door_label: dLabel,
-            door_type: d.door_type || "ASC",
-            height: dHeight,
-            width: dWidth,
-            thicks: "35",
-            wall_width: String(d.wall_thickness || 90),
-            door_frame: "Timber Jamb",
-            lift_off_pivot: "",
-            handing: isCavity ? "" : "RH",
-            hole: isCavity ? "" : "HF",
-            finish: isCavity ? "" : "CHR",
-            door_furniture: isCavity ? "cavity-passage" : "passage",
-            door_stop: isCavity ? "none" : "cushion",
-            qty: 1
-          };
-        });
-        setFixoutDoorEntries(generated);
-      } else {
-        setFixoutDoorEntries([]);
-      }
-      aiValues = { skirting_profile: "67x18mm MDF Single Rebatable / Colonial", architrave_size: "67x18mm MDF Architrave", jamb_type: "Single Rebated Pine Door Jamb Set", total_length: String(skirtLm) };
-    } else if (moduleId === "lock_up" || moduleId === "lockup") {
-      const extLen = externalWallLength > 0 ? externalWallLength : (grandTotalLength ? Number((grandTotalLength * 0.65).toFixed(2)) : 46.8);
-      const generatedDoors = [];
-
-      if (curDoors && curDoors.length > 0) {
-        curDoors.forEach((d, idx) => {
-          const dLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
-          const rawType = String(d.door_type || d.type || "").toLowerCase();
-          const isExt = Boolean(
-            d.is_ext ||
-            d.is_exterior ||
-            d.isExternal ||
-            d.location === "external" ||
-            d.scope === "external" ||
-            (d.doorTypeId && String(d.doorTypeId).startsWith("ext_")) ||
-            (d.class && String(d.class).includes("ext")) ||
-            (d.type && String(d.type).includes("ext")) ||
-            /entry|front|sliding|patio|balcony|garage|external/i.test(dLabel) ||
-            /entry|sliding|external/i.test(rawType)
-          );
-          const isSliding = /slide|sliding|cavity/i.test(dLabel) || /slide|cavity/i.test(rawType);
-
-          const category = d.category || (d.mode === "Loose" ? "Loose Jamb" : (d.mode === "Prehung" ? "Prehung" : "-"));
-          const isLoose = category === "Loose Jamb";
-          const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
-          const dHeight = getDoorHeightInMm(d);
-          const wallThick = d.wall_thickness || d.thickness_mm || 90;
-          const dHinge = String(d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
-          const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
-          const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
-          const hung = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
-
-          generatedDoors.push({
-            id: `lck-door-${d.id || idx}-${Date.now()}`,
-            doorId: d.id,
-            category: category,
-            mode: d.mode || (isLoose ? "Loose" : (category === "Prehung" ? "Prehung" : null)),
-            scope: isExt ? "external" : "internal",
-            location: isExt ? "External" : "Internal",
-            label: dLabel,
-            door_name: dLabel,
-            height: dHeight,
-            width: dWidth,
-            thickness: isExt && !isSliding ? 40 : 35,
-            jamb_or_wall: `${wallThick}mm Wall`,
-            jamb_size: isLoose ? "112×19mm 5.4m Loose Jamb" : "",
-            hung: hung,
-            door_type: d.door_type || d.lockup_door_type || "",
-            type: "-",
-            door_stop: isExt ? "DS2 with Riser" : "Cushion",
-            internal_type: isExt ? null : "HF",
-            color: isExt ? null : "CHR",
-            default_qty: 1
-          });
-        });
-      }
-
-      setLockupEntries(generatedDoors);
-      aiValues = {
-        building_level: "All Levels (Ground & Upper)",
-        door_spec: "Solid Core Entry & Aluminium Sliding",
-        weather_seal: "Parfix Sikaflex & Sarking Foil",
-        perimeter_length: String(typeof extLen === "number" ? extLen.toFixed(2) : extLen)
-      };
-    } else if (moduleId === "power_truss_braces") {
-      const spanM = cadMetrics.buildingWidth || (grandTotalLength ? Number((grandTotalLength * 0.25).toFixed(1)) : 8.5);
-      const runM = cadMetrics.buildingLength || (grandTotalLength ? Number((grandTotalLength * 0.4).toFixed(1)) : 14.0);
-      const qty = Math.floor(runM / 0.6) + 1;
-      const totalLm = Number((spanM * 2.8 * qty).toFixed(1));
-      setTrussEntries([
-        { id: "truss-ai-1-" + Date.now(), label: "T01 - Common Standard Truss", trussType: "common", spanM, runLengthM: runM, spacingMm: 600, quantity: qty, totalTimberLm: totalLm, speedbraceRolls: Math.ceil((runM * 2.5) / 50) }
-      ]);
-      aiValues = { bracing_type: "Pryda Speedbrace Galvanised Strap", truss_span: String(spanM), brace_qty: String(Math.ceil((runM * 2.5) / 50)) };
-    } else if (moduleId === "doors_furniture") {
-      aiValues = {
-        door_type: "Internal Flush Door",
-        handle_style: "Lever on Rose Satin Chrome",
-        hinge_type: "100mm Stainless Steel Butt Hinge"
-      };
-    } else if (moduleId === "shelving") {
-      setShelvingEntries([
-        { id: "shv-ai-1-" + Date.now(), type: "Robe", size: "1800×450", qty: 2 },
-        { id: "shv-ai-2-" + Date.now(), type: "Linen", size: "1500×450", qty: 1 }
-      ]);
-      aiValues = {
-        shelf_material: "16mm White Melamine Board",
-        shelf_depth: "450 mm",
-        total_runs: "4"
-      };
-    } else if (moduleId === "fow_plumbing") {
-      setFowPlumbingEntries([
-        { id: "plumb-ai-1-" + Date.now(), itemName: "Toilet Suite", code: "TS-01", description: "Dual flush 4.5/3L back to wall toilet suite", qty: 2, note: "Ensuite & Main Bath" },
-        { id: "plumb-ai-2-" + Date.now(), itemName: "Basin Mixer", code: "BM-01", description: "Standard chrome finish, WELS 4 star", qty: 2, note: "Vanity basins" },
-        { id: "plumb-ai-3-" + Date.now(), itemName: "Shower Mixer", code: "SM-01", description: "Ceramic disc mixer with swivel spout", qty: 2, note: "Showers" },
-        { id: "plumb-ai-4-" + Date.now(), itemName: "Kitchen Mixer", code: "KM-01", description: "Standard chrome finish, WELS 4 star", qty: 1, note: "Kitchen sink" },
-        { id: "plumb-ai-5-" + Date.now(), itemName: "Laundry Tub & Cabinet", code: "LT-01", description: "45L Stainless steel tub with polymer cabinet", qty: 1, note: "Laundry room" },
-      ]);
-      aiValues = {
-        pipe_type: "PEX Flexible Water Pipe",
-        drain_size: "100mm PVC DWV Pipe",
-        fixtures_count: "8"
-      };
-    } else if (moduleId === "power_truss_braces") {
-      setPowerTrussEntries([
-        { id: "ptb-ai-1-" + Date.now(), wallHeight: "2700", length: "4500", type: "Column", qty: 2 },
-        { id: "ptb-ai-2-" + Date.now(), wallHeight: "2700", length: "6000", type: "Brace", qty: 1 },
-      ]);
-      aiValues = {
-        wall_height: "2700",
-        length: "4500",
-        type: "Column",
-        qty: "2"
-      };
-    } else if (moduleId === "final_fit") {
-      aiValues = {
-        handle_set: "Gainsborough Choice Lever Set",
-        latch_count: String(curDoors.length || 7),
-        door_stop_type: "Baseboard Rubber Door Stop & 100mm SS Hinges",
-        entrance_lock: "Gainsborough Trilock Keyed Set"
-      };
-    } else if (moduleId === "sheet_schedule") {
-      aiValues = {
-        wall_sheet: "10mm Gyprock RE Plasterboard",
-        ceiling_sheet: "10mm Supaceil Ceiling Board",
-        sheet_size: "3000 x 1200 mm",
-        total_area: grandTotalArea ? (grandTotalArea * 2.2).toFixed(2) : "185.00"
-      };
+        const height = Number(w.height_mm || w.height || 0);
+        const grossArea = lenMm && height ? (lenMm / 1000) * (height / 1000) : 0;
+        return {
+          id: `clad-ai-${w.id || idx}`,
+          wallId: w.id,
+          elevation: String(w.elevation || w.label || `Exterior wall ${idx + 1}`),
+          height: height || "",
+          length: lenMm || "",
+          openings: 0,
+          waste: 0,
+          grossArea: Number(grossArea.toFixed(2)),
+          netArea: Number(grossArea.toFixed(2)),
+          totalArea: Number(grossArea.toFixed(2)),
+          product: "",
+          autofill_source: "drawing",
+        };
+      }).filter((row) => row.length);
+      setCladdingWallEntries(rows);
+      generatedCount = rows.length;
+      formPatch = { floor_level: normalizeFloorLevel(pages?.[currentPage], currentPage) };
+    } else if (normalizedModuleId === "timber_posts") {
+      // Posts cannot be inferred safely from generic wall geometry. Use only explicit post objects.
+      const explicitPosts = (cadMetrics?.posts || cadMetrics?.timberPosts || []).map((p, idx) => ({
+        id: `post-ai-${p.id || idx}`,
+        floorLevel: p.floorLevel || normalizeFloorLevel(pages?.[currentPage], currentPage),
+        postType: p.postType || p.type || "Please Select",
+        postHeight: p.postHeight || p.height || "",
+        postSize: p.postSize || p.size || "Please Select",
+        post: p.post || p.product || "",
+        qty: p.qty || 1,
+        galPostSupports: p.galPostSupports || 0,
+        autofill_source: "drawing",
+      }));
+      setTimberPostEntries(explicitPosts);
+      generatedCount = explicitPosts.length;
+    } else if (normalizedModuleId === "power_truss_braces") {
+      // Only consume explicitly detected/entered structural brace geometry.
+      const braces = (cadMetrics?.powerTrussBraces || cadMetrics?.braces || []).map((b, idx) => ({
+        id: `ptb-ai-${b.id || idx}`,
+        floorLevel: b.floorLevel || normalizeFloorLevel(pages?.[currentPage], currentPage),
+        wallHeight: String(b.wallHeight || b.wall_height || b.height || ""),
+        length: String(b.length || b.length_mm || ""),
+        type: b.type === "Brace" ? "Brace" : "Column",
+        qty: Number(b.qty || 1),
+        autofill_source: "drawing",
+      })).filter((b) => b.wallHeight && b.length);
+      setPowerTrussEntries(braces);
+      generatedCount = braces.length;
+    } else if (normalizedModuleId === "fow_plumbing") {
+      // Plumbing product rows require Procurement catalog identity. Keep existing rows;
+      // only expose deterministic room-derived counts in form metadata here.
+      const roomList = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
+      const names = (roomList || []).map((r) => String(r.room_name || r.name || r.label || "").toLowerCase());
+      const wetRooms = names.filter((n) => /bath|ensuite|\bens\b|\bwc\b|toilet|powder|laundry|l['’]?dry|shower/.test(n)).length;
+      formPatch = { detected_wet_rooms: String(wetRooms) };
+      generatedCount = wetRooms;
+    } else if (normalizedModuleId === "final_fit") {
+      formPatch = buildFinalFitPatch(allDoors);
+      generatedCount = allDoors.length;
+    } else if (normalizedModuleId === "doors_furniture") {
+      // This module is not a Procurement source-of-truth form; do not invent furniture.
+      generatedCount = allDoors.length;
+    } else if (normalizedModuleId === "sheet_schedule") {
+      const area = Number(cadMetrics?.grandTotalArea || cadMetrics?.totalRoomArea || 0);
+      formPatch = { total_area: area > 0 ? area.toFixed(2) : "" };
+      generatedCount = area > 0 ? 1 : 0;
     }
 
-    setModuleFormData(prev => ({
-      ...prev,
-      [moduleId]: {
-        ...(prev[moduleId] || {}),
-        ...aiValues
-      }
-    }));
+    if (Object.keys(formPatch).length) {
+      setModuleFormData((prev) => ({
+        ...prev,
+        [normalizedModuleId]: {
+          ...(prev[normalizedModuleId] || {}),
+          ...formPatch,
+        },
+      }));
+    }
 
-    setAiGeneratedSuccess(moduleId);
+    setAiGeneratedSuccess(normalizedModuleId);
     setTimeout(() => setAiGeneratedSuccess(null), 2500);
+
+    // Expose a small audit event so task forms/tests can inspect what Auto Fill
+    // actually generated without writing anything to the database.
+    try {
+      window.dispatchEvent(new CustomEvent("ezefloor:procurement_autofill_complete", {
+        detail: { moduleId: normalizedModuleId, generatedCount, formPatch },
+      }));
+    } catch (_) {}
   };
 
   // Auto-expand floor when switching pages

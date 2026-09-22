@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -18,7 +19,8 @@ export default function FlooringDeckingTask({
   selectedRoom,
   selectedRoomIds = [],
   selectedId,
-  selectedType
+  selectedType,
+  onClearData
 }) {
   const {
     user,
@@ -1335,6 +1337,7 @@ export default function FlooringDeckingTask({
       {/* ── CARD 2: ENTERED FLOORING AREAS ── */}
       <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
         <div
+          onClick={() => setIsSection2Open((v) => !v)}
           style={{
             padding: "9px 12px",
             background: "#f8fafc",
@@ -1349,28 +1352,12 @@ export default function FlooringDeckingTask({
           }}
         >
           <span>2. Entered flooring areas ({enteredRows.length})</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={handleAutoFillAI}
-              style={{
-                background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                border: "1px solid #93c5fd",
-                color: "#1d4ed8",
-                fontSize: "10.5px",
-                fontWeight: 700,
-                padding: "2px 8px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "3px"
-              }}
-            >
-              <span>⚡</span>
-              <span>Auto Fill (AI)</span>
-            </button>
-          </div>
+          <EnteredTaskActions
+            onAutoFill={handleAutoFillAI}
+            onClear={onClearData}
+            isOpen={isSection2Open}
+            onToggle={() => setIsSection2Open((v) => !v)}
+          />
         </div>
 
         {isSection2Open && (
