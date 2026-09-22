@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+import { getActiveClientShortName } from "@/constants/clients";
+import { useCatalog } from "@/utils/catalogHelpers";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -550,6 +552,19 @@ export default function FowPlumbingTask({
   onAddDataAI,
   activeJobNumber,
 }) {
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: procurementCatalog } = useCatalog(activeCustomerShortName, "fow-plumbing");
+  const plumbingItemNameOptions = useMemo(() => {
+    const values = procurementCatalog
+      .map((row) => String(row.usage_label || row.display_name || row.parameters?.dropdown_key || "").trim())
+      .filter(Boolean);
+    return values.length ? [...new Set(values)] : ITEM_NAME_OPTIONS;
+  }, [procurementCatalog]);
+  const plumbingDescriptionOptions = useMemo(() => {
+    const values = procurementCatalog.map((row) => String(row.description || "").trim()).filter(Boolean);
+    return values.length ? [...new Set(values)] : ITEM_DESCRIPTION_OPTIONS;
+  }, [procurementCatalog]);
+
   const { user, currentJobId, currentProjectName } = useAppModel();
 
   const [isSection1Open, setIsSection1Open] = useState(true);
@@ -923,7 +938,7 @@ export default function FowPlumbingTask({
               <ComboField
                 label="Item Name"
                 value={itemNameDraft}
-                options={ITEM_NAME_OPTIONS}
+                options={plumbingItemNameOptions}
                 isYellow={true}
                 flex="1.5 1 150px"
                 minWidth="130px"
@@ -947,7 +962,7 @@ export default function FowPlumbingTask({
               <ComboField
                 label="Item Description"
                 value={descriptionDraft}
-                options={ITEM_DESCRIPTION_OPTIONS}
+                options={plumbingDescriptionOptions}
                 isYellow={true}
                 flex="2 1 200px"
                 minWidth="160px"
@@ -1076,7 +1091,7 @@ export default function FowPlumbingTask({
                                 <td style={{ padding: "6px 8px", minWidth: "140px" }}>
                                   <ComboField
                                     value={current.itemName || ""}
-                                    options={ITEM_NAME_OPTIONS}
+                                    options={plumbingItemNameOptions}
                                     isYellow={true}
                                     onChange={handleEditItemNameChange}
                                     placeholder="Item Name"
@@ -1093,7 +1108,7 @@ export default function FowPlumbingTask({
                                 <td style={{ padding: "6px 8px", minWidth: "160px" }}>
                                   <ComboField
                                     value={current.description || ""}
-                                    options={ITEM_DESCRIPTION_OPTIONS}
+                                    options={plumbingDescriptionOptions}
                                     isYellow={true}
                                     onChange={(v) => setEditData({ ...current, description: v })}
                                     placeholder="Item Description"

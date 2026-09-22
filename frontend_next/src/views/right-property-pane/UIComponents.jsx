@@ -36,11 +36,31 @@ export const CUSTOMER_TASK_PACKS = {
     aliases: ["CAIRNS-WOH", "CAIRNS HARDWARE"],
     tasks: CairnsHardwareTasks
   },
-  "bunnings-qld": { name: "Bunnings QLD", short: "BUN QLD", tasks: BunningsQldTasks },
-  "bun-vic": { name: "Bunnings VIC", short: "BUN VIC", tasks: BunVicTasks },
-  "bun-seqld": { name: "Bunnings SEQLD", short: "BUN SEQLD", tasks: BunSeqldTasks },
-  "bun-sa": { name: "Bunnings SA", short: "BUN SA", tasks: BunSaTasks },
-  "bun-tas": { name: "Bunnings TAS", short: "BUN TAS", tasks: BunTasTasks },
+  "bunnings-qld": { name: "Bunnings QLD", short: "BUN QLD", aliases: ["BUN-QLD"], moduleIds: [
+      "cladding", "eaves_soffit", "flooring_decking", "frame_hardware",
+      "insulation", "lock_up", "fixout", "final_fit", "shelving",
+      "timber_posts", "fow_plumbing", "power_truss_braces", "hardies_fire_walls"
+    ], tasks: BunningsQldTasks },
+  "bun-vic": { name: "Bunnings VIC", short: "BUN VIC", aliases: ["BUN-VIC"], moduleIds: [
+      "cladding", "eaves_soffit", "flooring_decking", "frame_hardware",
+      "insulation", "lock_up", "fixout", "final_fit", "shelving",
+      "timber_posts", "fow_plumbing", "power_truss_braces", "hardies_fire_walls"
+    ], tasks: BunVicTasks },
+  "bun-seqld": { name: "Bunnings SEQLD", short: "BUN SEQLD", aliases: ["BUN-SEQLD"], moduleIds: [
+      "cladding", "eaves_soffit", "flooring_decking", "frame_hardware",
+      "insulation", "lock_up", "fixout", "final_fit", "shelving",
+      "timber_posts", "fow_plumbing", "power_truss_braces", "hardies_fire_walls"
+    ], tasks: BunSeqldTasks },
+  "bun-sa": { name: "Bunnings SA", short: "BUN SA", aliases: ["BUN-SA"], moduleIds: [
+      "cladding", "eaves_soffit", "flooring_decking", "frame_hardware",
+      "insulation", "lock_up", "fixout", "final_fit", "shelving",
+      "timber_posts", "fow_plumbing", "power_truss_braces", "hardies_fire_walls"
+    ], tasks: BunSaTasks },
+  "bun-tas": { name: "Bunnings TAS", short: "BUN TAS", aliases: ["BUN-TAS"], moduleIds: [
+      "cladding", "eaves_soffit", "flooring_decking", "frame_hardware",
+      "insulation", "lock_up", "fixout", "final_fit", "shelving",
+      "timber_posts", "fow_plumbing", "power_truss_braces", "hardies_fire_walls"
+    ], tasks: BunTasTasks },
   "ats-ft": { name: "ATS - FT", short: "ATS FT", tasks: AtsFtTasks }
 };
 

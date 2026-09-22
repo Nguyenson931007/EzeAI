@@ -22,7 +22,7 @@ export default function HardiesFireWallsTask({
   const activeCustomerShortName = getActiveClientShortName();
 
   // Catalog items if available under hardies or cladding or fire-walls
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, "cladding");
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, "hardies-fire-walls");
 
   // Local state when external state setter isn't passed
   const [localEntries, setLocalEntries] = useState([]);

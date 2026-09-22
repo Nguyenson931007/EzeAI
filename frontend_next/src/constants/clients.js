@@ -4,7 +4,7 @@
 export const CLIENT_SHORT_NAME_MAP = {
   "bun-nsw-act": "BUN-NSW-ACT",
   "cairns-hardware": "CAIRNS-WOH",
-  "bunnings-qld": "BUN-QLD",
+  "bunnings-qld": "BUN-SEQLD",
   "bun-vic": "BUN-VIC",
   "bun-seqld": "BUN-SEQLD",
   "bun-sa": "BUN-SA",

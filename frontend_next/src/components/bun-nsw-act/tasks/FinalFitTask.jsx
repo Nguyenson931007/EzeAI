@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
+import { getActiveClientShortName } from "@/constants/clients";
+import { canonicalProductValue, useCatalog } from "@/utils/catalogHelpers";
 
 export default function FinalFitTask({
   formData = {},
@@ -7,6 +9,22 @@ export default function FinalFitTask({
   onAddDataAI
 }) {
   const [isSection1Open, setIsSection1Open] = useState(false);
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: procurementCatalog } = useCatalog(activeCustomerShortName, "final-fit");
+  const entryLockOptions = useMemo(() => {
+    const matching = procurementCatalog.filter((row) => {
+      const values = [row.groupKey, row.subgroupKey, row.parameters?.category, row.parameters?.role, row.parameters?.dropdown_key]
+        .filter(Boolean).map((value) => String(value).toLowerCase());
+      return values.some((value) => value.includes("lock") || value.includes("entry") || value.includes("furniture"));
+    });
+    const source = matching.length ? matching : procurementCatalog;
+    const values = source.map(canonicalProductValue).filter(Boolean);
+    return values.length ? [...new Set(values)] : [
+      "Gainsborough Trilock Contemporary",
+      "Smart Digital Deadbolt Touchpad",
+      "Lockwood Double Cylinder Deadlock",
+    ];
+  }, [procurementCatalog]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -68,13 +86,13 @@ export default function FinalFitTask({
               <div className="task-field-group">
                 <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>External Entry Lock Type</span>
                 <select
-                  value={formData.entry_lock || "Gainsborough Trilock Contemporary"}
+                  value={formData.entry_lock || entryLockOptions[0] || ""}
                   onChange={(e) => onChange && onChange("final_fit", "entry_lock", e.target.value)}
                   className="task-field-select"
                 >
-                  <option value="Gainsborough Trilock Contemporary">Gainsborough Trilock Contemporary</option>
-                  <option value="Smart Digital Deadbolt Touchpad">Smart Digital Deadbolt Touchpad</option>
-                  <option value="Lockwood Double Cylinder Deadlock">Lockwood Double Cylinder Deadlock</option>
+                  {entryLockOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
                 </select>
               </div>
 

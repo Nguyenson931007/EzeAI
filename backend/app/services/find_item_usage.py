@@ -1,36 +1,40 @@
-"""
-app/services/find_item_usage.py – Resolves product usage from using_find_items and data_find_items
-"""
-from typing import Callable, Any, Optional
-from sqlalchemy.orm import Session
+"""Resolve Procurement product usages from the typed using_find_items schema."""
+
+from typing import Callable, Optional
+
 from sqlalchemy import select
-from app.models.data_find import UsingFindItem, DataFindItem
+from sqlalchemy.orm import Session
+
+from app.models.data_find import UsingFindItem
 
 
-def load_find_usage_resolver(db: Session, customer_id: str, task_key: str) -> Callable[[str], Optional[dict]]:
-    """Return a lookup function that resolves product info by item_number or usage_key."""
+def load_find_usage_resolver(
+    db: Session,
+    customer_id: str,
+    task_key: str,
+) -> Callable[[str], Optional[dict]]:
     usage_rows = db.scalars(
         select(UsingFindItem).where(
             UsingFindItem.customer_id == customer_id,
-            UsingFindItem.task_key == task_key,
-            UsingFindItem.is_active.is_(True)
+            UsingFindItem.sheet_key == task_key,
+            UsingFindItem.is_active.is_(True),
         )
     ).all()
-    by_code = {str(r.item_number): r for r in usage_rows if r.item_number}
-    by_key = {str(r.usage_key): r for r in usage_rows if r.usage_key}
+    by_code = {str(row.item_number): row for row in usage_rows if row.item_number}
+    by_key = {str(row.node_key): row for row in usage_rows if row.node_key}
 
     def resolver(key_or_code: str) -> Optional[dict]:
-        k = str(key_or_code or "").strip()
-        item = by_code.get(k) or by_key.get(k)
+        key = str(key_or_code or "").strip()
+        item = by_code.get(key) or by_key.get(key)
         if not item:
             return None
         return {
             "item_number": item.item_number,
-            "description": item.description or item.display_name,
-            "unit": "EA",
-            "usage_key": item.usage_key,
+            "description": item.description or item.name,
+            "unit": item.unit or "EA",
+            "usage_key": item.node_key,
             "formula_key": item.formula_key,
-            "parameters_json": item.parameters_json,
+            "parameters": item.metadata_dict(),
         }
 
     return resolver

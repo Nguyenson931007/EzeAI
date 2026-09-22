@@ -39,6 +39,7 @@ from api.lockup_routes import router as lockout_router
 from api.insulation_routes import router as insulation_router
 from api.timber_posts_routes import router as timber_posts_router
 from api.catalog_routes import router as catalog_router
+from api.procurement_routes import router as procurement_router
 from api.Fixout_routes import router as fixout_router
 from api.shelving_routes import router as shelving_router
 from api.fow_plumbing_routes import router as fow_plumbing_router
@@ -114,11 +115,8 @@ async def lifespan(app: FastAPI):
             logger.info("Door YOLO model pre-warmed successfully.")
         except Exception as e:
             logger.warning(f"Door model pre-warm failed (non-fatal): {e}")
-        try:
-            from api.jobs import sync_task_groups_hw_to_local_db
-            sync_task_groups_hw_to_local_db(400)
-        except Exception as e:
-            logger.warning(f"Background task sync failed (non-fatal): {e}")
+        # Task/DB synchronization is intentionally not run at startup.
+        # Writes are triggered only by explicit UI/API actions.
 
     threading.Thread(target=_background_startup_tasks, daemon=True).start()
     yield
@@ -178,6 +176,7 @@ app.include_router(insulation_router, tags=["insulation"])
 app.include_router(lockout_router, tags=["lockout"])
 app.include_router(timber_posts_router, tags=["TimberPosts-router"])
 app.include_router(catalog_router, tags=["Catalog-router"])
+app.include_router(procurement_router)
 app.include_router(fixout_router, tags=["Fixout-router"])
 app.include_router(shelving_router, tags=["Shelving-router"])
 app.include_router(fow_plumbing_router, tags=["FOWPlumbing-router"])

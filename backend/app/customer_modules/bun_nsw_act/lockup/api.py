@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,11 +15,7 @@ router = APIRouter(prefix="/workflow/customers/BUN-NSW-ACT/lock-up", tags=["BUN-
 
 
 def _meta(row: UsingFindItem) -> dict:
-    try:
-        value = json.loads(row.metadata_json or "{}")
-        return value if isinstance(value, dict) else {}
-    except (TypeError, ValueError):
-        return {}
+    return row.metadata_dict()
 
 
 def _usage_rows(db: Session) -> list[UsingFindItem]:

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
+import { getActiveClientShortName } from "@/constants/clients";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS (aligned with FixoutForm.tsx & dropdown_api.py)
@@ -1035,7 +1036,7 @@ export default function FixoutTask({
           const res = await ApiService.getLockoutDoorTypes();
           data = res?.data || res;
         } else {
-          const res = await fetch("/api/lockout/options");
+          const res = await fetch(`/api/lockout/options?customer_id=${encodeURIComponent(getActiveClientShortName())}`);
           if (res.ok) {
             const json = await res.json();
             data = json?.data || json;

@@ -21,4 +21,4 @@ python-dotenv>=1.2.1
 slowapi>=0.1.9
 rapidfuzz>=3.9.6
 openpyxl>=3.1.5
-
+SQLAlchemy>=2.0,<3.0

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
+import { getActiveClientShortName } from "@/constants/clients";
 
 // ══════════════════════════════════════════════════════
 // SEARCHABLE DROPDOWN COMPONENT (Select or search...)
@@ -826,7 +827,7 @@ export default function LockupTask({
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/lockout/options")
+    fetch(`/api/lockout/options?customer_id=${encodeURIComponent(getActiveClientShortName())}`)
       .then(async response => {
         if (!response.ok) {
           const altResp = await fetch("/api/lockout/door-types");
@@ -1320,7 +1321,7 @@ export default function LockupTask({
         internal_type: parseStr(item.internal_type),
         color: parseStr(item.color),
         default_qty: parseNum(item.default_qty) || 1.0,
-        short_name: "BUN-NSW-ACT"
+        short_name: getActiveClientShortName()
       }));
 
       const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";

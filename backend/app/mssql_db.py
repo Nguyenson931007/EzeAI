@@ -8,7 +8,7 @@ Sử dụng thư viện pymssql để kết nối TCP/IP đến SQL Server.
 """
 
 import logging
-from app.config import MSSQL_HOST, MSSQL_PORT, MSSQL_USER, MSSQL_PASSWORD, MSSQL_DB
+from app.config import MSSQL_HOST, MSSQL_PORT, MSSQL_USER, MSSQL_PASSWORD, MSSQL_DB, PROCUREMENT_DB
 
 logger = logging.getLogger("ezefloor.mssql")
 
@@ -39,6 +39,37 @@ def get_mssql_connection():
         return conn
     except Exception as e:
         logger.error(f"Không thể kết nối MSSQL Server {MSSQL_HOST}:{MSSQL_PORT} — {e}")
+        raise
+
+
+def get_procurement_connection():
+    """Return a read/write connection whose default catalog is ProcurementApp.
+
+    This is intentionally separate from ``get_mssql_connection`` (emsflow).
+    Callers still control whether they execute read or explicit user-triggered
+    write operations.
+    """
+    try:
+        import pymssql
+    except ImportError as e:
+        logger.error("Thư viện 'pymssql' chưa được cài đặt. Hãy chạy: pip install pymssql")
+        raise RuntimeError("Thư viện 'pymssql' chưa được cài đặt trên máy chủ.") from e
+
+    try:
+        return pymssql.connect(
+            server=MSSQL_HOST,
+            port=MSSQL_PORT,
+            user=MSSQL_USER,
+            password=MSSQL_PASSWORD,
+            database=PROCUREMENT_DB,
+            charset="utf8",
+            login_timeout=10,
+            timeout=30,
+        )
+    except Exception as e:
+        logger.error(
+            f"Không thể kết nối Procurement MSSQL {MSSQL_HOST}:{MSSQL_PORT}/{PROCUREMENT_DB} — {e}"
+        )
         raise
 
 

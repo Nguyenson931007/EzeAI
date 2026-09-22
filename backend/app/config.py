@@ -45,6 +45,10 @@ MSSQL_PORT = int(os.getenv("MSSQL_PORT", "1433"))
 MSSQL_USER = os.getenv("MSSQL_USER", "")
 MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "")
 MSSQL_DB = os.getenv("MSSQL_DB", "")
+# ProcurementApp is a separate catalog/workflow database on the same SQL Server.
+# Keep it explicit so EMS/emsflow queries and Procurement catalog queries never
+# accidentally change each other's default database.
+PROCUREMENT_DB = os.getenv("PROCUREMENT_DB", "ProcurementApp")
 
 # CORS
 _cors_env = os.getenv("CORS_ORIGINS", "http://localhost:3011,http://127.0.0.1:3011")

@@ -1150,23 +1150,55 @@ export const ApiService = {
   },
 
   async getCatalog(customerId, taskKey) {
-    const res = await fetch(`${BASE_URL}/api/catalog?customer_id=${encodeURIComponent(customerId)}&task_key=${encodeURIComponent(taskKey)}`, {
+    const res = await fetch(`${BASE_URL}/data-find/using?customer_id=${encodeURIComponent(customerId)}&task_key=${encodeURIComponent(taskKey)}`, {
       headers: getHeaders(),
       credentials: "include"
     });
     return handleResponse(res);
   },
 
-  async getLockoutDoorTypes() {
-    const res = await fetch(`${BASE_URL}/api/lockout/door-types`, {
+  async getProcurementCustomers() {
+    const res = await fetch(`${BASE_URL}/workflow/customers`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async getProcurementTasks(customerId) {
+    const res = await fetch(`${BASE_URL}/workflow/customers/${encodeURIComponent(customerId)}/tasks`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async getUsingFindItems(customerId, taskKey) {
+    const res = await fetch(`${BASE_URL}/data-find/using?customer_id=${encodeURIComponent(customerId)}&task_key=${encodeURIComponent(taskKey)}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async getUsingFindItemsForCustomer(customerId) {
+    const res = await fetch(`${BASE_URL}/data-find/using/all?customer_id=${encodeURIComponent(customerId)}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async getLockoutDoorTypes(customerId = "BUN-NSW-ACT") {
+    const res = await fetch(`${BASE_URL}/api/lockout/door-types?customer_id=${encodeURIComponent(customerId)}`, {
       headers: getHeaders(null),
       credentials: "include"
     });
     return handleResponse(res);
   },
 
-  async getLockoutOptions() {
-    const res = await fetch(`${BASE_URL}/api/lockout/options`, {
+  async getLockoutOptions(customerId = "BUN-NSW-ACT") {
+    const res = await fetch(`${BASE_URL}/api/lockout/options?customer_id=${encodeURIComponent(customerId)}`, {
       headers: getHeaders(null),
       credentials: "include"
     });

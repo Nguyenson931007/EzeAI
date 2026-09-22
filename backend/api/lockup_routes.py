@@ -58,16 +58,16 @@ class SaveLockoutJobsPayloadSchema(BaseModel):
 # DROPDOWN DOOR OPTIONS (READ-ONLY)
 # ══════════════════════════════════════════════════════
 
-def _query_catalog_options(cursor, group: str) -> List[str]:
+def _query_catalog_options(cursor, group: str, customer_id: str) -> List[str]:
     try:
         cursor.execute("""
             SELECT option_value
             FROM [ProcurementApp].[dbo].[catalog_options]
-            WHERE customer_id = 'BUN-NSW-ACT'
+            WHERE customer_id = %s
               AND option_group = %s
               AND is_active = 1
             ORDER BY sort_order, id
-        """, (group,))
+        """, (customer_id, group,))
         rows = cursor.fetchall()
         return [str(r.get("option_value") or "").strip() for r in rows if str(r.get("option_value") or "").strip()]
     except Exception as e:
@@ -75,20 +75,20 @@ def _query_catalog_options(cursor, group: str) -> List[str]:
         return []
 
 
-def _query_internal_door_types(cursor, prehung: bool) -> List[str]:
+def _query_internal_door_types(cursor, prehung: bool, customer_id: str) -> List[str]:
     start_row, end_row = (2, 2214) if prehung else (2216, 5000)
     try:
         cursor.execute("""
             SELECT door_type, MIN(source_row) AS first_source_row
             FROM [ProcurementApp].[dbo].[product_catalog]
-            WHERE customer_id = 'BUN-NSW-ACT'
+            WHERE customer_id = %s
               AND catalog_type = N'DOOR'
               AND is_active = 1
               AND source_row BETWEEN %s AND %s
               AND NULLIF(LTRIM(RTRIM(door_type)), N'') IS NOT NULL
             GROUP BY door_type
             ORDER BY MIN(source_row), door_type
-        """, (start_row, end_row))
+        """, (customer_id, start_row, end_row))
         rows = cursor.fetchall()
         return [str(r.get("door_type") or "").strip() for r in rows if str(r.get("door_type") or "").strip()]
     except Exception as e:
@@ -96,17 +96,17 @@ def _query_internal_door_types(cursor, prehung: bool) -> List[str]:
         return []
 
 
-def _query_external_door_types(cursor) -> List[str]:
+def _query_external_door_types(cursor, customer_id: str) -> List[str]:
     try:
         cursor.execute("""
             SELECT lookup_value
             FROM [ProcurementApp].[dbo].[product_catalog]
-            WHERE customer_id = 'BUN-NSW-ACT'
+            WHERE customer_id = %s
               AND catalog_type = N'ENTRY_DOOR'
               AND is_active = 1
               AND lookup_value IS NOT NULL
             ORDER BY source_row, id
-        """)
+        """, (customer_id,))
         rows = cursor.fetchall()
         values: List[str] = []
         for r in rows:
@@ -133,7 +133,7 @@ def _query_external_door_types(cursor) -> List[str]:
 
 @router.get("/options")
 @router.get("/door-types")
-async def get_lockout_options():
+async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length=1, max_length=100)):
     """Đọc toàn bộ danh sách dropdown options cho BUN-NSW-ACT LockUp từ Database."""
     prehung_int: List[str] = []
     loose_int: List[str] = []
@@ -146,17 +146,17 @@ async def get_lockout_options():
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
-        prehung_int = _query_catalog_options(cursor, "List_Prehung")
-        loose_int = _query_catalog_options(cursor, "List_LooseJamb")
-        jamb_ext = _query_catalog_options(cursor, "JambSizeExternal")
-        jamb_int = _query_catalog_options(cursor, "JambSizeInternal")
+        prehung_int = _query_catalog_options(cursor, "List_Prehung", customer_id)
+        loose_int = _query_catalog_options(cursor, "List_LooseJamb", customer_id)
+        jamb_ext = _query_catalog_options(cursor, "JambSizeExternal", customer_id)
+        jamb_int = _query_catalog_options(cursor, "JambSizeInternal", customer_id)
 
         if not prehung_int:
-            prehung_int = _query_internal_door_types(cursor, prehung=True)
+            prehung_int = _query_internal_door_types(cursor, prehung=True, customer_id=customer_id)
         if not loose_int:
-            loose_int = _query_internal_door_types(cursor, prehung=False)
+            loose_int = _query_internal_door_types(cursor, prehung=False, customer_id=customer_id)
 
-        external_types = _query_external_door_types(cursor)
+        external_types = _query_external_door_types(cursor, customer_id)
     except Exception as db_err:
         logger.warning(f"MSSQL lockup options query failed ({db_err})")
     finally:
@@ -167,7 +167,7 @@ async def get_lockout_options():
                 pass
 
     # Fallback to local selector_variants.json or static fallback if empty
-    if not external_types or not prehung_int:
+    if customer_id == "BUN-NSW-ACT" and (not external_types or not prehung_int):
         try:
             from pathlib import Path
             import json

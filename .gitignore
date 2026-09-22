@@ -196,3 +196,7 @@ image-removebg-preview.png
 coverage/
 test-results/
 playwright-report/
+# Runtime AI weights live under /models locally; keep folder structure in Git.
+models/**/*.pt
+models/**/*.onnx
+models/**/*.engine
